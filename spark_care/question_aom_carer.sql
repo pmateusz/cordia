@@ -1,0 +1,6 @@
+USE SparkCare;
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+GO
+
+SELECT DISTINCT aom_carer.CarerId
+FROM dbo.AomCarer AS aom_carer
