@@ -8,3 +8,6 @@ install:
 script:
   - python3 -m pytest */**.py
   - python3 -m pylint */**.py --disable=too-few-public-methods --disable=missing-docstring --disable=fixme
+
+notifications:
+  email: false
