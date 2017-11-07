@@ -7,4 +7,4 @@ install:
 
 script:
   - python3 -m pytest */**.py
-  - python3 -m pylint */**.py --disable=missing-docstring --disable=fixme
+  - python3 -m pylint */**.py --disable=too-few-public-methods --disable=missing-docstring --disable=fixme

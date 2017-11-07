@@ -51,7 +51,6 @@ class Parser:
 
 
 class TestParser(unittest.TestCase):
-    """"""
 
     def setUp(self):
         self.parser = Parser()
