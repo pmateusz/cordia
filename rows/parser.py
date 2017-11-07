@@ -57,15 +57,14 @@ class TestParser(unittest.TestCase):
 
     def test_parse_version_command(self):
         # given
-        command_name = 'version'
+        command_name = '--version'
 
         # when
         actual_namespace = self.parser.parse_args([command_name])
 
         # then
-        expected_namespace = argparse.Namespace(command_name=command_name)
-        self.assertEqual(expected_namespace, actual_namespace)
-
+        self.assertIsNotNone(getattr(actual_namespace, 'version'))
+        
 
 if __name__ == '__main__':
     unittest.main()
