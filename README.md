@@ -8,4 +8,4 @@ The project has a continuous integration pipeline hosted on Travis CI. Review th
 for the most up to date instructions about development environment set up.
 
 ## Project Documentation
-Refer to [the project wiki pages](wiki) for more information on this subject.
+Refer to [the project wiki pages](https://github.com/pmateusz/cordia/wiki) for more information on this subject.
