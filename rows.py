@@ -18,8 +18,7 @@ def main():
     """The entry point of the program"""
 
     parser = rows.parser.Parser()
-    args = parser.parse_args()
-    print(args)
+    parser.parse_args()
     return 0
 
 

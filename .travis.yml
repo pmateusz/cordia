@@ -6,5 +6,5 @@ install:
   - pip install -r requirements.txt
 
 script:
-  - python -m pytest */**.py
-  - python -m pylint */**.py
+  - python3 -m pytest */**.py
+  - python3 -m pylint */**.py --disable=missing-docstring --disable=fixme
