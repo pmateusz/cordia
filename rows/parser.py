@@ -1,18 +1,22 @@
 """Parse and validate command line arguments."""
 
 import argparse
+import unittest
 
 
 class Parser:
     """Parse and validate command line arguments."""
 
+    PROGRAM_NAME = 'rows'
+    PARSER_KEY = 'command_name'
+
     def __init__(self):
         """Register parsers for supported commands"""
 
-        self.parser_ = argparse.ArgumentParser(prog='rows',
+        self.parser_ = argparse.ArgumentParser(prog=Parser.PROGRAM_NAME,
                                                description='Robust Optimization '
                                                            'for Workforce Scheduling command line utility')
-        subparsers = self.parser_.add_subparsers()
+        subparsers = self.parser_.add_subparsers(dest=Parser.PARSER_KEY)
 
         subparsers.add_parser(name='version',
                               help='show the version of this program and exit')
@@ -40,7 +44,27 @@ class Parser:
                                    '--output',
                                    help='an output file where the schedule should be saved')
 
-    def parse_args(self):
+    def parse_args(self, args=None):
         """Parse command line arguments"""
 
-        return self.parser_.parse_args()
+        return self.parser_.parse_args(args)
+
+
+class TestParser(unittest.TestCase):
+    def setUp(self):
+        self.parser = Parser()
+
+    def test_parse_version_command(self):
+        # given
+        command_name = 'version'
+
+        # when
+        actual_namespace = self.parser.parse_args([command_name])
+
+        # then
+        expected_namespace = argparse.Namespace(command_name=command_name)
+        self.assertEqual(expected_namespace, actual_namespace)
+
+
+if __name__ == '__main__':
+    unittest.main()

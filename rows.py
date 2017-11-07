@@ -6,7 +6,7 @@ Run with the `--help` option for more information on the supported commands and 
 """
 
 import sys
-from rows.parser import Parser
+import rows.parser
 
 
 # TODO: implement the version command
@@ -17,7 +17,7 @@ from rows.parser import Parser
 def main():
     """The entry point of the program"""
 
-    parser = Parser()
+    parser = rows.parser.Parser()
     args = parser.parse_args()
     print(args)
     return 0
