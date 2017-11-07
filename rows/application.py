@@ -1,0 +1,34 @@
+import distutils.version
+import rows.parser
+import rows.console
+
+
+# TODO: parse values and handle errors for each command
+# TODO: set default time windows for the pull command
+
+
+class Application:
+    """Execute the program according to input arguments"""
+
+    PROGRAM_NAME = 'rows'
+    VERSION = distutils.version.StrictVersion('0.0.1')
+
+    def __init__(self):
+        self.__console = rows.console.Console()
+        self.__handlers = {}
+
+    def run(self, args):
+        parser = rows.parser.Parser(program_name=Application.PROGRAM_NAME)
+        args = parser.parse_args(args)
+        handler_name = getattr(args, rows.parser.Parser.PARSER_KEY)
+        if handler_name:
+            handler = self.__handlers[handler_name]
+            return handler(args)
+        else:
+            if getattr(args, 'version'):
+                return self.__handle_version(args)
+        return 0
+
+    def __handle_version(self, __namespace):
+        message = '{0} version {1}'.format(Application.PROGRAM_NAME, Application.VERSION)
+        self.__console.write_line(message)
