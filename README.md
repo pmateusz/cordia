@@ -4,7 +4,7 @@ This is the source code repository for the Robust Optimization for Workforce Sch
 
 ## Contribute
 
-The project has a continuous integration pipeline hosted on Travis CI. Review the [.travis.yml](.travis.yml) file
+The project is supported by a continuous integration pipeline hosted by [Travis CI](https://travis-ci.com/pmateusz/cordia). Review the [.travis.yml](.travis.yml) file
 for the most up to date instructions about development environment set up.
 
 ## Project Documentation

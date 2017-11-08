@@ -20,7 +20,7 @@ class Application:
     def run(self, args):
         parser = rows.parser.Parser(program_name=Application.PROGRAM_NAME)
         args = parser.parse_args(args)
-        handler_name = getattr(args, rows.parser.Parser.PARSER_KEY)
+        handler_name = getattr(args, rows.parser.Parser.COMMAND_PARSER)
         if handler_name:
             handler = self.__handlers[handler_name]
             return handler(args)
