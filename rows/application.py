@@ -1,3 +1,5 @@
+"""Execute the main program."""
+
 import distutils.version
 import rows.parser
 import rows.console
@@ -7,8 +9,8 @@ import rows.console
 # TODO: set default time windows for the pull command
 
 
-class Application:
-    """Execute the program according to input arguments"""
+class Application:  # pylint: disable=too-few-public-methods
+    """Execute the main program according to the input arguments"""
 
     PROGRAM_NAME = 'rows'
     VERSION = distutils.version.StrictVersion('0.0.1')
@@ -18,6 +20,8 @@ class Application:
         self.__handlers = {}
 
     def run(self, args):
+        """The default entry point for the application."""
+
         parser = rows.parser.Parser(program_name=Application.PROGRAM_NAME)
         args = parser.parse_args(args)
         handler_name = getattr(args, rows.parser.Parser.COMMAND_PARSER)

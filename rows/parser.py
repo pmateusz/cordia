@@ -3,20 +3,25 @@
 import argparse
 import datetime
 import dateutil.parser
-import unittest
 
 
 class ValueHolder:
+    """Container for a single parameter that has a default value."""
+
     def __init__(self, value, is_default=True):
         self.__value = value
         self.__is_default = is_default
 
     @property
     def value(self):
+        """Read value property"""
+
         return self.__value
 
     @property
     def is_default(self):
+        """Read is_default property"""
+
         return self.__is_default
 
     @value.setter
@@ -25,13 +30,10 @@ class ValueHolder:
         self.__is_default = False
 
     def __eq__(self, other):
-        if isinstance(other, datetime.date):
-            return self.__value == other
-
         if isinstance(other, ValueHolder):
-            return self.__value == other.__value and self.__is_default == other.__is_default
+            return self.__value == other.value and self.__is_default == other.is_default
 
-        return False
+        return self.__value == other
 
     def __str__(self):
         return str(self.__value)
@@ -40,7 +42,7 @@ class ValueHolder:
         return (self.__value, self.__is_default).__repr__()
 
 
-class Parser:
+class Parser:  # pylint: disable=too-few-public-methods
     """Parse and validate command line arguments."""
     COMMAND_PARSER = 'COMMAND NAME'
 
@@ -58,6 +60,8 @@ class Parser:
     PULL_TO_DEFAULT_ARG = ValueHolder(PULL_FROM_DEFAULT_ARG.value + datetime.timedelta(days=14))
 
     class PullFromArgAction(argparse.Action):
+        """Validate the 'from' argument"""
+
         def __call__(self, parser, namespace, values, option_string=None):
             from_value = getattr(namespace, 'from')
             to_value = getattr(namespace, 'to')
@@ -68,6 +72,8 @@ class Parser:
             from_value.value = values
 
     class PullToArgAction(argparse.Action):
+        """Validate the 'to' argument"""
+
         def __call__(self, parser, namespace, values, option_string=None):
             from_value = getattr(namespace, 'from')
             to_value = getattr(namespace, 'to')
@@ -139,131 +145,5 @@ class Parser:
             raise argparse.ArgumentTypeError(msg)
         except ValueError:
             msg = "Value '{0}' was not recognized as a date. " \
-                  "Please use a valid format, such as {0}".format(text_value, datetime.date.today())
+                  "Please use a valid format, for example {1}.".format(text_value, datetime.date.today())
             raise argparse.ArgumentTypeError(msg)
-
-
-class TestParser(unittest.TestCase):
-    def setUp(self):
-        self.parser = Parser()
-
-    @staticmethod
-    def __get_value_or_default(namespace, attribute, default=None):
-        attribute_to_use = attribute.lstrip('-')
-        return getattr(namespace, attribute_to_use, default)
-
-    def test_parse_version(self):
-        actual_namespace = self.parser.parse_args([Parser.VERSION_COMMAND])
-
-        self.assertIsNotNone(TestParser.__get_value_or_default(actual_namespace, Parser.VERSION_COMMAND))
-
-    def test_parse_export(self):
-        actual_namespace = self.parser.parse_args([Parser.EXPORT_COMMAND])
-
-        self.assertEqual(getattr(actual_namespace, Parser.COMMAND_PARSER), Parser.EXPORT_COMMAND)
-
-    @unittest.skip
-    def test_parse_export_with_output(self):
-        self.fail()
-
-    @unittest.skip
-    def test_parse_export_with_output_as_existing_file(self):
-        self.fail()
-
-    @unittest.skip
-    def test_parse_export_with_output_containing_environment_variable(self):
-        self.fail()
-
-    @unittest.skip
-    def test_parse_export_with_invalid_output(self):
-        self.fail()
-
-    def test_parse_solve(self):
-        actual_namespace = self.parser.parse_args([Parser.SOLVE_COMMAND])
-
-        self.assertEqual(getattr(actual_namespace, Parser.COMMAND_PARSER), Parser.SOLVE_COMMAND)
-
-    def test_parse_pull(self):
-        with self.assertRaises(SystemExit):
-            self.parser.parse_args([Parser.PULL_COMMAND])
-
-    def test_parse_pull_with_area(self):
-        area = 'test_area'
-        actual_namespace = self.parser.parse_args([Parser.PULL_COMMAND, area])
-
-        self.assertEqual(TestParser.__get_value_or_default(actual_namespace, Parser.PULL_AREA_ARG), area)
-        self.assertEqual(TestParser.__get_value_or_default(actual_namespace, Parser.PULL_FROM_ARG),
-                         Parser.PULL_FROM_DEFAULT_ARG)
-        self.assertEqual(TestParser.__get_value_or_default(actual_namespace, Parser.PULL_TO_ARG),
-                         Parser.PULL_TO_DEFAULT_ARG)
-
-    def test_parse_pull_with_area_and_from(self):
-        area = 'test_area'
-        start_from = datetime.date.today()
-
-        actual_namespace = self.parser.parse_args([Parser.PULL_COMMAND,
-                                                   area,
-                                                   '='.join([Parser.PULL_FROM_ARG, str(start_from)])])
-
-        self.assertEqual(TestParser.__get_value_or_default(actual_namespace, Parser.PULL_FROM_ARG), start_from)
-
-    def test_parse_pull_with_area_and_to(self):
-        area = 'test_area'
-        end_at = datetime.date.today() + datetime.timedelta(days=2)
-
-        actual_namespace = self.parser.parse_args([Parser.PULL_COMMAND,
-                                                   area,
-                                                   '='.join([Parser.PULL_TO_ARG, str(end_at)])])
-
-        self.assertEqual(TestParser.__get_value_or_default(actual_namespace, Parser.PULL_TO_ARG), end_at)
-
-    def test_parse_pull_with_area_from_and_to_(self):
-        area = 'test_area'
-        start_from = datetime.date.today() + datetime.timedelta(days=1)
-        end_at = start_from + datetime.timedelta(days=1)
-
-        actual_namespace = self.parser.parse_args([Parser.PULL_COMMAND,
-                                                   area,
-                                                   '='.join([Parser.PULL_FROM_ARG, str(start_from)]),
-                                                   '='.join([Parser.PULL_TO_ARG, str(end_at)])])
-
-        self.assertEqual(TestParser.__get_value_or_default(actual_namespace, Parser.PULL_AREA_ARG), area)
-        self.assertEqual(TestParser.__get_value_or_default(actual_namespace, Parser.PULL_FROM_ARG), start_from)
-        self.assertEqual(TestParser.__get_value_or_default(actual_namespace, Parser.PULL_TO_ARG), end_at)
-
-    @unittest.skip("no list of areas is available at the moment")
-    def test_parse_pull_with_invalid_area(self):
-        self.fail()
-
-    def test_parse_pull_with_invalid_to(self):
-        with self.assertRaises(SystemExit):
-            self.parser.parse_args([Parser.PULL_COMMAND,
-                                    'test_area',
-                                    Parser.PULL_TO_ARG + '=WRONG_DATE'])
-
-    def test_parse_pull_with_invalid_from(self):
-        with self.assertRaises(SystemExit):
-            self.parser.parse_args([Parser.PULL_COMMAND,
-                                    'test_area',
-                                    Parser.PULL_FROM_ARG + '=WRONG_DATE'])
-
-    def test_parse_pull_with_from_later_than_to(self):
-        area = 'test_area'
-        start_from = datetime.date.today()
-        end_at = start_from - datetime.timedelta(days=10)
-
-        with self.assertRaises(SystemExit):
-            self.parser.parse_args([Parser.PULL_COMMAND,
-                                    area,
-                                    '='.join([Parser.PULL_FROM_ARG, str(start_from)]),
-                                    '='.join([Parser.PULL_TO_ARG, str(end_at)])])
-
-        with self.assertRaises(SystemExit):
-            self.parser.parse_args([Parser.PULL_COMMAND,
-                                    area,
-                                    '='.join([Parser.PULL_TO_ARG, str(end_at)]),
-                                    '='.join([Parser.PULL_FROM_ARG, str(start_from)])])
-
-
-if __name__ == '__main__':
-    unittest.main()
