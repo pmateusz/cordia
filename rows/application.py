@@ -5,7 +5,7 @@ import rows.parser
 import rows.console
 
 
-class Application:  # pylint: disable=too-few-public-methods
+class Application:  # pylint: disable=too-few-public-methods,import-error
     """Execute the main program according to the input arguments"""
 
     PROGRAM_NAME = 'rows'
