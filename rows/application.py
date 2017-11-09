@@ -5,10 +5,6 @@ import rows.parser
 import rows.console
 
 
-# TODO: parse values and handle errors for each command
-# TODO: set default time windows for the pull command
-
-
 class Application:  # pylint: disable=too-few-public-methods
     """Execute the main program according to the input arguments"""
 

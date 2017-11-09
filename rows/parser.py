@@ -2,6 +2,7 @@
 
 import argparse
 import datetime
+import os
 import dateutil.parser
 
 
@@ -49,22 +50,24 @@ class Parser:  # pylint: disable=too-few-public-methods
     VERSION_COMMAND = '--version'
 
     EXPORT_COMMAND = 'export'
+    EXPORT_OUTPUT_ARGUMENT = '--output'
 
     SOLVE_COMMAND = 'solve'
 
     PULL_COMMAND = 'pull'
     PULL_AREA_ARG = 'area'
     PULL_FROM_ARG = '--from'
-    PULL_FROM_DEFAULT_ARG = ValueHolder(datetime.date.today() + datetime.timedelta(days=1))
+    PULL_FROM_DEFAULT_ARG = datetime.date.today() + datetime.timedelta(days=1)
+    PULL_WINDOW_WIDTH_DEFAULT = datetime.timedelta(days=14)
     PULL_TO_ARG = '--to'
-    PULL_TO_DEFAULT_ARG = ValueHolder(PULL_FROM_DEFAULT_ARG.value + datetime.timedelta(days=14))
+    PULL_TO_DEFAULT_ARG = PULL_FROM_DEFAULT_ARG + PULL_WINDOW_WIDTH_DEFAULT
 
     class PullFromArgAction(argparse.Action):
         """Validate the 'from' argument"""
 
         def __call__(self, parser, namespace, values, option_string=None):
-            from_value = getattr(namespace, 'from')
-            to_value = getattr(namespace, 'to')
+            from_value = Parser.get_argument(namespace, Parser.PULL_FROM_ARG)
+            to_value = Parser.get_argument(namespace, Parser.PULL_TO_ARG)
             if not to_value.is_default and to_value.value < values:
                 raise argparse.ArgumentError(self,
                                              "value '{0}' cannot be larger than '{1}'".format(
@@ -75,8 +78,8 @@ class Parser:  # pylint: disable=too-few-public-methods
         """Validate the 'to' argument"""
 
         def __call__(self, parser, namespace, values, option_string=None):
-            from_value = getattr(namespace, 'from')
-            to_value = getattr(namespace, 'to')
+            from_value = Parser.get_argument(namespace, Parser.PULL_FROM_ARG)
+            to_value = Parser.get_argument(namespace, Parser.PULL_TO_ARG)
             if not from_value.is_default and values < from_value.value:
                 raise argparse.ArgumentError(self,
                                              "value '{0}' cannot be smaller than '{1}'".format(
@@ -106,14 +109,14 @@ class Parser:  # pylint: disable=too-few-public-methods
                                  Parser.PULL_FROM_ARG,
                                  help='limit considered visits to these that are requested'
                                       ' after the specified date and time',
-                                 default=Parser.PULL_FROM_DEFAULT_ARG,
+                                 default=ValueHolder(Parser.PULL_FROM_DEFAULT_ARG),
                                  type=Parser.__parse_date,
                                  action=Parser.PullFromArgAction)
         pull_parser.add_argument('-t',
-                                 '--to',
+                                 Parser.PULL_TO_ARG,
                                  help='limit considered visits to these that are requested'
                                       ' until the specified date and time',
-                                 default=Parser.PULL_TO_DEFAULT_ARG,
+                                 default=ValueHolder(Parser.PULL_TO_DEFAULT_ARG),
                                  type=Parser.__parse_date,
                                  action=Parser.PullToArgAction)
 
@@ -123,17 +126,56 @@ class Parser:  # pylint: disable=too-few-public-methods
         export_parser = subparsers.add_parser(name=Parser.EXPORT_COMMAND,
                                               help='export a schedule in the CSV format')
         export_parser.add_argument('-o',
-                                   '--output',
-                                   help='an output file where the schedule should be saved')
-
-        self.__set_from = False
-        self.__set_to = False
+                                   Parser.EXPORT_OUTPUT_ARGUMENT,
+                                   help='an output file where the schedule should be saved',
+                                   type=Parser.__parse_file_path)
 
     def parse_args(self, args=None):
         """Parse command line arguments"""
 
-        # TODO: execute post parse actions - such as adapting from and to times
-        return self.__parser.parse_args(args)
+        namespace = self.__parser.parse_args(args)
+        if Parser.is_command(namespace, Parser.PULL_COMMAND):
+            from_holder = Parser.get_argument(namespace, Parser.PULL_FROM_ARG)
+            to_holder = Parser.get_argument(namespace, Parser.PULL_TO_ARG)
+            if from_holder and to_holder and (from_holder.is_default ^ to_holder.is_default):
+                if from_holder.is_default:
+                    Parser.__set_argument(namespace, Parser.PULL_FROM_ARG,
+                                          ValueHolder(to_holder.value - Parser.PULL_WINDOW_WIDTH_DEFAULT, False))
+                elif to_holder.is_default:
+                    Parser.__set_argument(namespace, Parser.PULL_TO_ARG,
+                                          ValueHolder(from_holder.value + Parser.PULL_WINDOW_WIDTH_DEFAULT, False))
+        return namespace
+
+    @staticmethod
+    def get_argument(namespace, argument):
+        """Get the 'argument' property from the 'namespace' object"""
+
+        argument_to_use = argument.lstrip('-')
+        return getattr(namespace, argument_to_use)
+
+    @staticmethod
+    def __set_argument(namespace, argument, value):
+        argument_to_use = argument.lstrip('-')
+        setattr(namespace, argument_to_use, value)
+
+    @staticmethod
+    def is_command(namespace, command):
+        """Check if the 'namespace' object contains arguments for the command of a name 'command'"""
+
+        actual_command = getattr(namespace, Parser.COMMAND_PARSER)
+        return actual_command == command
+
+    @staticmethod
+    def __parse_file_path(text_value):
+        if os.path.exists(text_value):
+            msg = "file '{0}' already exists. Please try another path.".format(text_value)
+            raise argparse.ArgumentTypeError(msg)
+        path_to_use = os.path.expandvars(text_value)
+        directory = os.path.dirname(path_to_use) or os.getcwd()
+        if not os.access(directory, os.W_OK):
+            msg = "program does not have write permissions to directory {0}. Please try another path.".format(directory)
+            raise argparse.ArgumentTypeError(msg)
+        return text_value
 
     @staticmethod
     def __parse_date(text_value):
