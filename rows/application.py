@@ -1,10 +1,12 @@
 """Execute the main program."""
 
+# pylint: disable=too-few-public-methods, import-error, no-name-in-module, no-member
+
 import distutils.version
 import rows.parser
 import rows.console
 
-# pylint: disable=too-few-public-methods, import-error, no-name-in-module, no-member
+
 class Application:
     """Execute the main program according to the input arguments"""
 
