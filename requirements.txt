@@ -1,4 +1,6 @@
 pylint
 pytest
 setuptools
+wheel
+twine
 python-dateutil
