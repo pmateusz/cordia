@@ -10,7 +10,7 @@ import rows.console
 class Application:
     """Execute the main program according to the input arguments"""
 
-    PROGRAM_NAME = 'rows'
+    PROGRAM_NAME = 'rows-cli'
     VERSION = distutils.version.StrictVersion('0.0.1')
 
     def __init__(self):
