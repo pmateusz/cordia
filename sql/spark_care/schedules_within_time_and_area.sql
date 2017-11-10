@@ -113,3 +113,25 @@ SELECT *
 		 SELECT SchedulePatternId
 		FROM @SCHEDULES)
 ORDER BY schedule_pattern.SchedulePatternId, interval_slot.Day
+
+SELECT *
+  FROM People.dbo.SchedulePattern schedule_pattern
+      INNER JOIN People.dbo.WeekSlot week_slot
+      ON week_slot.SchedulePatternID = schedule_pattern.SchedulePatternID
+      INNER JOIN People.dbo.IntervalSlot interval_slot
+      ON interval_slot.WeekSlotID = week_slot.WeekSlotID
+      LEFT OUTER JOIN People.dbo.IntervalType AS interval_type
+      ON interval_slot.Type = interval_type.IntervalTypeID
+ WHERE interval_slot.StartTime < @END_DATE
+	   AND interval_slot.EndTime > @START_DATE
+	   AND schedule_pattern.SchedulePatternID in (
+		 SELECT SchedulePatternId
+		FROM @SCHEDULES)
+ORDER BY schedule_pattern.SchedulePatternId, interval_slot.Day
+
+SELECT *
+  FROM @CARERS as carers
+  INNER JOIN People.dbo.OvertimeInterval as overtime_interval
+  ON overtime_interval.EmployeePositionId = carers.EmployeePositionId
+WHERE overtime_interval.StartDateTime < @END_DATE
+  AND overtime_interval.EndDateTime > @START_DATE
