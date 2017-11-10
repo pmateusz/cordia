@@ -1,4 +1,11 @@
+-- list carers supporting aom within specified time window
+
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+GO
+
+DECLARE @START_DATE DATETIME, @END_DATE DATETIME;
+SET @START_DATE = '2017-10-31';
+SET @END_DATE = '2017-11-30';
 
 DECLARE @AOM_CODE INT;
 SET @AOM_CODE = 12;
@@ -17,6 +24,6 @@ SELECT employee_position.EmployeePositionID as 'employee_position_id'
        ON aom_struct_base.AomID = aom_struct.AomId
        INNER JOIN SparkCare.dbo.AomBase AS aom_unit_base
        ON aom_unit_base.AomID = aom_unit.AomID
- WHERE (employee_position.EndDate IS NULL OR employee_position.EndDate > GETDATE())
+ WHERE (employee_position.StartDate <= @START_DATE AND (employee_position.EndDate IS NULL OR employee_position.EndDate > @END_DATE))
        AND (aom_struct_base.AomBaseID = @AOM_CODE OR aom_unit_base.AomBaseID = @AOM_CODE)
  ORDER BY employee_position_id
