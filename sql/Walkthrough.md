@@ -31,7 +31,7 @@ Secondly, since both visits occurence and schedules have regular, circular patte
 The following requsts sets were fabricated for the purpose of exposition. Run the attached queries on the dataset to obtain real results.
 
 ## List areas of operation and management
-Get the list of available `AOM_CODE` values for reference in the future queries.
+Return the list of available `AOM_CODE` values for reference in the future queries.
 
 ### [Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_aom.sql)
 
@@ -43,10 +43,29 @@ Get the list of available `AOM_CODE` values for reference in the future queries.
 |26|888|A650|AB58|
 |27|999|A899|AB60|
 
-## List of home carers working in a single aom
+## List of home carers
 
-## List of vists
-Get the list of visits that were requested be performed within the specified time windows within a single aom.
+### [Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_employees_in_aom.sql)
+
+|Parameter|Value|
+|---------|-----|
+|`START_TIME`|`2017-10-31`|
+|`END_TIME`|`2017-11-30`|
+|`AOM_CODE`|1|
+
+### Results
+|employee_position_id|start_time|end_time|struct_aom|unit_aom|
+|--------------------|----------|--------|----------|--------|
+|1234567|2017-01-01|NULL|1|1|
+
+Note: It may happen that a home carer belongs to different AOMs recognized in the data set as `AomOpStruct` and `AomOrgUnit`. How such a conflict should be resolved?
+
+Return the list of employees who worked on a carer position between `START_TIME` and `END_TIME` within the specified AOM.
+
+## List of time intervals
+
+## List of visits
+Return the list of visits that were requested to be performed within the specified time windows within a single aom.
 
 ### [Query](https://github.com/pmateusz/cordia/blob/master/sql/spark_care/list_visits_within_time_windows.sql)
 
