@@ -25,7 +25,7 @@ In order to make the problem size more manageable make two simplyfing assumption
 
 Firstly, we focus on solving the Home Care Staff Rostering Problem within a single AOM. The solution in a general case can be obtained by merging solutions obtained by solving subproblems for each AOM independelntly.
 
-Secondly, since both visits occurence and schedules have regular, circular patterns we limit the size of the problem to a time window denoted as [`START_TIME`, `END TIME`). It corresponds to the range boundaries used by the `between` operator defined for the date type in SQL. Solution of the general case can be obtained by taking a time window equal that includes full periods of visits and shift patterns.
+Secondly, since both visits occurence and schedules have regular, circular patterns we limit the size of the problem to a time window denoted as [`START_TIME`, `END_TIME`). It corresponds to the range boundaries used by the `between` operator defined for the date type in SQL. Solution of the general case can be obtained by taking a time window equal that includes full periods of visits and shift patterns.
 
 # Queries
 The following requsts sets were fabricated for the purpose of exposition. Run the attached queries on the dataset to obtain real results.
@@ -33,11 +33,20 @@ The following requsts sets were fabricated for the purpose of exposition. Run th
 ## List areas of operation and management
 [Source](https://github.com/pmateusz/cordia/blob/master/sql/people/list_aom.sql)
 
-```
-aom_code	aom_id	area_code	area_no
-1	111	A056	AB01
-2	222	A477	AB07
-...
-26	888	A650	AB58
-27	999	A899	AB60
-```
+
+|aom_code|aom_id|area_code|area_no|
+|--------|------|---------|-------|
+|1|111|A056|AB01|
+|2|222|A477|AB07|
+|26|888|A650|AB58|
+|27|999|A899|AB60|
+
+
+## List of home carers working in a single aom
+
+## List of vists within a single aom
+[Source](https://github.com/pmateusz/cordia/blob/master/sql/spark_care/list_visits_within_time_windows.sql)
+
+|visit_id|service_user_id|visit_date|requested_visit_time|requested_visit_duration|street|town|post_code|aom_code|
+|--------|---------------|----------|--------------------|------------------------|------|----|---------|--------|
+|1234567|2345678|2017-10-31|12:30:00|30|Blackfriars Road|Glasgow|G1 3JW|1|
