@@ -33,30 +33,31 @@ SELECT employee_position.EmployeePositionID AS 'employee_position_id'
 
  DECLARE @TEMP_SCHEDULES TABLE (EmployeePositionId INT, SchedulePatternId INT, StartDate DATETIME, EndDate DATETIME, SchedulePatternId_Override INT, StartDate_Override DATETIME, EndTime_Override DATETIME)
  --INSERT INTO @TEMP_SCHEDULES
- SELECT employee_position.EmployeePositionID AS 'employee_position',
+ SELECT * /*employee_position.EmployeePositionID AS 'employee_position',
 	work_schedule_pattern.SchedulePatternID AS 'schedule_pattern',
 	work_schedule_pattern.StartDate,
 	work_schedule_pattern.EndDate,
 	override_schedule_pattern.SchedulePatternID AS 'override_schedule_pattern',
 	override_schedule_pattern.StartDate,
-	override_schedule_pattern.EndDate
+	override_schedule_pattern.EndDate*/
   FROM @CARERS AS carers 
        INNER JOIN People.dbo.EmployeePosition AS employee_position
 	   ON employee_position.EmployeePositionID = carers.EmployeePositionId
-       INNER JOIN People.dbo.WorkSchedule AS work_schedule
+       LEFT OUTER JOIN People.dbo.WorkSchedule AS work_schedule
        ON employee_position.PositionID = work_schedule.PositionID
-       INNER JOIN People.dbo.SchedulePattern AS work_schedule_pattern
+       LEFT OUTER JOIN People.dbo.SchedulePattern AS work_schedule_pattern
        ON work_schedule.SchedulePatternID = work_schedule_pattern.SchedulePatternID
 	   LEFT OUTER JOIN People.dbo.OverrideSchedule AS override_schedule
 	   ON employee_position.EmployeePositionID = override_schedule.EmployeePositionID
 	   LEFT OUTER JOIN People.dbo.SchedulePattern AS override_schedule_pattern
        ON override_schedule.SchedulePatternID = override_schedule_pattern.SchedulePatternID
- WHERE (work_schedule_pattern.StartDate <= @END_TIME AND (work_schedule_pattern.EndDate IS NULL OR work_schedule_pattern.EndDate > @START_TIME))
-	   AND work_schedule_pattern.Isvalid = 1 AND work_schedule_pattern.IsVerified = 1
+ WHERE work_schedule_pattern.SchedulePatternID IS NULL OR
+  ( (work_schedule_pattern.StartDate <= @END_TIME AND (work_schedule_pattern.EndDate IS NULL OR work_schedule_pattern.EndDate > @START_TIME))
+	   AND work_schedule_pattern.Isvalid = 1 AND work_schedule_pattern.IsVerified = 1)
 	   -- AND work_schedule.IsActive = 1 -- NOTE we are interested in any schedule
 	   AND override_schedule_pattern.SchedulePatternID IS NULL OR (
-			work_schedule_pattern.StartDate <= override_schedule_pattern.StartDate
-			--AND override_schedule_pattern.StartDate < work_schedule_pattern.EndDate
+			(work_schedule_pattern.StartDate IS NULL OR work_schedule_pattern.StartDate <= override_schedule_pattern.StartDate)
+			AND (work_schedule_pattern.EndDate IS NULL OR override_schedule_pattern.StartDate < work_schedule_pattern.EndDate)
 			AND override_schedule_pattern.StartDate <= @END_TIME
 			AND (override_schedule_pattern.EndDate IS NULL OR override_schedule_pattern.EndDate > @START_TIME)
 			AND (override_schedule_pattern.Isvalid = 1 AND override_schedule_pattern.IsVerified = 1)
@@ -70,31 +71,6 @@ SELECT employee_position.EmployeePositionID AS 'employee_position_id'
 -- d) share common beginning -> split a time interval into 2 periods B-A
 -- e) share common end -> split a time interval into 2 periods A-B
 
-SELECT *
-FROM @TEMP_SCHEDULES
-
-DECLARE override_schedule_cursor CURSOR READ_ONLY FORWARD_ONLY FOR
-SELECT employee_position.EmployeePositionID AS 'employee_position',
-	override_schedule_pattern.SchedulePatternID AS 'schedule_pattern',
- (SELECT MAX(v) FROM (VALUES (employee_position.StartDate), (override_schedule_pattern.StartDate), (@START_TIME)) as VALUE(v)) AS 'start_time',
- (SELECT MIN(v) FROM (VALUES (employee_position.EndDate), (override_schedule_pattern.EndDate), (@END_TIME)) AS VALUE(v)) AS 'end_date'
-  FROM @CARERS AS carers 
-       INNER JOIN People.dbo.EmployeePosition AS employee_position
-	   ON employee_position.EmployeePositionID = carers.EmployeePositionId
-       INNER JOIN People.dbo.OverrideSchedule AS override_schedule
-       ON employee_position.EmployeePositionID = override_schedule.EmployeePositionID
-       INNER JOIN People.dbo.SchedulePattern AS override_schedule_pattern
-       ON override_schedule.SchedulePatternID = override_schedule_pattern.SchedulePatternID
- WHERE (override_schedule_pattern.StartDate <= @END_TIME AND (override_schedule_pattern.EndDate IS NULL OR override_schedule_pattern.EndDate > @START_TIME))
-	   AND override_schedule_pattern.Isvalid = 1 AND override_schedule_pattern.IsVerified = 1
-	   -- AND override_schedule.IsActive = 1
-
-OPEN override_schedule_cursor
-
-
-
-CLOSE override_schedule_cursor
-DEALLOCATE override_schedule_cursor
  /*
  -- find out exact time windows carers are available for work
 
