@@ -31,9 +31,11 @@ Secondly, since both visits occurence and schedules have regular, circular patte
 The following requsts sets were fabricated for the purpose of exposition. Run the attached queries on the dataset to obtain real results.
 
 ## List areas of operation and management
-[Source](https://github.com/pmateusz/cordia/blob/master/sql/people/list_aom.sql)
+Get the list of available `AOM_CODE` values for reference in the future queries.
 
+### [Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_aom.sql)
 
+### Results
 |aom_code|aom_id|area_code|area_no|
 |--------|------|---------|-------|
 |1|111|A056|AB01|
@@ -41,12 +43,23 @@ The following requsts sets were fabricated for the purpose of exposition. Run th
 |26|888|A650|AB58|
 |27|999|A899|AB60|
 
-
 ## List of home carers working in a single aom
 
-## List of vists within a single aom
-[Source](https://github.com/pmateusz/cordia/blob/master/sql/spark_care/list_visits_within_time_windows.sql)
+## List of vists
+Get the list of visits that were requested be performed within the specified time windows within a single aom.
+
+### [Query](https://github.com/pmateusz/cordia/blob/master/sql/spark_care/list_visits_within_time_windows.sql)
+
+|Parameter|Value|
+|---------|-----|
+|`START_TIME`|`2017-10-31`|
+|`END_TIME`|`2017-11-30`|
+|`AOM_CODE`|1|
+
+### Results
 
 |visit_id|service_user_id|visit_date|requested_visit_time|requested_visit_duration|street|town|post_code|aom_code|
 |--------|---------------|----------|--------------------|------------------------|------|----|---------|--------|
 |1234567|2345678|2017-10-31|12:30:00|30|Blackfriars Road|Glasgow|G1 3JW|1|
+
+The list of visits contains a destination address, a requested start time and a requested duration defined for each item.
