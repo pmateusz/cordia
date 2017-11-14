@@ -46,6 +46,7 @@ Return the list of available `AOM_CODE` values for reference in the future queri
 ## List home carers
 
 ### [Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_employees_in_aom.sql)
+Return the list of employees who worked on a carer position between `START_TIME` and `END_TIME` in the specified AOM.
 
 |Parameter|Value|
 |---------|-----|
@@ -56,15 +57,61 @@ Return the list of available `AOM_CODE` values for reference in the future queri
 ### Results
 |employee_position_id|start_time|end_time|struct_aom|unit_aom|
 |--------------------|----------|--------|----------|--------|
-|1234567|2017-01-01|2017-11-30|1|1|
+|1234567|2017-10-31|2017-11-30|1|1|
 
-Note: It may happen that a home carer belongs to different AOMs recognized in the data set as `AomOpStruct` and `AomOrgUnit`. How such a conflict should be resolved?
+:trollface: It may happen that a home carer belongs to different AOMs recognized in the data set as `AomOpStruct` and `AomOrgUnit`. How such a conflict should be resolved?
 
-Return the list of employees who worked on a carer position between `START_TIME` and `END_TIME` within the specified AOM.
+## List home carers' schedules and workweek
+Return the list of schedules of employees who worked on a carer positions between `START_TIME` and `END_TIME` in the specified AOM.
 
-## List schedules and workweek
+|Parameter|Value|
+|---------|-----|
+|`START_TIME`|`2017-10-31`|
+|`END_TIME`|`2017-11-30`|
+|`AOM_CODE`|1|
 
-## List schedule
+### [Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_schedules.sql)
+
+### Results
+|EmployeePositionId|SchedulePatternId|WorkWeek|Overtime|StartDate|EndDate|
+|------------------|-----------------|--------|--------|---------|-------|
+|123456|123|38|0|2017-10-31|2017-11-30|
+
+The list of schedules contains the number of regular working hours of an employee within a week, overtime and dates when a schedule is valid.
+
+## List schedule details
+Return the list of time slots that constitute a schedule.
+
+### [Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_schedule_details.sql)
+
+|Parameter|Value|
+|---------|-----|
+|`SCHEDULE_PATTERN_ID`|`123456`|
+
+#### Results
+|SchedulePatternID|WeekNumber|Day|StartTime|EndTime|Type|
+|-----------------|----------|---|---------|-------|----|
+|123456|1|1|07:30:00.0000000|13:00:00.0000000|Shift|
+|123456|1|1|13:00:00.0000000|16:30:00.0000000|Break (Paid)|
+|123456|1|1|16:30:00.0000000|19:00:00.0000000|Shift|
+|123456|1|1|19:00:00.0000000|20:00:00.0000000|Break (Paid)|
+|123456|1|1|20:00:00.0000000|22:00:00.0000000|Shift|
+
+## List leaves
+Return the list of approved leaves between `START_TIME` and `END_TIME` of carers who work in the specified AOM.
+
+|Parameter|Value|
+|---------|-----|
+|`START_TIME`|`2017-10-31`|
+|`END_TIME`|`2017-11-30`|
+|`AOM_CODE`|1|
+
+### [Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_leaves.sql)
+
+#### Results
+|EmployeePositionId|StartDate|EndDate|HalfDay|HalfDayPeriod|ApprovalStatus|
+|------------------|---------|-------|-------|-------------|--------------|
+|123456|2017-09-12|2017-09-15|0|NULL|Approved|
 
 ## List visits
 Return the list of visits that were requested to be performed within the specified time windows within a single aom.
