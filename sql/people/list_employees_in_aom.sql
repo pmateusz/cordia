@@ -11,8 +11,14 @@ DECLARE @AOM_CODE INT;
 SET @AOM_CODE = 1;
 
 SELECT employee_position.EmployeePositionID AS 'employee_position_id',
-	employee_position.StartDate AS 'start_time',
-	employee_position.EndDate AS 'end_time',
+	CASE
+		WHEN employee_position.StartDate < @START_TIME THEN @START_TIME
+		ELSE employee_position.StartDate
+	END AS 'start_time',
+	CASE
+		WHEN employee_position.EndDate IS NOT NULL AND employee_position.EndDate < @END_TIME THEN employee_position.EndDate
+		ELSE COALESCE(employee_position.EndDate, @END_TIME)
+	END AS 'end_time',
 	aom_struct_base.AomBaseID AS 'struct_aom',
 	aom_unit_base.AomBaseID AS 'unit_aom'
   FROM People.dbo.EmployeePosition AS employee_position
