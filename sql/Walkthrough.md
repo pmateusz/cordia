@@ -43,7 +43,7 @@ Return the list of available `AOM_CODE` values for reference in the future queri
 |26|888|A650|AB58|
 |27|999|A899|AB60|
 
-## List of home carers
+## List home carers
 
 ### [Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_employees_in_aom.sql)
 
@@ -56,15 +56,17 @@ Return the list of available `AOM_CODE` values for reference in the future queri
 ### Results
 |employee_position_id|start_time|end_time|struct_aom|unit_aom|
 |--------------------|----------|--------|----------|--------|
-|1234567|2017-01-01|NULL|1|1|
+|1234567|2017-01-01|2017-11-30|1|1|
 
 Note: It may happen that a home carer belongs to different AOMs recognized in the data set as `AomOpStruct` and `AomOrgUnit`. How such a conflict should be resolved?
 
 Return the list of employees who worked on a carer position between `START_TIME` and `END_TIME` within the specified AOM.
 
-## List of time intervals
+## List schedules and workweek
 
-## List of visits
+## List schedule
+
+## List visits
 Return the list of visits that were requested to be performed within the specified time windows within a single aom.
 
 ### [Query](https://github.com/pmateusz/cordia/blob/master/sql/spark_care/list_visits_within_time_windows.sql)
