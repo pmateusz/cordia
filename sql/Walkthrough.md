@@ -50,6 +50,7 @@ As of this writing there are 27 AOMs, which can be uniquely represented by manag
 __[Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_aom.sql)__
 
 __Results:__
+
 |aom_code|aom_id|area_code|area_no|
 |--------|------|---------|-------|
 |1|111|A056|AB01|
@@ -66,6 +67,7 @@ Get the list of visits in the AOM `1` that are requested between `2017-09-01` an
 __[Query](https://github.com/pmateusz/cordia/blob/master/sql/spark_care/list_visits_within_time_windows.sql)__
 
 __Results:__
+
 |visit_id|service_user_id|visit_date|requested_visit_time|requested_visit_duration|street|town|post_code|aom_code|
 |--------|---------------|----------|--------------------|------------------------|------|----|---------|--------|
 |1234567|2345678|2017-10-31|12:30:00|30|Blackfriars Road|Glasgow|G1 3J|1|
@@ -81,6 +83,7 @@ Get the list of employees who work on home carer positions in the AOM `1` that b
 __[Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_employees_in_aom.sql)__
 
 __Results:__
+
 |employee_position_id|start_time|end_time|struct_aom|unit_aom|
 |--------------------|----------|--------|----------|--------|
 |1234567|2017-10-31|2017-11-30|1|1|
@@ -96,6 +99,7 @@ Get the list of schedule patterns for employees who worked as home carers in AOM
 __[Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_schedules.sql)__
 
 __Results:__
+
 |EmployeePositionId|SchedulePatternId|WorkWeek|Overtime|StartDate|EndDate|
 |------------------|-----------------|--------|--------|---------|-------|
 |123456|123|38|0|2017-10-31|2017-11-30|
@@ -111,6 +115,7 @@ Get the list of time slots that constitute a schedule pattern.
 __[Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_schedule_details.sql)__
 
 __Results:__
+
 |SchedulePatternID|WeekNumber|Day|StartTime|EndTime|Type|
 |-----------------|----------|---|---------|-------|----|
 |123456|1|1|07:30:00|13:00:00|Shift|
@@ -128,6 +133,7 @@ Get the list of leaves requested by carers who work in the AOM `1` between `2017
 __[Query](https://github.com/pmateusz/cordia/blob/master/sql/people/list_leaves.sql)__
 
 __Results:__
+
 |EmployeePositionId|StartDate|EndDate|HalfDay|HalfDayPeriod|ApprovalStatus|
 |------------------|---------|-------|-------|-------------|--------------|
 |123456|2017-09-12|2017-09-15|0|NULL|Approved|
