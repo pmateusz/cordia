@@ -1,7 +1,7 @@
 """Postal address of a certain location"""
 
 
-class Address:
+class Address:  # pylint: disable=too-many-instance-attributes
     """Postal address of a certain location"""
 
     ROAD = 'road'

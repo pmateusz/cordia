@@ -2,8 +2,8 @@
 
 import unittest
 
-from location_finder import Coordinates, LocationFinder
-from address import Address
+from rows.location_finder import Coordinates, LocationFinder
+from rows.address import Address
 
 
 class TestLocationFinder(unittest.TestCase):

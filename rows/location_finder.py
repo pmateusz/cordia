@@ -84,7 +84,7 @@ class Result:
         return bool(self.__exception)
 
 
-class LocationFinder:
+class LocationFinder:  # pylint: disable=too-few-public-methods
     """Finds longitude and latitude for an address"""
 
     def __init__(self):
