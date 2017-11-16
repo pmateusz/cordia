@@ -7,7 +7,7 @@ install:
 
 script:
   - find . -iname "*.py" | xargs python3 -m pytest
-  - find . -iname "*.py" | xargs python3 -m pylint
+  - find rows* -iname "*.py" | xargs python3 -m pylint
 
 notifications:
   email: false

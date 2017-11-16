@@ -1,5 +1,6 @@
 pylint
 pytest
+requests
 setuptools
 wheel
 twine
