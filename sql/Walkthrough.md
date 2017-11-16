@@ -6,7 +6,7 @@ The purpose of the document is to introduce a collection of SQL queries that aut
 
 We would like to kindly ask the reader for a detailed review of the document and referenced SQL queries to verify that authors' understanding and interpretation of information available in Cordia databases is correct.
 
-Apart from the confirmation that queries are correct and interpretation of data is sound we would be grateful for an assessment if we process enough information to find schedules which could be executed in practice. For example, if a method developer overlooks the fact that carers are to leave the method could not be used to compute valid schedules. (ANNALISA: not sure what you mean here)
+Apart from the confirmation that queries are correct and interpretation of data is sound we would be grateful for an assessment if we process enough information to find schedules which could be executed in practice. For example, if a method developer overlooks the fact that a carer can take a leave the method will not find valid schedules.
 
 ## Problem Definition
 
@@ -31,7 +31,7 @@ Lets define the HCSRP as finding an ordered set covering of visits where each su
 
 Due to the workforce and service demand decomposition to AOMs the HCSRP can be solved for each AOM independently.
 
-In order to make the problem size more manageable two simplifications are made that do not impact the solution of the problem in a general case.
+In order to make the problem size more manageable make two simplifications that do not impact the solution of the problem in a general case.
 
 Firstly, we reduce solving the HCSRP to a single AOM. The solution for a general case can be obtained by merging solutions of sub-problems obtained for each AOM independently.
 
