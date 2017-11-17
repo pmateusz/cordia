@@ -20,8 +20,11 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/dependencies/cmake/modules/")
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
+set(OSRM_ROOT_DIR ${CMAKE_BINARY_DIR}/external/osrm-install)
+
 include(ExternalProject)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/osrm.cmake)
+get_filename_component(NESTED_OSRM_INCLUDE_DIR osrm ABSOLUTE BASE_DIR ${OSRM_INCLUDE_DIR})
 
 # Fix for compilation error in GTEST headers
 # ‘tuple_size’ is already declared in this scope
@@ -31,10 +34,18 @@ include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/osrm.cmake)
 # Equivalent to enable_testing()
 # include(CTest)
 
-file(GLOB_RECURSE SOURCES "src/main/*.cpp")
+file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/main/*.cpp")
 add_library(rows STATIC ${SOURCES})
 # target_compile_definitions(rows PUBLIC )
-# target_include_directories(rows PUBLIC )
-# target_link_libraries(rows )
+
+target_include_directories(rows PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR})
+target_link_libraries(rows ${OSRM_LIBRARY})
 # set_source_files_properties(${SOURCES} PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-deprecated")
-add_dependencies(rows ${external_project_dependencies})
+
+if(${external_project_dependencies})
+    add_dependencies(rows ${external_project_dependencies})
+endif()
+
+add_executable(rows-main "${CMAKE_SOURCE_DIR}/src/main/main.cpp")
+target_include_directories(rows-main PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR})
+add_dependencies(rows-main rows)

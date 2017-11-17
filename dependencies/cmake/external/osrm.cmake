@@ -15,7 +15,6 @@ if (NOT __OSRM_INCLUDED) # guard against multiple includes
                 PREFIX ${osrm_PREFIX}
                 URL https://github.com/Project-OSRM/osrm-backend/archive/v5.13.0.zip
                 URL_HASH SHA1=1e585e9405fea3336518c86b2116779222915391
-                INSTALL_COMMAND ""
                 UPDATE_COMMAND ""
                 INSTALL_DIR ${osrm_INSTALL}
                 CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
@@ -27,7 +26,9 @@ if (NOT __OSRM_INCLUDED) # guard against multiple includes
         set(OSRM_FOUND TRUE)
         set(OSRM_ROOT_DIR ${osrm_INSTALL})
         set(OSRM_INCLUDE_DIRS ${osrm_INSTALL}/include)
+        set(OSRM_INCLUDE_DIR ${OSRM_INCLUDE_DIRS})
         set(OSRM_LIBRARIES ${osrm_INSTALL}/lib/libosrm.a ${CMAKE_THREAD_LIBS_INIT})
+        set(OSRM_LIBRARY ${OSRM_LIBRARIES})
         set(OSRM_LIBRARY_DIRS ${osmr_INSTALL}/lib)
         set(OSRM_EXTERNAL TRUE)
 

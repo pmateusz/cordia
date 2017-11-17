@@ -15,7 +15,7 @@ if (PKG_CONFIG_FOUND)
     pkg_check_modules(OSRM_PKGCONF QUIET Osrm)
 endif ()
 
-find_path(OSRM_INCLUDE_DIR tsl/htrie_hash.h
+find_path(OSRM_INCLUDE_DIR osrm/osrm.hpp
         HINTS "${_OSRM_INCLUDE_LOCATIONS}"
         PATHS "${OSRM_PKGCONF_INCLUDE_DIRS}" "/usr/local/include")
 
