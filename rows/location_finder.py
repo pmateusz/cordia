@@ -1,75 +1,26 @@
 """Finds longitude and latitude for an address"""
 
-import math
 import urllib.parse
 
 import requests
 
-from address import Address
-
-
-class Coordinates:
-    """Coordinates in graphic coordination system"""
-
-    ABSOLUTE_ACCURACY = 0.001
-
-    def __init__(self, longitude, latitude):
-        self.__longitude = longitude
-        self.__latitude = latitude
-
-    @property
-    def longitude(self):
-        """Get property"""
-
-        return self.__longitude
-
-    @property
-    def latitude(self):
-        """Get property"""
-
-        return self.__latitude
-
-    def tuple(self):
-        """Returns object as tuple"""
-
-        return self.__longitude, self.__latitude
-
-    def __eq__(self, other):
-        if not isinstance(other, Coordinates):
-            return False
-
-        return math.isclose(float(self.__longitude), float(other.longitude), abs_tol=Coordinates.ABSOLUTE_ACCURACY) \
-            and math.isclose(float(self.__latitude), float(other.latitude), abs_tol=Coordinates.ABSOLUTE_ACCURACY)
-
-    def __hash__(self):
-        return hash(self.tuple())
-
-    def __repr__(self):
-        return self.tuple().__repr__()
-
-    def __str__(self):
-        return "({self.longitude}, {self.latitude})".format(self=self)
+from rows.coordinates import Coordinates
+from rows.address import Address
+from rows.point_of_interest import PointOfInterest
 
 
 class Result:
     """Results of a query to the location service"""
 
-    def __init__(self, address=None, coordinates=None, exception=None):
-        self.__address = address
-        self.__coordinates = coordinates
+    def __init__(self, result_set=None, exception=None):
+        self.__result_set = result_set
         self.__exception = exception
 
     @property
-    def address(self):
+    def result_set(self):
         """Get property"""
 
-        return self.__address
-
-    @property
-    def coordinates(self):
-        """Get property"""
-
-        return self.__coordinates
+        return self.__result_set
 
     @property
     def exception(self):
@@ -83,46 +34,52 @@ class Result:
 
         return bool(self.__exception)
 
+    @staticmethod
+    def from_json(rows):
+        """Returns an object created from rows"""
+
+        if not rows:
+            raise RuntimeError('Location service returned no results')
+
+        result_set = []
+        for row in rows:
+            if 'lon' not in row or 'lat' not in row:
+                raise RuntimeError('Geographic system coordinates not found')
+
+            if 'address' not in row:
+                raise RuntimeError('Address not found')
+
+            result_set.append({
+                'coordinates': Coordinates(longitude=row['lon'], latitude=row['lat']),
+                'address': Address(**row['address']),
+                'poi': PointOfInterest(row)})
+
+        if len(result_set) == 1:
+            return Result(result_set=result_set[0])
+        return Result(result_set=result_set)
+
 
 class LocationFinder:  # pylint: disable=too-few-public-methods
     """Finds longitude and latitude for an address"""
 
-    def __init__(self):
-        self.timeout = 1.0
-        self.http = requests
-        self.params = urllib.parse.urlencode({'format': 'json', 'addressdetails': 1})
-        self.endpoint = 'http://nominatim.openstreetmap.org/search'
+    def __init__(self, http_client=requests, timeout=1.0):
+        self.__timeout = timeout
+        self.__http_client = http_client
+        self.__params = urllib.parse.urlencode({'format': 'json', 'addressdetails': 1})
+        self.__endpoint = 'http://nominatim.openstreetmap.org/search'
 
     def find(self, address):
         """Sends a query to the location service"""
 
         url = self.__get_url(address)
-        response = self.http.request('GET', url)
-
         try:
+            response = self.__http_client.request('GET', url, timeout=self.__timeout)
             response.raise_for_status()
             results = response.json()
             if not results:
-                raise RuntimeError('Service returned no results')
-
-            addresses = []
-            coordinates = []
-            for row in results:
-                if 'lon' not in row or 'lat' not in row:
-                    raise RuntimeError('Geographic system coordinates not returned in results')
-                coordinates.append(Coordinates(longitude=row['lon'], latitude=row['lat']))
-
-                if 'address' not in row:
-                    raise RuntimeError('Address not returned in results')
-                addresses.append(Address(**row['address']))
-
-            if not addresses:
-                raise RuntimeError('Service returned no results')
-            elif len(addresses) == 1:
-                return Result(address=addresses[0], coordinates=coordinates[0])
-            else:
-                return Result(address=addresses, coordinates=coordinates)
-        except (requests.RequestException, RuntimeError) as ex:
+                raise RuntimeError('Location service returned no results')
+            return Result.from_json(results)
+        except (requests.exceptions.RequestException, RuntimeError) as ex:
             return Result(exception=ex)
 
     def __get_url(self, address):
@@ -131,15 +88,15 @@ class LocationFinder:  # pylint: disable=too-few-public-methods
         LocationFinder.__precondition_not_none(address.city, Address.CITY)
 
         if address.country_code:
-            return '/'.join([self.endpoint,
+            return '/'.join([self.__endpoint,
                              urllib.parse.quote(address.country_code),
                              urllib.parse.quote(address.city),
                              urllib.parse.quote(address.road),
-                             urllib.parse.quote(address.house_number) + '?' + self.params])
+                             urllib.parse.quote(address.house_number) + '?' + self.__params])
 
-        return '/'.join([self.endpoint,
+        return '/'.join([self.__endpoint,
                          urllib.parse.quote('{self.house_number} {self.road}, {self.city}'.format(self=address))
-                         + '?' + self.params])
+                         + '?' + self.__params])
 
     @staticmethod
     def __precondition_not_none(value, field_name):
