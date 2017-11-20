@@ -10,7 +10,6 @@ matrix:
     - language: cpp
       dist: trusty
       sudo: required
-      compiler: gcc
       addons:
         apt:
           sources:
@@ -31,6 +30,7 @@ matrix:
             - libtbb-dev
       install:
         - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-6 90
+        - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-6 90
       env:
         - CC=gcc-6 CXX=g++-6
       script:
