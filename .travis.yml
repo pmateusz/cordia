@@ -8,11 +8,9 @@ matrix:
         - find . -iname "*.py" | xargs python3 -m pytest
         - find rows* -iname "*.py" | xargs python3 -m pylint
     - language: cpp
-      compiler: gcc
       dist: trusty
       sudo: required
-      script:
-        - mkdir -p build && cd build && cmake .. && make -j 2
+      compiler: gcc
       addons:
         apt:
           sources:
@@ -33,6 +31,8 @@ matrix:
             - libtbb-dev
       env:
         - MATRIX_EVAL="CC=gcc-6 && CXX=g++-6"
+      script:
+        - mkdir -p build && cd build && cmake .. && make -j 2
 
 notifications:
   email: false
