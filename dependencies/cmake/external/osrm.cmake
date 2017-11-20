@@ -31,8 +31,6 @@ if (NOT __OSRM_INCLUDED) # guard against multiple includes
         set(OSRM_LIBRARY ${OSRM_LIBRARIES})
         set(OSRM_LIBRARY_DIRS ${osmr_INSTALL}/lib)
         set(OSRM_EXTERNAL TRUE)
-
-        set(external_project_dependencies ${external_project_dependencies} osrm)
     endif()
 
 endif()

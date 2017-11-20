@@ -52,8 +52,8 @@ target_include_directories(rows PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE
 set_property(TARGET rows PROPERTY CXX_STANDARD 14)
 # set_source_files_properties(${SOURCES} PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-deprecated")
 
-if(${external_project_dependencies})
-    add_dependencies(rows ${external_project_dependencies})
+if(${OSRM_EXTERNAL})
+    add_dependencies(rows osrm)
 endif()
 
 add_executable(rows-main "${CMAKE_SOURCE_DIR}/src/main/main.cpp")
