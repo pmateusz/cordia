@@ -9,6 +9,8 @@ matrix:
         - find rows* -iname "*.py" | xargs python3 -m pylint
     - language: cpp
       compiler: gcc
+      dist: trusty
+      sudo: required
       script:
         - mkdir -p build && cd build && cmake .. && make -j 2
       addons:
@@ -16,6 +18,7 @@ matrix:
           sources:
             - ubuntu-toolchain-r-test
           packages:
+            - gcc-6
             - g++-6
             - cmake
             - build-essential
