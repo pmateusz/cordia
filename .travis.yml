@@ -1,13 +1,38 @@
-language: python
-python:
-  - "3.5"
-
-install:
-  - pip install -r requirements.txt
-
-script:
-  - find . -iname "*.py" | xargs python3 -m pytest
-  - find rows* -iname "*.py" | xargs python3 -m pylint
+matrix:
+  include:
+    - language: python
+      python: "3.5"
+      install:
+        - pip install -r requirements.txt
+      script:
+        - find . -iname "*.py" | xargs python3 -m pytest
+        - find rows* -iname "*.py" | xargs python3 -m pylint
+    - language: cpp
+      compiler: gcc
+      script:
+        - mkdir -p build
+        - cmake --config build
+        - cmake --build build
+      os: linux
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - g++-6
+            - cmake
+            - build-essential
+            - git
+            - pkg-config
+            - libbz2-dev
+            - libxml2-dev
+            - libzip-dev
+            - libboost-all-dev
+            - lua5.2
+            - liblua5.2-dev
+            - libtbb-dev
+      env:
+        - MATRIX_EVAL="CC=gcc-6 && CXX=g++-6"
 
 notifications:
   email: false

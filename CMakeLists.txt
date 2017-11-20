@@ -3,6 +3,7 @@ project(rows LANGUAGES C CXX VERSION 0.0.1)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 
 # -Wall -> enable all warnings that are useful to avoid
@@ -26,6 +27,14 @@ include(ExternalProject)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/osrm.cmake)
 get_filename_component(NESTED_OSRM_INCLUDE_DIR osrm ABSOLUTE BASE_DIR ${OSRM_INCLUDE_DIR})
 
+find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(EXPAT REQUIRED)
+find_package(Boost REQUIRED COMPONENTS filesystem system thread iostreams regex)
+if(UNIX AND NOT APPLE)
+    set(MAYBE_RT_LIBRARY -lrt)
+endif()
+
 # Fix for compilation error in GTEST headers
 # ‘tuple_size’ is already declared in this scope
 #  using ::std::tuple_size;
@@ -37,9 +46,10 @@ get_filename_component(NESTED_OSRM_INCLUDE_DIR osrm ABSOLUTE BASE_DIR ${OSRM_INC
 file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/main/*.cpp")
 add_library(rows STATIC ${SOURCES})
 # target_compile_definitions(rows PUBLIC )
+# set(CMAKE_LINK_LIBRARY_FLAG "pthread ")
 
-target_include_directories(rows PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR})
-target_link_libraries(rows ${OSRM_LIBRARY})
+target_include_directories(rows PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR})
+set_property(TARGET rows PROPERTY CXX_STANDARD 14)
 # set_source_files_properties(${SOURCES} PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-deprecated")
 
 if(${external_project_dependencies})
@@ -47,5 +57,7 @@ if(${external_project_dependencies})
 endif()
 
 add_executable(rows-main "${CMAKE_SOURCE_DIR}/src/main/main.cpp")
-target_include_directories(rows-main PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR})
+target_include_directories(rows-main PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR})
+target_link_libraries(rows-main rows ${OSRM_LIBRARY} ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${EXPAT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${MAYBE_RT_LIBRARY})
+set_property(TARGET rows-main PROPERTY CXX_STANDARD 14)
 add_dependencies(rows-main rows)
