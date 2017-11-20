@@ -29,6 +29,8 @@ matrix:
             - lua5.2
             - liblua5.2-dev
             - libtbb-dev
+      install:
+        - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-6 90
       env:
         - CC=gcc-6 CXX=g++-6
       script:
