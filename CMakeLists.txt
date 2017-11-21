@@ -5,10 +5,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
-
-# -Wall -> enable all warnings that are useful to avoid
-# -Werror -> make all warnings errors
-# -Wl,-z,relro,-z,now -> enable full memory corruption mitigation technique
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-but-set-variable -Wno-unused-variable -Wall -Werror -Wl,-z,relro,-z,now")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -ggdb -pg")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Ofast")
@@ -26,6 +22,7 @@ set(OSRM_ROOT_DIR ${CMAKE_BINARY_DIR}/external/osrm-install)
 include(ExternalProject)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/osrm.cmake)
 get_filename_component(NESTED_OSRM_INCLUDE_DIR osrm ABSOLUTE BASE_DIR ${OSRM_INCLUDE_DIR})
+message(STATUS NESTED DIR: ${NESTED_OSRM_INCLUDE_DIR})
 
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -35,22 +32,11 @@ if(UNIX AND NOT APPLE)
     set(MAYBE_RT_LIBRARY -lrt)
 endif()
 
-# Fix for compilation error in GTEST headers
-# ‘tuple_size’ is already declared in this scope
-#  using ::std::tuple_size;
-# add_definitions(-DGTEST_USE_OWN_TR1_TUPLE=0)
-
-# Equivalent to enable_testing()
-# include(CTest)
-
 file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/main/*.cpp")
 add_library(rows STATIC ${SOURCES})
-# target_compile_definitions(rows PUBLIC )
-# set(CMAKE_LINK_LIBRARY_FLAG "pthread ")
 
 target_include_directories(rows PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR})
 set_property(TARGET rows PROPERTY CXX_STANDARD 14)
-# set_source_files_properties(${SOURCES} PROPERTIES COMPILE_FLAGS "-Wno-unused-variable -Wno-deprecated")
 
 if(${OSRM_EXTERNAL})
     add_dependencies(rows osrm)

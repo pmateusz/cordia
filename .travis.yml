@@ -34,7 +34,7 @@ matrix:
       env:
         - CC=gcc-6 CXX=g++-6
       script:
-        - mkdir -p build && cd build && cmake .. && make -j 2
+        - mkdir -p build && cd build && cmake .. && make -j 4
 
 notifications:
   email: false
