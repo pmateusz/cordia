@@ -39,7 +39,6 @@ if(${OSRM_EXTERNAL})
 else()
     get_filename_component(NESTED_OSRM_INCLUDE_DIR "osrm" ABSOLUTE BASE_DIR "${OSRM_INCLUDE_DIR}")
 endif()
-message(STATUS ${NESTED_OSRM_INCLUDE_DIR})
 
 target_include_directories(rows PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR})
 set_property(TARGET rows PROPERTY CXX_STANDARD 14)
@@ -49,3 +48,9 @@ target_include_directories(rows-main PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_IN
 target_link_libraries(rows-main rows ${OSRM_LIBRARY} ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${EXPAT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${MAYBE_RT_LIBRARY})
 set_property(TARGET rows-main PROPERTY CXX_STANDARD 14)
 add_dependencies(rows-main rows)
+
+include(ProcessorCount)
+ProcessorCount(NPROC)
+add_custom_target(build_all
+    COMMAND ${CMAKE_MAKE_PROGRAM} --jobs=${NPROC}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
