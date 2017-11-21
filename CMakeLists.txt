@@ -21,8 +21,6 @@ set(OSRM_ROOT_DIR ${CMAKE_BINARY_DIR}/external/osrm-install)
 
 include(ExternalProject)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/osrm.cmake)
-get_filename_component(NESTED_OSRM_INCLUDE_DIR osrm ABSOLUTE BASE_DIR ${OSRM_INCLUDE_DIR})
-message(STATUS NESTED DIR: ${NESTED_OSRM_INCLUDE_DIR})
 
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -35,12 +33,16 @@ endif()
 file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/main/*.cpp")
 add_library(rows STATIC ${SOURCES})
 
-target_include_directories(rows PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR})
-set_property(TARGET rows PROPERTY CXX_STANDARD 14)
-
 if(${OSRM_EXTERNAL})
     add_dependencies(rows osrm)
+    set(NESTED_OSRM_INCLUDE_DIR "${OSRM_INCLUDE_DIR}/osrm")
+else()
+    get_filename_component(NESTED_OSRM_INCLUDE_DIR "osrm" ABSOLUTE BASE_DIR "${OSRM_INCLUDE_DIR}")
 endif()
+message(STATUS ${NESTED_OSRM_INCLUDE_DIR})
+
+target_include_directories(rows PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR})
+set_property(TARGET rows PROPERTY CXX_STANDARD 14)
 
 add_executable(rows-main "${CMAKE_SOURCE_DIR}/src/main/main.cpp")
 target_include_directories(rows-main PUBLIC ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR})
