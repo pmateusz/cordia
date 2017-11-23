@@ -18,6 +18,8 @@
 
 #include <cstdlib>
 
+// TODO: rewrite to test
+
 int main(int argc, const char *argv[])
 {
     if (argc < 2)
@@ -32,6 +34,9 @@ int main(int argc, const char *argv[])
     EngineConfig config;
     config.storage_config = {argv[1]};
     config.use_shared_memory = false;
+    config.algorithm = EngineConfig::Algorithm::MLD;
+    // confignfig.verbosity = "Normal";
+    // config.IsValid();
 
     // Routing machine with several services (such as Route, Table, Nearest, Trip, Match)
     const OSRM osrm{config};
@@ -39,9 +44,9 @@ int main(int argc, const char *argv[])
     // The following shows how to use the Route service; configure this service
     RouteParameters params;
 
-    // Route in monaco
-    params.coordinates.push_back({util::FloatLongitude{7.419758}, util::FloatLatitude{43.731142}});
-    params.coordinates.push_back({util::FloatLongitude{7.419505}, util::FloatLatitude{43.736825}});
+    // Route in Glasgow
+    params.coordinates.push_back({util::FloatLongitude{-4.267129}, util::FloatLatitude{55.8659861}});
+    params.coordinates.push_back({util::FloatLongitude{-4.245461}, util::FloatLatitude{55.862235}});
 
     // Response is in JSON format
     json::Object result;

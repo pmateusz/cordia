@@ -33,6 +33,11 @@ matrix:
         - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-6 90
       env:
         - CC=gcc-6 CXX=g++-6
+      before_script:
+         - wget -qO - https://pmateusz.github.io/ubuntu/archive.key | sudo apt-key add -
+         - echo "deb https://pmateusz.github.io/ubuntu trusty main" | sudo tee -a /etc/apt/sources.list
+         - sudo apt-get update -qq
+         - sudo apt-get install --assume-yes libglog-dev libgtest-dev libgflags-dev libsparsehash-dev libortools-dev
       script:
         - mkdir -p build && cd build && cmake .. && cmake --build . --target build_all
 
