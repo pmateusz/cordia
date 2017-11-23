@@ -42,7 +42,9 @@ matrix:
          - tar -xzf gurobi7.5.1.tar.gz
          - rm gurobi7.5.1.tar.gz
          - sudo mv gurobi751 /opt/
+         - pushd .
          - cd /opt/gurobi751/linux64/lib && sudo ln -s libgurobi75.so libgurobi.so
+         - popd
       script:
         - mkdir -p build && cd build && cmake .. && cmake --build . --target build_all
 
