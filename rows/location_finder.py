@@ -4,9 +4,9 @@ import urllib.parse
 
 import requests
 
-from rows.coordinates import Coordinates
-from rows.address import Address
-from rows.point_of_interest import PointOfInterest
+from rows.model.address import Address
+from rows.model.location import Location
+from rows.model.point_of_interest import PointOfInterest
 
 
 class Result:
@@ -50,7 +50,7 @@ class Result:
                 raise RuntimeError('Address not found')
 
             result_set.append({
-                'coordinates': Coordinates(longitude=row['lon'], latitude=row['lat']),
+                'location': Location(longitude=row['lon'], latitude=row['lat']),
                 'address': Address(**row['address']),
                 'poi': PointOfInterest(row)})
 

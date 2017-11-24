@@ -50,6 +50,19 @@ class Address:  # pylint: disable=too-many-instance-attributes
                 self.__state,
                 self.__suburb)
 
+    def dict(self):
+        """Returns object as dictionary"""
+
+        return {Address.HOUSE_NUMBER: self.__house_number,
+                Address.ROAD: self.__road,
+                Address.CITY: self.__city,
+                Address.COUNTRY: self.__country,
+                Address.COUNTRY_CODE: self.__country_code,
+                Address.NEIGHBOURHOOD: self.__neighbourhood,
+                Address.POSTCODE: self.__postcode,
+                Address.STATE: self.__state,
+                Address.SUBURB: self.__suburb}
+
     @property
     def house_number(self):
         """Get property"""
