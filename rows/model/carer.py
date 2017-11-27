@@ -4,16 +4,16 @@
 class Carer:
     """Details an employee who can perform a visit"""
 
-    ID = 'id'
+    KEY = 'id'
 
     def __init__(self, **kwargs):
-        self.__id = kwargs.get(Carer.ID, None)
+        self.__key = kwargs.get(Carer.KEY, None)
 
     def __eq__(self, other):
         if not isinstance(other, Carer):
             return False
 
-        return self.__id == other.id
+        return self.__key == other.key
 
     def __hash__(self):
         return hash(self.tuple())
@@ -26,14 +26,20 @@ class Carer:
 
     def tuple(self):
         """Returns object as tuple"""
-        return self.__id,
+        return self.__key,
 
     def dict(self):
         """Returns object as dictionary"""
-        return {Carer.ID: self.__id}
+        return {Carer.KEY: self.__key}
 
     @property
-    def id(self):
+    def key(self):
         """Get a property"""
 
-        return self.__id
+        return self.__key
+
+    @staticmethod
+    def from_json(json_obj):
+        """Converts object from dictionary"""
+
+        return Carer(**json_obj)

@@ -12,7 +12,7 @@ class TestVisit(unittest.TestCase):
         """Can serialize a visit to a dictionary"""
         expected = Visit(id='1234567')
 
-        actual = Visit(**expected.dict())
+        actual = Visit(**expected.__dict__)
 
         self.assertEqual(actual, expected)
 

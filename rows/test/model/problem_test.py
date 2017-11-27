@@ -23,12 +23,13 @@ class TestProblem(unittest.TestCase):
                                        visits=[Visit(id='123456')])
 
     def test_dictionary_serialization(self):
-        """Can serialize carer from and to a file stream"""
-        actual = Problem(**self.example_problem.dict())
+        """Can serialize problem from a dictionary"""
+        actual = Problem(**self.example_problem.__dict__)
 
         self.assertEqual(actual, self.example_problem)
 
     def test_json_serialization(self):
+        """Can serialize problem to stream and deserialize from stream"""
         stream = io.StringIO()
 
         self.example_problem.to_json(stream)

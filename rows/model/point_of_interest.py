@@ -1,10 +1,12 @@
 """Point of interest at the GPS location"""
 
+import rows.model.data_object
 
-class PointOfInterest:  # pylint: disable=too-few-public-methods
+
+class PointOfInterest(rows.model.data_object.PrintableObject):  # pylint: disable=too-few-public-methods
     """Point of interest at the GPS location"""
 
-    class Tag:
+    class Tag(rows.model.data_object.PrintableObject):
         """Category of the point of interest"""
 
         def __init__(self, key=None, label=None, domain=None):
@@ -19,18 +21,7 @@ class PointOfInterest:  # pylint: disable=too-few-public-methods
             return self.__key == other.key and self.__label == other.label and self.__domain == other.domain
 
         def __hash__(self):
-            return hash(self.tuple())
-
-        def __str__(self):
-            return self.tuple().__str__()
-
-        def __repr__(self):
-            return self.tuple().__repr__()
-
-        def tuple(self):
-            """Returns object as tuple"""
-
-            return self.__key, self.__label, self.__domain
+            return hash((self.__key, self.__label, self.__domain))
 
         @property
         def domain(self):
@@ -67,24 +58,10 @@ class PointOfInterest:  # pylint: disable=too-few-public-methods
         if not isinstance(other, PointOfInterest):
             return False
 
-        return self.__tags == other.__tags
+        return self.__tags == other.tags
 
     def __hash__(self):
-        return hash(self.tuple())
-
-    def __str__(self):
-        return self.tuple().__str__()
-
-    def __repr__(self):
-        return self.tuple().__repr__()
-
-    def tuple(self):
-        """Returns object as tuple"""
-        return tuple(self.tags)
-
-    def dict(self):
-        """Returns object as dictionary"""
-        return {'tags': self.tags}
+        return hash(self.__tags)
 
     @property
     def tags(self):

@@ -52,7 +52,7 @@ class Result:
             result_set.append({
                 'location': Location(longitude=row['lon'], latitude=row['lat']),
                 'address': Address(**row['address']),
-                'poi': PointOfInterest(row)})
+                'poi': PointOfInterest(**row)})
 
         if len(result_set) == 1:
             return Result(result_set=result_set[0])

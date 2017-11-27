@@ -12,7 +12,7 @@ class TestArea(unittest.TestCase):
         """Can serialize an area to a dictionary"""
         expected = Area(id='1234567')
 
-        actual = Area(**expected.dict())
+        actual = Area(**expected.__dict__)
 
         self.assertEqual(actual, expected)
 
