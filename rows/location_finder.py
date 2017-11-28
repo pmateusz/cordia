@@ -59,7 +59,7 @@ class Result:
         return Result(result_set=result_set)
 
 
-class LocationFinder:  # pylint: disable=too-few-public-methods
+class LocationFinder:
     """Finds longitude and latitude for an address"""
 
     def __init__(self, http_client=requests, timeout=1.0):

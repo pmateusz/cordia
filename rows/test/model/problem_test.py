@@ -15,16 +15,16 @@ class TestProblem(unittest.TestCase):
     """Test problem"""
 
     def setUp(self):
-        self.example_problem = Problem(metadata=Problem.Metadata(area=Area(id=23),
+        self.example_problem = Problem(metadata=Problem.Metadata(area=Area(key=23),
                                                                  begin=datetime.date.today(),
                                                                  end=datetime.date.today() + datetime.timedelta(
                                                                      days=1)),
-                                       carers=[Carer(id='123456')],
-                                       visits=[Visit(id='123456')])
+                                       carers=[Carer(key='123456')],
+                                       visits=[Visit(key='123456')])
 
     def test_dictionary_serialization(self):
         """Can serialize problem from a dictionary"""
-        actual = Problem(**self.example_problem.__dict__)
+        actual = Problem(**self.example_problem.as_dict())
 
         self.assertEqual(actual, self.example_problem)
 

@@ -5,19 +5,21 @@ import json
 
 import dateutil.parser
 
+import rows.model.plain_object
+
 from rows.model.area import Area
 from rows.model.carer import Carer
 from rows.model.visit import Visit
 
 
-class Problem(object):
+class Problem(rows.model.plain_object.PlainOldDataObject):
     """Details an instance of the Home Care Scheduling Problem"""
 
     METADATA = 'metadata'
     CARERS = 'carers'
     VISITS = 'visits'
 
-    class Metadata(object):
+    class Metadata(rows.model.plain_object.PlainOldDataObject):
         """Home Care Scheduling Problem metadata"""
 
         AREA = 'area'
@@ -25,38 +27,25 @@ class Problem(object):
         END = 'end'
 
         def __init__(self, **kwargs):
+            super(Problem.Metadata, self).__init__()
+
             self.__area = kwargs.get(Problem.Metadata.AREA, None)
             self.__begin = kwargs.get(Problem.Metadata.BEGIN, None)
             self.__end = kwargs.get(Problem.Metadata.END, None)
 
-        def __eq__(self, other):
-            if not isinstance(other, Problem.Metadata):
-                return False
+        def as_dict(self):
+            bundle = super(Problem.Metadata, self).as_dict()
 
-            return self.__area == other.area \
-                   and self.__begin == other.begin \
-                   and self.__end == other.end
+            if self.__area:
+                bundle[Problem.Metadata.AREA] = self.__area.as_dict()
 
-        def __hash__(self):
-            return hash(self.tuple())
+            if self.__begin:
+                bundle[Problem.Metadata.BEGIN] = self.__begin
 
-        def __str__(self):
-            return self.__dict__.__str__()
+            if self.__end:
+                bundle[Problem.Metadata.END] = self.__end
 
-        def __repr__(self):
-            return self.__dict__.__str__()
-
-        def tuple(self):
-            """Converts object to tuple"""
-
-            return self.__area.tuple() if self.__area else None, self.__begin, self.__end
-
-        def dict(self):
-            """Converts object to dictionary"""
-
-            return {Problem.Metadata.AREA: self.__area,
-                    Problem.Metadata.BEGIN: self.__begin,
-                    Problem.Metadata.END: self.__end}
+            return bundle
 
         @staticmethod
         def from_json(json_obj):
@@ -83,39 +72,56 @@ class Problem(object):
 
             return Problem.Metadata(area=area, begin=begin, end=end)
 
+        @property
+        def area(self):
+            """Return a property"""
+
+            return self.__area
+
+        @property
+        def begin(self):
+            """Return a property"""
+
+            return self.__begin
+
+        @property
+        def end(self):
+            """Return a property"""
+
+            return self.__end
+
     def __init__(self, **kwargs):
+        super(Problem, self).__init__()
+
         self.__metadata = kwargs.get(Problem.METADATA, None)
         self.__carers = kwargs.get(Problem.CARERS, None)
         self.__visits = kwargs.get(Problem.VISITS, None)
 
-    def __eq__(self, other):
-        if not isinstance(other, Problem):
-            return False
-
-        return self.__metadata == other.metadata \
-               and self.__carers == other.carers \
-               and self.__visits == other.visits
-
-    def __str__(self):
-        return self.__dict__.__str__()
-
-    def __repr__(self):
-        return self.__dict__.__repr__()
-
     def to_json(self, stream):
         """Serialize object to a stream"""
 
-        json.dump(self.__dict__, stream, cls=JSONEncoder)
+        json.dump(self.as_dict(), stream, cls=JSONEncoder)
+
+    def as_dict(self):
+        bundle = super(Problem, self).as_dict()
+
+        if self.__metadata:
+            bundle[Problem.METADATA] = self.__metadata
+
+        if self.__carers:
+            bundle[Problem.CARERS] = list(self.__carers)
+
+        if self.__visits:
+            bundle[Problem.VISITS] = list(self.__visits)
+
+        return bundle
 
     @staticmethod
     def from_json(json_obj):
         """Deserialize object from dictionary"""
 
         metadata_json = json_obj.get(Problem.METADATA, None)
-        if metadata_json:
-            metadata = Problem.Metadata.from_json(metadata_json)
-        else:
-            metadata = None
+        metadata = Problem.Metadata.from_json(metadata_json) if metadata_json else None
 
         carers_json = json_obj.get(Problem.CARERS, None)
         carers = [Carer.from_json(carer_json) for carer_json in carers_json] if carers_json else []
@@ -151,7 +157,7 @@ class JSONEncoder(json.JSONEncoder):
 
     def default(self, o):  # pylint: disable=method-hidden
         if o.__class__ in JSONEncoder.UNZIP_CLASSES:
-            return o.dict()
+            return o.as_dict()
         if isinstance(o, datetime.date):
             return o.isoformat()
         return json.JSONEncoder.default(self, o)

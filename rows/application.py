@@ -1,6 +1,6 @@
 """Execute the main program."""
 
-# pylint: disable=too-few-public-methods, import-error, no-name-in-module, no-member
+# pylint: import-error, no-name-in-module, no-member
 
 import distutils.version
 import rows.parser

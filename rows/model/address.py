@@ -1,7 +1,9 @@
 """Postal address of a certain location"""
 
+import rows.model.plain_object
 
-class Address:  # pylint: disable=too-many-instance-attributes
+
+class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=too-many-instance-attributes
     """Postal address of a certain location"""
 
     ROAD = 'road'
@@ -15,8 +17,8 @@ class Address:  # pylint: disable=too-many-instance-attributes
     SUBURB = 'suburb'
 
     def __init__(self, **kwargs):
-        self.__house_number = kwargs.get(Address.HOUSE_NUMBER, None)
         self.__road = kwargs.get(Address.ROAD, None)
+        self.__house_number = kwargs.get(Address.HOUSE_NUMBER, None)
         self.__city = kwargs.get(Address.CITY, None)
         self.__country_code = kwargs.get(Address.COUNTRY_CODE, None)
         self.__country = kwargs.get(Address.COUNTRY, None)
@@ -25,94 +27,78 @@ class Address:  # pylint: disable=too-many-instance-attributes
         self.__state = kwargs.get(Address.STATE, None)
         self.__suburb = kwargs.get(Address.SUBURB, None)
 
-    def __eq__(self, other):
-        if not isinstance(other, Address):
-            return False
-
-        return self.__house_number == other.house_number and self.__road == other.road and self.__city == other.city \
-            and self.__country_code == other.country_code and self.__country == other.country \
-            and self.__neighbourhood == other.neighbourhood and self.__postcode == other.postcode \
-            and self.__state == other.state and self.__suburb == other.suburb
-
-    def __hash__(self):
-        return hash(self.tuple())
-
-    def tuple(self):
-        """Returns object as tuple"""
-
-        return (self.__house_number,
-                self.__road,
-                self.__city,
-                self.__country,
-                self.__country_code,
-                self.__neighbourhood,
-                self.__postcode,
-                self.__state,
-                self.__suburb)
-
-    def dict(self):
-        """Returns object as dictionary"""
-
-        return {Address.HOUSE_NUMBER: self.__house_number,
-                Address.ROAD: self.__road,
-                Address.CITY: self.__city,
-                Address.COUNTRY: self.__country,
-                Address.COUNTRY_CODE: self.__country_code,
-                Address.NEIGHBOURHOOD: self.__neighbourhood,
-                Address.POSTCODE: self.__postcode,
-                Address.STATE: self.__state,
-                Address.SUBURB: self.__suburb}
-
-    @property
-    def house_number(self):
-        """Get property"""
-
-        return self.__house_number
+    def as_dict(self):
+        bundle = super(Address, self).as_dict()
+        if self.__road:
+            bundle[Address.ROAD] = self.__road
+        if self.__house_number:
+            bundle[Address.HOUSE_NUMBER] = self.__house_number
+        if self.__city:
+            bundle[Address.CITY] = self.__city
+        if self.__country_code:
+            bundle[Address.COUNTRY_CODE] = self.__country_code
+        if self.__country:
+            bundle[Address.COUNTRY] = self.__country
+        if self.__neighbourhood:
+            bundle[Address.NEIGHBOURHOOD] = self.__neighbourhood
+        if self.__postcode:
+            bundle[Address.POSTCODE] = self.__postcode
+        if self.__state:
+            bundle[Address.STATE] = self.__state
+        if self.__suburb:
+            bundle[Address.SUBURB] = self.__suburb
+        return bundle
 
     @property
     def road(self):
-        """Get property"""
+        """Return a property"""
 
         return self.__road
 
     @property
+    def house_number(self):
+        """Get a property"""
+
+        return self.__house_number
+
+    @property
     def city(self):
-        """Get property"""
+        """Get a property"""
 
         return self.__city
 
     @property
-    def country(self):
-        """Get property"""
-
-        return self.__country
-
-    @property
     def country_code(self):
-        """Get property"""
+        """Get a property"""
 
         return self.__country_code
 
     @property
+    def country(self):
+        """Get a property"""
+
+        return self.__country
+
+    @property
     def neighbourhood(self):
-        """Get property"""
+        """Get a property"""
 
         return self.__neighbourhood
 
     @property
     def postcode(self):
-        """Get property"""
+        """Get a property"""
 
         return self.__postcode
 
     @property
     def state(self):
-        """Get property"""
+        """Get a property"""
 
         return self.__state
 
     @property
     def suburb(self):
-        """Get property"""
+        """Get a property"""
 
         return self.__suburb

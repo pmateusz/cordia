@@ -1,47 +1,56 @@
 """Point of interest at the GPS location"""
 
-import rows.model.data_object
+import rows.model.plain_object
 
 
-class PointOfInterest(rows.model.data_object.PrintableObject):  # pylint: disable=too-few-public-methods
+class PointOfInterest(rows.model.plain_object.PlainOldDataObject):
     """Point of interest at the GPS location"""
 
-    class Tag(rows.model.data_object.PrintableObject):
-        """Category of the point of interest"""
+    class Tag(rows.model.plain_object.PlainOldDataObject):
+        """Groups information about the point of interest"""
 
-        def __init__(self, key=None, label=None, domain=None):
-            self.__key = key
-            self.__label = label
-            self.__domain = domain
+        KEY = 'key'
+        LABEL = 'label'
+        DOMAIN = 'domain'
 
-        def __eq__(self, other):
-            if not isinstance(other, PointOfInterest.Tag):
-                return False
+        def __init__(self, **kwargs):
+            super(PointOfInterest.Tag, self).__init__()
 
-            return self.__key == other.key and self.__label == other.label and self.__domain == other.domain
+            self.__key = kwargs.get(PointOfInterest.Tag.KEY, None)
+            self.__label = kwargs.get(PointOfInterest.Tag.LABEL, None)
+            self.__domain = kwargs.get(PointOfInterest.Tag.DOMAIN, None)
 
-        def __hash__(self):
-            return hash((self.__key, self.__label, self.__domain))
+        def as_dict(self):
+            bundle = super(PointOfInterest.Tag, self).as_dict()
+            if self.__key:
+                bundle[PointOfInterest.Tag.KEY] = self.__key
+            if self.__label:
+                bundle[PointOfInterest.Tag.LABEL] = self.__label
+            if self.__domain:
+                bundle[PointOfInterest.Tag.DOMAIN] = self.__domain
+            return bundle
 
         @property
-        def domain(self):
-            """Returns a property"""
+        def key(self):
+            """Get a property"""
 
-            return self.__domain
+            return self.__key
 
         @property
         def label(self):
-            """Returns a property"""
+            """Get a property"""
 
             return self.__label
 
         @property
-        def key(self):
-            """Returns a property"""
+        def domain(self):
+            """Get a property"""
 
-            return self.__key
+            return self.__domain
 
     def __init__(self, **kwargs):
+        super(PointOfInterest, self).__init__()
+
         self.__tags = []
 
         # handle standard tag
@@ -52,19 +61,10 @@ class PointOfInterest(rows.model.data_object.PrintableObject):  # pylint: disabl
         key, label = kwargs.get('osm_id', None), kwargs.get('osm_type', None)
         # handle Open Street Map tag
         if key or label:
-            self.__tags.append(PointOfInterest.Tag(key=key, label=label))
-
-    def __eq__(self, other):
-        if not isinstance(other, PointOfInterest):
-            return False
-
-        return self.__tags == other.tags
-
-    def __hash__(self):
-        return hash(self.__tags)
+            self.__tags.append(PointOfInterest.Tag(key=key, label=label, domain=None))
 
     @property
     def tags(self):
-        """Get a property"""
+        """Return a property"""
 
         return self.__tags
