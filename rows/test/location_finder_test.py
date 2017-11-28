@@ -6,8 +6,8 @@ import unittest.mock
 import requests
 
 from rows.location_finder import LocationFinder
-from rows.address import Address
-from rows.coordinates import Coordinates
+from rows.model.address import Address
+from rows.model.location import Location
 
 
 class TestLocationFinder(unittest.TestCase):
@@ -23,8 +23,8 @@ class TestLocationFinder(unittest.TestCase):
 
         self.assertFalse(result.is_faulted)
         self.assertIsNotNone(result.result_set)
-        self.assertTrue('coordinates' in result.result_set)
-        self.assertEqual(result.result_set['coordinates'], Coordinates(longitude='-4.245461', latitude='55.862235'))
+        self.assertTrue('location' in result.result_set)
+        self.assertEqual(result.result_set['location'], Location(longitude='-4.245461', latitude='55.862235'))
 
     def test_multiple_locations_found(self):
         """should find multiple coordinates of a vogue location"""

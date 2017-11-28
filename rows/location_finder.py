@@ -4,9 +4,9 @@ import urllib.parse
 
 import requests
 
-from rows.coordinates import Coordinates
-from rows.address import Address
-from rows.point_of_interest import PointOfInterest
+from rows.model.address import Address
+from rows.model.location import Location
+from rows.model.point_of_interest import PointOfInterest
 
 
 class Result:
@@ -50,16 +50,16 @@ class Result:
                 raise RuntimeError('Address not found')
 
             result_set.append({
-                'coordinates': Coordinates(longitude=row['lon'], latitude=row['lat']),
+                'location': Location(longitude=row['lon'], latitude=row['lat']),
                 'address': Address(**row['address']),
-                'poi': PointOfInterest(row)})
+                'poi': PointOfInterest(**row)})
 
         if len(result_set) == 1:
             return Result(result_set=result_set[0])
         return Result(result_set=result_set)
 
 
-class LocationFinder:  # pylint: disable=too-few-public-methods
+class LocationFinder:
     """Finds longitude and latitude for an address"""
 
     def __init__(self, http_client=requests, timeout=1.0):

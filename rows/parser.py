@@ -43,7 +43,7 @@ class ValueHolder:
         return (self.__value, self.__is_default).__repr__()
 
 
-class Parser:  # pylint: disable=too-few-public-methods
+class Parser:
     """Parse and validate command line arguments."""
     COMMAND_PARSER = 'COMMAND NAME'
 
