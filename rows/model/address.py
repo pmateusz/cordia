@@ -1,5 +1,7 @@
 """Postal address of a certain location"""
 
+import re
+
 import rows.model.plain_object
 
 
@@ -12,7 +14,7 @@ class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=to
     COUNTRY_CODE = 'country_code'
     COUNTRY = 'country'
     NEIGHBOURHOOD = 'neighbourhood'
-    POSTCODE = 'postcode'
+    POST_CODE = 'post_code'
     STATE = 'state'
     SUBURB = 'suburb'
 
@@ -23,7 +25,7 @@ class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=to
         self.__country_code = kwargs.get(Address.COUNTRY_CODE, None)
         self.__country = kwargs.get(Address.COUNTRY, None)
         self.__neighbourhood = kwargs.get(Address.NEIGHBOURHOOD, None)
-        self.__postcode = kwargs.get(Address.POSTCODE, None)
+        self.__postcode = kwargs.get(Address.POST_CODE, None)
         self.__state = kwargs.get(Address.STATE, None)
         self.__suburb = kwargs.get(Address.SUBURB, None)
 
@@ -42,7 +44,7 @@ class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=to
         if self.__neighbourhood:
             bundle[Address.NEIGHBOURHOOD] = self.__neighbourhood
         if self.__postcode:
-            bundle[Address.POSTCODE] = self.__postcode
+            bundle[Address.POST_CODE] = self.__postcode
         if self.__state:
             bundle[Address.STATE] = self.__state
         if self.__suburb:
@@ -86,10 +88,14 @@ class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=to
         return self.__neighbourhood
 
     @property
-    def postcode(self):
+    def post_code(self):
         """Get a property"""
 
         return self.__postcode
+
+    @post_code.setter
+    def post_code(self, value):
+        self.__postcode = value
 
     @property
     def state(self):
@@ -102,3 +108,42 @@ class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=to
         """Get a property"""
 
         return self.__suburb
+
+    @staticmethod
+    def parse(text):
+        """Parses input text in natural language to an address"""
+
+        text_to_use = text.strip()
+
+        address_default_matcher = re.compile(
+            r'^(?P<house_number>\d+?)\s*,\s*(?P<road>(?:\w+\s+)*\w+)\s*,\s*(?P<city>(?:\w+\s+)*\w+)$')
+        address_backup_matcher = re.compile(
+            r'^(?P<house_number>\d+?)\s+(?P<road>(?:\w+\s+)*\w+)\s*,\s*(?P<city>(?:\w+\s+)*\w+)$')
+        street_matcher = re.compile(r'^(?P<house_number>\d+)\s+(?P<road>.*)$')
+        match = address_default_matcher.match(text_to_use)
+        if not match:
+            match = address_backup_matcher.match(text_to_use)
+
+        if match:
+            return Address(house_number=match.group('house_number').strip(),
+                           road=match.group('road').strip(),
+                           city=match.group('city').strip().capitalize())
+        else:
+            chunks = text_to_use.split(',')
+            if len(chunks) < 2:
+                # no unequivocal way to parse input
+                return None
+            raw_house_number = chunks[0:-2]
+            raw_road = chunks[-2].strip()
+            city = chunks[-1].strip()
+
+            match = street_matcher.match(raw_road)
+            if match:
+                raw_house_number.append(match.group('house_number'))
+                raw_road = match.group('road')
+
+            house_number = ' '.join([part.strip() for part in raw_house_number])
+            road = raw_road
+            city = city.capitalize()
+
+            return Address(house_number=house_number, road=road, city=city)
