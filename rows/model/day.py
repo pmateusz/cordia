@@ -63,10 +63,7 @@ def from_short_name(text):
     return None
 
 
-def from_iso_weekday(number):
+def from_date(date):
     """Convert input number to a day"""
 
-    if number < 1 or number > 7:
-        raise ValueError(number)
-
-    return DAYS[number - 1]
+    return DAYS[date.isoweekday() - 1]

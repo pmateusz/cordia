@@ -24,11 +24,12 @@ class CSVDataSource:
         self.__shift_patterns_file = os.path.realpath(shift_patterns)
         self.__visits_file = os.path.realpath(visits)
 
+        self.__loaded = False
         self.__carers = []
         self.__visits = []
         self.__carer_shift_patterns = collections.OrderedDict()
 
-    def load(self):  # pylint: disable=too-many-locals
+    def reload(self):  # pylint: disable=too-many-locals
         """Loads data from data sources"""
 
         reference_week = dateutil.parser.parse('29/01/2017').date()
@@ -55,6 +56,7 @@ class CSVDataSource:
                 shift_key, shift_week = row[3], int(row[4])
                 shift_pattern_carer_mapping[shift_key].append((carer, shift_week))
 
+        self.__visits = []
         with open(self.__visits_file) as file_stream:
             dialect = csv.Sniffer().sniff(file_stream.read(4096))
             file_stream.seek(0)
@@ -63,7 +65,6 @@ class CSVDataSource:
             # skip header
             next(reader)
 
-            self.__visits = []
             for row in reader:
                 if len(row) < 6:
                     logging.warning("Cannot parse visit: '%s'", row)
@@ -78,6 +79,7 @@ class CSVDataSource:
                                            duration=datetime.timedelta(minutes=int(raw_duration)),
                                            address=address))
 
+        self.__carer_shift_patterns = collections.OrderedDict()
         with open(self.__shift_patterns_file) as file_stream:
             dialect = csv.Sniffer().sniff(file_stream.read(4096))
             file_stream.seek(0)
@@ -100,7 +102,6 @@ class CSVDataSource:
 
                 events[key].append(ShiftPattern.Event(week=week, day=day, begin=begin, end=end))
 
-            self.__carer_shift_patterns = collections.OrderedDict()
             for key, events in events.items():
                 events_to_use = sorted(events)
                 for carer, shift_week in shift_pattern_carer_mapping[key]:
@@ -109,15 +110,36 @@ class CSVDataSource:
                                                                                 reference_week=reference_week,
                                                                                 reference_shift_week=shift_week)
 
-    def get_carers(self, visit=None):
+        self.__loaded = True
+
+    def get_carers(self):
         """Return all carers"""
 
-        if not visit:
-            return self.__carers
+        self.__reload_if()
+        return self.__carers
 
+    def get_carers_for_visit(self, visit):
+        """Return carers available for the visit"""
+
+        self.__reload_if()
         available_carers = set()
         for carer, shift_pattern in self.__carer_shift_patterns.items():
-            if shift_pattern.is_available(visit.date, visit.time, visit.duration):
+            if shift_pattern.is_available_fully(visit.date, visit.time, visit.duration):
+                available_carers.add(carer)
+
+        return list(available_carers)
+
+    def get_carers_for_area(self, area, begin_date, end_date):
+        """Return carers within the area"""
+
+        self.__reload_if()
+
+        logging.warning("Area '%s' is ignored by the data source", area)
+
+        available_carers = set()
+        for carer in self.__carers:
+            shift_pattern = self.__carer_shift_patterns[carer]
+            if shift_pattern and shift_pattern.is_available_partially(begin_date, end_date):
                 available_carers.add(carer)
 
         return list(available_carers)
@@ -125,4 +147,18 @@ class CSVDataSource:
     def get_visits(self):
         """Return all visits"""
 
+        self.__reload_if()
         return self.__visits
+
+    def get_visits_for_area(self, area, begin, end):
+        """Return visits within the area"""
+
+        self.__reload_if()
+
+        logging.warning("Area '%s' is ignored by the data source", area)
+
+        return [visit for visit in self.__visits if begin <= visit.date < end]
+
+    def __reload_if(self):
+        if not self.__loaded:
+            self.reload()
