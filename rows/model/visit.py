@@ -3,7 +3,7 @@
 import rows.model.plain_object
 
 
-class Visit(rows.model.plain_object.PlainOldDataObject):
+class Visit(rows.model.plain_object.PlainOldDatabaseObject):
     """Details a requested visit"""
 
     SERVICE_USER = 'service_user'
