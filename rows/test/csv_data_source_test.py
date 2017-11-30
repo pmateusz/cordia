@@ -18,6 +18,12 @@ class CSVDataSourceTest(unittest.TestCase):
                                          '../../data/cordia/home_carer_shift_pattern.csv',
                                          '../../data/cordia/service_user_visit.csv')
 
+        self.example_area = Area(key='test_key')
+        self.example_begin_datetime = datetime.datetime(2017, 2, 1)
+        self.example_begin_date = self.example_begin_datetime.date()
+        self.example_end_datetime = datetime.datetime(2017, 2, 7)
+        self.example_end_date = self.example_end_datetime.date()
+
     def test_load_carers(self):
         """Can load carers"""
 
@@ -35,32 +41,22 @@ class CSVDataSourceTest(unittest.TestCase):
     def test_load_visits_for_area(self):
         """Returns all visits within the area and time interval"""
 
-        # given
-        area = Area(key='test_key')
-        begin = datetime.date(2017, 2, 1)
-        end = datetime.date(2017, 2, 7)
-
         # when
-        visits = self.data_source.get_visits_for_area(area, begin, end)
+        visits = self.data_source.get_visits_for_area(self.example_area, self.example_begin_date, self.example_end_date)
 
         # then
         self.assertIsNotNone(visits)
         self.assertTrue(visits)
 
         for visit in visits:
-            self.assertTrue(begin <= visit.date)
-            self.assertTrue(visit.date < end)
+            self.assertTrue(self.example_begin_date <= visit.date)
+            self.assertTrue(visit.date < self.example_end_date)
 
     def test_load_carers_for_area(self):
         """Returns all carers within the area who are available in the time interval"""
 
-        # given
-        area = Area(key='test_key')
-        begin = datetime.date(2017, 2, 1)
-        end = datetime.date(2017, 2, 7)
-
         # when
-        carers = self.data_source.get_carers_for_area(area, begin, end)
+        carers = self.data_source.get_carers_for_area(self.example_area, self.example_begin_date, self.example_end_date)
 
         # then
         self.assertIsNotNone(carers)
@@ -76,6 +72,22 @@ class CSVDataSourceTest(unittest.TestCase):
                 missed_visits.append(visit)
 
         self.assertTrue(len(missed_visits) < 20)
+
+    def test_load_interval_for_carers(self):
+        """Returns events from carers' diary"""
+
+        carers = self.data_source.get_carers_for_area(self.example_area, self.example_begin_date, self.example_end_date)
+
+        self.assertIsNotNone(carers)
+        self.assertTrue(carers)
+        for carer in carers:
+            events = self.data_source.get_interval_for_carer(carer, self.example_begin_date, self.example_end_date)
+            self.assertIsNotNone(events)
+            self.assertTrue(events)
+
+            for event in events:
+                self.assertLessEqual(self.example_begin_datetime, event.begin)
+                self.assertLess(event.end, self.example_end_datetime)
 
 
 if __name__ == '__main__':

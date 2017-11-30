@@ -5,28 +5,29 @@ import collections
 import datetime
 import logging
 
-import os.path
-
 import dateutil.parser
 
 import rows.model.day
 from rows.model.address import Address
 from rows.model.carer import Carer
-from rows.model.shift_pattern import ExecutableShiftPattern, ShiftPattern
+from rows.model.event import RelativeEvent
+from rows.model.shift_pattern import ExecutableShiftPattern
 from rows.model.visit import Visit
 
 
 class CSVDataSource:
     """Loads test data from CSV"""
 
-    def __init__(self, carers, shift_patterns, visits):
-        self.__carers_file = os.path.realpath(carers)
-        self.__shift_patterns_file = os.path.realpath(shift_patterns)
-        self.__visits_file = os.path.realpath(visits)
+    def __init__(self, carers_file, shift_patterns_file, visits_file):
+        self.__carers_file = carers_file
+        self.__shift_patterns_file = shift_patterns_file
+        self.__visits_file = visits_file
 
         self.__loaded = False
         self.__carers = []
         self.__visits = []
+
+        # in this data set it is not possible to have carers assigned to multiple shift patterns
         self.__carer_shift_patterns = collections.OrderedDict()
 
     def reload(self):  # pylint: disable=too-many-locals
@@ -74,7 +75,7 @@ class CSVDataSource:
                 address = Address.parse(raw_address)
                 address.post_code = post_code.strip()
                 self.__visits.append(Visit(service_user=service_user,
-                                           date=dateutil.parser.parse(raw_date).date(),
+                                           date=datetime.datetime.strptime(raw_date, '%d/%m/%Y').date(),
                                            time=datetime.datetime.strptime(raw_time, '%H:%M:%S').time(),
                                            duration=datetime.timedelta(minutes=int(raw_duration)),
                                            address=address))
@@ -100,7 +101,7 @@ class CSVDataSource:
                 begin = datetime.time(hour=int(raw_begin_hour), minute=int(raw_begin_minutes))
                 end = datetime.time(hour=int(raw_end_hour), minute=int(raw_end_minutes))
 
-                events[key].append(ShiftPattern.Event(week=week, day=day, begin=begin, end=end))
+                events[key].append(RelativeEvent(week=week, day=day, begin=begin, end=end))
 
             for key, events in events.items():
                 events_to_use = sorted(events)
@@ -129,6 +130,13 @@ class CSVDataSource:
 
         return list(available_carers)
 
+    def get_interval_for_carer(self, carer, begin_date, end_date):
+        """Returns events from the carers' diary between dates"""
+
+        self.__reload_if()
+        shift_pattern = self.__carer_shift_patterns[carer]
+        return shift_pattern.interval(begin_date, end_date)
+
     def get_carers_for_area(self, area, begin_date, end_date):
         """Return carers within the area"""
 
@@ -139,7 +147,7 @@ class CSVDataSource:
         available_carers = set()
         for carer in self.__carers:
             shift_pattern = self.__carer_shift_patterns[carer]
-            if shift_pattern and shift_pattern.is_available_partially(begin_date, end_date):
+            if shift_pattern.is_available_partially(begin_date, end_date):
                 available_carers.add(carer)
 
         return list(available_carers)

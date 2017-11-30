@@ -5,7 +5,7 @@ import unittest.mock
 
 import requests
 
-from rows.location_finder import LocationFinder
+from rows.location_finder import WebLocationFinder
 from rows.model.address import Address
 from rows.model.location import Location
 
@@ -17,7 +17,7 @@ class TestLocationFinder(unittest.TestCase):
         """should find coordinates of an exact location"""
 
         address = Address(house_number=75, road='Montrose Street', city='Glasgow')
-        location_service = LocationFinder()
+        location_service = WebLocationFinder()
 
         result = location_service.find(address)
 
@@ -30,7 +30,7 @@ class TestLocationFinder(unittest.TestCase):
         """should find multiple coordinates of a vogue location"""
 
         address = Address(house_number=1, road='Montrose Street', city='Glasgow')
-        location_service = LocationFinder()
+        location_service = WebLocationFinder()
 
         result = location_service.find(address)
 
@@ -42,7 +42,7 @@ class TestLocationFinder(unittest.TestCase):
     def test_location_not_found(self):
         """should handle situations where location was not found"""
         address = Address(house_number=99999, road='Montrose Street', city='Glasgow')
-        location_service = LocationFinder()
+        location_service = WebLocationFinder()
 
         result = location_service.find(address)
 
@@ -57,7 +57,7 @@ class TestLocationFinder(unittest.TestCase):
     def test_network_timeout(self):
         """should handle situations where network service did not return result within a certain timeout"""
         address = Address(house_number=1, road='Montrose Street', city='Glasgow')
-        location_service = LocationFinder(timeout=0.01)
+        location_service = WebLocationFinder(timeout=0.01)
 
         result = location_service.find(address)
 
@@ -70,7 +70,7 @@ class TestLocationFinder(unittest.TestCase):
         http_mock.request.side_effect = requests.ConnectionError()
         address = Address(house_number=-1, road='', city='None')
 
-        location_service = LocationFinder(http_client=http_mock)
+        location_service = WebLocationFinder(http_client=http_mock)
         result = location_service.find(address)
 
         self.assertTrue(result.is_faulted)

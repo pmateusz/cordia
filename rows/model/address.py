@@ -29,6 +29,29 @@ class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=to
         self.__state = kwargs.get(Address.STATE, None)
         self.__suburb = kwargs.get(Address.SUBURB, None)
 
+    def __eq__(self, other):
+        return isinstance(other, Address) \
+               and self.road == other.road \
+               and self.house_number == other.house_number \
+               and self.city == other.city \
+               and self.country_code == other.country_code \
+               and self.country == other.country \
+               and self.neighbourhood == other.neighbourhood \
+               and self.post_code == other.post_code \
+               and self.state == other.state \
+               and self.suburb == other.suburb
+
+    def __hash__(self):
+        return hash((self.road,
+                     self.house_number,
+                     self.city,
+                     self.country_code,
+                     self.country,
+                     self.neighbourhood,
+                     self.post_code,
+                     self.state,
+                     self.suburb))
+
     def as_dict(self):
         bundle = super(Address, self).as_dict()
         if self.__road:
@@ -63,6 +86,10 @@ class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=to
 
         return self.__house_number
 
+    @house_number.setter
+    def house_number(self, value):
+        self.__house_number = value
+
     @property
     def city(self):
         """Get a property"""
@@ -95,6 +122,8 @@ class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=to
 
     @post_code.setter
     def post_code(self, value):
+        """Set a property"""
+
         self.__postcode = value
 
     @property

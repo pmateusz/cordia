@@ -1,11 +1,11 @@
 """Details an instance of the Home Care Scheduling Problem"""
 
-import datetime
 import json
 
 import dateutil.parser
 
 import rows.model.plain_object
+import rows.model.json
 
 from rows.model.area import Area
 from rows.model.carer import Carer
@@ -37,7 +37,7 @@ class Problem(rows.model.plain_object.PlainOldDataObject):
             bundle = super(Problem.Metadata, self).as_dict()
 
             if self.__area:
-                bundle[Problem.Metadata.AREA] = self.__area.as_dict()
+                bundle[Problem.Metadata.AREA] = self.__area
 
             if self.__begin:
                 bundle[Problem.Metadata.BEGIN] = self.__begin
@@ -100,7 +100,7 @@ class Problem(rows.model.plain_object.PlainOldDataObject):
     def to_json(self, stream):
         """Serialize object to a stream"""
 
-        json.dump(self.as_dict(), stream, cls=JSONEncoder)
+        json.dump(self.as_dict(), stream, cls=rows.model.json.JSONEncoder)
 
     def as_dict(self):
         bundle = super(Problem, self).as_dict()
@@ -148,16 +148,3 @@ class Problem(rows.model.plain_object.PlainOldDataObject):
         """Get a property"""
 
         return self.__visits
-
-
-class JSONEncoder(json.JSONEncoder):
-    """Encodes the Problem class in JSON format"""
-
-    UNZIP_CLASSES = [Area, Carer, Visit, Problem.Metadata]
-
-    def default(self, o):  # pylint: disable=method-hidden
-        if o.__class__ in JSONEncoder.UNZIP_CLASSES:
-            return o.as_dict()
-        if isinstance(o, datetime.date):
-            return o.isoformat()
-        return json.JSONEncoder.default(self, o)

@@ -1,78 +1,16 @@
 """Details a shift pattern"""
 
 import datetime
-import functools
 
 import rows.model.plain_object
 import rows.model.day
+from rows.model.event import AbsoluteEvent
 
 
 class ShiftPattern(rows.model.plain_object.PlainOldDatabaseObject):
     """Details a shift pattern"""
 
     EVENTS = 'events'
-
-    @functools.total_ordering
-    class Event(rows.model.plain_object.PlainOldDataObject):
-        """Details an event in a shift pattern"""
-
-        WEEK = 'week'
-        DAY = 'day'
-        BEGIN = 'begin'
-        END = 'end'
-
-        def __init__(self, **kwargs):
-            super(ShiftPattern.Event, self).__init__()
-
-            self.__week = kwargs.get(ShiftPattern.Event.WEEK, None)
-            self.__day = kwargs.get(ShiftPattern.Event.DAY, None)
-            self.__begin = kwargs.get(ShiftPattern.Event.BEGIN, None)
-            self.__end = kwargs.get(ShiftPattern.Event.END, None)
-
-        def __lt__(self, other):
-            if self.__week.__lt__(other.week):
-                return True
-            if self.__week == other.week:
-                if self.__day.__lt__(other.day):
-                    return True
-                if self.__day == other.day:
-                    if self.__begin.__lt__(other.begin):
-                        return True
-                    if self.__begin == other.begin:
-                        return self.__end.__lt__(other.end)
-            return False
-
-        def as_dict(self):
-            bundle = super(ShiftPattern.Event, self).as_dict()
-            bundle[ShiftPattern.Event.WEEK] = self.__week
-            bundle[ShiftPattern.Event.DAY] = self.__day
-            bundle[ShiftPattern.Event.BEGIN] = self.__begin
-            bundle[ShiftPattern.Event.END] = self.__end
-            return bundle
-
-        @property
-        def week(self):
-            """Get a property"""
-
-            return self.__week
-
-        @property
-        def day(self):
-            """Get a property"""
-
-            return self.__day
-
-        @property
-        def begin(self):
-            """Get a property"""
-
-            return self.__begin
-
-        @property
-        def end(self):
-            """Get a property"""
-
-            return self.__end
 
     def __init__(self, **kwargs):
         super(ShiftPattern, self).__init__(**kwargs)
@@ -193,7 +131,9 @@ class ExecutableShiftPattern(ShiftPattern):
         while current_begin < effective_end:
             for event in self.events:
                 if event.week == current_shift_week and event.day == current_day:
-                    yield (current_day, event.begin, event.end)
+                    current_date = current_begin.date()
+                    yield AbsoluteEvent(begin=ExecutableShiftPattern.__date_to_datetime(current_date, event.begin),
+                                        end=ExecutableShiftPattern.__date_to_datetime(current_date, event.end))
 
             current_begin += time_step
             current_day = rows.model.day.from_date(current_begin.date())
@@ -205,6 +145,11 @@ class ExecutableShiftPattern(ShiftPattern):
             return datetime.datetime(day=date.day, month=date.month, year=date.year,
                                      hour=time.hour, minute=time.minute, second=time.second)
         return datetime.datetime(day=date.day, month=date.month, year=date.year)
+
+    def interval(self, begin_date, end_date):
+        """Get list of events between dates"""
+
+        return list(self.__generate_intervals(begin_date, end_date))
 
     @property
     def reference_week(self):
