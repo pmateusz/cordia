@@ -61,6 +61,7 @@ class Parser:
     PULL_WINDOW_WIDTH_DEFAULT = datetime.timedelta(days=14)
     PULL_TO_ARG = '--to'
     PULL_TO_DEFAULT_ARG = PULL_FROM_DEFAULT_ARG + PULL_WINDOW_WIDTH_DEFAULT
+    PULL_OUTPUT_ARG = '--output'
 
     class PullFromArgAction(argparse.Action):
         """Validate the 'from' argument"""
@@ -119,6 +120,12 @@ class Parser:
                                  default=ValueHolder(Parser.PULL_TO_DEFAULT_ARG),
                                  type=Parser.__parse_date,
                                  action=Parser.PullToArgAction)
+
+        pull_parser.add_argument('-o',
+                                 Parser.PULL_OUTPUT_ARG,
+                                 help='Save output to the specified file',
+                                 type=str,
+                                 default='problem.json')
 
         subparsers.add_parser(name='solve',
                               help='solve an instance of the scheduling problem')

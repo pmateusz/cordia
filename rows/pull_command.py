@@ -18,21 +18,26 @@ class Handler:
     def __init__(self, application):
         self.__data_source = application.data_source
         self.__location_finder = application.location_finder
+        self.__console = application.console
 
     def __call__(self, command):
         area = getattr(command, 'area')
         begin = getattr(command, 'from').value
         end = getattr(command, 'to').value
+        output_file = getattr(command, 'output')
 
-        # TODO: allow other file names
-        # TODO: fail if file already exists
         problem = self.__create_problem(area, begin, end)
         try:
-            with open('problem.json', 'w') as file_stream:
+            with open(output_file, 'x') as file_stream:
                 json.dump(problem, file_stream, indent=2, sort_keys=False, cls=JSONEncoder)
             return 0
+        except FileExistsError:
+            error_msg = "The file '{0}' already exists. Please try again with a different name.".format(output_file)
+            self.__console.write_line(error_msg)
+            return 1
         except RuntimeError as ex:
             logging.error('Failed to save problem instance due to error: %s', ex)
+            return 1
 
     def __create_problem(self, area, begin, end):
         visits_by_address = collections.OrderedDict()

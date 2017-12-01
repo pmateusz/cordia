@@ -5,4 +5,4 @@ __pycache__/
 build/
 data/
 
-problem.json
+*problem.json

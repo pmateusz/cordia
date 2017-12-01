@@ -74,3 +74,9 @@ class Application:
         """Returns a property"""
 
         return self.__location_finder
+
+    @property
+    def console(self):
+        """Returns a property"""
+
+        return self.__console
