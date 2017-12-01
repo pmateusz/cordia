@@ -3,6 +3,7 @@
 .vscode/
 __pycache__/
 build/
+cmake-build-debug/
 data/
 
 *problem.json
