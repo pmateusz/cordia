@@ -1,9 +1,10 @@
 """Details an employee who can perform a visit"""
 
-import rows.model.plain_object
+import rows.model.object
+from rows.model.address import Address
 
 
-class Carer(rows.model.plain_object.PlainOldDatabaseObject):
+class Carer(rows.model.object.DatabaseObject):
     """Details an employee who can perform a visit"""
 
     SAP_NUMBER = 'sap_number'
@@ -25,10 +26,17 @@ class Carer(rows.model.plain_object.PlainOldDatabaseObject):
         return bundle
 
     @staticmethod
-    def from_json(json_obj):
+    def from_json(json):
         """Converts object from dictionary"""
 
-        return Carer(**json_obj)
+        address_json = json.get(Carer.ADDRESS, None)
+        address = Address(**address_json) if address_json else None
+        return Carer(**{
+            Carer.KEY: json.get(Carer.KEY),
+            Carer.ADDRESS: address,
+            Carer.POSITION: json.get(Carer.POSITION),
+            Carer.SAP_NUMBER: json.get(Carer.SAP_NUMBER)
+        })
 
     @property
     def sap_number(self):

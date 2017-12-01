@@ -2,10 +2,10 @@
 
 import math
 
-import rows.model.plain_object
+import rows.model.object
 
 
-class Location(rows.model.plain_object.PlainOldDataObject):
+class Location(rows.model.object.DataObject):
     """Coordinates in graphic coordination system"""
 
     ABSOLUTE_ACCURACY = 0.001
@@ -27,6 +27,15 @@ class Location(rows.model.plain_object.PlainOldDataObject):
         bundle[Location.LATITUDE] = self.__latitude
         bundle[Location.LONGITUDE] = self.__longitude
         return bundle
+
+    @staticmethod
+    def from_json(json):
+        """Creates object from dictionary"""
+
+        latitude = json.get(Location.LATITUDE)
+        longitude = json.get(Location.LONGITUDE)
+
+        return Location(**{Location.LONGITUDE: longitude, Location.LATITUDE: latitude})
 
     @staticmethod
     def __is_close(left, right):

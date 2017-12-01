@@ -4,19 +4,19 @@
 
 import os
 
-import distutils.version
 import rows.parser
 import rows.console
 import rows.location_finder
 import rows.csv_data_source
 import rows.pull_command
+import rows.version
 
 
 class Application:
     """Execute the main program according to the input arguments"""
 
+    EXIT_OK = 0
     PROGRAM_NAME = 'rows_cli'
-    VERSION = distutils.version.StrictVersion('0.0.1')
 
     def __init__(self):
         self.__console = rows.console.Console()
@@ -31,10 +31,14 @@ class Application:
         self.__handlers = {rows.parser.Parser.PULL_COMMAND: rows.pull_command.Handler(self)}
 
     def load(self):
+        """Initialize application components"""
+
         self.__data_source.reload()
         self.__location_cache.reload()
 
     def dispose(self):
+        """Release application components"""
+
         self.__location_cache.save()
 
     def run(self, args):
@@ -56,7 +60,7 @@ class Application:
         return os.path.realpath(os.path.expandvars(os.path.expanduser(file_path)))
 
     def __handle_version(self, __namespace):
-        message = '{0} version {1}'.format(Application.PROGRAM_NAME, Application.VERSION)
+        message = '{0} version {1}'.format(Application.PROGRAM_NAME, rows.version.VERSION)
         self.__console.write_line(message)
 
     @property

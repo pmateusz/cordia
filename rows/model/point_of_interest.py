@@ -1,12 +1,12 @@
 """Point of interest at the GPS location"""
 
-import rows.model.plain_object
+import rows.model.object
 
 
-class PointOfInterest(rows.model.plain_object.PlainOldDataObject):
+class PointOfInterest(rows.model.object.DataObject):
     """Point of interest at the GPS location"""
 
-    class Tag(rows.model.plain_object.PlainOldDataObject):
+    class Tag(rows.model.object.DataObject):
         """Groups information about the point of interest"""
 
         KEY = 'key'

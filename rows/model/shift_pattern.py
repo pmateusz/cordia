@@ -2,12 +2,12 @@
 
 import datetime
 
-import rows.model.plain_object
+import rows.model.object
 import rows.model.day
 from rows.model.event import AbsoluteEvent
 
 
-class ShiftPattern(rows.model.plain_object.PlainOldDatabaseObject):
+class ShiftPattern(rows.model.object.DatabaseObject):
     """Details a shift pattern"""
 
     EVENTS = 'events'

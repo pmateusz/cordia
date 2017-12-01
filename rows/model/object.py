@@ -3,7 +3,7 @@
 import collections
 
 
-class PlainOldDataObject:
+class DataObject:
     """Base class for Plain Old Data Object"""
 
     def __eq__(self, other):
@@ -25,19 +25,19 @@ class PlainOldDataObject:
         return collections.OrderedDict()
 
 
-class PlainOldDatabaseObject(PlainOldDataObject):
+class DatabaseObject(DataObject):
     """Base class for Plain Old Data Objects stored in database"""
 
     KEY = 'key'
 
     def __init__(self, **kwargs):
-        self.__key = kwargs.get(PlainOldDatabaseObject.KEY, None)
+        self.__key = kwargs.get(DatabaseObject.KEY, None)
 
     def as_dict(self):
         """Returns object as dictionary"""
 
-        bundle = super(PlainOldDatabaseObject, self).as_dict()
-        bundle[PlainOldDatabaseObject.KEY] = self.__key
+        bundle = super(DatabaseObject, self).as_dict()
+        bundle[DatabaseObject.KEY] = self.__key
         return bundle
 
     @property

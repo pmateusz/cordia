@@ -1,9 +1,12 @@
 """Details a requested visit"""
 
-import rows.model.plain_object
+import rows.model.object
+import rows.model.datetime
+
+from rows.model.address import Address
 
 
-class Visit(rows.model.plain_object.PlainOldDatabaseObject):
+class Visit(rows.model.object.DatabaseObject):
     """Details a requested visit"""
 
     SERVICE_USER = 'service_user'
@@ -31,10 +34,29 @@ class Visit(rows.model.plain_object.PlainOldDatabaseObject):
         return bundle
 
     @staticmethod
-    def from_json(json_obj):
+    def from_json(json):
         """Create object from dictionary"""
 
-        return Visit(**json_obj)
+        user = json.get(Visit.SERVICE_USER, None)
+
+        address_json = json.get(Visit.ADDRESS, None)
+        address = Address.from_json(address_json) if address_json else None
+
+        date_json = json.get(Visit.DATE, None)
+        date = rows.model.datetime.try_parse_iso_date(date_json) if date_json else None
+
+        time_json = json.get(Visit.TIME, None)
+        time = rows.model.datetime.try_parse_iso_time(time_json) if time_json else None
+
+        duration_json = json.get(Visit.DURATION, None)
+        duration = rows.model.datetime.try_parse_duration(duration_json) if duration_json else None
+
+        return Visit(**{Visit.KEY: json.get(Visit.KEY, None),
+                        Visit.SERVICE_USER: user,
+                        Visit.DATE: date,
+                        Visit.TIME: time,
+                        Visit.DURATION: duration,
+                        Visit.ADDRESS: address})
 
     @property
     def service_user(self):

@@ -1,11 +1,13 @@
 """Details relative and absolute events"""
 
 import functools
-import rows.model.plain_object
+
+import rows.model.datetime
+import rows.model.object
 
 
 @functools.total_ordering
-class RelativeEvent(rows.model.plain_object.PlainOldDataObject):
+class RelativeEvent(rows.model.object.DataObject):
     """Details an recurring event"""
 
     WEEK = 'week'
@@ -67,7 +69,7 @@ class RelativeEvent(rows.model.plain_object.PlainOldDataObject):
         return self.__end
 
 
-class AbsoluteEvent(rows.model.plain_object.PlainOldDataObject):
+class AbsoluteEvent(rows.model.object.DataObject):
     """Details an event with specified date and time"""
 
     BEGIN = 'begin'
@@ -78,6 +80,27 @@ class AbsoluteEvent(rows.model.plain_object.PlainOldDataObject):
 
         self.__begin = kwargs.get(AbsoluteEvent.BEGIN, None)
         self.__end = kwargs.get(AbsoluteEvent.END, None)
+
+    def __eq__(self, other):
+        return isinstance(other, AbsoluteEvent) and self.begin == other.begin and self.end == other.end
+
+    @staticmethod
+    def from_json(json):
+        """Create object from dictionary"""
+
+        begin_json = json.get(AbsoluteEvent.BEGIN)
+        begin = rows.model.datetime.try_parse_iso_datetime(begin_json) if begin_json else None
+
+        end_json = json.get(AbsoluteEvent.END)
+        end = rows.model.datetime.try_parse_iso_datetime(end_json) if end_json else None
+
+        return AbsoluteEvent(**{AbsoluteEvent.BEGIN: begin, AbsoluteEvent.END: end})
+
+    def as_dict(self):
+        bundle = super(AbsoluteEvent, self).as_dict()
+        bundle[AbsoluteEvent.BEGIN] = self.__begin
+        bundle[AbsoluteEvent.END] = self.__end
+        return bundle
 
     @property
     def begin(self):

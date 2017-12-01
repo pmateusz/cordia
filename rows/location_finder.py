@@ -3,12 +3,12 @@
 import urllib.parse
 
 import copy
+import json
 import logging
 import re
-import requests
-import time
-import json
 import sys
+
+import requests
 
 import rows.model.json
 
@@ -47,14 +47,14 @@ class Result:
         return bool(self.__exception)
 
     @staticmethod
-    def from_json(rows):
+    def from_json(json_array):
         """Returns an object created from rows"""
 
-        if not rows:
+        if not json_array:
             raise RuntimeError('Location service returned no results')
 
         result_set = []
-        for row in rows:
+        for row in json_array:
             if 'lon' not in row or 'lat' not in row:
                 raise RuntimeError('Geographic system coordinates not found')
 
@@ -131,14 +131,20 @@ class FileSystemCache:
         self.__cache = {}
 
     def find(self, address):
+        """Returns cached location"""
+
         if address in self.__cache:
             return self.__cache[address]
         return None
 
     def insert_or_update(self, address, location):
+        """Updates cache"""
+
         self.__cache[address] = location
 
     def try_reload(self):
+        """Tries to reload cache"""
+
         try:
             candidate = FileSystemCache.__get_difficult_locations()
             try:
@@ -159,10 +165,14 @@ class FileSystemCache:
         return False
 
     def reload(self):
+        """Removes local cache entries and tries to reload cache"""
+
         self.__cache.clear()
         self.try_reload()
 
     def save(self):
+        """Saves a copy of cached entries in the file system"""
+
         try:
             with open(self.__file_path, 'w') as stream:
                 json.dump(list(self.__cache.items()), stream, indent=2, sort_keys=True, cls=rows.model.json.JSONEncoder)

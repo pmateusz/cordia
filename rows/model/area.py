@@ -1,9 +1,9 @@
 """Details area"""
 
-import rows.model.plain_object
+import rows.model.object
 
 
-class Area(rows.model.plain_object.PlainOldDatabaseObject):
+class Area(rows.model.object.DatabaseObject):
     """Area of operations and management"""
 
     def __init__(self, **kwargs):  # pylint: disable=useless-super-delegation

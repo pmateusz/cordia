@@ -2,10 +2,10 @@
 
 import re
 
-import rows.model.plain_object
+import rows.model.object
 
 
-class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=too-many-instance-attributes
+class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instance-attributes
     """Postal address of a certain location"""
 
     ROAD = 'road'
@@ -60,19 +60,25 @@ class Address(rows.model.plain_object.PlainOldDataObject):  # pylint: disable=to
             bundle[Address.HOUSE_NUMBER] = self.__house_number
         if self.__city:
             bundle[Address.CITY] = self.__city
+        if self.__postcode:
+            bundle[Address.POST_CODE] = self.__postcode
         if self.__country_code:
             bundle[Address.COUNTRY_CODE] = self.__country_code
         if self.__country:
             bundle[Address.COUNTRY] = self.__country
         if self.__neighbourhood:
             bundle[Address.NEIGHBOURHOOD] = self.__neighbourhood
-        if self.__postcode:
-            bundle[Address.POST_CODE] = self.__postcode
         if self.__state:
             bundle[Address.STATE] = self.__state
         if self.__suburb:
             bundle[Address.SUBURB] = self.__suburb
         return bundle
+
+    @staticmethod
+    def from_json(json):
+        """Create object from dictionary"""
+
+        return Address(**json)
 
     @property
     def road(self):
