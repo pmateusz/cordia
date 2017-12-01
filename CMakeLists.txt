@@ -59,10 +59,11 @@ get_filename_component(HEADERS "${CMAKE_SOURCE_DIR}/src/main" REALPATH)
 
 file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/main/*.cpp")
 add_library(rows STATIC ${SOURCES})
-target_include_directories(rows PUBLIC ${HEADERS} ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR} ${Json_INCLUDE_DIR} ${GLOG_INCLUDE_DIR})
+target_include_directories(rows PUBLIC ${HEADERS} ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR} ${JSON_INCLUDE_DIR} ${GLOG_INCLUDE_DIR})
 set_property(TARGET rows PROPERTY CXX_STANDARD 14)
 
 add_executable(rows-main "${CMAKE_SOURCE_DIR}/src/main/rows-solver.cpp")
+target_include_directories(rows-main PUBLIC ${HEADERS} ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR} ${JSON_INCLUDE_DIR} ${GLOG_INCLUDE_DIR})
 target_link_libraries(rows-main
         rows
         ${ORTOOLS_LIBRARY}

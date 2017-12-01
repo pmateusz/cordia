@@ -19,12 +19,13 @@ if (NOT __JSON_INCLUDED)
                 PATCH_COMMAND ""
                 UPDATE_COMMAND ""
                 CONFIGURE_COMMAND ""
-                INSTALL_COMMAND mkdir -p ${json_INSTALL}/json/include/json &&
-                    ${CMAKE_COMMAND} -E copy ${json_PREFIX}/src/json.hpp ${json_INSTALL}/json/include/json/
+                INSTALL_COMMAND mkdir -p ${json_INSTALL}/include/nlohmann &&
+                ${CMAKE_COMMAND} -E copy ${json_PREFIX}/src/json.hpp ${json_INSTALL}/include/nlohmann/
                 DOWNLOAD_NO_EXTRACT 1)
 
         set(JSON_FOUND TRUE)
         set(JSON_INCLUDE_DIRS ${json_INSTALL}/include)
+        set(JSON_INCLUDE_DIR ${JSON_INCLUDE_DIRS})
         set(JSON_EXTERNAL TRUE)
 
         list(APPEND external_project_dependencies json)

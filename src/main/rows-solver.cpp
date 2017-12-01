@@ -2,6 +2,8 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 
+#include "nlohmann/json.hpp"
+
 #include "util/logging.h"
 
 DEFINE_string(problem_instance,
@@ -18,4 +20,10 @@ int main(int argc, char **argv) {
     gflags::ParseCommandLineFlags(&argc, &argv, REMOVE_FLAGS);
 
     LOG(INFO) << "Launched with problem file: " << FLAGS_problem_instance;
+
+    std::ifstream problem_instance_file(FLAGS_problem_instance);
+    nlohmann::json json;
+    problem_instance_file >> json;
+
+    std::cout << json;
 }

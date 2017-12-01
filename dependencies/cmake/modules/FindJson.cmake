@@ -24,7 +24,7 @@ if (PKG_CONFIG_FOUND)
 endif ()
 
 # We are testing only a couple of files in the include directories
-find_path(JSON_INCLUDE_DIR json/json.hpp
+find_path(JSON_INCLUDE_DIR nlohmann/json.hpp
         HINTS "${_JSON_INCLUDE_LOCATIONS}"
         PATHS "${JSON_PKGCONF_INCLUDE_DIRS}" "/usr/local/include")
 
