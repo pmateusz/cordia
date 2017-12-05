@@ -24,8 +24,8 @@ class Location(rows.model.object.DataObject):
 
     def as_dict(self):
         bundle = super(Location, self).as_dict()
-        bundle[Location.LATITUDE] = self.__latitude
-        bundle[Location.LONGITUDE] = self.__longitude
+        bundle[Location.LATITUDE] = str(self.__latitude)
+        bundle[Location.LONGITUDE] = str(self.__longitude)
         return bundle
 
     @staticmethod

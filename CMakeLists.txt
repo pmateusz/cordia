@@ -56,17 +56,12 @@ else ()
 endif ()
 
 get_filename_component(HEADERS "${CMAKE_SOURCE_DIR}/src/main" REALPATH)
-
-file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/main/*.cpp")
-add_library(rows STATIC ${SOURCES})
-target_include_directories(rows PUBLIC ${HEADERS} ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR} ${JSON_INCLUDE_DIR} ${GLOG_INCLUDE_DIR})
-set_property(TARGET rows PROPERTY CXX_STANDARD 14)
-
-add_executable(rows-main "${CMAKE_SOURCE_DIR}/src/main/rows-solver.cpp")
-target_include_directories(rows-main PUBLIC ${HEADERS} ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${Boost_INCLUDE_DIR} ${JSON_INCLUDE_DIR} ${GLOG_INCLUDE_DIR})
-target_link_libraries(rows-main
-        rows
-        ${ORTOOLS_LIBRARY}
+set(HEADER_DEP ${OSRM_INCLUDE_DIR}
+        ${NESTED_OSRM_INCLUDE_DIR}
+        ${Boost_INCLUDE_DIR}
+        ${JSON_INCLUDE_DIR}
+        ${GLOG_INCLUDE_DIR})
+set(LIBRARY_DEP ${ORTOOLS_LIBRARY}
         ${OSRM_LIBRARY}
         ${Boost_LIBRARIES}
         ${ZLIB_LIBRARIES}
@@ -74,6 +69,15 @@ target_link_libraries(rows-main
         ${GTEST_LIBRARIES}
         ${CMAKE_THREAD_LIBS_INIT}
         ${MAYBE_RT_LIBRARY})
+
+file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/main/*.cpp")
+add_library(rows STATIC ${SOURCES})
+target_include_directories(rows PUBLIC ${HEADERS} ${HEADER_DEP})
+set_property(TARGET rows PROPERTY CXX_STANDARD 14)
+
+add_executable(rows-main "${CMAKE_SOURCE_DIR}/src/main/rows-solver.cpp")
+target_include_directories(rows-main PUBLIC ${HEADERS} ${HEADER_DEP})
+target_link_libraries(rows-main rows ${LIBRARY_DEP})
 set_property(TARGET rows-main PROPERTY CXX_STANDARD 14)
 
 get_filename_component(TEST_HEADERS "${CMAKE_SOURCE_DIR}/src/test" REALPATH)
@@ -82,7 +86,7 @@ get_filename_component(TEST_HEADERS "${CMAKE_SOURCE_DIR}/src/test" REALPATH)
 file(GLOB_RECURSE TEST_SOURCES "${CMAKE_SOURCE_DIR}/src/test/*.cpp")
 add_library(rows-test STATIC ${TEST_SOURCES})
 target_compile_definitions(rows-test PUBLIC ${ORTOOLS_COMPILER_DEFINITIONS})
-target_include_directories(rows-test PUBLIC ${TEST_HEADERS} ${HEADERS} ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${GTEST_INCLUDE_DIR} ${GLOG_INCLUDE_DIR})
+target_include_directories(rows-test PUBLIC ${TEST_HEADERS} ${HEADERS} ${HEADER_DEP})
 add_dependencies(rows-test rows)
 
 if (${OSRM_EXTERNAL})
@@ -125,14 +129,8 @@ macro(m_add_executable GOAL SOURCE)
     target_link_libraries(${GOAL}
             rows-test
             rows
-            ${ORTOOLS_LIBRARY}
-            ${OSRM_LIBRARY}
-            ${Boost_LIBRARIES}
-            ${ZLIB_LIBRARIES}
-            ${EXPAT_LIBRARIES}
-            ${GTEST_LIBRARIES}
-            ${CMAKE_THREAD_LIBS_INIT}
-            ${MAYBE_RT_LIBRARY})
+            ${LIBRARY_DEP})
+    target_include_directories(${GOAL} PUBLIC ${TEST_HEADERS} ${HEADERS} ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${GTEST_INCLUDE_DIR} ${GLOG_INCLUDE_DIR})
     set_property(TARGET ${GOAL} PROPERTY CXX_STANDARD 14)
     add_dependencies(${GOAL} rows-test)
 endmacro()
