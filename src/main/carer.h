@@ -23,9 +23,9 @@ namespace rows {
 
         friend std::ostream &operator<<(std::ostream &out, const Carer &object);
 
-        bool operator==(const Carer &other);
+        bool operator==(const Carer &other) const;
 
-        bool operator!=(const Carer &other);
+        bool operator!=(const Carer &other) const;
 
         const std::string &sap_number() const;
 

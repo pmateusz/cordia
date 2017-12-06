@@ -23,11 +23,11 @@ namespace rows {
         return *this;
     }
 
-    bool Carer::operator==(const Carer &other) {
+    bool Carer::operator==(const Carer &other) const {
         return sap_number_ == other.sap_number_;
     }
 
-    bool Carer::operator!=(const Carer &other) {
+    bool Carer::operator!=(const Carer &other) const {
         return !operator==(other);
     }
 

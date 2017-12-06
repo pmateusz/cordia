@@ -18,16 +18,22 @@ namespace rows {
     public:
         Problem() = default;
 
-        Problem(std::vector<Visit> visits, std::unordered_map<Carer, std::vector<Diary> > carers);
+        Problem(std::vector<Visit> visits, std::vector<std::pair<Carer, std::vector<Diary> > > carers);
 
         const std::vector<Visit> &visits() const;
 
-        const std::unordered_map<Carer, std::vector<Diary> > &carers() const;
+        const std::vector<std::pair<Carer, std::vector<Diary> > > &carers() const;
+
+        /*!
+         * Runs fast checks to test if the problem can be solved
+         * @return
+         */
+        bool IsAdmissible() const;
 
         class JsonLoader {
         public:
             /*!
-             * \throws std::domain_error
+             * @throws std::domain_error
              */
             template<typename JsonType>
             Problem Load(const JsonType &document);
@@ -39,12 +45,12 @@ namespace rows {
             std::vector<Visit> LoadVisits(const JsonType &document);
 
             template<typename JsonType>
-            std::unordered_map<Carer, std::vector<Diary> > LoadCarers(const JsonType &document);
+            std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > LoadCarers(const JsonType &document);
         };
 
     private:
         std::vector<Visit> visits_;
-        std::unordered_map<Carer, std::vector<Diary> > carers_;
+        std::vector<std::pair<Carer, std::vector<Diary> > > carers_;
     };
 }
 
@@ -99,8 +105,9 @@ namespace rows {
     }
 
     template<typename JsonType>
-    std::unordered_map<Carer, std::vector<Diary> > Problem::JsonLoader::LoadCarers(const JsonType &json) {
-        std::unordered_map<rows::Carer, std::vector<rows::Diary> > result;
+    std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > >
+    Problem::JsonLoader::LoadCarers(const JsonType &json) {
+        std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > result;
 
         const auto carers_it = json.find("carers");
         if (carers_it == std::end(json)) { throw OnKeyNotFound("carers"); }
@@ -146,6 +153,8 @@ namespace rows {
 
                 diaries.emplace_back(date, events);
             }
+
+            result.emplace_back(carer, diaries);
         }
 
         return result;

@@ -14,6 +14,8 @@ namespace rows {
 
     class Diary {
     public:
+        Diary();
+
         Diary(boost::gregorian::date date, std::vector<rows::Event> events);
 
         Diary(const Diary &other);
@@ -29,6 +31,10 @@ namespace rows {
         bool operator!=(const Diary &other) const;
 
         boost::gregorian::date date() const;
+
+        boost::posix_time::time_duration begin_time() const;
+
+        boost::posix_time::time_duration end_time() const;
 
         const std::vector<rows::Event> &events() const;
 

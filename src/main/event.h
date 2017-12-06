@@ -8,6 +8,7 @@
 
 namespace rows {
 
+    // TODO: switch to time period
     class Event {
     public:
         Event(const boost::posix_time::ptime &begin, const boost::posix_time::ptime &end);

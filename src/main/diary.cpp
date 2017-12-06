@@ -3,10 +3,14 @@
 #include <vector>
 #include <string>
 
+#include <boost/date_time.hpp>
 #include <boost/format.hpp>
 #include <boost/algorithm/string/join.hpp>
 
 namespace rows {
+
+    Diary::Diary()
+            : date_(boost::date_time::not_a_date_time) {}
 
     Diary::Diary(boost::gregorian::date date, std::vector<rows::Event> events)
             : date_(date),
@@ -47,6 +51,22 @@ namespace rows {
 
     const std::vector<rows::Event> &Diary::events() const {
         return events_;
+    }
+
+    boost::posix_time::time_duration Diary::begin_time() const {
+        if (events_.empty()) {
+            return {};
+        }
+
+        return events_.front().begin().time_of_day();
+    }
+
+    boost::posix_time::time_duration Diary::end_time() const {
+        if (events_.empty()) {
+            return {};
+        }
+
+        return events_.back().end().time_of_day();
     }
 
     std::ostream &operator<<(std::ostream &out, const Diary &object) {
