@@ -1,4 +1,5 @@
 #include <vector>
+#include <unordered_map>
 #include <string>
 
 #include "boost/filesystem.hpp"
@@ -20,6 +21,9 @@
 
 #include "location.h"
 #include "location_container.h"
+#include "carer.h"
+#include "event.h"
+#include "diary.h"
 #include "visit.h"
 
 DEFINE_string(problem_instance,
@@ -50,8 +54,6 @@ std::vector<rows::Visit> LoadVisits(const std::string &problem_path, const JsonT
     }
 
     for (const auto &place_visits : place_visits_it.value()) {
-        LOG(INFO) << place_visits;
-
         const auto location_json_it = place_visits.find("location");
         if (location_json_it == std::end(place_visits)) {
             LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
@@ -125,6 +127,104 @@ std::vector<rows::Visit> LoadVisits(const std::string &problem_path, const JsonT
     return result;
 }
 
+template<typename JsonType>
+std::unordered_map<rows::Carer, std::vector<rows::Diary> >
+LoadDiaries(const std::string &problem_path, const JsonType &json) {
+    std::unordered_map<rows::Carer, std::vector<rows::Diary> > result;
+
+    const auto carers_it = json.find("carers");
+    if (carers_it == std::end(json)) {
+        LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
+                      % problem_path
+                      % "carers";
+        return {};
+    }
+
+    for (const auto &carer_json_group : carers_it.value()) {
+        const auto carer_json_it = carer_json_group.find("carer");
+        if (carer_json_it == std::end(carer_json_group)) {
+            LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
+                          % problem_path
+                          % "carer";
+            return {};
+        }
+
+        const auto &carer_json = carer_json_it.value();
+        const auto sap_number_it = carer_json.find("sap_number");
+        if (sap_number_it == std::end(carer_json)) {
+            LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
+                          % problem_path
+                          % "sap_number";
+            return {};
+        }
+
+        rows::Carer carer(sap_number_it.value().template get<std::string>());
+
+        const auto diaries_it = carer_json_group.find("diaries");
+        if (diaries_it == std::end(carer_json_group)) {
+            LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
+                          % problem_path
+                          % "diaries";
+            return {};
+        }
+
+        std::vector<rows::Diary> diaries;
+        for (const auto &diary : diaries_it.value()) {
+            LOG(INFO) << diary;
+
+            const auto date_it = diary.find("date");
+            if (date_it == std::end(diary)) {
+                LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
+                              % problem_path
+                              % "date";
+                return {};
+            }
+            auto date = boost::gregorian::from_simple_string(date_it.value().template get<std::string>());
+            LOG(INFO) << date;
+
+
+            std::vector<rows::Event> events;
+            const auto events_it = diary.find("events");
+            if (events_it == std::end(diary)) {
+                LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
+                              % problem_path
+                              % "events";
+                return {};
+            }
+
+            for (const auto &event : events_it.value()) {
+                const auto begin_it = event.find("begin");
+                if (begin_it == std::end(event)) {
+                    LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
+                                  % problem_path
+                                  % "begin";
+                    return {};
+                }
+
+                const auto raw_begin = begin_it.value().template get<std::string>();
+                boost::posix_time::ptime begin = boost::posix_time::from_iso_extended_string(raw_begin);
+
+                const auto end_it = event.find("end");
+                if (end_it == std::end(event)) {
+                    LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
+                                  % problem_path
+                                  % "end";
+                    return {};
+                }
+
+                boost::posix_time::ptime end = boost::posix_time::from_iso_extended_string(
+                        end_it.value().template get<std::string>());
+
+                events.emplace_back(begin, end);
+            }
+
+            diaries.emplace_back(date, events);
+        }
+    }
+
+    return result;
+}
+
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
 
@@ -156,15 +256,8 @@ int main(int argc, char **argv) {
     nlohmann::json json;
     problem_instance_file >> json;
 
-    const auto carers_it = json.find("carers");
-    if (carers_it == std::end(json)) {
-        LOG(ERROR) << boost::format("Document %1% is not formatted correctly. '%2%' key not found.")
-                      % problem_path
-                      % "carers";
-        return STATUS_ERROR;
-    }
-
     const auto visits = LoadVisits(problem_path.string(), json);
+    const auto diaries = LoadDiaries(problem_path.string(), json);
 
 //    const operations_research::RoutingModel::NodeIndex depot(0);
 //    operations_research::RoutingModel routing(visits_count + 1, carers_count, depot);
@@ -172,8 +265,6 @@ int main(int argc, char **argv) {
 //    parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
 //    parameters.mutable_local_search_operators()->set_use_path_lns(false);
 //    parameters.mutable_local_search_operators()->set_use_inactive_lns(false);
-
-
 
     std::cout << json;
 }
