@@ -18,6 +18,7 @@ matrix:
             - gcc-6
             - g++-6
             - cmake
+            - cmake3
             - build-essential
             - git
             - pkg-config
