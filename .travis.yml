@@ -36,6 +36,8 @@ matrix:
          - wget -qO - https://pmateusz.github.io/ubuntu/archive.key | sudo apt-key add -
          - echo "deb https://pmateusz.github.io/ubuntu trusty main" | sudo tee -a /etc/apt/sources.list
          - sudo apt-get update -qq
+         - sudo apt-get remove cmake --assume-yes
+         - sudo apt-get autoremove --assume-yes
          - sudo apt-get install --assume-yes libglog-dev libgtest-dev libgflags-dev libsparsehash-dev libortools-dev cmake
          - wget http://packages.gurobi.com/7.5/gurobi7.5.1_linux64.tar.gz --quiet -Ogurobi7.5.1.tar.gz
          - tar -xzf gurobi7.5.1.tar.gz
