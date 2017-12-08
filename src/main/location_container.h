@@ -39,6 +39,8 @@ namespace rows {
 
         int64 Distance(const Location &from, const Location &to);
 
+        void ComputeDistances();
+
     private:
         template<typename LocationIteratorType>
         CachedLocationContainer(const LocationIteratorType &begin_it,

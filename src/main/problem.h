@@ -139,14 +139,14 @@ namespace rows {
                     const auto begin_it = event.find("begin");
                     if (begin_it == std::end(event)) { throw OnKeyNotFound("begin"); }
 
-                    const auto raw_begin = begin_it.value().template get<std::string>();
-                    boost::posix_time::ptime begin = boost::posix_time::from_iso_extended_string(raw_begin);
+                    boost::posix_time::ptime begin = boost::date_time::parse_delimited_time<boost::posix_time::ptime>(
+                            begin_it.value().template get<std::string>(), 'T');
 
                     const auto end_it = event.find("end");
                     if (end_it == std::end(event)) { throw OnKeyNotFound("end"); }
 
-                    boost::posix_time::ptime end = boost::posix_time::from_iso_extended_string(
-                            end_it.value().template get<std::string>());
+                    boost::posix_time::ptime end = boost::date_time::parse_delimited_time<boost::posix_time::ptime>(
+                            end_it.value().template get<std::string>(), 'T');
 
                     events.emplace_back(begin, end);
                 }

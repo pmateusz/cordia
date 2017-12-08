@@ -3,6 +3,7 @@
 #include <string>
 #include <cmath>
 #include <ostream>
+#include <chrono>
 
 #include <osrm/match_parameters.hpp>
 #include <osrm/nearest_parameters.hpp>
@@ -162,5 +163,35 @@ namespace rows {
         distance_matrix_[from_it->second][to_it->second] = distance;
 
         return distance;
+    }
+
+    void CachedLocationContainer::ComputeDistances() {
+        VLOG(1) << "Started computation of full distance matrix";
+
+        const auto start_time = std::chrono::high_resolution_clock::now();
+
+        std::size_t distance_pairs = 0;
+        for (const auto &source_pair : location_index_) {
+            const auto &source_location = source_pair.first;
+            const auto source_index = source_pair.second;
+
+            for (const auto &destination_pair : location_index_) {
+                const auto &target_location = destination_pair.first;
+                const auto target_index = destination_pair.second;
+
+                int64 distance = 0;
+                if (source_index != target_index) {
+                    distance = location_container_.Distance(source_location, target_location);
+                    ++distance_pairs;
+                }
+
+                distance_matrix_[source_index][target_index] = distance;
+            }
+        }
+
+        const auto end_time = std::chrono::high_resolution_clock::now();
+        VLOG(1) << boost::format("Computed distances between %1% locations in %2%")
+                   % distance_pairs
+                   % std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
     }
 }

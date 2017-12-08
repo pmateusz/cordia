@@ -143,6 +143,8 @@ int main(int argc, char **argv) {
     DCHECK(config.IsValid());
 
     rows::SolverWrapper wrapper(reduced_problem, config);
+    wrapper.ComputeDistances();
+
     operations_research::RoutingModel routing(wrapper.NodesCount(), wrapper.VehicleCount(), rows::SolverWrapper::DEPOT);
 
     routing.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&wrapper, &rows::SolverWrapper::Distance));

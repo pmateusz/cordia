@@ -89,6 +89,20 @@ namespace rows {
         return std::move(result);
     }
 
+    std::string SolverWrapper::GetBreakLabel(const operations_research::RoutingModel::NodeIndex carer,
+                                             SolverWrapper::BreakType break_type) {
+        switch (break_type) {
+            case BreakType::BEFORE_WORKDAY:
+                return (boost::format("Carer '%1%' before workday") % carer).str();
+            case BreakType::AFTER_WORKDAY:
+                return (boost::format("Carer '%1%' after workday") % carer).str();
+            case BreakType::BREAK:
+                return (boost::format("Carer '%1%' break") % carer).str();
+            default:
+                throw std::domain_error((boost::format("Handling label '%1%' is not implemented") % carer).str());
+        }
+    }
+
     std::vector<operations_research::RoutingModel::NodeIndex> SolverWrapper::Carers() const {
         std::vector<operations_research::RoutingModel::NodeIndex> result(problem_.carers().size());
         std::iota(std::begin(result), std::end(result), operations_research::RoutingModel::NodeIndex(0));
@@ -194,18 +208,8 @@ namespace rows {
                               label);
     }
 
-    std::string SolverWrapper::GetBreakLabel(const operations_research::RoutingModel::NodeIndex carer,
-                                             SolverWrapper::BreakType break_type) {
-        switch (break_type) {
-            case BreakType::BEFORE_WORKDAY:
-                return (boost::format("Carer '%1%' before workday") % carer).str();
-            case BreakType::AFTER_WORKDAY:
-                return (boost::format("Carer '%1%' after workday") % carer).str();
-            case BreakType::BREAK:
-                return (boost::format("Carer '%1%' break") % carer).str();
-            default:
-                throw std::domain_error((boost::format("Handling label '%1%' is not implemented") % carer).str());
-        }
+    void SolverWrapper::ComputeDistances() {
+        location_container_.ComputeDistances();
     }
 
     std::vector<rows::Location> SolverWrapper::GetUniqueLocations(const rows::Problem &problem) {

@@ -52,6 +52,8 @@ namespace rows {
 
         static std::vector<rows::Location> GetUniqueLocations(const rows::Problem &problem);
 
+        void ComputeDistances();
+
     private:
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
