@@ -73,7 +73,6 @@ namespace rows {
     LocationContainer::LocationContainer(osrm::EngineConfig &config)
             : routing_service_(config) {}
 
-    // TODO: handle errors
     int64 LocationContainer::Distance(const Location &from, const Location &to) const {
         static const auto INFINITE_DISTANCE = std::numeric_limits<int64>::max();
 

@@ -14,13 +14,11 @@
 #include <glog/logging.h>
 
 #include <nlohmann/json.hpp>
-#include <osrm/engine/engine_config.hpp>
-
-#include "util/logging.h"
 
 #include <ortools/constraint_solver/routing.h>
 #include <ortools/constraint_solver/routing_flags.h>
 
+#include <osrm/engine/engine_config.hpp>
 #include <osrm/coordinate.hpp>
 #include <osrm/engine_config.hpp>
 #include <osrm/json_container.hpp>
@@ -35,6 +33,7 @@
 #include "visit.h"
 #include "problem.h"
 #include "solver_wrapper.h"
+#include "util/logging.h"
 
 
 static bool ValidateFilePath(const char *flagname, const std::string &value) {
@@ -89,6 +88,10 @@ rows::Problem Reduce(const rows::Problem &problem, const boost::filesystem::path
             }
         }
     }
+
+// TODO:
+//    std::vector<rows::Visit> reduced_visits;
+//    std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 150, std::back_inserter(reduced_visits));
 
     return {visits_to_use, carers_to_use};
 }

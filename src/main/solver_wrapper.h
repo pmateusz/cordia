@@ -50,6 +50,8 @@ namespace rows {
                          int64 same_vehicle_cost,
                          const operations_research::RoutingDimension &time_dimension);
 
+        static std::vector<rows::Location> GetUniqueLocations(const rows::Problem &problem);
+
     private:
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
@@ -62,8 +64,6 @@ namespace rows {
 
         static std::string
         GetBreakLabel(const operations_research::RoutingModel::NodeIndex carer, BreakType break_type);
-
-        static std::vector<rows::Location> GetUniqueLocations(const rows::Problem &problem);
 
         SolverWrapper(const rows::Problem &problem,
                       const std::vector<rows::Location> &locations,
