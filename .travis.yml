@@ -17,7 +17,6 @@ matrix:
           packages:
             - gcc-6
             - g++-6
-            - cmake
             - build-essential
             - git
             - pkg-config
