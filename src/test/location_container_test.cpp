@@ -59,14 +59,9 @@ rows::Problem Reduce(const rows::Problem &problem, const boost::filesystem::path
         }
     }
 
-// TODO:
-//    std::vector<rows::Visit> reduced_visits;
-//    std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 150, std::back_inserter(reduced_visits));
-
     return {visits_to_use, carers_to_use};
 }
 
-// TODO: serialize to binary format
 TEST(TestLocationContainer, DISABLED_CanCalculateTravelTimes) {
     boost::filesystem::path problem_file(boost::filesystem::canonical("../problem.json"));
 

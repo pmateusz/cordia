@@ -90,10 +90,10 @@ rows::Problem Reduce(const rows::Problem &problem, const boost::filesystem::path
     }
 
 // TODO:
-//    std::vector<rows::Visit> reduced_visits;
-//    std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 150, std::back_inserter(reduced_visits));
+    std::vector<rows::Visit> reduced_visits;
+    std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 50, std::back_inserter(reduced_visits));
 
-    return {visits_to_use, carers_to_use};
+    return {reduced_visits, carers_to_use};
 }
 
 int main(int argc, char **argv) {

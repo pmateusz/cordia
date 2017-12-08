@@ -5,16 +5,16 @@
 namespace rows {
 
     Location::Location(std::string latitude, std::string longitude)
-            : latitude_(std::move(latitude)),
-              longitude_(std::move(longitude)) {}
+            : latitude_{std::stod(latitude)},
+              longitude_{std::stod(longitude)} {}
 
     Location::Location(const Location &other)
             : latitude_(other.latitude_),
               longitude_(other.longitude_) {}
 
     Location::Location(Location &&other) noexcept
-            : latitude_(std::move(other.latitude_)),
-              longitude_(std::move(other.longitude_)) {}
+            : latitude_(other.latitude_),
+              longitude_(other.longitude_) {}
 
     Location &Location::operator=(const Location &other) {
         latitude_ == other.latitude_;
@@ -23,8 +23,8 @@ namespace rows {
     }
 
     Location &Location::operator=(Location &&other) noexcept {
-        latitude_ = std::move(other.latitude_);
-        longitude_ = std::move(other.longitude_);
+        latitude_ = other.latitude_;
+        longitude_ = other.longitude_;
         return *this;
     }
 
@@ -37,11 +37,11 @@ namespace rows {
         return !operator==(other);
     }
 
-    const std::string &Location::latitude() const {
+    const osrm::util::FloatLatitude &Location::latitude() const {
         return latitude_;
     }
 
-    const std::string &Location::longitude() const {
+    const osrm::util::FloatLongitude &Location::longitude() const {
         return longitude_;
     }
 

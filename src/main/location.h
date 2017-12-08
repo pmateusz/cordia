@@ -2,10 +2,14 @@
 #define ROWS_LOCATION_H
 
 #include <cstddef>
+#include <utility>
 #include <string>
 #include <ostream>
 
+#include <osrm/util/alias.hpp>
 #include <boost/functional/hash.hpp>
+#include <osrm/coordinate.hpp>
+
 
 namespace rows {
 
@@ -28,17 +32,17 @@ namespace rows {
         template<typename JsonType>
         static Location from_json(const JsonType &json);
 
-        const std::string &latitude() const;
+        const osrm::util::FloatLatitude &latitude() const;
 
-        const std::string &longitude() const;
+        const osrm::util::FloatLongitude &longitude() const;
 
         friend struct std::hash<rows::Location>;
 
         friend std::ostream &operator<<(std::ostream &out, const Location &object);
 
     private:
-        std::string longitude_;
-        std::string latitude_;
+        osrm::util::FloatLatitude latitude_;
+        osrm::util::FloatLongitude longitude_;
     };
 }
 
@@ -59,8 +63,8 @@ namespace std {
 
         result_type operator()(const argument_type &object) const noexcept {
             std::size_t seed = 0;
-            boost::hash_combine(seed, object.latitude_);
-            boost::hash_combine(seed, object.longitude_);
+            boost::hash_combine(seed, static_cast<osrm::util::FloatLatitude::value_type>(object.latitude_));
+            boost::hash_combine(seed, static_cast<osrm::util::FloatLongitude::value_type>(object.longitude_));
             return seed;
         }
     };

@@ -140,9 +140,7 @@ namespace rows {
     }
 
     osrm::util::Coordinate LocationContainer::ToCoordinate(const Location &location) {
-        const osrm::util::FloatLatitude latitude{std::stod(location.latitude())};
-        const osrm::util::FloatLongitude longitude{std::stod(location.longitude())};
-        return {longitude, latitude};
+        return {location.longitude(), location.latitude()};
     }
 
     int64 CachedLocationContainer::Distance(const Location &from, const Location &to) {
@@ -190,7 +188,7 @@ namespace rows {
         }
 
         const auto end_time = std::chrono::high_resolution_clock::now();
-        VLOG(1) << boost::format("Computed distances between %1% locations in %2%")
+        VLOG(1) << boost::format("Computed distances between %1% locations in %2% seconds")
                    % distance_pairs
                    % std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
     }
