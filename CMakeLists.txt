@@ -45,6 +45,7 @@ include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/sparsehash.cmake)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/ortools.cmake)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/gexf.cmake)
 
+find_package(LibXml2 REQUIRED)
 find_package(ORtools REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -66,6 +67,7 @@ set(HEADER_DEP ${OSRM_INCLUDE_DIR}
         ${Boost_INCLUDE_DIR}
         ${JSON_INCLUDE_DIR}
         ${GEXF_INCLUDE_DIR}
+        ${LIBXML2_INCLUDE_DIR}
         ${GLOG_INCLUDE_DIR})
 
 set(LIBRARY_DEP ${ORTOOLS_LIBRARY}
@@ -77,6 +79,7 @@ set(LIBRARY_DEP ${ORTOOLS_LIBRARY}
         ${GEXF_LIBRARY}
         ${GLOG_LIBRARIES}
         ${GFLAGS_LIBRARY}
+        ${LIBXML2_LIBRARIES}
         ${CMAKE_THREAD_LIBS_INIT}
         ${MAYBE_RT_LIBRARY})
 

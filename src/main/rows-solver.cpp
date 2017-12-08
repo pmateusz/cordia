@@ -3,6 +3,7 @@
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include <memory>
 
 #include <boost/exception/diagnostic_information.hpp>
 #include <boost/date_time.hpp>
@@ -25,6 +26,8 @@
 #include <osrm/storage_config.hpp>
 #include <osrm/osrm.hpp>
 
+#include <libgexf/libgexf.h>
+
 #include "location.h"
 #include "location_container.h"
 #include "carer.h"
@@ -34,6 +37,7 @@
 #include "problem.h"
 #include "solver_wrapper.h"
 #include "util/logging.h"
+#include "gexf_writer.h"
 
 
 static bool ValidateFilePath(const char *flagname, const std::string &value) {
@@ -90,10 +94,10 @@ rows::Problem Reduce(const rows::Problem &problem, const boost::filesystem::path
     }
 
 // TODO:
-//    std::vector<rows::Visit> reduced_visits;
-//    std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 200, std::back_inserter(reduced_visits));
+    std::vector<rows::Visit> reduced_visits;
+    std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 50, std::back_inserter(reduced_visits));
 
-    return {visits_to_use, carers_to_use};
+    return {reduced_visits, carers_to_use};
 }
 
 int main(int argc, char **argv) {
@@ -200,6 +204,10 @@ int main(int argc, char **argv) {
         LOG(INFO) << "No solution found.";
         return STATUS_ERROR;
     }
+
+    rows::GexfWriter solution_writer;
+    solution_writer.Write("../solution.gexf", wrapper, routing, *solution);
+
     wrapper.DisplayPlan(routing,
                         *solution,
             /*use_same_vehicle_costs=*/false,
