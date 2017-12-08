@@ -25,6 +25,7 @@ get_filename_component(_GLOG_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/build/ex
 get_filename_component(_SPARSEHASH_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/build/external/sparsehash-install" REALPATH)
 get_filename_component(_GTEST_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/gtest-install" REALPATH)
 get_filename_component(_JSON_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/json-install" REALPATH)
+get_filename_component(_GEXF_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/gexf-install" REALPATH)
 
 set(GFLAGS_ROOT_DIR ${_GFLAGS_ROOT_DIR})
 set(GLOG_ROOT_DIR ${_GLOG_ROOT_DIR})
@@ -32,6 +33,7 @@ set(GTEST_ROOT ${_GTEST_ROOT})
 set(SPARSEHASH_ROOT_DIR ${_SPARSEHASH_ROOT_DIR})
 set(OSRM_ROOT_DIR ${CMAKE_BINARY_DIR}/external/osrm-install)
 set(JSON_ROOT_DIR ${_JSON_ROOT})
+set(GEXF_ROOT_DIR ${_GEXF_ROOT})
 
 include(ExternalProject)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/osrm.cmake)
@@ -41,12 +43,15 @@ include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/glog.cmake)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/json.cmake)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/sparsehash.cmake)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/ortools.cmake)
+include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/gexf.cmake)
 
-find_package(Json REQUIRED)
 find_package(ORtools REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(EXPAT REQUIRED)
+find_package(Json)
+find_package(Gexf)
+
 find_package(Boost REQUIRED COMPONENTS filesystem system thread iostreams regex)
 
 if (${OSRM_EXTERNAL})
@@ -60,14 +65,18 @@ set(HEADER_DEP ${OSRM_INCLUDE_DIR}
         ${NESTED_OSRM_INCLUDE_DIR}
         ${Boost_INCLUDE_DIR}
         ${JSON_INCLUDE_DIR}
+        ${GEXF_INCLUDE_DIR}
         ${GLOG_INCLUDE_DIR})
+
 set(LIBRARY_DEP ${ORTOOLS_LIBRARY}
         ${OSRM_LIBRARY}
         ${Boost_LIBRARIES}
         ${ZLIB_LIBRARIES}
         ${EXPAT_LIBRARIES}
         ${GTEST_LIBRARIES}
+        ${GEXF_LIBRARY}
         ${GLOG_LIBRARIES}
+        ${GFLAGS_LIBRARY}
         ${CMAKE_THREAD_LIBS_INIT}
         ${MAYBE_RT_LIBRARY})
 
@@ -82,7 +91,6 @@ target_link_libraries(rows-main rows ${LIBRARY_DEP})
 set_property(TARGET rows-main PROPERTY CXX_STANDARD 14)
 
 get_filename_component(TEST_HEADERS "${CMAKE_SOURCE_DIR}/src/test" REALPATH)
-#include_directories(${TEST_HEADERS})
 
 file(GLOB_RECURSE TEST_SOURCES "${CMAKE_SOURCE_DIR}/src/test/*.cpp")
 add_library(rows-test STATIC ${TEST_SOURCES})
@@ -100,6 +108,10 @@ endif ()
 
 if (${GFLAGS_EXTERNAL})
     add_dependencies(rows gflags)
+endif ()
+
+if (${GEXF_EXTERNAL})
+    add_dependencies(rows gexf)
 endif ()
 
 if (${GTEST_EXTERNAL})
@@ -131,7 +143,7 @@ macro(m_add_executable GOAL SOURCE)
             rows-test
             rows
             ${LIBRARY_DEP})
-    target_include_directories(${GOAL} PUBLIC ${TEST_HEADERS} ${HEADERS} ${OSRM_INCLUDE_DIR} ${NESTED_OSRM_INCLUDE_DIR} ${GTEST_INCLUDE_DIR} ${GLOG_INCLUDE_DIR})
+    target_include_directories(${GOAL} PUBLIC ${TEST_HEADERS} ${HEADERS} ${HEADER_DEP} ${GTEST_INCLUDE_DIR})
     set_property(TARGET ${GOAL} PROPERTY CXX_STANDARD 14)
     add_dependencies(${GOAL} rows-test)
 endmacro()
