@@ -1,5 +1,6 @@
 #include <string>
 #include <iostream>
+#include <algorithm>
 
 #include <osrm/match_parameters.hpp>
 #include <osrm/nearest_parameters.hpp>
@@ -62,7 +63,7 @@ rows::Problem Reduce(const rows::Problem &problem, const boost::filesystem::path
     return {visits_to_use, carers_to_use};
 }
 
-TEST(TestLocationContainer, DISABLED_CanCalculateTravelTimes) {
+TEST(TestLocationContainer, CanCalculateTravelTimes) {
     boost::filesystem::path problem_file(boost::filesystem::canonical("../problem.json"));
 
     std::ifstream problem_stream(problem_file.c_str());
@@ -110,7 +111,6 @@ TEST(TestLocationContainer, DISABLED_CanCalculateTravelTimes) {
         const auto &source_location = source_pair.first;
         const auto source_index = source_pair.second;
 
-        LOG(INFO) << source_location;
         for (const auto &destination_pair : location_index) {
             const auto &dest_location = destination_pair.first;
             const auto dest_index = destination_pair.second;
@@ -118,6 +118,20 @@ TEST(TestLocationContainer, DISABLED_CanCalculateTravelTimes) {
                                                         location_container.Distance(source_location, dest_location) : 0;
         }
     }
+
+    // calculate minimum and maximum distance
+    int64 min = std::numeric_limits<int64>::max(), max = std::numeric_limits<int64>::min();
+    for (const auto &row : distance_matrix) {
+        const auto pair = std::minmax(std::cbegin(row), std::cend(row));
+        if (*pair.first > 0) {
+            min = std::min(*pair.first, min);
+        }
+        max = std::max(*pair.second, max);
+    }
+
+    EXPECT_GT(max, 0);
+    EXPECT_GT(min, 0);
+    LOG(INFO) << "Max: " << max << " Min: " << min;
 }
 
 int main(int argc, char **argv) {

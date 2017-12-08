@@ -32,9 +32,10 @@ namespace rows {
         static const GephiAttributeMeta ID;
         static const GephiAttributeMeta LONGITUDE;
         static const GephiAttributeMeta LATITUDE;
+        static const GephiAttributeMeta TRAVEL_TIME;
 
         void Write(const boost::filesystem::path &file_path,
-                   const SolverWrapper &solver,
+                   SolverWrapper &solver,
                    const operations_research::RoutingModel &model,
                    const operations_research::Assignment &solution) const;
     };
