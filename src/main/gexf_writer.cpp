@@ -16,17 +16,13 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::CARER{"4", "carer", "long", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::DROPPED{"5", "dropped", "bool", "false"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"6", "start_time", "string",
-                                                                "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"7", "duration", "string",
-                                                              "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"6", "start_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"7", "duration", "string", "00:00:00"};
 
     const GexfWriter::GephiAttributeMeta GexfWriter::SAP_NUMBER{"8", "sap_number", "string", "unknown"};
     const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_RELATIVE{"9", "work_rel", "double", "0"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_ABSOLUTE{"10", "work_abs", "string",
-                                                                          "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_AVAILABLE{"11", "work_available", "string",
-                                                                           "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_ABSOLUTE{"10", "work_abs", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_AVAILABLE{"11", "work_available", "string", "00:00:00"};
     const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_VISITS{"12", "work_visits", "long", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"1", "travel_time", "long", "0"};
 
