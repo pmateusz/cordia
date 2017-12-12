@@ -8,6 +8,10 @@ namespace rows {
             : latitude_{std::stod(latitude)},
               longitude_{std::stod(longitude)} {}
 
+    rows::Location::Location(osrm::util::FloatLatitude latitude, osrm::util::FloatLongitude longitude)
+            : latitude_(latitude),
+              longitude_(longitude) {}
+
     Location::Location(const Location &other)
             : latitude_(other.latitude_),
               longitude_(other.longitude_) {}

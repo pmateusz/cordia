@@ -8,28 +8,32 @@
 
 namespace rows {
 
-    // TODO: switch to time period
     class Event {
     public:
-        Event(const boost::posix_time::ptime &begin, const boost::posix_time::ptime &end);
+        explicit Event(const boost::posix_time::time_period &period);
 
-        Event(const Event &other) = default;
+        Event(const Event &other);
 
-        Event &operator=(const Event &other) = default;
+        Event(Event &&other) noexcept;
+
+        Event &operator=(const Event &other);
+
+        Event &operator=(Event &&other) noexcept;
 
         bool operator==(const Event &other) const;
 
         bool operator!=(const Event &other) const;
 
-        const boost::posix_time::ptime &begin() const;
+        boost::posix_time::ptime begin() const;
 
-        const boost::posix_time::ptime &end() const;
+        boost::posix_time::ptime end() const;
+
+        boost::posix_time::time_duration duration() const;
 
         friend std::ostream &operator<<(std::ostream &out, const Event &object);
 
     private:
-        boost::posix_time::ptime begin_;
-        boost::posix_time::ptime end_;
+        boost::posix_time::time_period period_;
     };
 }
 

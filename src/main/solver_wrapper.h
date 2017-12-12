@@ -54,6 +54,10 @@ namespace rows {
 
         void ComputeDistances();
 
+        Location GetCentralLocation() const;
+
+        bool ValidateIntegrity() const;
+
     private:
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY

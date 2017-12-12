@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <string>
 
+#include <glog/logging.h>
+
 #include "carer.h"
 #include "visit.h"
 #include "diary.h"
@@ -148,7 +150,7 @@ namespace rows {
                     boost::posix_time::ptime end = boost::date_time::parse_delimited_time<boost::posix_time::ptime>(
                             end_it.value().template get<std::string>(), 'T');
 
-                    events.emplace_back(begin, end);
+                    events.emplace_back(boost::posix_time::time_period(begin, end));
                 }
 
                 diaries.emplace_back(date, events);

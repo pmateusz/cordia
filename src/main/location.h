@@ -15,7 +15,9 @@ namespace rows {
 
     class Location {
     public:
-        Location(std::string longitude, std::string latitude);
+        Location(std::string latitude, std::string longitude);
+
+        Location(osrm::util::FloatLatitude latitude, osrm::util::FloatLongitude longitude);
 
         Location(const Location &other);
 

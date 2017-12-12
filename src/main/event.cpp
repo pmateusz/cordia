@@ -1,34 +1,48 @@
 #include "event.h"
 
-#include <boost/format.hpp>
-
 namespace rows {
 
-    Event::Event(const boost::posix_time::ptime &begin, const boost::posix_time::ptime &end)
-            : begin_(begin),
-              end_(end) {}
+    Event::Event(const boost::posix_time::time_period &period)
+            : period_(period) {}
 
-    const boost::posix_time::ptime &Event::begin() const {
-        return begin_;
+    Event::Event(const Event &other)
+            : period_(other.period_) {}
+
+    Event::Event(Event &&other) noexcept
+            : period_(other.period_) {}
+
+    Event &Event::operator=(const Event &other) {
+        period_ = other.period_;
+        return *this;
     }
 
-    const boost::posix_time::ptime &Event::end() const {
-        return end_;
-    }
-
-    std::ostream &operator<<(std::ostream &out, const Event &object) {
-        out << boost::format("(%1%,%2%)")
-               % object.begin_
-               % object.end_;
-        return out;
+    Event &Event::operator=(Event &&other) noexcept {
+        period_ = other.period_;
+        return *this;
     }
 
     bool Event::operator==(const Event &other) const {
-        return begin_ == other.begin_
-               && end_ == other.end_;
+        return period_ == other.period_;
     }
 
     bool Event::operator!=(const Event &other) const {
         return !operator==(other);
+    }
+
+    boost::posix_time::ptime Event::begin() const {
+        return period_.begin();
+    }
+
+    boost::posix_time::ptime Event::end() const {
+        return period_.end();
+    }
+
+    std::ostream &operator<<(std::ostream &out, const Event &object) {
+        out << object.period_;
+        return out;
+    }
+
+    boost::posix_time::time_duration Event::duration() const {
+        return period_.length();
     }
 }

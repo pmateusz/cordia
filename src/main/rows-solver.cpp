@@ -168,11 +168,10 @@ int main(int argc, char **argv) {
     }
 
     // set time windows
-    for (auto order = 1; order < routing.nodes(); ++order) {
-        const auto &visit = wrapper.Visit(operations_research::RoutingModel::NodeIndex(order));
-        time_dimension->CumulVar(order)->SetRange(visit.time().total_seconds(),
-                                                  (visit.time() + visit.duration()).total_seconds());
-        routing.AddToAssignment(time_dimension->SlackVar(order));
+    for (auto visit_index = 1; visit_index < routing.nodes(); ++visit_index) {
+        const auto &visit = wrapper.Visit(operations_research::RoutingModel::NodeIndex{visit_index});
+        time_dimension->CumulVar(visit_index)->SetValue(visit.time().total_seconds());
+        routing.AddToAssignment(time_dimension->SlackVar(visit_index));
     }
 
     // minimize time variables

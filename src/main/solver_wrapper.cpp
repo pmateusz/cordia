@@ -9,11 +9,11 @@
 
 namespace rows {
 
-    const operations_research::RoutingModel::NodeIndex SolverWrapper::DEPOT(0);
+    const operations_research::RoutingModel::NodeIndex SolverWrapper::DEPOT{0};
 
     const int64 SolverWrapper::SECONDS_IN_DAY = 24 * 3600;
 
-    const std::string SolverWrapper::TIME_DIMENSION = "Time";
+    const std::string SolverWrapper::TIME_DIMENSION{"Time"};
 
     SolverWrapper::SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config)
             : SolverWrapper(problem, GetUniqueLocations(problem), config) {}
@@ -38,8 +38,23 @@ namespace rows {
             return 0;
         }
 
-        const auto value = Visit(from).duration().total_seconds() + Distance(from, to);
+        const auto visit = Visit(from);
+        const auto value = visit.duration().total_seconds() + Distance(from, to);
         return value;
+    }
+
+    Location SolverWrapper::GetCentralLocation() const {
+        double latitude = 0, longitude = 0;
+
+        for (const auto &visit : problem_.visits()) {
+            const auto &location = visit.location();
+            latitude += static_cast<double>(location.latitude());
+            longitude += static_cast<double>(location.longitude());
+        }
+
+        const auto denominator = std::max(1.0, static_cast<double>(problem_.visits().size()));
+        return Location(osrm::util::FloatLatitude{latitude / denominator},
+                        osrm::util::FloatLongitude{longitude / denominator});
     }
 
     rows::Visit SolverWrapper::Visit(const operations_research::RoutingModel::NodeIndex visit) const {
@@ -49,14 +64,14 @@ namespace rows {
     }
 
     rows::Diary SolverWrapper::Diary(const operations_research::RoutingModel::NodeIndex carer) const {
-        const auto carer_pair = problem_.carers()[carer.value()];
+        const auto carer_pair = problem_.carers().at(static_cast<std::size_t>(carer.value()));
         DCHECK_EQ(carer_pair.second.size(), 1);
-        return carer_pair.second[0];
+        return {carer_pair.second.front()};
     }
 
     rows::Carer SolverWrapper::Carer(const operations_research::RoutingModel::NodeIndex carer) const {
         const auto &carer_pair = problem_.carers()[carer.value()];
-        return carer_pair.first;
+        return {carer_pair.first};
     }
 
     std::vector<operations_research::IntervalVar *> SolverWrapper::Breaks(operations_research::Solver *const solver,
@@ -73,7 +88,7 @@ namespace rows {
 
             result.push_back(CreateBreak(solver,
                                          last_end_time.time_of_day(),
-                                         event.begin() - last_end_time,
+                                         boost::posix_time::time_period(last_end_time, event.begin()).length(),
                                          GetBreakLabel(carer, break_type)));
 
             last_end_time = event.end();
@@ -83,10 +98,10 @@ namespace rows {
         break_type = BreakType::AFTER_WORKDAY;
         result.push_back(CreateBreak(solver,
                                      last_end_time.time_of_day(),
-                                     next_day - last_end_time,
+                                     boost::posix_time::time_period(last_end_time, next_day).length(),
                                      GetBreakLabel(carer, break_type)));
 
-        return std::move(result);
+        return result;
     }
 
     std::string SolverWrapper::GetBreakLabel(const operations_research::RoutingModel::NodeIndex carer,
