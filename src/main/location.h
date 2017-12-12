@@ -52,7 +52,8 @@ namespace rows {
 
     template<typename JsonType>
     Location Location::from_json(const JsonType &json) {
-        return Location(static_cast<std::string>(json["latitude"]), static_cast<std::string>(json["longitude"]));
+        return Location(json["latitude"].template get<std::string>(),
+                        json["longitude"].template get<std::string>());
     }
 }
 
