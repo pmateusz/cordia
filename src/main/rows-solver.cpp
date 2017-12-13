@@ -94,10 +94,10 @@ rows::Problem Reduce(const rows::Problem &problem, const boost::filesystem::path
     }
 
 // TODO:
-    std::vector<rows::Visit> reduced_visits;
-    std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 50, std::back_inserter(reduced_visits));
+//    std::vector<rows::Visit> reduced_visits;
+//    std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 50, std::back_inserter(reduced_visits));
 
-    return {reduced_visits, carers_to_use};
+    return {visits_to_use, carers_to_use};
 }
 
 int main(int argc, char **argv) {
@@ -153,10 +153,11 @@ int main(int argc, char **argv) {
 
     routing.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&wrapper, &rows::SolverWrapper::Distance));
 
+    static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
     routing.AddDimension(NewPermanentCallback(&wrapper, &rows::SolverWrapper::ServiceTimePlusDistance),
                          rows::SolverWrapper::SECONDS_IN_DAY,
                          rows::SolverWrapper::SECONDS_IN_DAY,
-            /*fix_start_cumul_to_zero=*/ false,
+                         VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
                          rows::SolverWrapper::TIME_DIMENSION);
 
     operations_research::RoutingDimension *const time_dimension = routing.GetMutableDimension(
@@ -167,7 +168,7 @@ int main(int argc, char **argv) {
         time_dimension->SetBreakIntervalsOfVehicle(wrapper.Breaks(solver, carer_index), carer_index.value());
     }
 
-    // set time windows
+    // set visit start times
     for (auto visit_index = 1; visit_index < routing.nodes(); ++visit_index) {
         const auto &visit = wrapper.Visit(operations_research::RoutingModel::NodeIndex{visit_index});
         time_dimension->CumulVar(visit_index)->SetValue(visit.time().total_seconds());

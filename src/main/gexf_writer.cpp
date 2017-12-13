@@ -13,7 +13,7 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::LONGITUDE{"1", "longitude", "double", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::LATITUDE{"2", "latitude", "double", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::TYPE{"3", "type", "string", "unknown"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::CARER{"4", "carer", "long", "0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::ASSIGNED_CARER{"4", "assigned_carer", "long", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::DROPPED{"5", "dropped", "bool", "false"};
 
     const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"6", "start_time", "string", "00:00:00"};
@@ -37,7 +37,7 @@ namespace rows {
         std::unique_ptr<libgexf::GEXF> env_ptr = std::make_unique<libgexf::GEXF>();
 
         auto &data = env_ptr->getData();
-        for (const auto &attr : {ID, LONGITUDE, LATITUDE, TYPE, DROPPED, START_TIME, DURATION, CARER,
+        for (const auto &attr : {ID, TYPE, DROPPED, START_TIME, DURATION, ASSIGNED_CARER,
                                  SAP_NUMBER, UTILIZATION_ABSOLUTE, UTILIZATION_AVAILABLE, UTILIZATION_RELATIVE,
                                  UTILIZATION_VISITS}) {
             data.addNodeAttributeColumn(attr.Id, attr.Name, attr.Type);
@@ -45,7 +45,9 @@ namespace rows {
         }
 
         const auto central_location = solver.GetCentralLocation();
+        data.addNodeAttributeColumn(LATITUDE.Id, LATITUDE.Name, LATITUDE.Type);
         data.setNodeAttributeDefault(LATITUDE.Id, util::to_simple_string(central_location.latitude()));
+        data.addNodeAttributeColumn(LONGITUDE.Id, LONGITUDE.Name, LONGITUDE.Type);
         data.setNodeAttributeDefault(LONGITUDE.Id, util::to_simple_string(central_location.longitude()));
 
         data.addEdgeAttributeColumn(TRAVEL_TIME.Id, TRAVEL_TIME.Name, TRAVEL_TIME.Type);
@@ -172,7 +174,7 @@ namespace rows {
                     const auto &visit = solver.Visit(end_visit_node);
                     work_duration += visit.duration();
 
-                    data.setNodeValue(end_visit_id, CARER.Id, carer_id);
+                    data.setNodeValue(end_visit_id, ASSIGNED_CARER.Id, carer_id);
 
                     ++total_visits;
                 }
@@ -188,10 +190,6 @@ namespace rows {
             data.setNodeValue(carer_id, UTILIZATION_ABSOLUTE.Id, boost::posix_time::to_simple_string(work_duration));
 
             DCHECK_LE(work_duration, work_available);
-//            if (work_duration > work_available) {
-//                LOG(ERROR) << work_duration << " is greater than " << work_available;
-//            }
-
             if (work_duration.total_seconds() > 0) {
                 const auto relative_duration = static_cast<double>(work_duration.total_seconds())
                                                / work_available.total_seconds();

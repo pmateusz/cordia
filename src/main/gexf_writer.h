@@ -34,7 +34,7 @@ namespace rows {
         static const GephiAttributeMeta LATITUDE;
         static const GephiAttributeMeta START_TIME;
         static const GephiAttributeMeta DURATION;
-        static const GephiAttributeMeta CARER;
+        static const GephiAttributeMeta ASSIGNED_CARER;
         static const GephiAttributeMeta TYPE;
 
         static const GephiAttributeMeta SAP_NUMBER;
