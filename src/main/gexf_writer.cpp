@@ -129,7 +129,6 @@ namespace rows {
             auto total_visits = 0;
             boost::posix_time::time_duration work_duration{boost::posix_time::seconds(0)};
             while (true) {
-
 // information about slack variables
 //                operations_research::IntVar *const time_var = time_dim->CumulVar(start_visit);
 //                operations_research::IntVar *const slack_var = model.IsEnd(start_visit) ? nullptr : time_dim->SlackVar(

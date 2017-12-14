@@ -25,9 +25,6 @@ namespace rows {
 
     int64 SolverWrapper::Distance(operations_research::RoutingModel::NodeIndex from,
                                   operations_research::RoutingModel::NodeIndex to) {
-        // FIXME:
-        return 0;
-
         if (from == DEPOT || to == DEPOT) {
             return 0;
         }
