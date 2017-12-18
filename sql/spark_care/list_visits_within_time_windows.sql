@@ -22,8 +22,8 @@ SELECT TOP(100) visit.VisitID AS 'visit_id',
   FROM SparkCare.dbo.Visit AS visit
        INNER JOIN SparkCare.dbo.ServiceUserView AS service_user_view
        ON visit.ServiceUserID = service_user_view.ServiceUserID
-	   LEFT OUTER JOIN Homecare.dbo.ltAom aom
-	   ON aom.LtAomId = service_user_view.AomID
+       LEFT OUTER JOIN Homecare.dbo.ltAom aom
+       ON aom.LtAomId = service_user_view.AomID
        LEFT OUTER JOIN SparkCare.dbo.ServiceType AS service_type
        ON visit.ServiceTypeID = service_type.ServiceTypeID
        LEFT OUTER JOIN SparkCare.dbo.VisitType AS visit_type
