@@ -10,7 +10,7 @@ SET @END_TIME = '2017-11-30';
 DECLARE @AOM_CODE INT;
 SET @AOM_CODE = 1;
 
-SELECT TOP(100) visit.VisitID AS 'visit_id',
+SELECT visit.VisitID AS 'visit_id',
        visit.ServiceUserID AS 'service_user_id',
        CAST(visit.VisitDate AS DATE) AS 'visit_date',
        visit.RequestedVisitTime AS 'requested_visit_time',
