@@ -23,5 +23,5 @@ SELECT carer_view.CarerId AS 'carer_id',
   FROM SparkCare.dbo.CarerView AS carer_view
  WHERE carer_view.HiredDate < @END_TIME
        AND (carer_view.TerminatedDate IS NULL or carer_view.TerminatedDate > @START_TIME)
-	   AND (carer_view.AomId = @AOM_ID)
+       AND (carer_view.AomId = @AOM_ID)
  ORDER BY carer_id, start_time
