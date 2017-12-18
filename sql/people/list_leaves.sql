@@ -20,8 +20,8 @@ SELECT carer_view.CarerId AS 'carer_id', carer_view.EmployeeId AS 'employee_id'
 
 SELECT carer.EmployeeId, carer.CarerId, leave.EmployeePositionId, leave.StartDate, leave.EndDate, leave.HalfDay, leave.HalfDayPeriod, leave_approval.ApprovalStatus
   FROM @CARERS AS carer
-	   INNER JOIN People.dbo.EmployeePosition employee_position
-	   ON carer.EmployeeId = employee_position.EmployeeID
+       INNER JOIN People.dbo.EmployeePosition employee_position
+       ON carer.EmployeeId = employee_position.EmployeeID
        INNER JOIN People.dbo.Leave leave
        ON leave.EmployeePositionID = employee_position.EmployeePositionID
        INNER JOIN People.dbo.LtLeaveApprovalType leave_approval
