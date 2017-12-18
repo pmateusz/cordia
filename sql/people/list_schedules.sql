@@ -43,16 +43,16 @@ SELECT employee_position.EmployeePositionID AS 'employee_position',
 	override_schedule.OverrideHours AS 'work_week_overtime'
   FROM @CARERS AS carers 
        INNER JOIN People.dbo.EmployeePosition AS employee_position
-	   ON employee_position.EmployeeID = carers.EmployeeId
-	   INNER JOIN People.dbo.Position as position
-	   ON employee_position.PositionID = position.PositionID
+       ON employee_position.EmployeeID = carers.EmployeeId
+       INNER JOIN People.dbo.Position as position
+       ON employee_position.PositionID = position.PositionID
        LEFT OUTER JOIN People.dbo.WorkSchedule AS work_schedule
        ON employee_position.PositionID = work_schedule.PositionID
        LEFT OUTER JOIN People.dbo.SchedulePattern AS work_schedule_pattern
        ON work_schedule.SchedulePatternID = work_schedule_pattern.SchedulePatternID
-	   LEFT OUTER JOIN People.dbo.OverrideSchedule AS override_schedule
-	   ON employee_position.EmployeePositionID = override_schedule.EmployeePositionID
-	   LEFT OUTER JOIN People.dbo.SchedulePattern AS override_schedule_pattern
+       LEFT OUTER JOIN People.dbo.OverrideSchedule AS override_schedule
+       ON employee_position.EmployeePositionID = override_schedule.EmployeePositionID
+       LEFT OUTER JOIN People.dbo.SchedulePattern AS override_schedule_pattern
        ON override_schedule.SchedulePatternID = override_schedule_pattern.SchedulePatternID
  WHERE work_schedule_pattern.SchedulePatternID IS NULL OR
   ((work_schedule_pattern.StartDate <= @END_TIME AND (work_schedule_pattern.EndDate IS NULL OR work_schedule_pattern.EndDate > @START_TIME))
