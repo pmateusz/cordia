@@ -3,12 +3,10 @@
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 GO
 
-SELECT aom_details.AomCode AS 'aom_code',
-       aom_base.AomId AS 'aom_id',
-       aom_details.AreaCode as 'area_code',
-       aom_details.AreaNo as 'area_no'
-  FROM People.dbo.AomDetails AS aom_details
-       INNER JOIN SparkCare.dbo.AomBase as aom_base
-       ON aom_base.AomBaseID = aom_details.AomCode
- WHERE aom_details.AreaCode IS NOT NULL
- ORDER BY aom_code, area_no
+SELECT aom.AreaCode as 'area_code', aom.AreaNo as 'area_no', aom.LtAomId as 'aom_id'
+  FROM Homecare.dbo.ltAom aom
+  WHERE Archived != 'Y'
+   AND IgnoreInDW = 0
+   AND Surname NOT IN ('TASS','Meals At Home','Overnight Service')
+   AND ltRegionalManagerId IS not null
+ ORDER BY area_no
