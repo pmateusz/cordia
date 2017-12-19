@@ -22,7 +22,6 @@ SELECT carer_view.CarerId AS 'carer_id',
 	BackToBackCarerID as 'back_to_back_carer',
 	PartnerCarerID as 'partner_carer',
 	IsMobileWorker as 'is_mobile_worker',
-	IsVehicular as 'is_vehicular',
 	IsAgencyCarer as 'is_agency_carer'
   FROM SparkCare.dbo.CarerView AS carer_view
  WHERE carer_view.HiredDate < @END_TIME
