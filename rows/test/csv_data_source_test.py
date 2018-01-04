@@ -16,7 +16,8 @@ class CSVDataSourceTest(unittest.TestCase):
     def setUp(self):
         self.data_source = CSVDataSource('../../data/cordia/home_carer_position.csv',
                                          '../../data/cordia/home_carer_shift_pattern.csv',
-                                         '../../data/cordia/service_user_visit.csv')
+                                         '../../data/cordia/service_user_visit.csv',
+                                         '../../data/cordia/past_visits.csv')
 
         self.example_area = Area(key='test_key')
         self.example_begin_datetime = datetime.datetime(2017, 2, 1)
@@ -37,6 +38,39 @@ class CSVDataSourceTest(unittest.TestCase):
         visits = self.data_source.get_visits()
         self.assertIsNotNone(visits)
         self.assertTrue(visits)
+
+    def test_load_past_visits(self):
+        """Can load past visits"""
+
+        past_visits = self.data_source.get_past_visits()
+        self.assertIsNotNone(past_visits)
+        self.assertTrue(past_visits)
+
+        cancelled_visits = list(filter(lambda visit: visit.cancelled, past_visits))
+        self.assertIsNotNone(cancelled_visits)
+        self.assertTrue(cancelled_visits)
+
+        not_cancelled_visits = list(filter(lambda visit: not visit.cancelled, past_visits))
+        self.assertIsNotNone(not_cancelled_visits)
+        self.assertTrue(not_cancelled_visits)
+
+        not_planned_visit = list(filter(lambda visit: not visit.visit, not_cancelled_visits))
+        self.assertIsNotNone(not_planned_visit)
+        self.assertTrue(not_planned_visit)
+
+        moved_visits = list(filter(lambda visit: visit.visit and visit.time != visit.visit.time, not_cancelled_visits))
+        self.assertIsNotNone(moved_visits)
+        self.assertTrue(moved_visits)
+
+        planned_visits = list(
+            filter(lambda visit: visit.visit and visit.time == visit.visit.time, not_cancelled_visits))
+        self.assertIsNotNone(planned_visits)
+        self.assertTrue(planned_visits)
+
+        self.assertEqual(len(past_visits),
+                         len(cancelled_visits) + len(not_planned_visit) + len(moved_visits) + len(planned_visits))
+        print("Planned={0}, Cancelled={1}, NotPlanned={2}, Moved={3}".format(len(planned_visits), len(cancelled_visits),
+                                                                             len(not_planned_visit), len(moved_visits)))
 
     def test_load_visits_for_area(self):
         """Returns all visits within the area and time interval"""

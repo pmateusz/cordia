@@ -23,7 +23,8 @@ class Application:
         self.__data_source = rows.csv_data_source.CSVDataSource(
             Application.__real_path('~/dev/cordia/data/cordia/home_carer_position.csv'),
             Application.__real_path('~/dev/cordia/data/cordia/home_carer_shift_pattern.csv'),
-            Application.__real_path('~/dev/cordia/data/cordia/service_user_visit.csv'))
+            Application.__real_path('~/dev/cordia/data/cordia/service_user_visit.csv'),
+            Application.__real_path('~/dev/cordia/data/cordia/past_visits.csv'))
 
         self.__location_cache = rows.location_finder.FileSystemCache(
             Application.__real_path('~/dev/cordia/data/cordia/location_cache.json'))
