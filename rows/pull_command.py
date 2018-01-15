@@ -9,6 +9,7 @@ import rows.version
 
 from rows.model.diary import Diary
 from rows.model.json import JSONEncoder
+from rows.model.metadata import Metadata
 from rows.model.problem import Problem
 
 
@@ -66,6 +67,6 @@ class Handler:
                        for date, events in itertools.groupby(absolute_events, key=lambda event: event.begin.date())]
             carers.append(Problem.CarerShift(**{Problem.CarerShift.CARER: carer, Problem.CarerShift.DIARIES: diaries}))
 
-        return Problem(metadata=Problem.Metadata(area=area, begin=begin, end=end, version=rows.version.VERSION),
+        return Problem(metadata=Metadata(area=area, begin=begin, end=end, version=rows.version.VERSION),
                        carers=carers,
                        visits=visits)

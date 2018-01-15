@@ -3,7 +3,7 @@
 import rows.model.object
 
 
-class PastVisit(rows.model.object.DatabaseObject):
+class PastVisit(rows.model.object.DatabaseObject):  # pylint: disable=too-many-instance-attributes
     """Details a visit in the past"""
 
     VISIT = 'visit'

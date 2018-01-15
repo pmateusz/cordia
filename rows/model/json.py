@@ -11,7 +11,10 @@ from rows.model.carer import Carer
 from rows.model.diary import Diary
 from rows.model.event import AbsoluteEvent
 from rows.model.location import Location
+from rows.model.metadata import Metadata
+from rows.model.past_visit import PastVisit
 from rows.model.problem import Problem
+from rows.model.schedule import Schedule
 from rows.model.visit import Visit
 
 
@@ -25,10 +28,12 @@ class JSONEncoder(json.JSONEncoder):
                      Diary,
                      Location,
                      Problem,
-                     Problem.Metadata,
+                     Metadata,
+                     Schedule,
                      Problem.CarerShift,
                      Problem.LocationVisits,
-                     Visit]
+                     Visit,
+                     PastVisit]
 
     def default(self, o):  # pylint: disable=method-hidden
         if o.__class__ in JSONEncoder.UNZIP_CLASSES:

@@ -1,11 +1,13 @@
 """Test CSV data source"""
 
 import datetime
+import json
 import unittest
 import os
 
 from rows.csv_data_source import CSVDataSource
 from rows.model.area import Area
+from rows.model.json import JSONEncoder
 
 
 @unittest.skipIf(os.getenv('TRAVIS', 'false') == 'true',
@@ -42,7 +44,9 @@ class CSVDataSourceTest(unittest.TestCase):
     def test_load_past_visits(self):
         """Can load past visits"""
 
-        past_visits = self.data_source.get_past_visits()
+        past_visits = self.data_source.get_past_visits(self.example_area,
+                                                       self.example_begin_date,
+                                                       self.example_end_date)
         self.assertIsNotNone(past_visits)
         self.assertTrue(past_visits)
 
@@ -69,8 +73,20 @@ class CSVDataSourceTest(unittest.TestCase):
 
         self.assertEqual(len(past_visits),
                          len(cancelled_visits) + len(not_planned_visit) + len(moved_visits) + len(planned_visits))
-        print("Planned={0}, Cancelled={1}, NotPlanned={2}, Moved={3}".format(len(planned_visits), len(cancelled_visits),
-                                                                             len(not_planned_visit), len(moved_visits)))
+
+    def test_load_past_schedule(self):
+        """Can load past schedule within the area and time interval"""
+
+        schedule = self.data_source.get_past_schedule(self.example_area, self.example_begin_date, self.example_end_date)
+
+        self.assertTrue(schedule.visits)
+        for visit in schedule.visits:
+            self.assertLess(visit.date, self.example_end_date)
+            self.assertLessEqual(self.example_begin_date, visit.date)
+
+        # may be useful in the future
+        with open('past_solution.json', 'x') as file_stream:
+            json.dump(schedule, file_stream, indent=2, sort_keys=False, cls=JSONEncoder)
 
     def test_load_visits_for_area(self):
         """Returns all visits within the area and time interval"""
