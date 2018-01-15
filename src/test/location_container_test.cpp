@@ -30,7 +30,7 @@
 
 #include "util/logging.h"
 
-rows::Problem Reduce(const rows::Problem &problem, const boost::filesystem::path &problem_file) {
+rows::Problem ReduceToSingleDay(const rows::Problem &problem, const boost::filesystem::path &problem_file) {
     std::set<boost::gregorian::date> days;
     for (const auto &visit : problem.visits()) {
         days.insert(visit.date());
@@ -86,7 +86,7 @@ TEST(TestLocationContainer, CanCalculateTravelTimes) {
         FAIL();
     }
 
-    rows::Problem reduced_problem = Reduce(problem, problem_file);
+    rows::Problem reduced_problem = ReduceToSingleDay(problem, problem_file);
     ASSERT_TRUE(reduced_problem.IsAdmissible());
 
     osrm::EngineConfig config;

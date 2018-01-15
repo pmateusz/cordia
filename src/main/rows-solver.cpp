@@ -27,6 +27,7 @@
 #include <osrm/osrm.hpp>
 
 #include <libgexf/libgexf.h>
+#include <util/aplication_error.h>
 
 #include "location.h"
 #include "location_container.h"
@@ -37,33 +38,23 @@
 #include "problem.h"
 #include "solver_wrapper.h"
 #include "util/logging.h"
+#include "util/validation.h"
 #include "gexf_writer.h"
 
 
-static bool ValidateFilePath(const char *flagname, const std::string &value) {
-    boost::filesystem::path file_path(value);
-    if (!boost::filesystem::exists(file_path)) {
-        LOG(ERROR) << boost::format("File '%1%' does not exist") % file_path;
-        return false;
-    }
+static const int STATUS_ERROR = 1;
+static const int STATUS_OK = 1;
 
-    if (!boost::filesystem::is_regular_file(file_path)) {
-        LOG(ERROR) << boost::format("Path '%1%' does not point to a file") % file_path;
-        return false;
-    }
+DEFINE_string(problem_file, "../problem.json", "a file path to the problem instance");
+DEFINE_validator(problem_file, &util::ValidateFilePath);
 
-    return true;
-}
+DEFINE_string(solution_file, "", "a file path to the solution file");
+DEFINE_validator(solution_file, &util::TryValidateFilePath);
 
-DEFINE_string(problem_file, "problem.json", "a file path to the problem instance");
-DEFINE_validator(problem_file, &ValidateFilePath);
+DEFINE_string(map_file, "../data/scotland-latest.osrm", "a file path to the map");
+DEFINE_validator(map_file, &util::ValidateFilePath);
 
-DEFINE_string(map_file,
-              boost::filesystem::canonical("../data/scotland-latest.osrm").string(),
-              "a file path to the map");
-DEFINE_validator(map_file, &ValidateFilePath);
-
-rows::Problem Reduce(const rows::Problem &problem, const boost::filesystem::path &problem_file) {
+rows::Problem ReduceToSingleDay(const rows::Problem &problem, const boost::filesystem::path &problem_file) {
     std::set<boost::gregorian::date> days;
     for (const auto &visit : problem.visits()) {
         days.insert(visit.date());
@@ -93,17 +84,134 @@ rows::Problem Reduce(const rows::Problem &problem, const boost::filesystem::path
         }
     }
 
-// TODO:
+// code commented out solves an esier problem reduced to first 50 visits
 //    std::vector<rows::Visit> reduced_visits;
 //    std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 50, std::back_inserter(reduced_visits));
 
     return {visits_to_use, carers_to_use};
 }
 
-int main(int argc, char **argv) {
-    static const int STATUS_ERROR = 1;
-    static const int STATUS_OK = 1;
+// TODO: load existing solution and remove cancelled visits
 
+rows::Problem LoadReducedProblem(const std::string &problem_path) {
+    boost::filesystem::path problem_file(boost::filesystem::canonical(FLAGS_problem_file));
+    std::ifstream problem_stream;
+    problem_stream.open(problem_file.c_str());
+    if (!problem_stream.is_open()) {
+        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % problem_file).str(),
+                                     STATUS_ERROR);
+    }
+
+    nlohmann::json problem_json;
+    try {
+        problem_stream >> problem_json;
+    } catch (...) {
+        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % problem_file).str(),
+                                     boost::current_exception_diagnostic_information(),
+                                     STATUS_ERROR);
+    }
+
+    rows::Problem problem;
+    try {
+        rows::Problem::JsonLoader json_loader;
+        problem = json_loader.Load(problem_json);
+    } catch (const std::domain_error &ex) {
+        throw util::ApplicationError(
+                (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % problem_file % ex.what()).str(),
+                STATUS_ERROR);
+    }
+
+    rows::Problem reduced_problem = ReduceToSingleDay(problem, problem_file);
+    DCHECK(reduced_problem.IsAdmissible());
+    return reduced_problem;
+}
+
+void LoadSolution(const std::string &solution_path) {
+    boost::filesystem::path solution_file(boost::filesystem::canonical(FLAGS_solution_file));
+    std::ifstream solution_stream;
+    solution_stream.open(solution_file.c_str());
+    if (!solution_stream.is_open()) {
+        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
+                                     STATUS_ERROR);
+    }
+
+    nlohmann::json json;
+    try {
+        solution_stream >> json;
+    } catch (...) {
+        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
+                                     boost::current_exception_diagnostic_information(),
+                                     STATUS_ERROR);
+    }
+}
+
+osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
+    osrm::EngineConfig config;
+    config.storage_config = osrm::StorageConfig(maps_file);
+    config.use_shared_memory = false;
+    config.algorithm = osrm::EngineConfig::Algorithm::MLD;
+
+    if (!config.IsValid()) {
+        throw util::ApplicationError("Invalid Open Street Map engine configuration", 1);
+    }
+
+    return config;
+}
+
+operations_research::RoutingSearchParameters CreateSearchParameters() {
+    operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
+    parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
+    parameters.mutable_local_search_operators()->set_use_path_lns(false);
+    parameters.mutable_local_search_operators()->set_use_inactive_lns(false);
+    return parameters;
+}
+
+void SetupModel(operations_research::RoutingModel &model, rows::SolverWrapper &wrapper) {
+    model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&wrapper, &rows::SolverWrapper::Distance));
+
+    static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
+    model.AddDimension(NewPermanentCallback(&wrapper, &rows::SolverWrapper::ServiceTimePlusDistance),
+                       rows::SolverWrapper::SECONDS_IN_DAY,
+                       rows::SolverWrapper::SECONDS_IN_DAY,
+                       VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
+                       rows::SolverWrapper::TIME_DIMENSION);
+
+    operations_research::RoutingDimension *const time_dimension = model.GetMutableDimension(
+            rows::SolverWrapper::TIME_DIMENSION);
+
+    operations_research::Solver *const solver = model.solver();
+    for (const auto &carer_index : wrapper.Carers()) {
+        time_dimension->SetBreakIntervalsOfVehicle(wrapper.Breaks(solver, carer_index), carer_index.value());
+    }
+
+    // set visit start times
+    for (auto visit_index = 1; visit_index < model.nodes(); ++visit_index) {
+        const auto &visit = wrapper.Visit(operations_research::RoutingModel::NodeIndex{visit_index});
+        time_dimension->CumulVar(visit_index)->SetValue(visit.time().total_seconds());
+        model.AddToAssignment(time_dimension->SlackVar(visit_index));
+    }
+
+    // minimize time variables
+    for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
+        model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
+    }
+
+    // minimize route duration
+    for (auto carer_index = 0; carer_index < model.vehicles(); ++carer_index) {
+        model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.Start(carer_index)));
+        model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(carer_index)));
+    }
+
+    // Adding penalty costs to allow skipping orders.
+    const int64 kPenalty = 100000;
+    const operations_research::RoutingModel::NodeIndex kFirstNodeAfterDepot(1);
+    for (operations_research::RoutingModel::NodeIndex order = kFirstNodeAfterDepot; order < model.nodes(); ++order) {
+        std::vector<operations_research::RoutingModel::NodeIndex> orders(1, order);
+        model.AddDisjunction(orders, kPenalty);
+    }
+}
+
+int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
 
     gflags::SetVersionString("0.0.1");
@@ -111,109 +219,44 @@ int main(int argc, char **argv) {
     static const bool REMOVE_FLAGS = false;
     gflags::ParseCommandLineFlags(&argc, &argv, REMOVE_FLAGS);
 
-    boost::filesystem::path problem_file(boost::filesystem::canonical(FLAGS_problem_file));
-    LOG(INFO) << boost::format("Launched program with arguments: %1%") % problem_file;
+    VLOG(1) << boost::format("Launched with the arguments:\nproblem_file: %1%\nsolution_file: %2%\nmap_file: %3%")
+               % FLAGS_problem_file
+               % FLAGS_solution_file
+               % FLAGS_map_file;
 
-    std::ifstream problem_stream(problem_file.c_str());
-    if (!problem_stream.is_open()) {
-        LOG(ERROR) << boost::format("Failed to open file: %1%") % problem_file;
-        return STATUS_ERROR;
-    }
-
-    nlohmann::json json;
     try {
-        problem_stream >> json;
-    } catch (...) {
-        LOG(ERROR) << boost::current_exception_diagnostic_information();
-        return STATUS_ERROR;
+        if (!FLAGS_solution_file.empty()) {
+            LoadSolution(FLAGS_solution_file);
+        }
+
+        auto reduced_problem = LoadReducedProblem(FLAGS_problem_file);
+        auto engine_config = CreateEngineConfig(FLAGS_map_file);
+        rows::SolverWrapper wrapper(reduced_problem, engine_config);
+        wrapper.ComputeDistances();
+
+        operations_research::RoutingModel routing(wrapper.NodesCount(), wrapper.VehicleCount(),
+                                                  rows::SolverWrapper::DEPOT);
+        SetupModel(routing, wrapper);
+
+        const auto parameters = CreateSearchParameters();
+        const operations_research::Assignment *solution = routing.SolveWithParameters(parameters);
+        if (solution == nullptr) {
+            throw util::ApplicationError("No solution found.", STATUS_ERROR);
+        }
+
+        rows::GexfWriter solution_writer;
+        solution_writer.Write("../solution.gexf", wrapper, routing, *solution);
+
+        wrapper.DisplayPlan(routing,
+                            *solution,
+                /*use_same_vehicle_costs=*/false,
+                /*max_nodes_per_group=*/0,
+                /*same_vehicle_cost=*/0,
+                            routing.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION));
+
+        return STATUS_OK;
+    } catch (util::ApplicationError &ex) {
+        LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();
+        return ex.exit_code();
     }
-
-    rows::Problem problem;
-    try {
-        rows::Problem::JsonLoader json_loader;
-        problem = json_loader.Load(json);
-    } catch (const std::domain_error &ex) {
-        LOG(ERROR) << boost::format("Failed to parse file '%1%' due to error: '%2%'") % problem_file % ex.what();
-        return STATUS_ERROR;
-    }
-
-    rows::Problem reduced_problem = Reduce(problem, problem_file);
-    DCHECK(reduced_problem.IsAdmissible());
-
-    osrm::EngineConfig config;
-    config.storage_config = osrm::StorageConfig(FLAGS_map_file);
-    config.use_shared_memory = false;
-    config.algorithm = osrm::EngineConfig::Algorithm::MLD;
-    DCHECK(config.IsValid());
-
-    rows::SolverWrapper wrapper(reduced_problem, config);
-    wrapper.ComputeDistances();
-
-    operations_research::RoutingModel routing(wrapper.NodesCount(), wrapper.VehicleCount(), rows::SolverWrapper::DEPOT);
-
-    routing.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&wrapper, &rows::SolverWrapper::Distance));
-
-    static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
-    routing.AddDimension(NewPermanentCallback(&wrapper, &rows::SolverWrapper::ServiceTimePlusDistance),
-                         rows::SolverWrapper::SECONDS_IN_DAY,
-                         rows::SolverWrapper::SECONDS_IN_DAY,
-                         VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
-                         rows::SolverWrapper::TIME_DIMENSION);
-
-    operations_research::RoutingDimension *const time_dimension = routing.GetMutableDimension(
-            rows::SolverWrapper::TIME_DIMENSION);
-
-    operations_research::Solver *const solver = routing.solver();
-    for (const auto &carer_index : wrapper.Carers()) {
-        time_dimension->SetBreakIntervalsOfVehicle(wrapper.Breaks(solver, carer_index), carer_index.value());
-    }
-
-    // set visit start times
-    for (auto visit_index = 1; visit_index < routing.nodes(); ++visit_index) {
-        const auto &visit = wrapper.Visit(operations_research::RoutingModel::NodeIndex{visit_index});
-        time_dimension->CumulVar(visit_index)->SetValue(visit.time().total_seconds());
-        routing.AddToAssignment(time_dimension->SlackVar(visit_index));
-    }
-
-    // minimize time variables
-    for (auto variable_index = 0; variable_index < routing.Size(); ++variable_index) {
-        routing.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
-    }
-
-    // minimize route duration
-    for (auto carer_index = 0; carer_index < routing.vehicles(); ++carer_index) {
-        routing.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(routing.Start(carer_index)));
-        routing.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(routing.End(carer_index)));
-    }
-
-    // Adding penalty costs to allow skipping orders.
-    const int64 kPenalty = 100000;
-    const operations_research::RoutingModel::NodeIndex kFirstNodeAfterDepot(1);
-    for (operations_research::RoutingModel::NodeIndex order = kFirstNodeAfterDepot; order < routing.nodes(); ++order) {
-        std::vector<operations_research::RoutingModel::NodeIndex> orders(1, order);
-        routing.AddDisjunction(orders, kPenalty);
-    }
-
-    operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
-    parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-    parameters.mutable_local_search_operators()->set_use_path_lns(false);
-    parameters.mutable_local_search_operators()->set_use_inactive_lns(false);
-
-    const operations_research::Assignment *solution = routing.SolveWithParameters(parameters);
-    if (solution == nullptr) {
-        LOG(INFO) << "No solution found.";
-        return STATUS_ERROR;
-    }
-
-    rows::GexfWriter solution_writer;
-    solution_writer.Write("../solution.gexf", wrapper, routing, *solution);
-
-    wrapper.DisplayPlan(routing,
-                        *solution,
-            /*use_same_vehicle_costs=*/false,
-            /*max_nodes_per_group=*/0,
-            /*same_vehicle_cost=*/0,
-                        routing.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION));
-
-    return STATUS_OK;
 }
