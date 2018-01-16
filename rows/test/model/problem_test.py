@@ -14,6 +14,7 @@ from rows.model.diary import Diary
 from rows.model.event import AbsoluteEvent
 from rows.model.json import JSONEncoder
 from rows.model.location import Location
+from rows.model.metadata import Metadata
 from rows.model.problem import Problem
 from rows.model.visit import Visit
 
@@ -30,10 +31,10 @@ class TestProblem(unittest.TestCase):
         end_date = begin_date + datetime.timedelta(days=1)
 
         self.example_problem = Problem(**{
-            Problem.METADATA: Problem.Metadata(area=Area(key=23),
-                                               begin=begin_date,
-                                               end=end_date,
-                                               version=distutils.version.StrictVersion('1.0.0')),
+            Problem.METADATA: Metadata(area=Area(key=23),
+                                       begin=begin_date,
+                                       end=end_date,
+                                       version=distutils.version.StrictVersion('1.0.0')),
             Problem.CARERS: [
                 Problem.CarerShift(carer=Carer(sap_number='123456',
                                                position='Senior Carer',

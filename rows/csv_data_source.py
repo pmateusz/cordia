@@ -57,7 +57,7 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
             """Loads carers"""
 
             carers = {}
-            shift_pattern_carer_mapping = collections.defaultdict(list)
+            local_shift_pattern_carer_mapping = collections.defaultdict(list)
             with open(file_path) as file_stream:
                 for row in create_sniffed_reader(file_stream):
                     if len(row) < 5:
@@ -66,11 +66,11 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
 
                     sap_number, address, position = row[0], Address(post_code=row[1]), row[2]
                     carer = Carer(address=address, sap_number=sap_number, position=position)
-                    self.__carers[carer.sap_number] = carer
+                    carers[carer.sap_number] = carer
 
                     shift_key, shift_week = row[3], int(row[4])
-                    shift_pattern_carer_mapping[shift_key].append((carer, shift_week))
-            return carers, shift_pattern_carer_mapping
+                    local_shift_pattern_carer_mapping[shift_key].append((carer, shift_week))
+            return carers, local_shift_pattern_carer_mapping
 
         def load_visits(file_path):
             """Loads visits"""
@@ -143,20 +143,18 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
                     carer = carers.get(sap_number, None)
 
                     visit = None
-                    if not cancelled:
-                        visit = next(filter(
-                            lambda local_visit: local_visit.date == local_begin.date() \
-                                                and local_visit.time == local_begin.time(),
-                            visits[service_user]), None)
-                        if not visit:
-                            visits_for_the_day = list(filter(lambda local_visit: local_visit.date == local_begin.date(),
-                                                             visits[service_user]))
-                            # if no visits have been found, try to find a nearest visit
-                            if visits_for_the_day:
-                                ref_time_delta = datetime.timedelta(hours=local_begin.hour, minutes=local_begin.minute)
-                                visit = min(visits_for_the_day, key=lambda local_visit: abs(
-                                    datetime.timedelta(hours=local_visit.time.hour,
-                                                       minutes=local_visit.time.minute) - ref_time_delta))
+                    visit = next(filter(lambda local_visit: local_visit.date == local_begin.date() \
+                                                            and local_visit.time == local_begin.time(),
+                                        visits[service_user]), None)
+                    if not visit:
+                        visits_for_the_day = list(filter(lambda local_visit: local_visit.date == local_begin.date(),
+                                                         visits[service_user]))
+                        # if no visits have been found, try to find a nearest visit
+                        if visits_for_the_day:
+                            ref_time_delta = datetime.timedelta(hours=local_begin.hour, minutes=local_begin.minute)
+                            visit = min(visits_for_the_day, key=lambda local_visit: abs(
+                                datetime.timedelta(hours=local_visit.time.hour,
+                                                   minutes=local_visit.time.minute) - ref_time_delta))
                     past_visits[sap_number].append(
                         PastVisit(cancelled=cancelled,
                                   carer=carer,
