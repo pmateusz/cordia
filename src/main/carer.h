@@ -9,7 +9,9 @@ namespace rows {
 
     class Carer {
     public:
-        Carer(std::string sap_number);
+        Carer();
+
+        explicit Carer(std::string sap_number);
 
         Carer(const Carer &other);
 

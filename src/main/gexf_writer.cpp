@@ -22,7 +22,8 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::SAP_NUMBER{"8", "sap_number", "string", "unknown"};
     const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_RELATIVE{"9", "work_rel", "double", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_ABSOLUTE{"10", "work_abs", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_AVAILABLE{"11", "work_available", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_AVAILABLE{"11", "work_available", "string",
+                                                                           "00:00:00"};
     const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_VISITS{"12", "work_visits", "long", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"1", "travel_time", "long", "0"};
 
@@ -69,7 +70,7 @@ namespace rows {
         data.setNodeValue(depot_id, TYPE.Id, VISIT_NODE);
 
         for (operations_research::RoutingModel::NodeIndex visit_index{1}; visit_index < model.nodes(); ++visit_index) {
-            const auto &visit = solver.Visit(visit_index);
+            const auto &visit = solver.CalendarVisit(visit_index);
 
             const auto raw_visit_id = node_id;
             node_ids.emplace(visit_index, std::to_string(node_id++));
@@ -80,13 +81,16 @@ namespace rows {
             data.setNodeLabel(visit_id, visit_id);
             data.setNodeValue(visit_id, ID.Id, visit_id);
             data.setNodeValue(visit_id, TYPE.Id, VISIT_NODE);
-            data.setNodeValue(visit_id, LATITUDE.Id, util::to_simple_string(visit.location().latitude()));
-            data.setNodeValue(visit_id, LONGITUDE.Id, util::to_simple_string(visit.location().longitude()));
+            if (visit.location()) {
+                data.setNodeValue(visit_id, LATITUDE.Id, util::to_simple_string(visit.location().value().latitude()));
+                data.setNodeValue(visit_id, LONGITUDE.Id, util::to_simple_string(visit.location().value().longitude()));
+            }
             if (solution.Value(model.NextVar(visit_index.value())) == visit_index.value()) {
                 data.setNodeValue(visit_id, DROPPED.Id, TRUE_VALUE);
             }
 
-            data.setNodeValue(visit_id, START_TIME.Id, boost::posix_time::to_simple_string(visit.time()));
+            data.setNodeValue(visit_id, START_TIME.Id,
+                              boost::posix_time::to_simple_string(visit.datetime().time_of_day()));
             data.setNodeValue(visit_id, DURATION.Id, boost::posix_time::to_simple_string(visit.duration()));
         }
 
@@ -170,7 +174,7 @@ namespace rows {
                         work_duration += boost::posix_time::seconds(travel_time);
                     }
 
-                    const auto &visit = solver.Visit(end_visit_node);
+                    const auto &visit = solver.CalendarVisit(end_visit_node);
                     work_duration += visit.duration();
 
                     data.setNodeValue(end_visit_id, ASSIGNED_CARER.Id, carer_id);

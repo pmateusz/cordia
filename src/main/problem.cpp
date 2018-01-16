@@ -6,11 +6,11 @@
 
 namespace rows {
 
-    Problem::Problem(std::vector<Visit> visits, std::vector<std::pair<Carer, std::vector<Diary> > > carers)
+    Problem::Problem(std::vector<CalendarVisit> visits, std::vector<std::pair<Carer, std::vector<Diary> > > carers)
             : visits_(std::move(visits)),
               carers_(std::move(carers)) {}
 
-    const std::vector<Visit> &Problem::visits() const {
+    const std::vector<CalendarVisit> &Problem::visits() const {
         return visits_;
     }
 
@@ -36,9 +36,5 @@ namespace rows {
         }
 
         return required_duration_sec <= available_duration_sec;
-    }
-
-    std::domain_error Problem::JsonLoader::OnKeyNotFound(std::string key) {
-        return std::domain_error((boost::format("Key '%1%' not found") % key).str());
     }
 }

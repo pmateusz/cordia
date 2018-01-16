@@ -28,7 +28,7 @@ namespace rows {
         int64 ServiceTimePlusDistance(operations_research::RoutingModel::NodeIndex from,
                                       operations_research::RoutingModel::NodeIndex to);
 
-        rows::Visit Visit(const operations_research::RoutingModel::NodeIndex visit) const;
+        rows::CalendarVisit CalendarVisit(const operations_research::RoutingModel::NodeIndex visit) const;
 
         rows::Diary Diary(const operations_research::RoutingModel::NodeIndex carer) const;
 

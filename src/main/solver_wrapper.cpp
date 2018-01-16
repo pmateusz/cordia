@@ -29,7 +29,8 @@ namespace rows {
             return 0;
         }
 
-        return location_container_.Distance(Visit(from).location(), Visit(to).location());
+        return location_container_.Distance(CalendarVisit(from).location().value(),
+                                            CalendarVisit(to).location().value());
     }
 
     int64 SolverWrapper::ServiceTimePlusDistance(operations_research::RoutingModel::NodeIndex from,
@@ -38,7 +39,7 @@ namespace rows {
             return 0;
         }
 
-        const auto visit = Visit(from);
+        const auto visit = CalendarVisit(from);
         const auto value = visit.duration().total_seconds() + Distance(from, to);
         return value;
     }
@@ -48,8 +49,8 @@ namespace rows {
 
         for (const auto &visit : problem_.visits()) {
             const auto &location = visit.location();
-            latitude += static_cast<double>(location.latitude());
-            longitude += static_cast<double>(location.longitude());
+            latitude += static_cast<double>(location.value().latitude());
+            longitude += static_cast<double>(location.value().longitude());
         }
 
         const auto denominator = std::max(1.0, static_cast<double>(problem_.visits().size()));
@@ -57,7 +58,7 @@ namespace rows {
                         osrm::util::FloatLongitude{longitude / denominator});
     }
 
-    rows::Visit SolverWrapper::Visit(const operations_research::RoutingModel::NodeIndex visit) const {
+    rows::CalendarVisit SolverWrapper::CalendarVisit(const operations_research::RoutingModel::NodeIndex visit) const {
         DCHECK_NE(visit, DEPOT);
 
         return problem_.visits()[visit.value() - 1];
@@ -230,7 +231,9 @@ namespace rows {
     std::vector<rows::Location> SolverWrapper::GetUniqueLocations(const rows::Problem &problem) {
         std::unordered_set<rows::Location> location_set;
         for (const auto &visit : problem.visits()) {
-            location_set.insert(visit.location());
+            if (visit.location()) {
+                location_set.insert(visit.location().value());
+            }
         }
         return std::vector<rows::Location>(std::cbegin(location_set), std::cend(location_set));
     }

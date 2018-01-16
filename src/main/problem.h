@@ -10,9 +10,11 @@
 #include <glog/logging.h>
 
 #include "carer.h"
-#include "visit.h"
+#include "calendar_visit.h"
 #include "diary.h"
 #include "location.h"
+#include "json.h"
+#include "data_time.h"
 
 namespace rows {
 
@@ -20,9 +22,9 @@ namespace rows {
     public:
         Problem() = default;
 
-        Problem(std::vector<Visit> visits, std::vector<std::pair<Carer, std::vector<Diary> > > carers);
+        Problem(std::vector<CalendarVisit> visits, std::vector<std::pair<Carer, std::vector<Diary> > > carers);
 
-        const std::vector<Visit> &visits() const;
+        const std::vector<CalendarVisit> &visits() const;
 
         const std::vector<std::pair<Carer, std::vector<Diary> > > &carers() const;
 
@@ -32,7 +34,7 @@ namespace rows {
          */
         bool IsAdmissible() const;
 
-        class JsonLoader {
+        class JsonLoader : protected rows::JsonLoader {
         public:
             /*!
              * @throws std::domain_error
@@ -41,17 +43,15 @@ namespace rows {
             Problem Load(const JsonType &document);
 
         private:
-            std::domain_error OnKeyNotFound(std::string key);
-
             template<typename JsonType>
-            std::vector<Visit> LoadVisits(const JsonType &document);
+            std::vector<CalendarVisit> LoadVisits(const JsonType &document);
 
             template<typename JsonType>
             std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > LoadCarers(const JsonType &document);
         };
 
     private:
-        std::vector<Visit> visits_;
+        std::vector<CalendarVisit> visits_;
         std::vector<std::pair<Carer, std::vector<Diary> > > carers_;
     };
 }
@@ -59,8 +59,8 @@ namespace rows {
 namespace rows {
 
     template<typename JsonType>
-    std::vector<rows::Visit> Problem::JsonLoader::LoadVisits(const JsonType &json) {
-        std::vector<rows::Visit> result;
+    std::vector<rows::CalendarVisit> Problem::JsonLoader::LoadVisits(const JsonType &json) {
+        std::vector<rows::CalendarVisit> result;
 
         const auto place_visits_it = json.find("visits");
         if (place_visits_it == std::end(json)) { throw OnKeyNotFound("visits"); }
@@ -68,38 +68,19 @@ namespace rows {
         const auto carers_it = json.find("carers");
         if (carers_it == std::end(json)) { throw OnKeyNotFound("carers"); }
 
+        Location::JsonLoader location_loader;
+        CalendarVisit::JsonLoader visit_loader;
         for (const auto &place_visits : place_visits_it.value()) {
             const auto location_json_it = place_visits.find("location");
             if (location_json_it == std::end(place_visits)) { throw OnKeyNotFound("location"); }
-
-            const auto &location_json = location_json_it.value();
-            const auto latitude_it = location_json.find("latitude");
-            if (latitude_it == std::end(location_json)) { throw OnKeyNotFound("latitude"); }
-            const auto latitude = latitude_it.value().template get<std::string>();
-
-            const auto longitude_it = location_json.find("longitude");
-            if (longitude_it == std::end(location_json)) { throw OnKeyNotFound("longitude"); }
-            const auto longitude = longitude_it.value().template get<std::string>();
-
-            rows::Location location(latitude, longitude);
+            rows::Location location = location_loader.Load(location_json_it.value());
 
             const auto visits_json_it = place_visits.find("visits");
             if (visits_json_it == std::end(place_visits)) { throw OnKeyNotFound("visits"); }
             for (const auto &visit_json : visits_json_it.value()) {
-                const auto date_it = visit_json.find("date");
-                if (date_it == std::end(visit_json)) { throw OnKeyNotFound("date"); }
-                auto date = boost::gregorian::from_simple_string(date_it.value().template get<std::string>());
-
-                const auto time_it = visit_json.find("time");
-                if (time_it == std::end(visit_json)) { throw OnKeyNotFound("time"); }
-                const auto time = boost::posix_time::duration_from_string(time_it.value().template get<std::string>());
-
-                const auto duration_it = visit_json.find("duration");
-                if (duration_it == std::end(visit_json)) { throw OnKeyNotFound("duration"); }
-                boost::posix_time::time_duration duration = boost::posix_time::seconds(
-                        std::stol(duration_it.value().template get<std::string>()));
-
-                result.emplace_back(location, date, time, duration);
+                auto visit = visit_loader.Load(visit_json);
+                visit.location(location);
+                result.emplace_back(visit);
             }
         }
 

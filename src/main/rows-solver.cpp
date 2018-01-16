@@ -27,18 +27,19 @@
 #include <osrm/osrm.hpp>
 
 #include <libgexf/libgexf.h>
-#include <util/aplication_error.h>
 
+#include "util/aplication_error.h"
+#include "util/logging.h"
+#include "util/validation.h"
 #include "location.h"
 #include "location_container.h"
 #include "carer.h"
 #include "event.h"
 #include "diary.h"
-#include "visit.h"
+#include "calendar_visit.h"
+#include "solution.h"
 #include "problem.h"
 #include "solver_wrapper.h"
-#include "util/logging.h"
-#include "util/validation.h"
 #include "gexf_writer.h"
 
 
@@ -55,11 +56,11 @@ DEFINE_string(map_file, "../data/scotland-latest.osrm", "a file path to the map"
 DEFINE_validator(map_file, &util::ValidateFilePath);
 
 rows::Problem ReduceToSingleDay(const rows::Problem &problem, const boost::filesystem::path &problem_file) {
-    std::set<boost::gregorian::date> days;
+    std::set<boost::posix_time::ptime::date_type> days;
     for (const auto &visit : problem.visits()) {
-        days.insert(visit.date());
+        days.insert(visit.datetime().date());
     }
-    boost::gregorian::date day_to_use = *std::min_element(std::begin(days), std::end(days));
+    boost::posix_time::ptime::date_type day_to_use = *std::min_element(std::begin(days), std::end(days));
 
     if (days.size() > 1) {
         LOG(WARNING) << boost::format("Problem '%1%' contains records from several days. " \
@@ -68,9 +69,9 @@ rows::Problem ReduceToSingleDay(const rows::Problem &problem, const boost::files
                         % day_to_use;
     }
 
-    std::vector<rows::Visit> visits_to_use;
+    std::vector<rows::CalendarVisit> visits_to_use;
     for (const auto &visit : problem.visits()) {
-        if (visit.date() == day_to_use) {
+        if (visit.datetime().date() == day_to_use) {
             visits_to_use.push_back(visit);
         }
     }
@@ -91,7 +92,8 @@ rows::Problem ReduceToSingleDay(const rows::Problem &problem, const boost::files
     return {visits_to_use, carers_to_use};
 }
 
-// TODO: load existing solution and remove cancelled visits
+// TODO: load existing solution
+// TODO: remove cancelled visits
 
 rows::Problem LoadReducedProblem(const std::string &problem_path) {
     boost::filesystem::path problem_file(boost::filesystem::canonical(FLAGS_problem_file));
@@ -135,13 +137,23 @@ void LoadSolution(const std::string &solution_path) {
                                      STATUS_ERROR);
     }
 
-    nlohmann::json json;
+    nlohmann::json solution_json;
     try {
-        solution_stream >> json;
+        solution_stream >> solution_json;
     } catch (...) {
         throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
                                      boost::current_exception_diagnostic_information(),
                                      STATUS_ERROR);
+    }
+
+    rows::Solution solution;
+    try {
+        rows::Solution::JsonLoader json_loader;
+        solution = json_loader.Load(solution_json);
+    } catch (const std::domain_error &ex) {
+        throw util::ApplicationError(
+                (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % solution_file % ex.what()).str(),
+                STATUS_ERROR);
     }
 }
 
@@ -186,8 +198,8 @@ void SetupModel(operations_research::RoutingModel &model, rows::SolverWrapper &w
 
     // set visit start times
     for (auto visit_index = 1; visit_index < model.nodes(); ++visit_index) {
-        const auto &visit = wrapper.Visit(operations_research::RoutingModel::NodeIndex{visit_index});
-        time_dimension->CumulVar(visit_index)->SetValue(visit.time().total_seconds());
+        const auto &visit = wrapper.CalendarVisit(operations_research::RoutingModel::NodeIndex{visit_index});
+        time_dimension->CumulVar(visit_index)->SetValue(visit.datetime().time_of_day().total_seconds());
         model.AddToAssignment(time_dimension->SlackVar(visit_index));
     }
 
@@ -234,7 +246,8 @@ int main(int argc, char **argv) {
         rows::SolverWrapper wrapper(reduced_problem, engine_config);
         wrapper.ComputeDistances();
 
-        operations_research::RoutingModel routing(wrapper.NodesCount(), wrapper.VehicleCount(),
+        operations_research::RoutingModel routing(wrapper.NodesCount(),
+                                                  wrapper.VehicleCount(),
                                                   rows::SolverWrapper::DEPOT);
         SetupModel(routing, wrapper);
 

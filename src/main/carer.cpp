@@ -4,6 +4,9 @@
 
 namespace rows {
 
+    Carer::Carer()
+            : Carer("") {}
+
     Carer::Carer(std::string sap_number)
             : sap_number_(std::move(sap_number)) {}
 
