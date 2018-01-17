@@ -33,6 +33,14 @@ namespace rows {
         return out;
     }
 
+    ScheduledVisit::VisitType ScheduledVisit::type() const {
+        return type_;
+    }
+
+    const boost::optional<CalendarVisit> &ScheduledVisit::calendar_visit() const {
+        return calendar_visit_;
+    }
+
     std::ostream &operator<<(std::ostream &out, const ScheduledVisit::VisitType &visit_type) {
         switch (visit_type) {
             case ScheduledVisit::VisitType::UNKNOWN:

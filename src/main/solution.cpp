@@ -1,7 +1,8 @@
 #include "solution.h"
 
-#include <boost/format.hpp>
+rows::Solution::Solution(std::vector<rows::ScheduledVisit> visits)
+        : visits_(std::move(visits)) {}
 
-std::domain_error rows::Solution::JsonLoader::OnKeyNotFound(std::string key) {
-    return std::domain_error((boost::format("Key '%1%' not found") % key).str());
+const std::vector<rows::ScheduledVisit> &rows::Solution::visits() const {
+    return visits_;
 }

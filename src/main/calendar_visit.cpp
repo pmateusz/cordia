@@ -72,11 +72,19 @@ namespace rows {
         location_ = std::move(location);
     }
 
+    const Address &CalendarVisit::address() const {
+        return address_;
+    }
+
     const boost::posix_time::ptime CalendarVisit::datetime() const {
         return date_time_;
     }
 
     const boost::posix_time::time_duration CalendarVisit::duration() const {
         return duration_;
+    }
+
+    const ServiceUser &CalendarVisit::service_user() const {
+        return service_user_;
     }
 }

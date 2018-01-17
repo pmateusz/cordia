@@ -21,6 +21,7 @@ namespace rows {
 
     class Solution {
     public:
+        Solution(std::vector<ScheduledVisit> visits);
 
         class JsonLoader : protected rows::JsonLoader {
         public:
@@ -29,10 +30,12 @@ namespace rows {
              */
             template<typename JsonType>
             Solution Load(const JsonType &document);
-
-        private:
-            std::domain_error OnKeyNotFound(std::string key);
         };
+
+        const std::vector<ScheduledVisit> &visits() const;
+
+    private:
+        std::vector<ScheduledVisit> visits_;
     };
 }
 
@@ -47,11 +50,11 @@ namespace rows {
             throw OnKeyNotFound("visits");
         }
 
+        std::vector<ScheduledVisit> visits;
         for (const auto &actual_visit : visits_it.value()) {
-            LOG(INFO) << visit_loader.Load(actual_visit);
+            visits.emplace_back(visit_loader.Load(actual_visit));
         }
-
-        return Solution();
+        return Solution(std::move(visits));
     }
 }
 

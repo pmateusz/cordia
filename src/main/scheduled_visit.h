@@ -35,6 +35,10 @@ namespace rows {
             ScheduledVisit Load(const JsonType &document) const;
         };
 
+        VisitType type() const;
+
+        const boost::optional<CalendarVisit> &calendar_visit() const;
+
     private:
         VisitType type_;
         boost::optional<Carer> carer_;

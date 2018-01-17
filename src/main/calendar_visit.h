@@ -43,6 +43,10 @@ namespace rows {
 
         void location(Location location);
 
+        const ServiceUser &service_user() const;
+
+        const Address &address() const;
+
         const boost::optional<Location> &location() const;
 
         const boost::posix_time::ptime datetime() const;
