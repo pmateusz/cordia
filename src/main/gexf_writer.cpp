@@ -45,7 +45,7 @@ namespace rows {
             data.setNodeAttributeDefault(attr.Id, attr.DefaultValue);
         }
 
-        const auto central_location = solver.GetCentralLocation();
+        const auto central_location = solver.depot();
         data.addNodeAttributeColumn(LATITUDE.Id, LATITUDE.Name, LATITUDE.Type);
         data.setNodeAttributeDefault(LATITUDE.Id, util::to_simple_string(central_location.latitude()));
         data.addNodeAttributeColumn(LONGITUDE.Id, LONGITUDE.Name, LONGITUDE.Type);

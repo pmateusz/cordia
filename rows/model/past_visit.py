@@ -22,10 +22,10 @@ class PastVisit(rows.model.object.DatabaseObject):  # pylint: disable=too-many-i
         self.__date = kwargs.get(PastVisit.DATE, None)
         self.__time = kwargs.get(PastVisit.TIME, None)
         self.__duration = kwargs.get(PastVisit.DURATION, None)
-        self.___carer = kwargs.get(PastVisit.CARER, None)
-        self.___cancelled = kwargs.get(PastVisit.CANCELLED, None)
-        self.___check_in = kwargs.get(PastVisit.CHECK_IN, None)
-        self.___check_out = kwargs.get(PastVisit.CHECK_OUT, None)
+        self.__carer = kwargs.get(PastVisit.CARER, None)
+        self.__cancelled = kwargs.get(PastVisit.CANCELLED, None)
+        self.__check_in = kwargs.get(PastVisit.CHECK_IN, None)
+        self.__check_out = kwargs.get(PastVisit.CHECK_OUT, None)
 
     def as_dict(self):
         bundle = super(PastVisit, self).as_dict()
@@ -33,10 +33,10 @@ class PastVisit(rows.model.object.DatabaseObject):  # pylint: disable=too-many-i
         bundle[PastVisit.DATE] = self.__date
         bundle[PastVisit.TIME] = self.__time
         bundle[PastVisit.DURATION] = self.__duration
-        bundle[PastVisit.CARER] = self.___carer
-        bundle[PastVisit.CANCELLED] = self.___cancelled
-        bundle[PastVisit.CHECK_IN] = self.___check_in
-        bundle[PastVisit.CHECK_OUT] = self.___check_out
+        bundle[PastVisit.CARER] = self.__carer
+        bundle[PastVisit.CANCELLED] = self.__cancelled
+        bundle[PastVisit.CHECK_IN] = self.__check_in
+        bundle[PastVisit.CHECK_OUT] = self.__check_out
         return bundle
 
     @property
@@ -67,22 +67,22 @@ class PastVisit(rows.model.object.DatabaseObject):  # pylint: disable=too-many-i
     def carer(self):
         """Return a property"""
 
-        return self.___carer
+        return self.__carer
 
     @property
     def check_in(self):
         """Return a property"""
 
-        return self.___check_in
+        return self.__check_in
 
     @property
     def check_out(self):
         """Return a property"""
 
-        return self.___check_out
+        return self.__check_out
 
     @property
     def cancelled(self):
         """Return a property"""
 
-        return self.___cancelled
+        return self.__cancelled

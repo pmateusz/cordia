@@ -3,9 +3,17 @@
 #include <algorithm>
 #include <numeric>
 
+#include <glog/logging.h>
+
 #include <boost/date_time/posix_time/ptime.hpp>
+#include <boost/format.hpp>
+
+#include <ortools/constraint_solver/routing_flags.h>
 
 #include "location.h"
+
+#include <calendar_visit.h>
+#include <scheduled_visit.h>
 
 namespace rows {
 
@@ -18,10 +26,13 @@ namespace rows {
     SolverWrapper::SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config)
             : SolverWrapper(problem, GetUniqueLocations(problem), config) {}
 
-    SolverWrapper::SolverWrapper(const rows::Problem &problem, const std::vector<rows::Location> &locations,
+    SolverWrapper::SolverWrapper(const rows::Problem &problem,
+                                 const std::vector<rows::Location> &locations,
                                  osrm::EngineConfig &config)
             : problem_(problem),
-              location_container_(std::cbegin(locations), std::cend(locations), config) {}
+              depot_(GetCentralLocation(std::cbegin(locations), std::cend(locations))),
+              location_container_(std::cbegin(locations), std::cend(locations), config),
+              parameters_(CreateSearchParameters()) {}
 
     int64 SolverWrapper::Distance(operations_research::RoutingModel::NodeIndex from,
                                   operations_research::RoutingModel::NodeIndex to) {
@@ -29,8 +40,16 @@ namespace rows {
             return 0;
         }
 
-        return location_container_.Distance(CalendarVisit(from).location().value(),
-                                            CalendarVisit(to).location().value());
+        return location_container_.Distance(CalendarVisit(from).location().get(),
+                                            CalendarVisit(to).location().get());
+    }
+
+    boost::posix_time::ptime::time_duration_type SolverWrapper::TravelTime(const Location &from, const Location &to) {
+        if (from == depot_ || to == depot_) {
+            return boost::posix_time::seconds(0);
+        }
+
+        return boost::posix_time::seconds(location_container_.Distance(from, to));
     }
 
     int64 SolverWrapper::ServiceTimePlusDistance(operations_research::RoutingModel::NodeIndex from,
@@ -42,20 +61,6 @@ namespace rows {
         const auto visit = CalendarVisit(from);
         const auto value = visit.duration().total_seconds() + Distance(from, to);
         return value;
-    }
-
-    Location SolverWrapper::GetCentralLocation() const {
-        double latitude = 0, longitude = 0;
-
-        for (const auto &visit : problem_.visits()) {
-            const auto &location = visit.location();
-            latitude += static_cast<double>(location.value().latitude());
-            longitude += static_cast<double>(location.value().longitude());
-        }
-
-        const auto denominator = std::max(1.0, static_cast<double>(problem_.visits().size()));
-        return Location(osrm::util::FloatLatitude{latitude / denominator},
-                        osrm::util::FloatLongitude{longitude / denominator});
     }
 
     rows::CalendarVisit SolverWrapper::CalendarVisit(const operations_research::RoutingModel::NodeIndex visit) const {
@@ -224,7 +229,7 @@ namespace rows {
                               label);
     }
 
-    void SolverWrapper::ComputeDistances() {
+    void SolverWrapper::PrecomputeDistances() {
         location_container_.ComputeDistances();
     }
 
@@ -236,5 +241,148 @@ namespace rows {
             }
         }
         return std::vector<rows::Location>(std::cbegin(location_set), std::cend(location_set));
+    }
+
+    template<typename IteratorType>
+    Location SolverWrapper::GetCentralLocation(IteratorType begin_it, IteratorType end_it) {
+        double latitude = 0, longitude = 0;
+
+        auto element_count = 1.0;
+        for (auto location_it = begin_it; location_it != end_it; ++location_it, element_count += 1.0) {
+            latitude += static_cast<double>(location_it->latitude());
+            longitude += static_cast<double>(location_it->longitude());
+        }
+
+        const auto denominator = std::max(1.0, element_count);
+        return Location(osrm::util::FloatLatitude{latitude / denominator},
+                        osrm::util::FloatLongitude{longitude / denominator});
+    }
+
+
+    operations_research::RoutingModel::NodeIndex SolverWrapper::Index(const rows::CalendarVisit &visit) const {
+        const auto &index_opt = TryIndex(visit);
+        if (index_opt) {
+            return index_opt.get();
+        }
+
+        throw std::domain_error((boost::format("Visit %1% not found in the index") % visit).str());
+    }
+
+    operations_research::RoutingModel::NodeIndex SolverWrapper::Index(const rows::ScheduledVisit &visit) const {
+        const auto &calendar_visit = visit.calendar_visit();
+        if (calendar_visit) {
+            return Index(calendar_visit.get());
+        }
+
+        throw std::domain_error((boost::format("Visit %1% do not have a calendar visit") % visit).str());
+    }
+
+    boost::optional<operations_research::RoutingModel::NodeIndex> SolverWrapper::TryIndex(
+            const rows::CalendarVisit &visit) const {
+        const auto find_it = visit_index_.left.find(visit);
+        if (find_it != std::end(visit_index_.left)) {
+            return find_it->second;
+        }
+        return boost::optional<operations_research::RoutingModel::NodeIndex>();
+
+    }
+
+    boost::optional<operations_research::RoutingModel::NodeIndex> SolverWrapper::TryIndex(
+            const rows::ScheduledVisit &visit) const {
+        const auto &calendar_visit = visit.calendar_visit();
+        if (!calendar_visit) {
+            return boost::optional<operations_research::RoutingModel::NodeIndex>();
+        }
+
+        return TryIndex(calendar_visit.get());
+    }
+
+    operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
+        operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
+        parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
+        parameters.mutable_local_search_operators()->set_use_path_lns(false);
+        parameters.mutable_local_search_operators()->set_use_inactive_lns(false);
+        return parameters;
+    }
+
+    void SolverWrapper::ConfigureModel(operations_research::RoutingModel &model) {
+        model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&*this, &rows::SolverWrapper::Distance));
+
+        static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
+        model.AddDimension(NewPermanentCallback(&*this, &rows::SolverWrapper::ServiceTimePlusDistance),
+                           SECONDS_IN_DAY,
+                           SECONDS_IN_DAY,
+                           VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
+                           TIME_DIMENSION);
+
+        operations_research::RoutingDimension *const time_dimension = model.GetMutableDimension(
+                rows::SolverWrapper::TIME_DIMENSION);
+
+        operations_research::Solver *const solver = model.solver();
+        for (const auto &carer_index : Carers()) {
+            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver, carer_index), carer_index.value());
+        }
+
+        // set visit start times
+        for (int visit_index = 1; visit_index < model.nodes(); ++visit_index) {
+            const auto visit_node = operations_research::RoutingModel::NodeIndex{visit_index};
+            const auto &visit = CalendarVisit(visit_node);
+
+            time_dimension->CumulVar(visit_index)->SetValue(visit.datetime().time_of_day().total_seconds());
+            model.AddToAssignment(time_dimension->SlackVar(visit_index));
+
+            visit_index_.insert({visit, visit_node});
+        }
+
+        // minimize time variables
+        for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
+        }
+
+        // minimize route duration
+        for (auto carer_index = 0; carer_index < model.vehicles(); ++carer_index) {
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.Start(carer_index)));
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(carer_index)));
+        }
+
+        // Adding penalty costs to allow skipping orders.
+        const int64 kPenalty = 100000;
+        const operations_research::RoutingModel::NodeIndex kFirstNodeAfterDepot(1);
+        for (operations_research::RoutingModel::NodeIndex order = kFirstNodeAfterDepot;
+             order < model.nodes(); ++order) {
+            std::vector<operations_research::RoutingModel::NodeIndex> orders(1, order);
+            model.AddDisjunction(orders, kPenalty);
+        }
+
+        model.CloseModelWithParameters(parameters_);
+
+        PrecomputeDistances();
+    }
+
+    const operations_research::RoutingSearchParameters &SolverWrapper::parameters() const {
+        return parameters_;
+    }
+
+    const Location &SolverWrapper::depot() const {
+        return depot_;
+    }
+
+    std::size_t SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {
+        static const std::hash<rows::ServiceUser> hash_service_user{};
+        static const std::hash<boost::posix_time::ptime> hash_date_time{};
+        static const std::hash<boost::posix_time::ptime::time_duration_type> hash_duration{};
+
+        std::size_t seed = 0;
+        boost::hash_combine(seed, hash_service_user(object.service_user()));
+        boost::hash_combine(seed, hash_date_time(object.datetime()));
+        boost::hash_combine(seed, hash_duration(object.duration()));
+        return seed;
+    }
+
+    bool SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &left,
+                                                           const rows::CalendarVisit &right) const noexcept {
+        return left.service_user() == right.service_user()
+               && left.datetime() == right.datetime()
+               && left.duration() == right.duration();
     }
 }

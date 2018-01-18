@@ -4,13 +4,19 @@
 #include <string>
 #include <vector>
 
+#include <boost/bimap.hpp>
+#include <boost/optional.hpp>
+#include <boost/bimap/unordered_set_of.hpp>
+#include <boost/date_time.hpp>
+
 #include <osrm/engine/engine_config.hpp>
 
 #include <ortools/constraint_solver/routing.h>
 
 #include "problem.h"
-
 #include "location_container.h"
+#include "scheduled_visit.h"
+#include "calendar_visit.h"
 
 namespace rows {
 
@@ -20,13 +26,25 @@ namespace rows {
         static const int64 SECONDS_IN_DAY;
         static const std::string TIME_DIMENSION;
 
-        explicit SolverWrapper(const Problem &problem, osrm::EngineConfig &config);
+        explicit SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config);
+
+        void ConfigureModel(operations_research::RoutingModel &model);
+
+        boost::posix_time::ptime::time_duration_type TravelTime(const Location &from, const Location &to);
 
         int64 Distance(operations_research::RoutingModel::NodeIndex from,
                        operations_research::RoutingModel::NodeIndex to);
 
         int64 ServiceTimePlusDistance(operations_research::RoutingModel::NodeIndex from,
                                       operations_research::RoutingModel::NodeIndex to);
+
+        operations_research::RoutingModel::NodeIndex Index(const CalendarVisit &visit) const;
+
+        operations_research::RoutingModel::NodeIndex Index(const ScheduledVisit &visit) const;
+
+        boost::optional<operations_research::RoutingModel::NodeIndex> TryIndex(const CalendarVisit &visit) const;
+
+        boost::optional<operations_research::RoutingModel::NodeIndex> TryIndex(const ScheduledVisit &visit) const;
 
         rows::CalendarVisit CalendarVisit(const operations_research::RoutingModel::NodeIndex visit) const;
 
@@ -39,6 +57,8 @@ namespace rows {
 
         std::vector<operations_research::RoutingModel::NodeIndex> Carers() const;
 
+        const Location &depot() const;
+
         int NodesCount() const;
 
         int VehicleCount() const;
@@ -50,16 +70,29 @@ namespace rows {
                          int64 same_vehicle_cost,
                          const operations_research::RoutingDimension &time_dimension);
 
+        // TODO: move to problem
         static std::vector<rows::Location> GetUniqueLocations(const rows::Problem &problem);
 
-        void ComputeDistances();
+        template<typename IteratorType>
+        static Location GetCentralLocation(IteratorType begin_it, IteratorType end_it);
 
-        Location GetCentralLocation() const;
+        const operations_research::RoutingSearchParameters &parameters() const;
 
     private:
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
         };
+
+
+        struct PartialVisitOperations {
+            std::size_t operator()(const rows::CalendarVisit &object) const noexcept;
+
+            bool operator()(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const noexcept;
+        };
+
+        void PrecomputeDistances();
+
+        operations_research::RoutingSearchParameters CreateSearchParameters() const;
 
         static operations_research::IntervalVar *CreateBreak(operations_research::Solver *const solver,
                                                              const boost::posix_time::time_duration &start_time,
@@ -74,7 +107,14 @@ namespace rows {
                       osrm::EngineConfig &config);
 
         const rows::Problem &problem_;
+        const Location depot_;
         rows::CachedLocationContainer location_container_;
+
+        operations_research::RoutingSearchParameters parameters_;
+
+        boost::bimaps::bimap<
+                boost::bimaps::unordered_set_of<rows::CalendarVisit, PartialVisitOperations, PartialVisitOperations>,
+                operations_research::RoutingModel::NodeIndex> visit_index_;
     };
 }
 

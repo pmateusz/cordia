@@ -2,6 +2,8 @@
 #define ROWS_SOLUTION_H
 
 #include <string>
+#include <memory>
+#include <vector>
 #include <exception>
 #include <stdexcept>
 
@@ -15,13 +17,20 @@
 #include "address.h"
 #include "service_user.h"
 #include "data_time.h"
+#include "route.h"
 #include "scheduled_visit.h"
+#include "route_validator.h"
 
 namespace rows {
 
     class Solution {
     public:
-        Solution(std::vector<ScheduledVisit> visits);
+        explicit Solution(std::vector<ScheduledVisit> visits);
+
+        Solution Trim(boost::posix_time::ptime begin, boost::posix_time::ptime::time_duration_type duration) const;
+
+        Solution Resolve(
+                const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const;
 
         class JsonLoader : protected rows::JsonLoader {
         public:
@@ -31,6 +40,12 @@ namespace rows {
             template<typename JsonType>
             Solution Load(const JsonType &document);
         };
+
+        const std::vector<Carer> Carers() const;
+
+        Route GetRoute(const Carer &carer) const;
+
+        void UpdateVisitLocations(const std::vector<CalendarVisit> &visits);
 
         const std::vector<ScheduledVisit> &visits() const;
 

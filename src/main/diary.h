@@ -16,7 +16,7 @@ namespace rows {
     public:
         Diary();
 
-        Diary(boost::gregorian::date date, std::vector<rows::Event> events);
+        Diary(boost::posix_time::ptime::date_type date, std::vector<rows::Event> events);
 
         Diary(const Diary &other);
 
@@ -30,18 +30,18 @@ namespace rows {
 
         bool operator!=(const Diary &other) const;
 
-        boost::gregorian::date date() const;
+        boost::posix_time::ptime::date_type date() const;
 
-        boost::posix_time::time_duration begin_time() const;
+        boost::posix_time::ptime::time_duration_type begin_time() const;
 
-        boost::posix_time::time_duration end_time() const;
+        boost::posix_time::ptime::time_duration_type end_time() const;
 
         const std::vector<rows::Event> &events() const;
 
         friend std::ostream &operator<<(std::ostream &out, const Diary &object);
 
     private:
-        boost::gregorian::date date_;
+        boost::posix_time::ptime::date_type date_;
         std::vector<rows::Event> events_;
     };
 }

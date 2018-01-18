@@ -45,7 +45,7 @@ namespace rows {
         return !operator==(other);
     }
 
-    boost::gregorian::date Diary::date() const {
+    boost::posix_time::ptime::date_type Diary::date() const {
         return date_;
     }
 
@@ -53,7 +53,7 @@ namespace rows {
         return events_;
     }
 
-    boost::posix_time::time_duration Diary::begin_time() const {
+    boost::posix_time::ptime::time_duration_type Diary::begin_time() const {
         if (events_.empty()) {
             return {};
         }
@@ -61,7 +61,7 @@ namespace rows {
         return events_.front().begin().time_of_day();
     }
 
-    boost::posix_time::time_duration Diary::end_time() const {
+    boost::posix_time::ptime::time_duration_type Diary::end_time() const {
         if (events_.empty()) {
             return {};
         }

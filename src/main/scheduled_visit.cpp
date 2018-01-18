@@ -1,5 +1,7 @@
 #include "scheduled_visit.h"
 
+#include <glog/logging.h>
+
 namespace rows {
 
     ScheduledVisit::ScheduledVisit()
@@ -33,12 +35,50 @@ namespace rows {
         return out;
     }
 
+    const boost::posix_time::ptime &ScheduledVisit::datetime() const {
+        return datetime_;
+    }
+
+    const boost::optional<Carer> &ScheduledVisit::carer() const {
+        return carer_;
+    }
+
+    boost::optional<Carer> &ScheduledVisit::carer() {
+        return carer_;
+    }
+
     ScheduledVisit::VisitType ScheduledVisit::type() const {
         return type_;
     }
 
     const boost::optional<CalendarVisit> &ScheduledVisit::calendar_visit() const {
         return calendar_visit_;
+    }
+
+    const boost::posix_time::ptime::time_duration_type &ScheduledVisit::duration() const {
+        return duration_;
+    }
+
+    const boost::optional<Location> ScheduledVisit::location() const {
+        if (!calendar_visit_.is_initialized()) {
+            return boost::optional<Location>();
+        }
+
+        return calendar_visit_.get().location();
+    }
+
+    void ScheduledVisit::location(const rows::Location &location) {
+        DCHECK(calendar_visit_);
+
+        calendar_visit_.get().location(location);
+    }
+
+    boost::optional<ServiceUser> ScheduledVisit::service_user() const {
+        if (!calendar_visit_.is_initialized()) {
+            return boost::optional<ServiceUser>();
+        }
+
+        return boost::make_optional(calendar_visit_.get().service_user());
     }
 
     std::ostream &operator<<(std::ostream &out, const ScheduledVisit::VisitType &visit_type) {

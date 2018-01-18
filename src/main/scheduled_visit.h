@@ -3,6 +3,7 @@
 
 #include <ostream>
 
+#include <glog/logging.h>
 #include <boost/optional.hpp>
 
 #include "calendar_visit.h"
@@ -34,6 +35,20 @@ namespace rows {
             template<typename JsonType>
             ScheduledVisit Load(const JsonType &document) const;
         };
+
+        const boost::optional<Carer> &carer() const;
+
+        boost::optional<Carer> &carer();
+
+        boost::optional<ServiceUser> service_user() const;
+
+        const boost::posix_time::ptime &datetime() const;
+
+        const boost::posix_time::ptime::time_duration_type &duration() const;
+
+        const boost::optional<Location> location() const;
+
+        void location(const rows::Location &location);
 
         VisitType type() const;
 

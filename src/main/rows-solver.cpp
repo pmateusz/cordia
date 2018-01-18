@@ -41,6 +41,7 @@
 #include "problem.h"
 #include "solver_wrapper.h"
 #include "gexf_writer.h"
+#include "route_validator.h"
 
 
 static const int STATUS_ERROR = 1;
@@ -54,89 +55,6 @@ DEFINE_validator(solution_file, &util::TryValidateFilePath);
 
 DEFINE_string(map_file, "../data/scotland-latest.osrm", "a file path to the map");
 DEFINE_validator(map_file, &util::ValidateFilePath);
-
-rows::Problem ReduceToSingleDay(const rows::Problem &problem, const boost::filesystem::path &problem_file) {
-    std::set<boost::posix_time::ptime::date_type> days;
-    for (const auto &visit : problem.visits()) {
-        days.insert(visit.datetime().date());
-    }
-    boost::posix_time::ptime::date_type day_to_use = *std::min_element(std::begin(days), std::end(days));
-
-    if (days.size() > 1) {
-        LOG(WARNING) << boost::format("Problem '%1%' contains records from several days. " \
-                                              "The computed solution will be reduced to a single day: '%2%'")
-                        % problem_file
-                        % day_to_use;
-    }
-
-    std::vector<rows::CalendarVisit> visits_to_use;
-    for (const auto &visit : problem.visits()) {
-        if (visit.datetime().date() == day_to_use) {
-            visits_to_use.push_back(visit);
-        }
-    }
-
-    std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > carers_to_use;
-    for (const auto &carer_diaries : problem.carers()) {
-        for (const auto &diary : carer_diaries.second) {
-            if (diary.date() == day_to_use) {
-                carers_to_use.emplace_back(carer_diaries.first, std::vector<rows::Diary>{diary});
-            }
-        }
-    }
-
-// code commented out solves an esier problem reduced to first 50 visits
-// std::vector<rows::Visit> reduced_visits;
-// std::copy(std::begin(visits_to_use), std::begin(visits_to_use) + 50, std::back_inserter(reduced_visits));
-
-    return {visits_to_use, carers_to_use};
-}
-
-
-rows::Problem RemoveCancelledVisits(const rows::Problem &problem, const rows::Solution &solution) {
-    std::vector<rows::CalendarVisit> visits_to_use;
-
-    std::unordered_map<rows::ServiceUser, std::vector<rows::ScheduledVisit> > cancelled_visits;
-    for (const auto &scheduled_visit : solution.visits()) {
-        if (scheduled_visit.type() != rows::ScheduledVisit::VisitType::CANCELLED) {
-            continue;
-        }
-
-        const auto &calendar_visit = scheduled_visit.calendar_visit();
-        if (!calendar_visit) {
-            continue;
-        }
-
-        const auto &service_user = calendar_visit.get().service_user();
-        auto bucket_pair = cancelled_visits.find(service_user);
-        if (bucket_pair == std::end(cancelled_visits)) {
-            cancelled_visits.insert(std::make_pair(service_user, std::vector<rows::ScheduledVisit>{}));
-            bucket_pair = cancelled_visits.find(service_user);
-        }
-        bucket_pair->second.push_back(scheduled_visit);
-    }
-
-    for (const auto &visit : problem.visits()) {
-        const auto find_it = cancelled_visits.find(visit.service_user());
-        if (find_it != std::end(cancelled_visits)) {
-            const auto found_it = std::find_if(std::begin(find_it->second), std::end(find_it->second),
-                                               [&visit](const rows::ScheduledVisit &cancelled_visit) -> bool {
-                                                   const auto &local_visit = cancelled_visit.calendar_visit().get();
-                                                   return visit.service_user() == local_visit.service_user()
-                                                          && visit.datetime() == local_visit.datetime()
-                                                          && visit.address() == local_visit.address();
-                                               });
-
-            if (found_it != std::end(find_it->second)) {
-                continue;
-            }
-        }
-
-        visits_to_use.push_back(visit);
-    }
-
-    return {visits_to_use, problem.carers()};
-}
 
 rows::Problem LoadReducedProblem(const std::string &problem_path) {
     boost::filesystem::path problem_file(boost::filesystem::canonical(FLAGS_problem_file));
@@ -166,12 +84,20 @@ rows::Problem LoadReducedProblem(const std::string &problem_path) {
                 STATUS_ERROR);
     }
 
-    rows::Problem reduced_problem = ReduceToSingleDay(problem, problem_file);
-    DCHECK(reduced_problem.IsAdmissible());
-    return reduced_problem;
+    const auto timespan_pair = problem.Timespan();
+    if (timespan_pair.first.date() < timespan_pair.second.date()) {
+        LOG(WARNING) << boost::format("Problem '%1%' contains records from several days. " \
+                                              "The computed solution will be reduced to a single day: '%2%'")
+                        % problem_file
+                        % timespan_pair.first.date();
+    }
+
+    const auto problem_to_use = problem.Trim(timespan_pair.first, boost::posix_time::hours(24));
+    DCHECK(problem_to_use.IsAdmissible());
+    return problem_to_use;
 }
 
-rows::Solution LoadSolution(const std::string &solution_path) {
+rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem) {
     boost::filesystem::path solution_file(boost::filesystem::canonical(FLAGS_solution_file));
     std::ifstream solution_stream;
     solution_stream.open(solution_file.c_str());
@@ -191,7 +117,9 @@ rows::Solution LoadSolution(const std::string &solution_path) {
 
     try {
         rows::Solution::JsonLoader json_loader;
-        return json_loader.Load(solution_json);
+        auto original_solution = json_loader.Load(solution_json);
+        const auto time_span = problem.Timespan();
+        return original_solution.Trim(time_span.first, time_span.second - time_span.first);
     } catch (const std::domain_error &ex) {
         throw util::ApplicationError(
                 (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % solution_file % ex.what()).str(),
@@ -210,59 +138,6 @@ osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
     }
 
     return config;
-}
-
-operations_research::RoutingSearchParameters CreateSearchParameters() {
-    operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
-    parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-    parameters.mutable_local_search_operators()->set_use_path_lns(false);
-    parameters.mutable_local_search_operators()->set_use_inactive_lns(false);
-    return parameters;
-}
-
-void SetupModel(operations_research::RoutingModel &model, rows::SolverWrapper &wrapper) {
-    model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&wrapper, &rows::SolverWrapper::Distance));
-
-    static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
-    model.AddDimension(NewPermanentCallback(&wrapper, &rows::SolverWrapper::ServiceTimePlusDistance),
-                       rows::SolverWrapper::SECONDS_IN_DAY,
-                       rows::SolverWrapper::SECONDS_IN_DAY,
-                       VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
-                       rows::SolverWrapper::TIME_DIMENSION);
-
-    operations_research::RoutingDimension *const time_dimension = model.GetMutableDimension(
-            rows::SolverWrapper::TIME_DIMENSION);
-
-    operations_research::Solver *const solver = model.solver();
-    for (const auto &carer_index : wrapper.Carers()) {
-        time_dimension->SetBreakIntervalsOfVehicle(wrapper.Breaks(solver, carer_index), carer_index.value());
-    }
-
-    // set visit start times
-    for (auto visit_index = 1; visit_index < model.nodes(); ++visit_index) {
-        const auto &visit = wrapper.CalendarVisit(operations_research::RoutingModel::NodeIndex{visit_index});
-        time_dimension->CumulVar(visit_index)->SetValue(visit.datetime().time_of_day().total_seconds());
-        model.AddToAssignment(time_dimension->SlackVar(visit_index));
-    }
-
-    // minimize time variables
-    for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
-        model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
-    }
-
-    // minimize route duration
-    for (auto carer_index = 0; carer_index < model.vehicles(); ++carer_index) {
-        model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.Start(carer_index)));
-        model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(carer_index)));
-    }
-
-    // Adding penalty costs to allow skipping orders.
-    const int64 kPenalty = 100000;
-    const operations_research::RoutingModel::NodeIndex kFirstNodeAfterDepot(1);
-    for (operations_research::RoutingModel::NodeIndex order = kFirstNodeAfterDepot; order < model.nodes(); ++order) {
-        std::vector<operations_research::RoutingModel::NodeIndex> orders(1, order);
-        model.AddDisjunction(orders, kPenalty);
-    }
 }
 
 int main(int argc, char **argv) {
@@ -284,34 +159,55 @@ int main(int argc, char **argv) {
         auto problem_to_use = LoadReducedProblem(FLAGS_problem_file);
 
         if (!FLAGS_solution_file.empty()) {
-            solution = LoadSolution(FLAGS_solution_file);
-            problem_to_use = RemoveCancelledVisits(problem_to_use, solution.value());
+            solution = LoadSolution(FLAGS_solution_file, problem_to_use);
+            solution.get().UpdateVisitLocations(problem_to_use.visits());
+            problem_to_use.RemoveCancelled(solution.get().visits());
         }
 
         auto engine_config = CreateEngineConfig(FLAGS_map_file);
         rows::SolverWrapper wrapper(problem_to_use, engine_config);
-        wrapper.ComputeDistances();
 
-        operations_research::RoutingModel routing(wrapper.NodesCount(),
-                                                  wrapper.VehicleCount(),
-                                                  rows::SolverWrapper::DEPOT);
-        SetupModel(routing, wrapper);
+        operations_research::RoutingModel model{wrapper.NodesCount(),
+                                                wrapper.VehicleCount(),
+                                                rows::SolverWrapper::DEPOT};
+        wrapper.ConfigureModel(model);
+        operations_research::Assignment const *assignment = nullptr;
+        if (solution) {
+            std::vector<rows::Route> routes;
+            for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
+                const auto carer = wrapper.Carer(vehicle);
+                std::vector<operations_research::RoutingModel::NodeIndex> nodes_route;
+                routes.push_back(solution.get().GetRoute(carer));
+            }
 
-        const auto parameters = CreateSearchParameters();
-        const operations_research::Assignment *assignment = routing.SolveWithParameters(parameters);
+            rows::RouteValidator validator;
+            const auto validation_errors = validator.Validate(routes, problem_to_use, wrapper);
+            for (const auto &error_ptr : validation_errors) {
+                LOG(WARNING) << *error_ptr;
+            }
+
+            solution = solution.get().Resolve(validation_errors);
+
+//            auto pre_assignment = model.ReadAssignmentFromRoutes(routes, false);
+//            CHECK(model.solver()->CheckAssignment(pre_assignment)) << "Assignment is not valid";
+//            assignment = model.SolveFromAssignmentWithParameters(pre_assignment, wrapper.parameters());
+        } else {
+            assignment = model.SolveWithParameters(wrapper.parameters());
+        }
+
         if (assignment == nullptr) {
             throw util::ApplicationError("No solution found.", STATUS_ERROR);
         }
 
         rows::GexfWriter solution_writer;
-        solution_writer.Write("../solution.gexf", wrapper, routing, *assignment);
+        solution_writer.Write("../solution.gexf", wrapper, model, *assignment);
 
-        wrapper.DisplayPlan(routing,
+        wrapper.DisplayPlan(model,
                             *assignment,
                 /*use_same_vehicle_costs=*/false,
                 /*max_nodes_per_group=*/0,
                 /*same_vehicle_cost=*/0,
-                            routing.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION));
+                            model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION));
 
         return STATUS_OK;
     } catch (util::ApplicationError &ex) {

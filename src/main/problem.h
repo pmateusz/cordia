@@ -6,11 +6,15 @@
 #include <unordered_map>
 #include <stdexcept>
 #include <string>
+#include <functional>
 
 #include <glog/logging.h>
+#include <boost/optional.hpp>
+#include <boost/date_time.hpp>
 
 #include "carer.h"
 #include "calendar_visit.h"
+#include "scheduled_visit.h"
 #include "diary.h"
 #include "location.h"
 #include "json.h"
@@ -24,9 +28,15 @@ namespace rows {
 
         Problem(std::vector<CalendarVisit> visits, std::vector<std::pair<Carer, std::vector<Diary> > > carers);
 
+        std::pair<boost::posix_time::ptime, boost::posix_time::ptime> Timespan() const;
+
+        Problem Trim(boost::posix_time::ptime begin, boost::posix_time::ptime::time_duration_type duration) const;
+
         const std::vector<CalendarVisit> &visits() const;
 
         const std::vector<std::pair<Carer, std::vector<Diary> > > &carers() const;
+
+        const boost::optional<Diary> diary(const Carer &carer, boost::posix_time::ptime::date_type date) const;
 
         /*!
          * Runs fast checks to test if the problem can be solved
@@ -49,6 +59,8 @@ namespace rows {
             template<typename JsonType>
             std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > LoadCarers(const JsonType &document);
         };
+
+        void RemoveCancelled(const std::vector<rows::ScheduledVisit> &visits);
 
     private:
         std::vector<CalendarVisit> visits_;
