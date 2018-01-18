@@ -2,6 +2,8 @@
 
 #include <glog/logging.h>
 
+#include <boost/date_time.hpp>
+
 namespace rows {
 
     ScheduledVisit::ScheduledVisit()
@@ -79,6 +81,20 @@ namespace rows {
         }
 
         return boost::make_optional(calendar_visit_.get().service_user());
+    }
+
+    bool ScheduledVisit::operator==(const ScheduledVisit &other) const {
+        return type_ == other.type_
+               && carer_ == other.carer_
+               && datetime_ == other.datetime_
+               && duration_ == other.duration_
+               && check_in_ == other.check_in_
+               && check_out_ == other.check_out_
+               && calendar_visit_ == other.calendar_visit_;
+    }
+
+    bool ScheduledVisit::operator!=(const ScheduledVisit &other) const {
+        return !this->operator==(other);
     }
 
     std::ostream &operator<<(std::ostream &out, const ScheduledVisit::VisitType &visit_type) {

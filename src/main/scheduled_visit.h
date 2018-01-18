@@ -54,6 +54,10 @@ namespace rows {
 
         const boost::optional<CalendarVisit> &calendar_visit() const;
 
+        bool operator==(const ScheduledVisit &other) const;
+
+        bool operator!=(const ScheduledVisit &other) const;
+
     private:
         VisitType type_;
         boost::optional<Carer> carer_;

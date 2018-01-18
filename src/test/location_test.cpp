@@ -10,9 +10,10 @@ TEST(TestLocation, CanDeserializeFromJson) {
     // given
     const auto location_json = nlohmann::json::parse("{ \"latitude\": \"55.862\", \"longitude\": \"-4.24539\" }");
     const rows::Location expected_location("55.862", "-4.24539");
+    const rows::Location::JsonLoader loader{};
 
     // when
-    const auto actual_location = rows::Location::from_json(location_json);
+    const auto actual_location = loader.Load(location_json);
 
     // then
     EXPECT_EQ(expected_location, actual_location);

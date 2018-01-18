@@ -187,6 +187,18 @@ int main(int argc, char **argv) {
             }
 
             solution = solution.get().Resolve(validation_errors);
+            std::vector<rows::Route> routes2;
+            for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
+                const auto carer = wrapper.Carer(vehicle);
+                std::vector<operations_research::RoutingModel::NodeIndex> nodes_route;
+                routes2.push_back(solution.get().GetRoute(carer));
+            }
+
+            LOG(WARNING) << "Errors2";
+            const auto validation_errors2 = validator.Validate(routes2, problem_to_use, wrapper);
+            for (const auto &error_ptr : validation_errors2) {
+                LOG(WARNING) << *error_ptr;
+            }
 
 //            auto pre_assignment = model.ReadAssignmentFromRoutes(routes, false);
 //            CHECK(model.solver()->CheckAssignment(pre_assignment)) << "Assignment is not valid";

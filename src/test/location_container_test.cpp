@@ -30,39 +30,6 @@
 
 #include "util/logging.h"
 
-rows::Problem ReduceToSingleDay(const rows::Problem &problem, const boost::filesystem::path &problem_file) {
-    std::set<boost::gregorian::date> days;
-    for (const auto &visit : problem.visits()) {
-        days.insert(visit.date());
-    }
-    boost::gregorian::date day_to_use = *std::min_element(std::begin(days), std::end(days));
-
-    if (days.size() > 1) {
-        LOG(WARNING) << boost::format("Problem '%1%' contains records from several days. " \
-                                              "The computed solution will be reduced to a single day: '%2%'")
-                        % problem_file
-                        % day_to_use;
-    }
-
-    std::vector<rows::Visit> visits_to_use;
-    for (const auto &visit : problem.visits()) {
-        if (visit.date() == day_to_use) {
-            visits_to_use.push_back(visit);
-        }
-    }
-
-    std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > carers_to_use;
-    for (const auto &carer_diaries : problem.carers()) {
-        for (const auto &diary : carer_diaries.second) {
-            if (diary.date() == day_to_use) {
-                carers_to_use.emplace_back(carer_diaries.first, std::vector<rows::Diary>{diary});
-            }
-        }
-    }
-
-    return {visits_to_use, carers_to_use};
-}
-
 TEST(TestLocationContainer, CanCalculateTravelTimes) {
     boost::filesystem::path problem_file(boost::filesystem::canonical("../problem.json"));
 
@@ -86,7 +53,8 @@ TEST(TestLocationContainer, CanCalculateTravelTimes) {
         FAIL();
     }
 
-    rows::Problem reduced_problem = ReduceToSingleDay(problem, problem_file);
+    const auto time_span = problem.Timespan();
+    rows::Problem reduced_problem = problem.Trim(time_span.first, boost::posix_time::hours(24));
     ASSERT_TRUE(reduced_problem.IsAdmissible());
 
     osrm::EngineConfig config;
