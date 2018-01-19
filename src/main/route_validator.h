@@ -7,10 +7,12 @@
 #include <vector>
 
 #include "route.h"
-#include "problem.h"
-#include "solver_wrapper.h"
 
 namespace rows {
+
+    class SolverWrapper;
+
+    class Problem;
 
     class RouteValidator {
     public:

@@ -90,11 +90,13 @@ namespace std {
         typedef std::size_t result_type;
 
         result_type operator()(const argument_type &object) const noexcept {
+            static const std::hash<string> hash_string{};
+
             std::size_t seed = 0;
-            boost::hash_combine(seed, object.house_number_);
-            boost::hash_combine(seed, object.street_);
-            boost::hash_combine(seed, object.post_code_);
-            boost::hash_combine(seed, object.city_);
+            boost::hash_combine(seed, hash_string(object.house_number_));
+            boost::hash_combine(seed, hash_string(object.street_));
+            boost::hash_combine(seed, hash_string(object.post_code_));
+            boost::hash_combine(seed, hash_string(object.city_));
             return seed;
         }
     };

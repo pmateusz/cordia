@@ -173,36 +173,13 @@ int main(int argc, char **argv) {
         wrapper.ConfigureModel(model);
         operations_research::Assignment const *assignment = nullptr;
         if (solution) {
-            std::vector<rows::Route> routes;
-            for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
-                const auto carer = wrapper.Carer(vehicle);
-                std::vector<operations_research::RoutingModel::NodeIndex> nodes_route;
-                routes.push_back(solution.get().GetRoute(carer));
+            const auto solution_to_use = wrapper.ResolveValidationErrors(solution.get(), problem_to_use, model);
+            const auto routes = wrapper.GetNodeRoutes(solution_to_use, model);
+            auto initial_assignment = model.ReadAssignmentFromRoutes(routes, false);
+            if (!model.solver()->CheckAssignment(initial_assignment)) {
+                throw util::ApplicationError("Solution for warm start is not valid.", STATUS_ERROR);
             }
-
-            rows::RouteValidator validator;
-            const auto validation_errors = validator.Validate(routes, problem_to_use, wrapper);
-            for (const auto &error_ptr : validation_errors) {
-                LOG(WARNING) << *error_ptr;
-            }
-
-            solution = solution.get().Resolve(validation_errors);
-            std::vector<rows::Route> routes2;
-            for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
-                const auto carer = wrapper.Carer(vehicle);
-                std::vector<operations_research::RoutingModel::NodeIndex> nodes_route;
-                routes2.push_back(solution.get().GetRoute(carer));
-            }
-
-            LOG(WARNING) << "Errors2";
-            const auto validation_errors2 = validator.Validate(routes2, problem_to_use, wrapper);
-            for (const auto &error_ptr : validation_errors2) {
-                LOG(WARNING) << *error_ptr;
-            }
-
-//            auto pre_assignment = model.ReadAssignmentFromRoutes(routes, false);
-//            CHECK(model.solver()->CheckAssignment(pre_assignment)) << "Assignment is not valid";
-//            assignment = model.SolveFromAssignmentWithParameters(pre_assignment, wrapper.parameters());
+            assignment = model.SolveFromAssignmentWithParameters(initial_assignment, wrapper.parameters());
         } else {
             assignment = model.SolveWithParameters(wrapper.parameters());
         }

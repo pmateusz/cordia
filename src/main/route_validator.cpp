@@ -6,6 +6,7 @@
 #include <boost/algorithm/string/join.hpp>
 
 #include "route_validator.h"
+#include "solver_wrapper.h"
 
 namespace rows {
     std::ostream &operator<<(std::ostream &out, const rows::RouteValidator::ValidationError &error) {

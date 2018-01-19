@@ -1,10 +1,11 @@
-#include "solution.h"
-
 #include <glog/logging.h>
 
 #include <algorithm>
 #include <unordered_set>
 #include <unordered_map>
+
+#include "solution.h"
+#include "route.h"
 
 rows::Solution::Solution(std::vector<rows::ScheduledVisit> visits)
         : visits_(std::move(visits)) {}
@@ -81,76 +82,4 @@ void rows::Solution::UpdateVisitLocations(const std::vector<rows::CalendarVisit>
             visit.location(location_index_it->second);
         }
     }
-}
-
-rows::Solution rows::Solution::Resolve(
-        const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const {
-    auto visits_to_use = visits_;
-
-    // TODO: implement this code differently
-    for (const auto &error : validation_errors) {
-        switch (error->error_code()) {
-            case RouteValidator::ErrorCode::ABSENT_CARER:
-            case RouteValidator::ErrorCode::BREAK_VIOLATION:
-            case RouteValidator::ErrorCode::MISSING_INFO:
-            case RouteValidator::ErrorCode::LATE_ARRIVAL: {
-                const rows::RouteValidator::ScheduledVisitError &error_to_use
-                        = dynamic_cast<const rows::RouteValidator::ScheduledVisitError &>(*error);
-                auto reset = false;
-                for (auto &visit : visits_to_use) {
-                    if (visit == error_to_use.visit()) {
-                        LOG(INFO) << "reset " << visit;
-                        visit.carer().reset();
-                        reset = true;
-                    }
-                }
-                if (!reset) {
-                    LOG(ERROR) << error_to_use << " " << error_to_use.error_code() << " " << error_to_use.visit();
-                }
-                break;
-            }
-            case RouteValidator::ErrorCode::TOO_MANY_CARERS: {
-                const rows::RouteValidator::RouteConflictError &error_to_use
-                        = dynamic_cast<const rows::RouteValidator::RouteConflictError &>(*error);
-                const auto &calendar_visit = error_to_use.visit();
-                const auto route_end_it = std::end(error_to_use.routes());
-                auto route_it = std::begin(error_to_use.routes());
-
-                const auto &predicate = [&calendar_visit](const rows::ScheduledVisit &visit) -> bool {
-                    const auto &local_calendar_visit = visit.calendar_visit();
-                    return local_calendar_visit.is_initialized() && local_calendar_visit.get() == calendar_visit;
-                };
-
-                for (; route_it != route_end_it; ++route_it) {
-                    const auto visit_route_it = std::find_if(std::begin(route_it->visits()),
-                                                             std::end(route_it->visits()),
-                                                             predicate);
-                    if (visit_route_it != std::end(route_it->visits())) {
-                        if (visit_route_it->carer().is_initialized()) {
-                            ++route_it;
-                            break;
-                        }
-                    }
-                }
-
-                for (; route_it != route_end_it; ++route_it) {
-                    const auto visit_route_it = std::find_if(std::begin(route_it->visits()),
-                                                             std::end(route_it->visits()),
-                                                             predicate);
-                    for (auto &visit : visits_to_use) {
-                        if (visit == *visit_route_it) {
-                            LOG(INFO) << "reset " << visit;
-                            visit.carer().reset();
-                        }
-                    }
-                }
-                break;
-            }
-            default:
-                VLOG(1) << "Error code:" << error->error_code() << " ignored";
-                continue;
-        }
-    }
-
-    return rows::Solution(std::move(visits_to_use));
 }

@@ -46,9 +46,8 @@ namespace std {
         typedef std::size_t result_type;
 
         result_type operator()(const argument_type &object) const noexcept {
-            std::size_t seed = 0;
-            boost::hash_combine(seed, object.id_);
-            return seed;
+            static const std::hash<std::string> hash_id{};
+            return hash_id(object.id_);
         }
     };
 }

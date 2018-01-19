@@ -1,8 +1,8 @@
-#include "scheduled_visit.h"
-
 #include <glog/logging.h>
 
 #include <boost/date_time.hpp>
+
+#include "scheduled_visit.h"
 
 namespace rows {
 
@@ -27,12 +27,11 @@ namespace rows {
     std::ostream &operator<<(std::ostream &out, const ScheduledVisit &visit) {
         out << "(" << visit.type_
             << ", " << visit.carer_
-            << ", " << visit.calendar_visit_
-            << ", " << visit.carer_
             << ", " << visit.check_in_
             << ", " << visit.check_out_
             << ", " << visit.datetime_
             << ", " << visit.duration_
+            << ", " << visit.calendar_visit_
             << ")";
         return out;
     }
@@ -95,6 +94,14 @@ namespace rows {
 
     bool ScheduledVisit::operator!=(const ScheduledVisit &other) const {
         return !this->operator==(other);
+    }
+
+    const boost::optional<boost::posix_time::ptime> &ScheduledVisit::check_in() const {
+        return check_in_;
+    }
+
+    const boost::optional<boost::posix_time::ptime> &ScheduledVisit::check_out() const {
+        return check_out_;
     }
 
     std::ostream &operator<<(std::ostream &out, const ScheduledVisit::VisitType &visit_type) {

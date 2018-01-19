@@ -1,7 +1,10 @@
 #include "calendar_visit.h"
 
 #include <boost/optional/optional_io.hpp>
+#include <boost/optional.hpp>
 #include <boost/format.hpp>
+
+#include <glog/logging.h>
 
 namespace rows {
 
@@ -53,11 +56,19 @@ namespace rows {
     }
 
     bool CalendarVisit::operator==(const CalendarVisit &other) const {
-        return service_user_ == other.service_user_
-               && address_ == other.address_
-               && location_ == other.location_
-               && date_time_ == other.date_time_
-               && duration_ == other.duration_;
+        if (service_user_ == other.service_user_
+            && address_ == other.address_
+            && date_time_ == other.date_time_
+            && duration_ == other.duration_) {
+            // TODO: do something with the location here
+            //               && location_ == other.location_
+            if (location_ != other.location_) {
+                LOG(INFO) << location_ << " vs " << other.location_;
+            }
+            return true;
+        }
+
+        return false;
     }
 
     bool CalendarVisit::operator!=(const CalendarVisit &other) const {

@@ -4,6 +4,7 @@
 #include <libgexf/libgexf.h>
 
 #include "util/pretty_print.h"
+#include "solver_wrapper.h"
 
 namespace rows {
 
@@ -47,9 +48,11 @@ namespace rows {
 
         const auto central_location = solver.depot();
         data.addNodeAttributeColumn(LATITUDE.Id, LATITUDE.Name, LATITUDE.Type);
-        data.setNodeAttributeDefault(LATITUDE.Id, util::to_simple_string(central_location.latitude()));
+        data.setNodeAttributeDefault(LATITUDE.Id,
+                                     util::to_simple_string(osrm::toFloating(central_location.latitude())));
         data.addNodeAttributeColumn(LONGITUDE.Id, LONGITUDE.Name, LONGITUDE.Type);
-        data.setNodeAttributeDefault(LONGITUDE.Id, util::to_simple_string(central_location.longitude()));
+        data.setNodeAttributeDefault(LONGITUDE.Id,
+                                     util::to_simple_string(osrm::toFloating(central_location.longitude())));
 
         data.addEdgeAttributeColumn(TRAVEL_TIME.Id, TRAVEL_TIME.Name, TRAVEL_TIME.Type);
         data.setEdgeAttributeDefault(TRAVEL_TIME.Id, TRAVEL_TIME.DefaultValue);
@@ -65,8 +68,10 @@ namespace rows {
         graph.addNode(depot_id);
         data.setNodeLabel(depot_id, "depot");
         data.setNodeValue(depot_id, ID.Id, depot_id);
-        data.setNodeValue(depot_id, LATITUDE.Id, util::to_simple_string(central_location.latitude()));
-        data.setNodeValue(depot_id, LONGITUDE.Id, util::to_simple_string(central_location.longitude()));
+        data.setNodeValue(depot_id, LATITUDE.Id,
+                          util::to_simple_string(osrm::toFloating(central_location.latitude())));
+        data.setNodeValue(depot_id, LONGITUDE.Id,
+                          util::to_simple_string(osrm::toFloating(central_location.longitude())));
         data.setNodeValue(depot_id, TYPE.Id, VISIT_NODE);
 
         for (operations_research::RoutingModel::NodeIndex visit_index{1}; visit_index < model.nodes(); ++visit_index) {
@@ -82,8 +87,10 @@ namespace rows {
             data.setNodeValue(visit_id, ID.Id, visit_id);
             data.setNodeValue(visit_id, TYPE.Id, VISIT_NODE);
             if (visit.location()) {
-                data.setNodeValue(visit_id, LATITUDE.Id, util::to_simple_string(visit.location().value().latitude()));
-                data.setNodeValue(visit_id, LONGITUDE.Id, util::to_simple_string(visit.location().value().longitude()));
+                data.setNodeValue(visit_id, LATITUDE.Id,
+                                  util::to_simple_string(osrm::toFloating(visit.location().get().latitude())));
+                data.setNodeValue(visit_id, LONGITUDE.Id,
+                                  util::to_simple_string(osrm::toFloating(visit.location().get().longitude())));
             }
             if (solution.Value(model.NextVar(visit_index.value())) == visit_index.value()) {
                 data.setNodeValue(visit_id, DROPPED.Id, TRUE_VALUE);

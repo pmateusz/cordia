@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <numeric>
+#include <vector>
 
 #include <glog/logging.h>
 
 #include <boost/date_time/posix_time/ptime.hpp>
 #include <boost/format.hpp>
+
+#include <osrm/coordinate.hpp>
 
 #include <ortools/constraint_solver/routing_flags.h>
 
@@ -249,13 +252,13 @@ namespace rows {
 
         auto element_count = 1.0;
         for (auto location_it = begin_it; location_it != end_it; ++location_it, element_count += 1.0) {
-            latitude += static_cast<double>(location_it->latitude());
-            longitude += static_cast<double>(location_it->longitude());
+            latitude += static_cast<double>(osrm::toFloating(location_it->latitude()));
+            longitude += static_cast<double>(osrm::toFloating(location_it->longitude()));
         }
 
         const auto denominator = std::max(1.0, element_count);
-        return Location(osrm::util::FloatLatitude{latitude / denominator},
-                        osrm::util::FloatLongitude{longitude / denominator});
+        return Location(osrm::toFixed(osrm::util::FloatLatitude{latitude / denominator}),
+                        osrm::toFixed(osrm::util::FloatLongitude{longitude / denominator}));
     }
 
 
@@ -365,6 +368,140 @@ namespace rows {
 
     const Location &SolverWrapper::depot() const {
         return depot_;
+    }
+
+    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
+    SolverWrapper::GetNodeRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const {
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > routes;
+        for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
+            const auto carer = Carer(vehicle);
+            std::vector<operations_research::RoutingModel::NodeIndex> route;
+            for (const auto &element : solution.GetRoute(carer).visits()) {
+                const auto index = TryIndex(element);
+                if (index.is_initialized()) {
+                    route.push_back(index.get());
+                }
+            }
+            routes.emplace_back(std::move(route));
+        }
+        return routes;
+    }
+
+    rows::Solution SolverWrapper::ResolveValidationErrors(const rows::Solution &solution,
+                                                          const rows::Problem &problem,
+                                                          const operations_research::RoutingModel &model) {
+        static const rows::RouteValidator validator{};
+
+        rows::Solution solution_to_use{solution};
+        auto validation_round = 0;
+        while (true) {
+            std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > validation_errors;
+            validation_round++;
+
+            std::vector<rows::Route> routes;
+            for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
+                const auto carer = Carer(vehicle);
+                routes.push_back(solution_to_use.GetRoute(carer));
+            }
+
+            validation_errors = validator.Validate(routes, problem, *this);
+            for (const auto &error_ptr : validation_errors) {
+                VLOG(1) << *error_ptr;
+            }
+
+            if (validation_errors.empty()) {
+                static const auto &is_assigned = [](const rows::ScheduledVisit &visit) -> bool {
+                    return visit.carer().is_initialized();
+                };
+                const auto initial_size = std::count_if(std::cbegin(solution.visits()),
+                                                        std::cend(solution.visits()),
+                                                        is_assigned);
+                const auto reduced_size = std::count_if(std::cbegin(solution_to_use.visits()),
+                                                        std::cend(solution_to_use.visits()),
+                                                        is_assigned);
+                if (initial_size != reduced_size) {
+                    VLOG(1) << (boost::format("Removed %1% visit assignments due to constrain violations")
+                                % (initial_size - reduced_size)).str();
+                }
+
+                return solution_to_use;
+            }
+
+            solution_to_use = Resolve(solution_to_use, validation_errors);
+        }
+    }
+
+    rows::Solution SolverWrapper::Resolve(const rows::Solution &solution,
+                                          const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const {
+        std::unordered_set<ScheduledVisit> visits_to_release;
+
+        for (const auto &error : validation_errors) {
+            switch (error->error_code()) {
+                case RouteValidator::ErrorCode::ABSENT_CARER:
+                case RouteValidator::ErrorCode::BREAK_VIOLATION:
+                case RouteValidator::ErrorCode::MISSING_INFO:
+                case RouteValidator::ErrorCode::LATE_ARRIVAL: {
+                    const auto &error_to_use = dynamic_cast<const rows::RouteValidator::ScheduledVisitError &>(*error);
+                    visits_to_release.insert(error_to_use.visit());
+                    break;
+                }
+                case RouteValidator::ErrorCode::TOO_MANY_CARERS:
+                    continue; // is handled separately after all other problems are treated
+                default:
+                    VLOG(1) << "Error code:" << error->error_code() << " ignored";
+                    continue;
+            }
+        }
+        for (const auto &error : validation_errors) {
+            if (error->error_code() == RouteValidator::ErrorCode::TOO_MANY_CARERS) {
+                const auto &error_to_use = dynamic_cast<const rows::RouteValidator::RouteConflictError &>(*error);
+                const auto &calendar_visit = error_to_use.visit();
+                const auto route_end_it = std::end(error_to_use.routes());
+                auto route_it = std::begin(error_to_use.routes());
+
+                const auto &predicate = [&calendar_visit](const rows::ScheduledVisit &visit) -> bool {
+                    const auto &local_calendar_visit = visit.calendar_visit();
+                    return local_calendar_visit.is_initialized() && local_calendar_visit.get() == calendar_visit;
+                };
+
+                for (; route_it != route_end_it; ++route_it) {
+                    const auto visit_route_it = std::find_if(std::begin(route_it->visits()),
+                                                             std::end(route_it->visits()),
+                                                             predicate);
+                    if (visit_route_it != std::end(route_it->visits())) {
+                        if (visit_route_it->carer().is_initialized()) {
+                            ++route_it;
+                            break;
+                        }
+                    }
+                }
+
+                for (; route_it != route_end_it; ++route_it) {
+                    const auto visit_route_it = std::find_if(std::begin(route_it->visits()),
+                                                             std::end(route_it->visits()),
+                                                             predicate);
+                    CHECK(visit_route_it != std::end(route_it->visits()));
+                    visits_to_release.insert(*visit_route_it);
+                }
+            }
+        }
+
+        auto released_visits = 0u;
+        std::vector<ScheduledVisit> visits_to_use;
+        for (const auto &visit : solution.visits()) {
+            ScheduledVisit visit_to_use{visit};
+            if (visits_to_release.find(visit_to_use) != std::end(visits_to_release)) {
+                const auto &carer_id = visit_to_use.carer().get().sap_number();
+                visit_to_use.carer().reset();
+                released_visits++;
+                VLOG(1) << "Carer " << carer_id << " removed from visit: " << visit_to_use;
+            }
+            visits_to_use.emplace_back(visit_to_use);
+        }
+
+        DCHECK_EQ(visits_to_release.size(), released_visits);
+
+        return rows::Solution(std::move(visits_to_use));
     }
 
     std::size_t SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {

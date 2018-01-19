@@ -76,8 +76,10 @@ namespace std {
         typedef std::size_t result_type;
 
         result_type operator()(const argument_type &object) const noexcept {
-            static const std::hash<boost::gregorian::date::date_rep_type::int_type> hash{};
-            return hash(object.day_count().as_number());
+            if (!object.is_special()) {
+                return object.day_count().as_number();
+            }
+            return object.as_special();
         }
     };
 
@@ -87,8 +89,7 @@ namespace std {
         typedef std::size_t result_type;
 
         result_type operator()(const argument_type &object) const noexcept {
-            static const std::hash<boost::posix_time::ptime::time_duration_type::tick_type> hash{};
-            return hash(object.get_rep().as_number());
+            return static_cast<result_type>(object.get_rep().as_number());
         }
     };
 
@@ -121,13 +122,16 @@ namespace std {
             static const std::hash<boost::posix_time::ptime::time_duration_type> hash_duration{};
 
             std::size_t seed = 0;
-            if (object.location_) {
-                boost::hash_combine(seed, hash_location(object.location_.value()));
-            }
             boost::hash_combine(seed, hash_address(object.address_));
             boost::hash_combine(seed, hash_service_user(object.service_user_));
             boost::hash_combine(seed, hash_date_time(object.date_time_));
             boost::hash_combine(seed, hash_duration(object.duration_));
+
+// TODO: do something with the location here
+//            if (object.location_.is_initialized()) {
+//                boost::hash_combine(seed, hash_location(object.location_.get()));
+//            }
+
             return seed;
         }
     };
@@ -167,7 +171,7 @@ namespace rows {
 
         CalendarVisit visit(service_user, address, datetime, duration);
         if (location) {
-            visit.location(location.value());
+            visit.location(location.get());
         }
         return visit;
     }

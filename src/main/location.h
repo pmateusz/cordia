@@ -2,6 +2,7 @@
 #define ROWS_LOCATION_H
 
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 #include <string>
 #include <ostream>
@@ -19,7 +20,7 @@ namespace rows {
     public:
         Location(std::string latitude, std::string longitude);
 
-        Location(osrm::util::FloatLatitude latitude, osrm::util::FloatLongitude longitude);
+        Location(osrm::util::FixedLatitude latitude, osrm::util::FixedLongitude longitude);
 
         Location(const Location &other);
 
@@ -39,17 +40,19 @@ namespace rows {
             Location Load(JsonType document) const;
         };
 
-        const osrm::util::FloatLatitude &latitude() const;
+        const osrm::util::FixedLatitude &latitude() const;
 
-        const osrm::util::FloatLongitude &longitude() const;
+        const osrm::util::FixedLongitude &longitude() const;
 
         friend struct std::hash<rows::Location>;
 
         friend std::ostream &operator<<(std::ostream &out, const Location &object);
 
     private:
-        osrm::util::FloatLatitude latitude_;
-        osrm::util::FloatLongitude longitude_;
+        osrm::util::FixedLatitude latitude_;
+        osrm::util::FixedLongitude longitude_;
+
+        static int32_t ToFixedValue(const std::string &text);
     };
 }
 
@@ -76,13 +79,15 @@ namespace std {
         typedef std::size_t result_type;
 
         result_type operator()(const argument_type &object) const noexcept {
+            static const std::hash<osrm::FixedLatitude> hash_latitude{};
+            static const std::hash<osrm::FixedLongitude> hash_longitude{};
+
             std::size_t seed = 0;
-            boost::hash_combine(seed, static_cast<osrm::util::FloatLatitude::value_type>(object.latitude_));
-            boost::hash_combine(seed, static_cast<osrm::util::FloatLongitude::value_type>(object.longitude_));
+            boost::hash_combine(seed, hash_latitude(object.latitude_));
+            boost::hash_combine(seed, hash_longitude(object.longitude_));
             return seed;
         }
     };
-
 }
 
 #endif //ROWS_LOCATION_H

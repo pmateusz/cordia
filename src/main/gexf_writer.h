@@ -9,9 +9,9 @@
 #include <ortools/constraint_solver/constraint_solver.h>
 #include <ortools/constraint_solver/routing.h>
 
-#include "solver_wrapper.h"
-
 namespace rows {
+
+    class SolverWrapper;
 
     class GexfWriter {
     public:

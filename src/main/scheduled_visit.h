@@ -44,6 +44,10 @@ namespace rows {
 
         const boost::posix_time::ptime &datetime() const;
 
+        const boost::optional<boost::posix_time::ptime> &check_in() const;
+
+        const boost::optional<boost::posix_time::ptime> &check_out() const;
+
         const boost::posix_time::ptime::time_duration_type &duration() const;
 
         const boost::optional<Location> location() const;
@@ -136,6 +140,52 @@ namespace rows {
 
         return {visit_type, carer, datetime, duration, check_in, check_out, calendar_visit};
     }
+}
+
+namespace std {
+
+    template<>
+    struct hash<rows::ScheduledVisit> {
+        typedef rows::ScheduledVisit argument_type;
+        typedef std::size_t result_type;
+
+        result_type operator()(const argument_type &object) const noexcept {
+            static const std::hash<boost::posix_time::ptime> hash_date_time{};
+            static const std::hash<boost::posix_time::ptime::time_duration_type> hash_duration{};
+            static const std::hash<rows::Carer> hash_carer{};
+            static const std::hash<rows::CalendarVisit> hash_calendar_visit{};
+
+            std::size_t seed = 0;
+
+            boost::hash_combine(seed, object.type());
+            boost::hash_combine(seed, hash_date_time(object.datetime()));
+            boost::hash_combine(seed, hash_duration(object.duration()));
+
+            const auto &check_in = object.check_in();
+            if (check_in.is_initialized()) {
+                boost::hash_combine(seed, hash_date_time(check_in.get()));
+            }
+
+            const auto &check_out = object.check_out();
+            if (check_out.is_initialized()) {
+                boost::hash_combine(seed, hash_date_time(check_out.get()));
+            }
+
+            boost::hash_combine(seed, hash_duration(object.duration()));
+
+            const auto &carer = object.carer();
+            if (carer.is_initialized()) {
+                boost::hash_combine(seed, hash_carer(carer.get()));
+            }
+
+            const auto &calendar_visit = object.calendar_visit();
+            if (calendar_visit.is_initialized()) {
+                boost::hash_combine(seed, hash_calendar_visit(calendar_visit.get()));
+            }
+
+            return seed;
+        }
+    };
 }
 
 #endif //ROWS_SCHEDULED_VISIT_H

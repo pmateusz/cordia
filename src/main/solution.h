@@ -12,25 +12,19 @@
 #include <boost/optional.hpp>
 #include <boost/date_time.hpp>
 
-#include "carer.h"
-#include "calendar_visit.h"
-#include "address.h"
-#include "service_user.h"
-#include "data_time.h"
-#include "route.h"
 #include "scheduled_visit.h"
-#include "route_validator.h"
 
 namespace rows {
+
+    class Carer;
+
+    class Route;
 
     class Solution {
     public:
         explicit Solution(std::vector<ScheduledVisit> visits);
 
         Solution Trim(boost::posix_time::ptime begin, boost::posix_time::ptime::time_duration_type duration) const;
-
-        Solution Resolve(
-                const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const;
 
         class JsonLoader : protected rows::JsonLoader {
         public:

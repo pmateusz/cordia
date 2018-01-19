@@ -17,6 +17,9 @@
 #include "location_container.h"
 #include "scheduled_visit.h"
 #include "calendar_visit.h"
+#include "solution.h"
+#include "route_validator.h"
+#include "solver_wrapper.h"
 
 namespace rows {
 
@@ -70,7 +73,6 @@ namespace rows {
                          int64 same_vehicle_cost,
                          const operations_research::RoutingDimension &time_dimension);
 
-        // TODO: move to problem
         static std::vector<rows::Location> GetUniqueLocations(const rows::Problem &problem);
 
         template<typename IteratorType>
@@ -78,11 +80,20 @@ namespace rows {
 
         const operations_research::RoutingSearchParameters &parameters() const;
 
+        rows::Solution ResolveValidationErrors(const rows::Solution &solution,
+                                               const rows::Problem &problem,
+                                               const operations_research::RoutingModel &model);
+
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
+        GetNodeRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
+
     private:
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
         };
 
+        rows::Solution Resolve(const rows::Solution &solution,
+                               const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const;
 
         struct PartialVisitOperations {
             std::size_t operator()(const rows::CalendarVisit &object) const noexcept;
