@@ -28,6 +28,14 @@ namespace rows {
                        boost::optional<boost::posix_time::ptime> check_out,
                        boost::optional<CalendarVisit> calendar_visit);
 
+        ScheduledVisit(const ScheduledVisit &other);
+
+        ScheduledVisit(ScheduledVisit &&other) noexcept;
+
+        ScheduledVisit &operator=(const ScheduledVisit &other);
+
+        ScheduledVisit &operator=(ScheduledVisit &&other) noexcept;
+
         friend std::ostream &operator<<(std::ostream &out, const ScheduledVisit &visit);
 
         class JsonLoader {

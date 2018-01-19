@@ -36,9 +36,25 @@ namespace rows {
               date_time_(other.date_time_),
               duration_(other.duration_) {}
 
+    CalendarVisit::CalendarVisit(CalendarVisit &&other)noexcept
+            : service_user_(std::move(other.service_user_)),
+              address_(std::move(other.address_)),
+              location_(other.location_),
+              date_time_(other.date_time_),
+              duration_(other.duration_) {}
+
     CalendarVisit &CalendarVisit::operator=(const CalendarVisit &other) {
         service_user_ = other.service_user_;
         address_ = other.address_;
+        location_ = other.location_;
+        date_time_ = other.date_time_;
+        duration_ = other.duration_;
+        return *this;
+    }
+
+    CalendarVisit &CalendarVisit::operator=(CalendarVisit &&other) noexcept {
+        service_user_ = std::move(other.service_user_);
+        address_ = std::move(other.address_);
         location_ = other.location_;
         date_time_ = other.date_time_;
         duration_ = other.duration_;

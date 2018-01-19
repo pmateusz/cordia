@@ -240,7 +240,7 @@ namespace rows {
         std::unordered_set<rows::Location> location_set;
         for (const auto &visit : problem.visits()) {
             if (visit.location()) {
-                location_set.insert(visit.location().value());
+                location_set.insert(visit.location().get());
             }
         }
         return std::vector<rows::Location>(std::cbegin(location_set), std::cend(location_set));

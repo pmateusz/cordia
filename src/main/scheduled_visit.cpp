@@ -24,6 +24,46 @@ namespace rows {
               check_out_(check_out),
               calendar_visit_(calendar_visit) {}
 
+    ScheduledVisit::ScheduledVisit(const ScheduledVisit &other)
+            : type_(other.type_),
+              carer_(other.carer_),
+              datetime_(other.datetime_),
+              duration_(other.duration_),
+              check_in_(other.check_in_),
+              check_out_(other.check_out_),
+              calendar_visit_(other.calendar_visit_) {}
+
+    ScheduledVisit::ScheduledVisit(ScheduledVisit &&other) noexcept
+            : type_(other.type_),
+              carer_(std::move(other.carer_)),
+              datetime_(other.datetime_),
+              duration_(other.duration_),
+              check_in_(other.check_in_),
+              check_out_(other.check_out_),
+              calendar_visit_(std::move(other.calendar_visit_)) {}
+
+    ScheduledVisit &ScheduledVisit::operator=(const ScheduledVisit &other) {
+        type_ = other.type_;
+        carer_ = other.carer_;
+        datetime_ = other.datetime_;
+        duration_ = other.duration_;
+        check_in_ = other.check_in_;
+        check_out_ = other.check_out_;
+        calendar_visit_ = other.calendar_visit_;
+        return *this;
+    }
+
+    ScheduledVisit &ScheduledVisit::operator=(ScheduledVisit &&other) noexcept {
+        type_ = other.type_;
+        carer_ = std::move(other.carer_);
+        datetime_ = other.datetime_;
+        duration_ = other.duration_;
+        check_in_ = other.check_in_;
+        check_out_ = other.check_out_;
+        calendar_visit_ = std::move(other.calendar_visit_);
+        return *this;
+    }
+
     std::ostream &operator<<(std::ostream &out, const ScheduledVisit &visit) {
         out << "(" << visit.type_
             << ", " << visit.carer_

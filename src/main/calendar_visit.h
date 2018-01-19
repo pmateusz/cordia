@@ -33,6 +33,10 @@ namespace rows {
 
         CalendarVisit &operator=(const CalendarVisit &other);
 
+        CalendarVisit(CalendarVisit &&other) noexcept;
+
+        CalendarVisit &operator=(CalendarVisit &&other) noexcept;
+
         friend struct std::hash<rows::CalendarVisit>;
 
         friend std::ostream &operator<<(std::ostream &out, const CalendarVisit &object);

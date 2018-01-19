@@ -21,8 +21,8 @@ namespace rows {
               longitude_(other.longitude_) {}
 
     Location &Location::operator=(const Location &other) {
-        latitude_ == other.latitude_;
-        longitude_ == other.longitude_;
+        latitude_ = other.latitude_;
+        longitude_ = other.longitude_;
         return *this;
     }
 

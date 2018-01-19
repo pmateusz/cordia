@@ -7,8 +7,8 @@
 #include <string>
 #include <ostream>
 
-#include <osrm/util/alias.hpp>
 #include <boost/functional/hash.hpp>
+#include <osrm/util/alias.hpp>
 #include <osrm/coordinate.hpp>
 
 #include "json.h"
