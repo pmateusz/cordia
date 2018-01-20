@@ -5,9 +5,9 @@
 #include <vector>
 
 #include <boost/bimap.hpp>
-#include <boost/optional.hpp>
 #include <boost/bimap/unordered_set_of.hpp>
 #include <boost/date_time.hpp>
+#include <boost/optional.hpp>
 
 #include <osrm/engine/engine_config.hpp>
 
@@ -28,6 +28,7 @@ namespace rows {
         static const operations_research::RoutingModel::NodeIndex DEPOT;
         static const int64 SECONDS_IN_DAY;
         static const std::string TIME_DIMENSION;
+        static const boost::posix_time::time_duration ZERO_DURATION;
 
         explicit SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config);
 
@@ -92,6 +93,12 @@ namespace rows {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
         };
 
+        bool HasTimeWindows() const;
+
+        int64 GetBeginWindow(boost::posix_time::time_duration value) const;
+
+        int64 GetEndWindow(boost::posix_time::time_duration value) const;
+
         rows::Solution Resolve(const rows::Solution &solution,
                                const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const;
 
@@ -105,10 +112,10 @@ namespace rows {
 
         operations_research::RoutingSearchParameters CreateSearchParameters() const;
 
-        static operations_research::IntervalVar *CreateBreak(operations_research::Solver *const solver,
-                                                             const boost::posix_time::time_duration &start_time,
-                                                             const boost::posix_time::time_duration &duration,
-                                                             const std::string &label);
+        operations_research::IntervalVar *CreateBreak(operations_research::Solver *const solver,
+                                                      const boost::posix_time::time_duration &start_time,
+                                                      const boost::posix_time::time_duration &duration,
+                                                      const std::string &label) const;
 
         static std::string
         GetBreakLabel(const operations_research::RoutingModel::NodeIndex carer, BreakType break_type);
@@ -119,6 +126,7 @@ namespace rows {
 
         const rows::Problem &problem_;
         const Location depot_;
+        boost::posix_time::time_duration time_window_;
         rows::CachedLocationContainer location_container_;
 
         operations_research::RoutingSearchParameters parameters_;

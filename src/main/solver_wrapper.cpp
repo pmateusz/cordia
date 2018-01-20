@@ -26,6 +26,8 @@ namespace rows {
 
     const std::string SolverWrapper::TIME_DIMENSION{"Time"};
 
+    const boost::posix_time::time_duration SolverWrapper::ZERO_DURATION = boost::posix_time::seconds(0);
+
     SolverWrapper::SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config)
             : SolverWrapper(problem, GetUniqueLocations(problem), config) {}
 
@@ -34,6 +36,7 @@ namespace rows {
                                  osrm::EngineConfig &config)
             : problem_(problem),
               depot_(GetCentralLocation(std::cbegin(locations), std::cend(locations))),
+              time_window_(boost::posix_time::minutes(30)),
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(CreateSearchParameters()) {}
 
@@ -221,15 +224,24 @@ namespace rows {
     operations_research::IntervalVar *SolverWrapper::CreateBreak(operations_research::Solver *const solver,
                                                                  const boost::posix_time::time_duration &start_time,
                                                                  const boost::posix_time::time_duration &duration,
-                                                                 const std::string &label) {
+                                                                 const std::string &label) const {
         static const auto IS_OPTIONAL = false;
 
-        return solver->MakeFixedDurationIntervalVar(
-                /*start min*/ start_time.total_seconds(),
-                /*start max*/ start_time.total_seconds(),
-                              duration.total_seconds(),
-                              IS_OPTIONAL,
-                              label);
+        if (HasTimeWindows()) {
+            return solver->MakeFixedDurationIntervalVar(
+                    GetBeginWindow(start_time),
+                    GetEndWindow(start_time),
+                    duration.total_seconds(),
+                    IS_OPTIONAL,
+                    label);
+        } else {
+            return solver->MakeFixedDurationIntervalVar(
+                    start_time.total_seconds(),
+                    start_time.total_seconds(),
+                    duration.total_seconds(),
+                    IS_OPTIONAL,
+                    label);
+        }
     }
 
     void SolverWrapper::PrecomputeDistances() {
@@ -251,9 +263,10 @@ namespace rows {
         double latitude = 0, longitude = 0;
 
         auto element_count = 1.0;
-        for (auto location_it = begin_it; location_it != end_it; ++location_it, element_count += 1.0) {
+        for (auto location_it = begin_it; location_it != end_it; ++location_it) {
             latitude += static_cast<double>(osrm::toFloating(location_it->latitude()));
             longitude += static_cast<double>(osrm::toFloating(location_it->longitude()));
+            element_count += 1.0;
         }
 
         const auto denominator = std::max(1.0, element_count);
@@ -327,12 +340,18 @@ namespace rows {
         }
 
         // set visit start times
-        for (int visit_index = 1; visit_index < model.nodes(); ++visit_index) {
-            const auto visit_node = operations_research::RoutingModel::NodeIndex{visit_index};
+        for (operations_research::RoutingModel::NodeIndex visit_node{1}; visit_node < model.nodes(); ++visit_node) {
             const auto &visit = CalendarVisit(visit_node);
 
-            time_dimension->CumulVar(visit_index)->SetValue(visit.datetime().time_of_day().total_seconds());
-            model.AddToAssignment(time_dimension->SlackVar(visit_index));
+            const auto exact_start = visit.datetime().time_of_day();
+            auto visit_start = time_dimension->CumulVar(visit_node.value());
+            if (HasTimeWindows()) {
+                visit_start->SetValue(exact_start.total_seconds());
+            } else {
+                visit_start->SetRange(GetBeginWindow(exact_start), GetEndWindow(exact_start));
+            }
+
+            model.AddToAssignment(time_dimension->SlackVar(visit_node.value()));
 
             visit_index_.insert({visit, visit_node});
         }
@@ -502,6 +521,18 @@ namespace rows {
         DCHECK_EQ(visits_to_release.size(), released_visits);
 
         return rows::Solution(std::move(visits_to_use));
+    }
+
+    bool SolverWrapper::HasTimeWindows() const {
+        return time_window_ == ZERO_DURATION;
+    }
+
+    int64 SolverWrapper::GetBeginWindow(boost::posix_time::time_duration value) const {
+        return std::max((value - time_window_).total_seconds(), 0);
+    }
+
+    int64 SolverWrapper::GetEndWindow(boost::posix_time::time_duration value) const {
+        return std::min((value + time_window_).total_seconds(), static_cast<int>(SECONDS_IN_DAY));
     }
 
     std::size_t SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {
