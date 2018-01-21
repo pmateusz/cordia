@@ -131,10 +131,9 @@ namespace std {
             boost::hash_combine(seed, hash_date_time(object.date_time_));
             boost::hash_combine(seed, hash_duration(object.duration_));
 
-// TODO: do something with the location here
-//            if (object.location_.is_initialized()) {
-//                boost::hash_combine(seed, hash_location(object.location_.get()));
-//            }
+            if (object.location_.is_initialized()) {
+                boost::hash_combine(seed, hash_location(object.location_.get()));
+            }
 
             return seed;
         }

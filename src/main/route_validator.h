@@ -2,10 +2,16 @@
 #define ROWS_ROUTE_VALIDATOR_H
 
 #include <memory>
+#include <functional>
 #include <ostream>
 #include <string>
 #include <vector>
 
+#include <boost/date_time.hpp>
+#include <boost/optional.hpp>
+
+#include "calendar_visit.h"
+#include "scheduled_visit.h"
 #include "route.h"
 
 namespace rows {
@@ -13,6 +19,12 @@ namespace rows {
     class SolverWrapper;
 
     class Problem;
+
+    class Location;
+
+    class Carer;
+
+    class Event;
 
     class RouteValidator {
     public:
@@ -80,6 +92,31 @@ namespace rows {
 
     private:
         static bool IsAssignedAndActive(const rows::ScheduledVisit &visit);
+
+        std::unique_ptr<ValidationError> CreateMissingInformationError(const rows::Route &route,
+                                                                       const rows::ScheduledVisit &visit,
+                                                                       std::string error_msg) const;
+
+        std::unique_ptr<ValidationError> CreateAbsentCarerError(const rows::Route &route,
+                                                                const rows::ScheduledVisit &visit) const;
+
+        std::unique_ptr<ValidationError> CreateLateArrivalError(const rows::Route &route,
+                                                                const rows::ScheduledVisit &visit,
+                                                                const boost::posix_time::ptime::time_duration_type duration) const;
+
+        std::unique_ptr<ValidationError> CreateContractualBreakViolationError(const rows::Route &route,
+                                                                              const rows::ScheduledVisit &visit) const;
+
+        std::unique_ptr<ValidationError> CreateContractualBreakViolationError(const rows::Route &route,
+                                                                              const rows::ScheduledVisit &visit,
+                                                                              std::vector<rows::Event> overlapping_slots) const;
+
+        std::unique_ptr<ValidationError> TryPerformVisit(const rows::Route &route,
+                                                         const rows::ScheduledVisit &visit,
+                                                         const rows::Problem &problem,
+                                                         rows::SolverWrapper &solver,
+                                                         rows::Location &location,
+                                                         boost::posix_time::time_duration &time) const;
     };
 
     std::ostream &operator<<(std::ostream &out, RouteValidator::ErrorCode error_code);

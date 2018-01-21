@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -9,6 +10,7 @@
 #include "solver_wrapper.h"
 
 namespace rows {
+
     std::ostream &operator<<(std::ostream &out, const rows::RouteValidator::ValidationError &error) {
         error.Print(out);
         return out;
@@ -103,16 +105,14 @@ namespace rows {
                 }
 
                 if (!visit.calendar_visit().is_initialized()) {
-                    validation_errors.emplace_back(std::make_unique<ScheduledVisitError>(
-                            ErrorCode::MISSING_INFO,
-                            visit,
+                    validation_errors.emplace_back(CreateMissingInformationError(
                             route,
+                            visit,
                             "calendar visit is missing"));
                 } else if (!visit.location().is_initialized()) {
-                    validation_errors.emplace_back(std::make_unique<ScheduledVisitError>(
-                            ErrorCode::MISSING_INFO,
-                            visit,
+                    validation_errors.emplace_back(CreateMissingInformationError(
                             route,
+                            visit,
                             "location is missing"));
                 }
             }
@@ -143,137 +143,50 @@ namespace rows {
             }
         }
 
-        // find failed arrival time
         for (const auto &route : routes) {
-            const auto &visits = route.visits();
-
-            std::vector<ScheduledVisit> visits_to_consider;
+            std::vector<ScheduledVisit> visits_to_use;
             for (const auto &visit : route.visits()) {
                 if (!IsAssignedAndActive(visit)) {
                     continue;
                 }
-                visits_to_consider.push_back(visit);
+                visits_to_use.push_back(visit);
             }
 
-            if (visits_to_consider.size() <= 1) {
+            if (visits_to_use.empty()) {
                 continue;
             }
 
-            const auto max_visit_pos = visits_to_consider.size();
-            for (auto visit_pos = 1; visit_pos < max_visit_pos; ++visit_pos) {
-                const auto &prev_visit = visits_to_consider[visit_pos - 1];
-                const auto &visit = visits_to_consider[visit_pos];
-
-                const auto arrival_datetime = prev_visit.datetime()
-                                              + prev_visit.duration()
-                                              + solver.TravelTime(prev_visit.location().get(), visit.location().get());
-                if (arrival_datetime > visit.datetime()) {
-                    validation_errors.emplace_back(std::make_unique<ScheduledVisitError>(
-                            ErrorCode::LATE_ARRIVAL,
-                            visit,
-                            route,
-                            (boost::format("ScheduledVisitError: carer %1% arrives with a delay of %2% to visit %3%")
-                             % visit.carer().get().sap_number()
-                             % (arrival_datetime - visit.datetime())
-                             % visit.service_user().get().id()).str()));
+            const auto &carer = route.carer();
+            const auto &diary = problem.diary(carer, visits_to_use[0].datetime().date());
+            if (!diary.is_initialized()) {
+                for (const auto &visit : visits_to_use) {
+                    validation_errors.emplace_back(CreateAbsentCarerError(route, visit));
                 }
+
+                continue;
             }
-        }
 
-        // find visits causing time violations
-        for (const auto &route : routes) {
-            const auto &visits = route.visits();
-
-            for (const auto &visit : route.visits()) {
-                if (!IsAssignedAndActive(visit)) {
-                    continue;
+            auto event_it = std::begin(diary.get().events());
+            const auto event_it_end = std::end(diary.get().events());
+            if (event_it == event_it_end) {
+                for (const auto &visit : visits_to_use) {
+                    validation_errors.emplace_back(CreateAbsentCarerError(route, visit));
                 }
 
-                const auto &carer = visit.carer().get();
-                const auto &diary = problem.diary(carer, visit.datetime().date());
-                if (!diary.is_initialized()) {
-                    validation_errors.emplace_back(std::make_unique<ScheduledVisitError>(
-                            ErrorCode::ABSENT_CARER,
-                            visit,
-                            route,
-                            (boost::format("ScheduledVisitError: carer %1% is absent on that day of visit %2%")
-                             % carer.sap_number()
-                             % visit.service_user().get().id()).str()));
-                } else {
-                    const auto visit_begin = visit.datetime();
-                    const auto visit_end = visit.datetime() + visit.duration();
+                continue;
+            }
 
-                    boost::optional<Event> working_slot;
-                    for (const auto &event : diary.get().events()) {
-                        if (event.end() <= visit_begin) {
-                            continue;
-                        }
-
-                        if (event.begin() > visit_begin) {
-                            break;
-                        }
-
-                        if (event.begin() <= visit_begin && visit_end <= event.end()) {
-                            working_slot = event;
-                            break;
-                        }
-                    }
-
-                    if (!working_slot.is_initialized()) {
-                        std::vector<Event> overlapping_slots;
-                        for (const auto &event : diary.get().events()) {
-                            if (event.end() <= visit_begin) {
-                                continue;
-                            }
-
-                            if (event.begin() > visit_begin) {
-                                break;
-                            }
-
-                            if (event.begin() <= visit_begin || visit_end <= event.end()) {
-                                overlapping_slots.push_back(event);
-                            }
-                        }
-
-                        if (overlapping_slots.empty()) {
-                            validation_errors.emplace_back(std::make_unique<ScheduledVisitError>(
-                                    ErrorCode::BREAK_VIOLATION,
-                                    visit,
-                                    route,
-                                    (boost::format(
-                                            "ScheduledVisitError: visit %1% violates contractual breaks of carer %2%.")
-                                     % visit.service_user().get().id()
-                                     % carer.sap_number()).str()));
-                        } else {
-                            std::vector<std::string> slot_texts;
-                            for (const auto &event : overlapping_slots) {
-                                std::stringstream message;
-                                message << "[" << event.begin().time_of_day()
-                                        << ", " << event.end().time_of_day()
-                                        << "]";
-                                slot_texts.emplace_back(message.str());
-                            }
-
-                            std::string joined_slot_text;
-                            if (slot_texts.size() == 1) {
-                                joined_slot_text = slot_texts[0];
-                            } else {
-                                joined_slot_text = boost::algorithm::join(slot_texts, ", ");
-                            }
-
-                            validation_errors.emplace_back(std::make_unique<ScheduledVisitError>(
-                                    ErrorCode::BREAK_VIOLATION,
-                                    visit,
-                                    route,
-                                    (boost::format(
-                                            "ScheduledVisitError: visit %1% violates contractual breaks of carer %2%: [%3%, %4%] does not fit into %5%.")
-                                     % visit.service_user().get().id()
-                                     % carer.sap_number()
-                                     % visit_begin.time_of_day()
-                                     % visit_end.time_of_day()
-                                     % joined_slot_text).str()));
-                        }
-                    }
+            auto current_time = event_it->begin().time_of_day();
+            auto current_position = visits_to_use[0].location().get();
+            for (const auto &visit : visits_to_use) {
+                auto error_ptr = TryPerformVisit(route,
+                                                 visit,
+                                                 problem,
+                                                 solver,
+                                                 current_position,
+                                                 current_time);
+                if (error_ptr) {
+                    validation_errors.emplace_back(std::move(error_ptr));
                 }
             }
         }
@@ -285,5 +198,169 @@ namespace rows {
         return visit.calendar_visit().is_initialized()
                && visit.carer().is_initialized()
                && visit.type() != ScheduledVisit::VisitType::CANCELLED;
+    }
+
+    std::unique_ptr<rows::RouteValidator::ValidationError> rows::RouteValidator::TryPerformVisit(
+            const rows::Route &route,
+            const rows::ScheduledVisit &visit,
+            const rows::Problem &problem,
+            rows::SolverWrapper &solver,
+            rows::Location &location,
+            boost::posix_time::time_duration &time) const {
+        boost::posix_time::time_duration time_to_use{time};
+
+        const auto &diary = problem.diary(route.carer(), visit.datetime().date()).get();
+        auto work_interval_it = std::begin(diary.events());
+        const auto work_interval_end_it = std::end(diary.events());
+
+        // find current work interval
+        for (; work_interval_it != work_interval_end_it
+               && work_interval_it->end().time_of_day() < time_to_use;
+               ++work_interval_it);
+
+        if (work_interval_it == work_interval_end_it) {
+            return CreateContractualBreakViolationError(route, visit);
+        }
+
+        // find effective time of approaching the destination
+        if (visit.location() != location) {
+            auto remaining_travel_duration = solver.TravelTime(location, visit.location().get());
+            while (remaining_travel_duration > boost::posix_time::seconds(0)) {
+                if (time_to_use + remaining_travel_duration < work_interval_it->end().time_of_day()) {
+                    time_to_use += remaining_travel_duration;
+                    remaining_travel_duration = boost::posix_time::seconds(0);
+                    break;
+                }
+
+                remaining_travel_duration -= work_interval_it->end().time_of_day() - time_to_use;
+
+                ++work_interval_it;
+                if (work_interval_it == work_interval_end_it) {
+                    return CreateContractualBreakViolationError(route, visit);
+                }
+
+                time_to_use = work_interval_it->begin().time_of_day();
+            }
+        }
+
+        const auto visit_window_begin = static_cast<boost::posix_time::time_duration>(boost::posix_time::seconds(
+                solver.GetBeginWindow(visit.datetime().time_of_day())));
+        const auto visit_window_end = static_cast<boost::posix_time::time_duration>(boost::posix_time::seconds(
+                solver.GetEndWindow(visit.datetime().time_of_day())));
+        time_to_use = std::max(time_to_use, visit_window_begin);
+        if (time_to_use > visit_window_end) {
+            if ((time_to_use - visit_window_end).is_negative()) {
+                LOG(INFO) << "HERE";
+            }
+
+            return CreateLateArrivalError(route, visit, time_to_use - visit_window_end);
+        }
+
+        while (true) {
+            if (time_to_use > visit_window_end) {
+                if ((time_to_use - visit_window_end).is_negative()) {
+                    LOG(INFO) << "HERE";
+                }
+
+                return CreateLateArrivalError(route, visit, time_to_use - visit_window_end);
+            }
+
+            auto service_finish = time_to_use + visit.duration();
+            if (service_finish <= work_interval_it->end().time_of_day()) {
+                // visit can be performed
+                location = visit.location().get();
+                time = service_finish;
+                return nullptr;
+            }
+
+            ++work_interval_it;
+            if (work_interval_it == work_interval_end_it) {
+                return CreateContractualBreakViolationError(route, visit);
+            }
+
+            time_to_use = work_interval_it->begin().time_of_day();
+        }
+    }
+
+    std::unique_ptr<RouteValidator::ValidationError> RouteValidator::CreateAbsentCarerError(
+            const rows::Route &route,
+            const ScheduledVisit &visit) const {
+        return std::make_unique<ScheduledVisitError>(
+                ErrorCode::ABSENT_CARER,
+                visit,
+                route,
+                (boost::format("Carer %1% is absent on the visit %2% day.")
+                 % route.carer().sap_number()
+                 % visit.service_user().get().id()).str());
+    }
+
+    std::unique_ptr<RouteValidator::ValidationError> RouteValidator::CreateLateArrivalError(
+            const rows::Route &route,
+            const rows::ScheduledVisit &visit,
+            const boost::posix_time::ptime::time_duration_type delay) const {
+        return std::make_unique<ScheduledVisitError>(
+                ErrorCode::LATE_ARRIVAL,
+                visit,
+                route,
+                (boost::format("Carer %1% arrives with a delay of %2% to the visit %3%.")
+                 % visit.carer().get().sap_number()
+                 % delay
+                 % visit.service_user().get().id()).str());
+    }
+
+    std::unique_ptr<RouteValidator::ValidationError> RouteValidator::CreateContractualBreakViolationError(
+            const rows::Route &route,
+            const rows::ScheduledVisit &visit) const {
+        return std::make_unique<ScheduledVisitError>(
+                ErrorCode::BREAK_VIOLATION,
+                visit,
+                route,
+                (boost::format("The visit %1% violates contractual breaks of the carer %2%.")
+                 % visit.service_user().get().id()
+                 % route.carer().sap_number()).str());
+    }
+
+    std::unique_ptr<RouteValidator::ValidationError> RouteValidator::CreateContractualBreakViolationError(
+            const rows::Route &route,
+            const rows::ScheduledVisit &visit,
+            std::vector<rows::Event> overlapping_slots) const {
+        if (overlapping_slots.empty()) {
+            return CreateContractualBreakViolationError(route, visit);
+        } else {
+            std::vector<std::string> slot_texts;
+            for (const auto &event : overlapping_slots) {
+                std::stringstream message;
+                message << "[" << event.begin().time_of_day()
+                        << ", " << event.end().time_of_day()
+                        << "]";
+                slot_texts.emplace_back(message.str());
+            }
+
+            std::string joined_slot_text;
+            if (slot_texts.size() == 1) {
+                joined_slot_text = slot_texts[0];
+            } else {
+                joined_slot_text = boost::algorithm::join(slot_texts, ", ");
+            }
+
+            return std::make_unique<ScheduledVisitError>(
+                    ErrorCode::BREAK_VIOLATION,
+                    visit,
+                    route,
+                    (boost::format(
+                            "The visit %1% violates contractual breaks of the carer %2%: [%3%, %4%] does not fit into %5%.")
+                     % visit.service_user().get().id()
+                     % route.carer().sap_number()
+                     % visit.datetime().time_of_day()
+                     % (visit.datetime().time_of_day() + visit.duration())
+                     % joined_slot_text).str());
+        }
+    }
+
+    std::unique_ptr<RouteValidator::ValidationError> RouteValidator::CreateMissingInformationError(
+            const rows::Route &route,
+            const rows::ScheduledVisit &visit,
+            std::string error_msg) const {
+        return std::make_unique<ScheduledVisitError>(ErrorCode::MISSING_INFO, visit, route, error_msg);
     }
 }

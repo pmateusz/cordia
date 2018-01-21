@@ -72,19 +72,11 @@ namespace rows {
     }
 
     bool CalendarVisit::operator==(const CalendarVisit &other) const {
-        if (service_user_ == other.service_user_
-            && address_ == other.address_
-            && date_time_ == other.date_time_
-            && duration_ == other.duration_) {
-            // TODO: do something with the location here
-            //               && location_ == other.location_
-            if (location_ != other.location_) {
-                LOG(INFO) << location_ << " vs " << other.location_;
-            }
-            return true;
-        }
-
-        return false;
+        return service_user_ == other.service_user_
+               && address_ == other.address_
+               && date_time_ == other.date_time_
+               && duration_ == other.duration_
+               && location_ == other.location_;
     }
 
     bool CalendarVisit::operator!=(const CalendarVisit &other) const {

@@ -15,13 +15,14 @@
 
 #include "problem.h"
 #include "location_container.h"
-#include "scheduled_visit.h"
 #include "calendar_visit.h"
-#include "solution.h"
 #include "route_validator.h"
-#include "solver_wrapper.h"
 
 namespace rows {
+
+    class Solution;
+
+    class ScheduledVisit;
 
     class SolverWrapper {
     public:
@@ -50,14 +51,14 @@ namespace rows {
 
         boost::optional<operations_research::RoutingModel::NodeIndex> TryIndex(const ScheduledVisit &visit) const;
 
-        rows::CalendarVisit CalendarVisit(const operations_research::RoutingModel::NodeIndex visit) const;
+        rows::CalendarVisit CalendarVisit(operations_research::RoutingModel::NodeIndex visit) const;
 
-        rows::Diary Diary(const operations_research::RoutingModel::NodeIndex carer) const;
+        rows::Diary Diary(operations_research::RoutingModel::NodeIndex carer) const;
 
-        rows::Carer Carer(const operations_research::RoutingModel::NodeIndex carer) const;
+        rows::Carer Carer(operations_research::RoutingModel::NodeIndex carer) const;
 
-        std::vector<operations_research::IntervalVar *> Breaks(operations_research::Solver *const solver,
-                                                               const operations_research::RoutingModel::NodeIndex carer) const;
+        std::vector<operations_research::IntervalVar *> Breaks(operations_research::Solver *solver,
+                                                               operations_research::RoutingModel::NodeIndex carer) const;
 
         std::vector<operations_research::RoutingModel::NodeIndex> Carers() const;
 
@@ -88,16 +89,16 @@ namespace rows {
         std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
         GetNodeRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
 
-    private:
-        enum class BreakType {
-            BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
-        };
-
         bool HasTimeWindows() const;
 
         int64 GetBeginWindow(boost::posix_time::time_duration value) const;
 
         int64 GetEndWindow(boost::posix_time::time_duration value) const;
+
+    private:
+        enum class BreakType {
+            BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
+        };
 
         rows::Solution Resolve(const rows::Solution &solution,
                                const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const;
@@ -112,13 +113,12 @@ namespace rows {
 
         operations_research::RoutingSearchParameters CreateSearchParameters() const;
 
-        operations_research::IntervalVar *CreateBreak(operations_research::Solver *const solver,
+        operations_research::IntervalVar *CreateBreak(operations_research::Solver *solver,
                                                       const boost::posix_time::time_duration &start_time,
                                                       const boost::posix_time::time_duration &duration,
                                                       const std::string &label) const;
 
-        static std::string
-        GetBreakLabel(const operations_research::RoutingModel::NodeIndex carer, BreakType break_type);
+        static std::string GetBreakLabel(operations_research::RoutingModel::NodeIndex carer, BreakType break_type);
 
         SolverWrapper(const rows::Problem &problem,
                       const std::vector<rows::Location> &locations,

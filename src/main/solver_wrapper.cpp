@@ -1,5 +1,3 @@
-#include "solver_wrapper.h"
-
 #include <algorithm>
 #include <numeric>
 #include <vector>
@@ -14,9 +12,11 @@
 #include <ortools/constraint_solver/routing_flags.h>
 
 #include "location.h"
+#include "calendar_visit.h"
+#include "scheduled_visit.h"
+#include "solution.h"
 
-#include <calendar_visit.h>
-#include <scheduled_visit.h>
+#include "solver_wrapper.h"
 
 namespace rows {
 
@@ -26,8 +26,6 @@ namespace rows {
 
     const std::string SolverWrapper::TIME_DIMENSION{"Time"};
 
-    const boost::posix_time::time_duration SolverWrapper::ZERO_DURATION = boost::posix_time::seconds(0);
-
     SolverWrapper::SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config)
             : SolverWrapper(problem, GetUniqueLocations(problem), config) {}
 
@@ -36,7 +34,7 @@ namespace rows {
                                  osrm::EngineConfig &config)
             : problem_(problem),
               depot_(GetCentralLocation(std::cbegin(locations), std::cend(locations))),
-              time_window_(boost::posix_time::minutes(30)),
+              time_window_(boost::posix_time::minutes(0)),
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(CreateSearchParameters()) {}
 
@@ -524,7 +522,7 @@ namespace rows {
     }
 
     bool SolverWrapper::HasTimeWindows() const {
-        return time_window_ == ZERO_DURATION;
+        return time_window_.ticks() != 0;
     }
 
     int64 SolverWrapper::GetBeginWindow(boost::posix_time::time_duration value) const {
