@@ -1,15 +1,20 @@
-#include "problem.h"
+#include <unordered_set>
 
-#include <boost/format.hpp>
 #include <boost/date_time.hpp>
+#include <boost/format.hpp>
 
 #include <glog/logging.h>
 
+#include "problem.h"
+
 namespace rows {
 
-    Problem::Problem(std::vector<CalendarVisit> visits, std::vector<std::pair<Carer, std::vector<Diary> > > carers)
+    Problem::Problem(std::vector<CalendarVisit> visits,
+                     std::vector<std::pair<Carer, std::vector<Diary> > > carers,
+                     std::vector<ExtendedServiceUser> service_users)
             : visits_(std::move(visits)),
-              carers_(std::move(carers)) {}
+              carers_(std::move(carers)),
+              service_users_(std::move(service_users)) {}
 
     const std::vector<CalendarVisit> &Problem::visits() const {
         return visits_;
@@ -54,10 +59,12 @@ namespace rows {
     Problem Problem::Trim(boost::posix_time::ptime begin, boost::posix_time::ptime::time_duration_type duration) const {
         const auto end = begin + duration;
 
+        std::unordered_set<rows::ServiceUser> service_users_to_visit;
         std::vector<rows::CalendarVisit> visits_to_use;
         for (const auto &visit : visits_) {
             if (begin <= visit.datetime() && visit.datetime() < end) {
                 visits_to_use.push_back(visit);
+                service_users_to_visit.insert(visit.service_user());
             }
         }
 
@@ -70,7 +77,14 @@ namespace rows {
             }
         }
 
-        return Problem(visits_to_use, carers_to_use);
+        std::vector<rows::ExtendedServiceUser> service_users_to_use;
+        for (const auto &service_user: service_users_) {
+            if (service_users_to_visit.find(service_user) != std::end(service_users_to_visit)) {
+                service_users_to_use.push_back(service_user);
+            }
+        }
+
+        return Problem(std::move(visits_to_use), std::move(carers_to_use), std::move(service_users_to_use));
     }
 
     void Problem::RemoveCancelled(const std::vector<rows::ScheduledVisit> &visits) {

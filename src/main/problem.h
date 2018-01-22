@@ -15,6 +15,7 @@
 #include "carer.h"
 #include "calendar_visit.h"
 #include "scheduled_visit.h"
+#include "service_user.h"
 #include "diary.h"
 #include "location.h"
 #include "json.h"
@@ -26,7 +27,9 @@ namespace rows {
     public:
         Problem() = default;
 
-        Problem(std::vector<CalendarVisit> visits, std::vector<std::pair<Carer, std::vector<Diary> > > carers);
+        Problem(std::vector<CalendarVisit> visits,
+                std::vector<std::pair<Carer, std::vector<Diary> > > carers,
+                std::vector<ExtendedServiceUser> service_users);
 
         std::pair<boost::posix_time::ptime, boost::posix_time::ptime> Timespan() const;
 
@@ -54,7 +57,12 @@ namespace rows {
 
         private:
             template<typename JsonType>
-            std::vector<CalendarVisit> LoadVisits(const JsonType &document);
+            std::vector<ExtendedServiceUser> LoadServiceUsers(const JsonType &document) const;
+
+            template<typename JsonType>
+            std::vector<CalendarVisit> LoadVisits(const JsonType &document,
+                                                  const std::unordered_map<ServiceUser,
+                                                          std::pair<rows::Address, rows::Location> > &service_user_index) const;
 
             template<typename JsonType>
             std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > LoadCarers(const JsonType &document);
@@ -65,34 +73,85 @@ namespace rows {
     private:
         std::vector<CalendarVisit> visits_;
         std::vector<std::pair<Carer, std::vector<Diary> > > carers_;
+        std::vector<ExtendedServiceUser> service_users_;
     };
 }
 
 namespace rows {
 
     template<typename JsonType>
-    std::vector<rows::CalendarVisit> Problem::JsonLoader::LoadVisits(const JsonType &json) {
+    std::vector<ExtendedServiceUser> Problem::JsonLoader::LoadServiceUsers(const JsonType &json) const {
+        static const rows::Location::JsonLoader location_loader{};
+        static const rows::Address::JsonLoader address_loader{};
+
+        std::vector<ExtendedServiceUser> service_users;
+
+        const auto service_users_it = json.find("service_users");
+        if (service_users_it == std::end(json)) { throw OnKeyNotFound("service_users"); }
+
+        for (const auto &service_user_json : service_users_it.value()) {
+            const auto key_it = service_user_json.find("key");
+            if (key_it == std::end(service_user_json)) { throw OnKeyNotFound("key"); }
+            auto key = key_it.value().template get<std::string>();
+
+            const auto address_it = service_user_json.find("address");
+            if (address_it == std::end(service_user_json)) { throw OnKeyNotFound("address"); }
+            auto address = address_loader.Load(address_it.value());
+
+            const auto location_it = service_user_json.find("location");
+            if (location_it == std::end(service_user_json)) { throw OnKeyNotFound("location"); }
+            auto location = location_loader.Load(location_it.value());
+
+            std::unordered_map<Carer, double> carer_preference;
+            const auto carer_preference_it = service_user_json.find("carer_preference");
+            if (carer_preference_it == std::end(service_user_json)) { throw OnKeyNotFound("carer_preference"); }
+            for (const auto &carer_preference_row : carer_preference_it.value()) {
+                Carer carer{carer_preference_row.at(0).template get<std::string>()};
+                const auto preference = carer_preference_row.at(1).template get<double>();
+                const auto insert_pair = carer_preference.emplace(std::move(carer), preference);
+                DCHECK(insert_pair.second);
+            }
+
+            service_users.emplace_back(std::move(key),
+                                       std::move(address),
+                                       std::move(location),
+                                       std::move(carer_preference));
+        }
+
+        return service_users;
+    }
+
+    template<typename JsonType>
+    std::vector<rows::CalendarVisit> Problem::JsonLoader::LoadVisits(const JsonType &json,
+                                                                     const std::unordered_map<ServiceUser,
+                                                                             std::pair<rows::Address, rows::Location> > &service_user_index) const {
+        static const DateTime::JsonLoader datetime_loader{};
+
         std::vector<rows::CalendarVisit> result;
 
-        const auto place_visits_it = json.find("visits");
-        if (place_visits_it == std::end(json)) { throw OnKeyNotFound("visits"); }
+        const auto group_visits_it = json.find("visits");
+        if (group_visits_it == std::end(json)) { throw OnKeyNotFound("visits"); }
 
-        const auto carers_it = json.find("carers");
-        if (carers_it == std::end(json)) { throw OnKeyNotFound("carers"); }
+        for (const auto &group_visits_json : group_visits_it.value()) {
+            const auto service_user_it = group_visits_json.find("service_user");
+            if (service_user_it == std::end(group_visits_json)) { throw OnKeyNotFound("service_user"); }
+            const ServiceUser service_user{service_user_it.value().template get<std::string>()};
 
-        Location::JsonLoader location_loader;
-        CalendarVisit::JsonLoader visit_loader;
-        for (const auto &place_visits : place_visits_it.value()) {
-            const auto location_json_it = place_visits.find("location");
-            if (location_json_it == std::end(place_visits)) { throw OnKeyNotFound("location"); }
-            rows::Location location = location_loader.Load(location_json_it.value());
+            const auto service_user_index_it = service_user_index.find(service_user);
+            DCHECK(service_user_index_it != std::cend(service_user_index));
 
-            const auto visits_json_it = place_visits.find("visits");
-            if (visits_json_it == std::end(place_visits)) { throw OnKeyNotFound("visits"); }
-            for (const auto &visit_json : visits_json_it.value()) {
-                auto visit = visit_loader.Load(visit_json);
-                visit.location(location);
-                result.emplace_back(visit);
+            const Address address{service_user_index_it->second.first};
+            const Location location{service_user_index_it->second.second};
+
+            const auto visits_it = group_visits_json.find("visits");
+            if (visits_it == std::end(group_visits_json)) { throw OnKeyNotFound("visits"); }
+            for (const auto &visit_json : visits_it.value()) {
+                auto date_time = datetime_loader.Load(visit_json);
+                const auto duration_it = visit_json.find("duration");
+                if (duration_it == std::end(visit_json)) { throw OnKeyNotFound("duration"); }
+                auto duration = boost::posix_time::seconds(std::stol(duration_it.value().template get<std::string>()));
+
+                result.emplace_back(service_user, address, boost::make_optional(location), date_time, duration);
             }
         }
 
@@ -157,10 +216,19 @@ namespace rows {
 
     template<typename JsonType>
     Problem Problem::JsonLoader::Load(const JsonType &document) {
-        const auto visits = LoadVisits(document);
+        const auto service_users = LoadServiceUsers(document);
+
+        std::unordered_map<ServiceUser, std::pair<Address, Location> > service_user_index;
+        for (const auto &service_user : service_users) {
+            const auto inserted = service_user_index.insert(
+                    std::make_pair(service_user, std::make_pair(service_user.address(), service_user.location())));
+            CHECK(inserted.second);
+        }
+
+        const auto visits = LoadVisits(document, service_user_index);
         const auto carers = LoadCarers(document);
 
-        return Problem(std::move(visits), std::move(carers));
+        return Problem(std::move(visits), std::move(carers), std::move(service_users));
     }
 }
 #endif //ROWS_PROBLEM_H
