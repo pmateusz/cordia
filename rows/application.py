@@ -18,7 +18,7 @@ class Application:
     EXIT_OK = 0
     PROGRAM_NAME = 'rows_cli'
 
-    def __init__(self):
+    def __init__(self, output_file_mode='x'):
         self.__console = rows.console.Console()
         self.__data_source = rows.csv_data_source.CSVDataSource(
             Application.__real_path('~/dev/cordia/data/cordia/home_carer_position.csv'),
@@ -30,6 +30,7 @@ class Application:
             Application.__real_path('~/dev/cordia/data/cordia/location_cache.json'))
         self.__location_finder = rows.location_finder.RobustLocationFinder(self.__location_cache, timeout=5.0)
         self.__handlers = {rows.parser.Parser.PULL_COMMAND: rows.pull_command.Handler(self)}
+        self.__output_file_mode = output_file_mode
 
     def load(self):
         """Initialize application components"""
@@ -63,6 +64,12 @@ class Application:
     def __handle_version(self, __namespace):
         message = '{0} version {1}'.format(Application.PROGRAM_NAME, rows.version.VERSION)
         self.__console.write_line(message)
+
+    @property
+    def output_file_mode(self):
+        """Returns mode for handling output files"""
+
+        return self.__output_file_mode
 
     @property
     def data_source(self):

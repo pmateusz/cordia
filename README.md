@@ -54,6 +54,13 @@ Verify that the configuration file is not corrupted.
 
 For more information refer to https://github.com/Project-OSRM/osrm-backend/wiki/Running-OSRM.
 
+## Help
+
+Output a problem
+```shell
+> ./rows_cli.py pull merchant_city --from=2/1/2017 --to=2/2/2017 --output=problem.json
+```
+
 ## Contribute
 
 The project is supported by a continuous integration pipeline hosted by [Travis CI](https://travis-ci.com/pmateusz/cordia). Review the [.travis.yml](.travis.yml) file

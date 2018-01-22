@@ -15,6 +15,7 @@ from rows.model.metadata import Metadata
 from rows.model.past_visit import PastVisit
 from rows.model.problem import Problem
 from rows.model.schedule import Schedule
+from rows.model.service_user import ServiceUser
 from rows.model.visit import Visit
 
 
@@ -27,13 +28,15 @@ class JSONEncoder(json.JSONEncoder):
                      Carer,
                      Diary,
                      Location,
-                     Problem,
                      Metadata,
-                     Schedule,
+                     PastVisit,
+                     Problem,
                      Problem.CarerShift,
-                     Problem.LocationVisits,
-                     Visit,
-                     PastVisit]
+                     Problem.LocalVisit,
+                     Problem.LocalVisits,
+                     Schedule,
+                     ServiceUser,
+                     Visit]
 
     def default(self, o):  # pylint: disable=method-hidden
         if o.__class__ in JSONEncoder.UNZIP_CLASSES:

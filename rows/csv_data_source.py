@@ -19,7 +19,7 @@ from rows.model.visit import Visit
 from rows.model.past_visit import PastVisit
 
 
-class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-from-loop,too-many-locals
+class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-from-loop,too-many-locals,invalid-name
     """Loads test data from CSV"""
 
     def __init__(self, carers_file, shift_patterns_file, visits_file, past_visits_file):
@@ -57,7 +57,7 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
             """Loads carers"""
 
             carers = {}
-            local_shift_pattern_carer_mapping = collections.defaultdict(list)
+            local_shift_pattern_mapping = collections.defaultdict(list)
             with open(file_path) as file_stream:
                 for row in create_sniffed_reader(file_stream):
                     if len(row) < 5:
@@ -69,8 +69,8 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
                     carers[carer.sap_number] = carer
 
                     shift_key, shift_week = row[3], int(row[4])
-                    local_shift_pattern_carer_mapping[shift_key].append((carer, shift_week))
-            return carers, local_shift_pattern_carer_mapping
+                    local_shift_pattern_mapping[shift_key].append((carer, shift_week))
+            return carers, local_shift_pattern_mapping
 
         def load_visits(file_path):
             """Loads visits"""
@@ -142,7 +142,6 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
                     cancelled = raw_cancelled == 'Y'
                     carer = carers.get(sap_number, None)
 
-                    visit = None
                     visit = next(filter(lambda local_visit: local_visit.date == local_begin.date() \
                                                             and local_visit.time == local_begin.time(),
                                         visits[service_user]), None)
@@ -185,6 +184,12 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
 
         self.__reload_if()
         return [visit for visit in itertools.chain(*self.__past_visits.values()) if begin_date <= visit.date < end_date]
+
+    def get_past_visits_for_service_user(self, service_user):
+        """Return visits of the service user"""
+
+        return [past_visit for past_visit in itertools.chain(*self.__past_visits.values())
+                if past_visit.visit and past_visit.visit.service_user == service_user]
 
     def get_past_schedule(self, area, begin_date, end_date):
         """Return a schedule for a given duration"""

@@ -1,11 +1,11 @@
 """Details an instance of the Home Care Scheduling Problem"""
 import rows.model.object
-from rows.model.address import Address
+import rows.model.datetime
+
 from rows.model.carer import Carer
 from rows.model.diary import Diary
-from rows.model.location import Location
 from rows.model.metadata import Metadata
-from rows.model.visit import Visit
+from rows.model.service_user import ServiceUser
 
 
 class Problem(rows.model.object.DataObject):
@@ -15,6 +15,7 @@ class Problem(rows.model.object.DataObject):
     DATA = 'data'
     CARERS = 'carers'
     VISITS = 'visits'
+    SERVICE_USERS = 'service_users'
 
     class CarerShift(rows.model.object.DataObject):
         """Carers shift details"""
@@ -63,36 +64,83 @@ class Problem(rows.model.object.DataObject):
 
             return Problem.CarerShift(**{Problem.CarerShift.CARER: carer, Problem.CarerShift.DIARIES: diaries})
 
-    class LocationVisits(rows.model.object.DataObject):
-        """Groups visits to be formed at the same location"""
+    class LocalVisit(rows.model.object.DataObject):
+        """Visit to be performed at the known location"""
 
-        LOCATION = 'location'
-        ADDRESS = 'address'
+        DATE = 'date'
+        TIME = 'time'
+        DURATION = 'duration'
+
+        def __init__(self, **kwargs):  # pylint: disable=useless-super-delegation
+            super(Problem.LocalVisit, self).__init__()
+
+            self.__date = kwargs.get(Problem.LocalVisit.DATE, None)
+            self.__time = kwargs.get(Problem.LocalVisit.TIME, None)
+            self.__duration = kwargs.get(Problem.LocalVisit.DURATION, None)
+
+        def as_dict(self):
+            bundle = super(Problem.LocalVisit, self).as_dict()
+            bundle[Problem.LocalVisit.DATE] = self.__date
+            bundle[Problem.LocalVisit.TIME] = self.__time
+            bundle[Problem.LocalVisit.DURATION] = self.__duration
+            return bundle
+
+        @staticmethod
+        def from_json(json):
+            """Create object from dictionary"""
+
+            date_json = json.get(Problem.LocalVisit.DATE, None)
+            date = rows.model.datetime.try_parse_iso_date(date_json) if date_json else None
+
+            time_json = json.get(Problem.LocalVisit.TIME, None)
+            time = rows.model.datetime.try_parse_iso_time(time_json) if time_json else None
+
+            duration_json = json.get(Problem.LocalVisit.DURATION, None)
+            duration = rows.model.datetime.try_parse_duration(duration_json) if duration_json else None
+
+            return Problem.LocalVisit(**{Problem.LocalVisit.DATE: date,
+                                         Problem.LocalVisit.TIME: time,
+                                         Problem.LocalVisit.DURATION: duration})
+
+        @property
+        def date(self):
+            """Return a property"""
+
+            return self.__date
+
+        @property
+        def time(self):
+            """Return a property"""
+
+            return self.__time
+
+        @property
+        def duration(self):
+            """Return a property"""
+
+            return self.__duration
+
+    class LocalVisits(rows.model.object.DataObject):
+        """Groups visits to be performed at the same location"""
+
+        SERVICE_USER = 'service_user'
         VISITS = 'visits'
 
         def __init__(self, **kwargs):
-            self.__location = kwargs.get(Problem.LocationVisits.LOCATION, None)
-            self.__address = kwargs.get(Problem.LocationVisits.ADDRESS, None)
-            self.__visits = kwargs.get(Problem.LocationVisits.VISITS, [])
+            self.__service_user = kwargs.get(Problem.LocalVisits.SERVICE_USER, None)
+            self.__visits = kwargs.get(Problem.LocalVisits.VISITS, [])
 
         def as_dict(self):
-            bundle = super(Problem.LocationVisits, self).as_dict()
-            bundle[Problem.LocationVisits.LOCATION] = self.__location
-            bundle[Problem.LocationVisits.ADDRESS] = self.__address
-            bundle[Problem.LocationVisits.VISITS] = self.__visits
+            bundle = super(Problem.LocalVisits, self).as_dict()
+            bundle[Problem.LocalVisits.SERVICE_USER] = self.__service_user
+            bundle[Problem.LocalVisits.VISITS] = self.__visits
             return bundle
 
         @property
-        def location(self):
+        def service_user(self):
             """Return a property"""
 
-            return self.__location
-
-        @property
-        def address(self):
-            """Return a property"""
-
-            return self.__address
+            return self.__service_user
 
         @property
         def visits(self):
@@ -101,19 +149,15 @@ class Problem(rows.model.object.DataObject):
             return self.__visits
 
         @staticmethod
-        def from_json(visits_json):
+        def from_json(json):
             """Create object from dictionary"""
 
-            location_json = visits_json.get(Problem.LocationVisits.LOCATION)
-            location = Location.from_json(location_json) if location_json else None
+            service_user = json.get(Problem.LocalVisits.SERVICE_USER)
 
-            address_json = visits_json.get(Problem.LocationVisits.ADDRESS)
-            address = Address.from_json(address_json) if address_json else None
+            visits_json = json.get(Problem.LocalVisits.VISITS)
+            visits = [Problem.LocalVisit.from_json(visit_json) for visit_json in visits_json] if visits_json else []
 
-            visits_json = visits_json.get(Problem.LocationVisits.VISITS)
-            visits = [Visit.from_json(visit_json) for visit_json in visits_json] if visits_json else []
-
-            return Problem.LocationVisits(location=location, address=address, visits=visits)
+            return Problem.LocalVisits(service_user=service_user, visits=visits)
 
     def __init__(self, **kwargs):
         super(Problem, self).__init__()
@@ -121,6 +165,7 @@ class Problem(rows.model.object.DataObject):
         self.__metadata = kwargs.get(Problem.METADATA, None)
         self.__carers = kwargs.get(Problem.CARERS, None)
         self.__visits = kwargs.get(Problem.VISITS, None)
+        self.__service_users = kwargs.get(Problem.SERVICE_USERS, None)
 
     def as_dict(self):
         bundle = super(Problem, self).as_dict()
@@ -134,6 +179,9 @@ class Problem(rows.model.object.DataObject):
         if self.__visits:
             bundle[Problem.VISITS] = self.__visits
 
+        if self.__service_users:
+            bundle[Problem.SERVICE_USERS] = self.__service_users
+
         return bundle
 
     @staticmethod
@@ -144,12 +192,14 @@ class Problem(rows.model.object.DataObject):
         metadata = Metadata.from_json(metadata_json) if metadata_json else None
 
         carers_json = json_obj.get(Problem.CARERS, None)
-        carers = [Problem.CarerShift.from_json(carer_json) for carer_json in carers_json] if carers_json else []
+        carers = [Problem.CarerShift.from_json(json) for json in carers_json] if carers_json else []
 
         visits_json = json_obj.get(Problem.VISITS, None)
-        visits = [Problem.LocationVisits.from_json(visit_json) for visit_json in visits_json] if visits_json else []
+        visits = [Problem.LocalVisits.from_json(json) for json in visits_json] if visits_json else []
 
-        return Problem(metadata=metadata, carers=carers, visits=visits)
+        service_users_json = json_obj.get(Problem.SERVICE_USERS, None)
+        service_users = [ServiceUser.from_json(json) for json in service_users_json] if service_users_json else []
+        return Problem(metadata=metadata, carers=carers, visits=visits, service_users=service_users)
 
     @property
     def metadata(self):
@@ -168,3 +218,9 @@ class Problem(rows.model.object.DataObject):
         """Get a property"""
 
         return self.__visits
+
+    @property
+    def service_users(self):
+        """Get a property"""
+
+        return self.__service_users

@@ -1,13 +1,11 @@
 """Test CSV data source"""
 
 import datetime
-import json
 import unittest
 import os
 
 from rows.csv_data_source import CSVDataSource
 from rows.model.area import Area
-from rows.model.json import JSONEncoder
 
 
 @unittest.skipIf(os.getenv('TRAVIS', 'false') == 'true',
@@ -85,8 +83,8 @@ class CSVDataSourceTest(unittest.TestCase):
             self.assertLessEqual(self.example_begin_date, visit.date)
 
         # may be useful in the future
-        with open('past_solution.json', 'x') as file_stream:
-            json.dump(schedule, file_stream, indent=2, sort_keys=False, cls=JSONEncoder)
+        # with open('past_solution.json', 'x') as file_stream:
+        #     json.dump(schedule, file_stream, indent=2, sort_keys=False, cls=JSONEncoder)
 
     def test_load_visits_for_area(self):
         """Returns all visits within the area and time interval"""

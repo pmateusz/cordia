@@ -16,7 +16,7 @@ from rows.model.json import JSONEncoder
 from rows.model.location import Location
 from rows.model.metadata import Metadata
 from rows.model.problem import Problem
-from rows.model.visit import Visit
+from rows.model.service_user import ServiceUser
 
 
 class TestProblem(unittest.TestCase):
@@ -57,15 +57,18 @@ class TestProblem(unittest.TestCase):
                                                                  minute=30))])])
             ],
             Problem.VISITS: [
-                Problem.LocationVisits(location=Location(latitude=55.8619711, longitude=-4.2452754),
-                                       address=visit_address,
-                                       visits=[
-                                           Visit(service_user='John Logie Baird',
-                                                 address=visit_address,
-                                                 date=begin_date,
-                                                 time=datetime.time(13, 0, 0),
-                                                 duration=datetime.timedelta(minutes=30))
-                                       ])
+                Problem.LocalVisits(service_user='1234567',
+                                    visits=[
+                                        Problem.LocalVisit(
+                                            date=begin_date,
+                                            time=datetime.time(13, 0, 0),
+                                            duration=datetime.timedelta(minutes=30))
+                                    ])
+            ],
+            Problem.SERVICE_USERS: [
+                ServiceUser(key='1234657',
+                            address=visit_address,
+                            location=Location(latitude=55.8619711, longitude=-4.2452754))
             ]
         })
 

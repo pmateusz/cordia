@@ -11,12 +11,14 @@ from rows.model.diary import Diary
 from rows.model.json import JSONEncoder
 from rows.model.metadata import Metadata
 from rows.model.problem import Problem
+from rows.model.service_user import ServiceUser
 
 
 class Handler:
     """Implements the pull command"""
 
     def __init__(self, application):
+        self.__application = application
         self.__data_source = application.data_source
         self.__location_finder = application.location_finder
         self.__console = application.console
@@ -29,7 +31,7 @@ class Handler:
 
         problem = self.__create_problem(area, begin, end)
         try:
-            with open(output_file, 'x') as file_stream:
+            with open(output_file, self.__application.output_file_mode) as file_stream:
                 json.dump(problem, file_stream, indent=2, sort_keys=False, cls=JSONEncoder)
             return 0
         except FileExistsError:
@@ -40,25 +42,24 @@ class Handler:
             logging.error('Failed to save problem instance due to error: %s', ex)
             return 1
 
-    def __create_problem(self, area, begin, end):
-        visits_by_address = collections.OrderedDict()
-        locations_by_address = {}
+    def __create_problem(self, area, begin, end):  # pylint: disable=too-many-locals
+        visits_by_service_user = collections.OrderedDict()
+        address_by_service_user = {}
+        location_by_service_user = {}
         for visit in self.__data_source.get_visits_for_area(area, begin, end):
-            if visit.address in visits_by_address:
-                visits_by_address[visit.address].append(visit)
+            local_visit = Problem.LocalVisit(date=visit.date, time=visit.time, duration=visit.duration)
+            if visit.service_user in visits_by_service_user:
+                visits_by_service_user[visit.service_user].append(local_visit)
             else:
-                visits_by_address[visit.address] = [visit]
-
-            if visit.address not in locations_by_address:
+                visits_by_service_user[visit.service_user] = [local_visit]
                 location = self.__location_finder.find(visit.address)
                 if location is None:
                     logging.error("Failed to find location of the address '%s'", location)
-                locations_by_address[visit.address] = location
+                location_by_service_user[visit.service_user] = location
+                address_by_service_user[visit.service_user] = visit.address
 
-        visits = [Problem.LocationVisits(location=location,
-                                         address=address,
-                                         visits=visits_by_address[address])
-                  for address, location in locations_by_address.items()]
+        visits = [Problem.LocalVisits(service_user=service_user, visits=visits)
+                  for service_user, visits in visits_by_service_user.items()]
 
         carers = []
         for carer in self.__data_source.get_carers_for_area(area, begin, end):
@@ -67,6 +68,23 @@ class Handler:
                        for date, events in itertools.groupby(absolute_events, key=lambda event: event.begin.date())]
             carers.append(Problem.CarerShift(**{Problem.CarerShift.CARER: carer, Problem.CarerShift.DIARIES: diaries}))
 
+        service_users = []
+        for service_user_id in visits_by_service_user.keys():
+            carers_frequency = collections.Counter()
+            all_visits = 0
+            for visit in self.__data_source.get_past_visits_for_service_user(service_user_id):
+                carers_frequency[visit.carer.sap_number] += 1
+                all_visits += 1
+
+            carer_pref_to_use = [(carer, float(count) / all_visits) for carer, count in carers_frequency.most_common(8)]
+            carer_pref_to_use.sort(key=lambda element: element[1], reverse=True)
+
+            service_users.append(ServiceUser(key=service_user_id,
+                                             address=address_by_service_user[service_user_id],
+                                             location=location_by_service_user[service_user_id],
+                                             carer_preference=carer_pref_to_use))
+
         return Problem(metadata=Metadata(area=area, begin=begin, end=end, version=rows.version.VERSION),
                        carers=carers,
-                       visits=visits)
+                       visits=visits,
+                       service_users=service_users)
