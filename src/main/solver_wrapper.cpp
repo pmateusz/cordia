@@ -40,7 +40,7 @@ namespace rows {
             : problem_(problem),
               depot_(GetCentralLocation(std::cbegin(locations), std::cend(locations))),
               depot_service_user_(),
-              time_window_(boost::posix_time::minutes(0)),
+              time_window_(boost::posix_time::minutes(30)),
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(CreateSearchParameters()),
               service_users_() {
@@ -79,8 +79,8 @@ namespace rows {
         return boost::posix_time::seconds(location_container_.Distance(from, to));
     }
 
-    int64 SolverWrapper::ServiceTimePlusDistance(operations_research::RoutingModel::NodeIndex from,
-                                                 operations_research::RoutingModel::NodeIndex to) {
+    int64 SolverWrapper::ServicePlusTravelTime(operations_research::RoutingModel::NodeIndex from,
+                                               operations_research::RoutingModel::NodeIndex to) {
         if (from == DEPOT) {
             return 0;
         }
@@ -262,23 +262,12 @@ namespace rows {
                                                                  const boost::posix_time::time_duration &duration,
                                                                  const std::string &label) const {
         static const auto IS_OPTIONAL = false;
-
-        // TODO: simplify
-        if (HasTimeWindows()) {
-            return solver->MakeFixedDurationIntervalVar(
-                    GetBeginWindow(start_time),
-                    GetEndWindow(start_time),
-                    duration.total_seconds(),
-                    IS_OPTIONAL,
-                    label);
-        } else {
-            return solver->MakeFixedDurationIntervalVar(
-                    start_time.total_seconds(),
-                    start_time.total_seconds(),
-                    duration.total_seconds(),
-                    IS_OPTIONAL,
-                    label);
-        }
+        return solver->MakeFixedDurationIntervalVar(
+                GetBeginWindow(start_time),
+                GetEndWindow(start_time),
+                duration.total_seconds(),
+                IS_OPTIONAL,
+                label);
     }
 
     void SolverWrapper::PrecomputeDistances() {
@@ -362,29 +351,33 @@ namespace rows {
         static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
 
-        model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&*this, &rows::SolverWrapper::Distance));
+        VLOG(1) << "Time window width: " << time_window_;
 
-        model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServiceTimePlusDistance),
+        model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
+
+        model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
                            SECONDS_IN_DAY,
                            SECONDS_IN_DAY,
                            VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
                            TIME_DIMENSION);
 
-// TODO: continuity of care temporarily disabled
-//        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
-//        for (const auto &carer_metrics : care_continuity_metrics_) {
-//            care_continuity_evaluators.push_back(
-//                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
-//        }
-//
-//        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
-//                                              CARE_CONTINUITY_MAX,
-//                                              CARE_CONTINUITY_MAX,
-//                                              START_FROM_ZERO_SERVICE_SATISFACTION,
-//                                              CARE_CONTINUITY_DIMENSION);
+        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
+        for (const auto &carer_metrics : care_continuity_metrics_) {
+            care_continuity_evaluators.push_back(
+                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
+        }
+
+        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
+                                              CARE_CONTINUITY_MAX,
+                                              CARE_CONTINUITY_MAX,
+                                              START_FROM_ZERO_SERVICE_SATISFACTION,
+                                              CARE_CONTINUITY_DIMENSION);
 
         operations_research::RoutingDimension *const time_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::TIME_DIMENSION);
+
+        operations_research::RoutingDimension *const care_continuity_dimension = model.GetMutableDimension(
+                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
         operations_research::Solver *const solver = model.solver();
         for (const auto &carer_index : Carers()) {
@@ -397,7 +390,7 @@ namespace rows {
 
             const auto exact_start = visit.datetime().time_of_day();
             auto visit_start = time_dimension->CumulVar(visit_node.value());
-            if (HasTimeWindows()) {
+            if (!HasTimeWindows()) {
                 visit_start->SetValue(exact_start.total_seconds());
             } else {
                 visit_start->SetRange(GetBeginWindow(exact_start), GetEndWindow(exact_start));
@@ -410,13 +403,17 @@ namespace rows {
 
         // minimize time variables
         for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
+            // this may be wrong after adding care continuity
             model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
         }
 
         // minimize route duration
         for (auto carer_index = 0; carer_index < model.vehicles(); ++carer_index) {
-            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.Start(carer_index)));
+            model.AddVariableMaximizedByFinalizer(time_dimension->CumulVar(model.Start(carer_index)));
             model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(carer_index)));
+
+            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(model.Start(carer_index)));
+            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(model.End(carer_index)));
         }
 
         // Adding penalty costs to allow skipping orders.
@@ -441,9 +438,9 @@ namespace rows {
         return depot_;
     }
 
-    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
+    std::vector<std::vector<operations_research::RoutingModel::NodeIndex>>
     SolverWrapper::GetNodeRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const {
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > routes;
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex>> routes;
         for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
             const auto carer = Carer(vehicle);
             std::vector<operations_research::RoutingModel::NodeIndex> route;
@@ -467,7 +464,7 @@ namespace rows {
         rows::Solution solution_to_use{solution};
         auto validation_round = 0;
         while (true) {
-            std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > validation_errors;
+            std::vector<std::unique_ptr<rows::RouteValidator::ValidationError>> validation_errors;
             validation_round++;
 
             std::vector<rows::Route> routes;
@@ -504,7 +501,7 @@ namespace rows {
     }
 
     rows::Solution SolverWrapper::Resolve(const rows::Solution &solution,
-                                          const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const {
+                                          const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError>> &validation_errors) const {
         std::unordered_set<ScheduledVisit> visits_to_release;
 
         for (const auto &error : validation_errors) {

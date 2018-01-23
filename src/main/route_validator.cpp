@@ -215,24 +215,58 @@ namespace rows {
 
         // find current work interval
         for (; work_interval_it != work_interval_end_it
-               && work_interval_it->end().time_of_day() < time_to_use;
+               && work_interval_it->end().time_of_day() <= time_to_use;
                ++work_interval_it);
 
         if (work_interval_it == work_interval_end_it) {
             return CreateContractualBreakViolationError(route, visit);
         }
 
+        if (visit.location() != location) {
+            time_to_use += solver.TravelTime(location, visit.location().get());
+        }
+
+        const auto visit_window_begin = static_cast<boost::posix_time::time_duration>(boost::posix_time::seconds(
+                solver.GetBeginWindow(visit.datetime().time_of_day())));
+        const auto visit_window_end = static_cast<boost::posix_time::time_duration>(boost::posix_time::seconds(
+                solver.GetEndWindow(visit.datetime().time_of_day())));
+        time_to_use = std::max(time_to_use, visit_window_begin);
+        if (time_to_use > visit_window_end) {
+            return CreateLateArrivalError(route, visit, time_to_use - visit_window_end);
+        }
+
+        time_to_use += visit.duration();
+        if (time_to_use > work_interval_it->end().time_of_day()) {
+            return CreateContractualBreakViolationError(route, visit);
+        }
+
+        // visit can be performed
+        location = visit.location().get();
+        time = time_to_use;
+        return nullptr;
+
+        /*
         // find effective time of approaching the destination
         if (visit.location() != location) {
             auto remaining_travel_duration = solver.TravelTime(location, visit.location().get());
-            while (remaining_travel_duration > boost::posix_time::seconds(0)) {
-                if (time_to_use + remaining_travel_duration < work_interval_it->end().time_of_day()) {
+            while (remaining_travel_duration.total_seconds() > 0) {
+                if (time_to_use + remaining_travel_duration <= work_interval_it->end().time_of_day()) {
                     time_to_use += remaining_travel_duration;
                     remaining_travel_duration = boost::posix_time::seconds(0);
+
+                    if (time_to_use == work_interval_it->end().time_of_day()) {
+                        ++work_interval_it;
+
+                        if (work_interval_it == work_interval_end_it) {
+                            return CreateContractualBreakViolationError(route, visit);
+                        }
+
+                        time_to_use = work_interval_it->begin().time_of_day();
+                    }
+
                     break;
                 }
 
-                // TODO: no time splitting
                 remaining_travel_duration -= work_interval_it->end().time_of_day() - time_to_use;
 
                 ++work_interval_it;
@@ -272,7 +306,7 @@ namespace rows {
             }
 
             time_to_use = work_interval_it->begin().time_of_day();
-        }
+        }*/
     }
 
     std::unique_ptr<RouteValidator::ValidationError> RouteValidator::CreateAbsentCarerError(

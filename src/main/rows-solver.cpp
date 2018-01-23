@@ -180,7 +180,6 @@ int main(int argc, char **argv) {
 
             const auto routes = wrapper.GetNodeRoutes(solution_to_use, model);
             auto initial_assignment = model.ReadAssignmentFromRoutes(routes, false);
-
             if (!model.solver()->CheckAssignment(initial_assignment)) {
                 throw util::ApplicationError("Solution for warm start is not valid.", STATUS_ERROR);
             }

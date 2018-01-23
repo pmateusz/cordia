@@ -63,8 +63,8 @@ namespace rows {
         int64 Distance(operations_research::RoutingModel::NodeIndex from,
                        operations_research::RoutingModel::NodeIndex to);
 
-        int64 ServiceTimePlusDistance(operations_research::RoutingModel::NodeIndex from,
-                                      operations_research::RoutingModel::NodeIndex to);
+        int64 ServicePlusTravelTime(operations_research::RoutingModel::NodeIndex from,
+                                    operations_research::RoutingModel::NodeIndex to);
 
         int64 Preference(operations_research::RoutingModel::NodeIndex to, const rows::Carer &carer) const;
 
