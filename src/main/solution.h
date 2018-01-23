@@ -12,6 +12,8 @@
 #include <boost/optional.hpp>
 #include <boost/date_time.hpp>
 
+#include <ortools/constraint_solver/routing.h>
+
 #include "scheduled_visit.h"
 
 namespace rows {
@@ -19,6 +21,8 @@ namespace rows {
     class Carer;
 
     class Route;
+
+    class SolverWrapper;
 
     class Solution {
     public:
@@ -42,6 +46,8 @@ namespace rows {
         void UpdateVisitLocations(const std::vector<CalendarVisit> &visits);
 
         const std::vector<ScheduledVisit> &visits() const;
+
+        void DebugPrintRoutes(SolverWrapper &solver, const operations_research::RoutingModel &model) const;
 
     private:
         std::vector<ScheduledVisit> visits_;

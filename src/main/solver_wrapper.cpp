@@ -52,13 +52,12 @@ namespace rows {
                                                    });
             DCHECK_GT(visit_count, 0);
             const auto insert_it = service_users_.insert(
-                    std::make_pair(static_cast<rows::ServiceUser>(service_user),
-                                   LocalServiceUser(service_user, visit_count)));
+                    std::make_pair(service_user, LocalServiceUser(service_user, visit_count)));
             DCHECK(insert_it.second);
         }
 
         for (const auto &carer_pair : problem_.carers()) {
-            care_continuity_metrics_.push_back(CareContinuityMetrics(this, carer_pair.first));
+            care_continuity_metrics_.emplace_back(this, carer_pair.first);
         }
     }
 
@@ -264,6 +263,7 @@ namespace rows {
                                                                  const std::string &label) const {
         static const auto IS_OPTIONAL = false;
 
+        // TODO: simplify
         if (HasTimeWindows()) {
             return solver->MakeFixedDurationIntervalVar(
                     GetBeginWindow(start_time),
@@ -314,7 +314,7 @@ namespace rows {
 
     operations_research::RoutingModel::NodeIndex SolverWrapper::Index(const rows::CalendarVisit &visit) const {
         const auto &index_opt = TryIndex(visit);
-        if (index_opt) {
+        if (index_opt.is_initialized()) {
             return index_opt.get();
         }
 
@@ -334,17 +334,17 @@ namespace rows {
             const rows::CalendarVisit &visit) const {
         const auto find_it = visit_index_.left.find(visit);
         if (find_it != std::end(visit_index_.left)) {
-            return find_it->second;
+            return boost::make_optional(find_it->second);
         }
-        return boost::optional<operations_research::RoutingModel::NodeIndex>();
+        return boost::none;
 
     }
 
     boost::optional<operations_research::RoutingModel::NodeIndex> SolverWrapper::TryIndex(
             const rows::ScheduledVisit &visit) const {
         const auto &calendar_visit = visit.calendar_visit();
-        if (!calendar_visit) {
-            return boost::optional<operations_research::RoutingModel::NodeIndex>();
+        if (!calendar_visit.is_initialized()) {
+            return boost::none;
         }
 
         return TryIndex(calendar_visit.get());
@@ -370,18 +370,18 @@ namespace rows {
                            VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
                            TIME_DIMENSION);
 
-
-        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
-        for (const auto &carer_metrics : care_continuity_metrics_) {
-            care_continuity_evaluators.push_back(
-                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
-        }
-
-        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
-                                              CARE_CONTINUITY_MAX,
-                                              CARE_CONTINUITY_MAX,
-                                              START_FROM_ZERO_SERVICE_SATISFACTION,
-                                              CARE_CONTINUITY_DIMENSION);
+// TODO: continuity of care temporarily disabled
+//        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
+//        for (const auto &carer_metrics : care_continuity_metrics_) {
+//            care_continuity_evaluators.push_back(
+//                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
+//        }
+//
+//        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
+//                                              CARE_CONTINUITY_MAX,
+//                                              CARE_CONTINUITY_MAX,
+//                                              START_FROM_ZERO_SERVICE_SATISFACTION,
+//                                              CARE_CONTINUITY_DIMENSION);
 
         operations_research::RoutingDimension *const time_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::TIME_DIMENSION);
@@ -447,7 +447,8 @@ namespace rows {
         for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
             const auto carer = Carer(vehicle);
             std::vector<operations_research::RoutingModel::NodeIndex> route;
-            for (const auto &element : solution.GetRoute(carer).visits()) {
+            const auto local_route = solution.GetRoute(carer);
+            for (const auto &element : local_route.visits()) {
                 const auto index = TryIndex(element);
                 if (index.is_initialized()) {
                     route.push_back(index.get());

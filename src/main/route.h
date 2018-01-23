@@ -10,7 +10,17 @@ namespace rows {
 
     class Route {
     public:
-        Route(const Carer &carer, std::vector<ScheduledVisit> visits);
+        Route();
+
+        Route(Carer carer, std::vector<ScheduledVisit> visits);
+
+        Route(const Route &route);
+
+        Route(Route &&route) noexcept;
+
+        Route &operator=(const Route &route);
+
+        Route &operator=(Route &&route) noexcept;
 
         const Carer &carer() const;
 

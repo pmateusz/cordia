@@ -232,6 +232,7 @@ namespace rows {
                     break;
                 }
 
+                // TODO: no time splitting
                 remaining_travel_duration -= work_interval_it->end().time_of_day() - time_to_use;
 
                 ++work_interval_it;
@@ -249,19 +250,11 @@ namespace rows {
                 solver.GetEndWindow(visit.datetime().time_of_day())));
         time_to_use = std::max(time_to_use, visit_window_begin);
         if (time_to_use > visit_window_end) {
-            if ((time_to_use - visit_window_end).is_negative()) {
-                LOG(INFO) << "HERE";
-            }
-
             return CreateLateArrivalError(route, visit, time_to_use - visit_window_end);
         }
 
         while (true) {
             if (time_to_use > visit_window_end) {
-                if ((time_to_use - visit_window_end).is_negative()) {
-                    LOG(INFO) << "HERE";
-                }
-
                 return CreateLateArrivalError(route, visit, time_to_use - visit_window_end);
             }
 

@@ -10,6 +10,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/range/irange.hpp>
+#include <boost/algorithm/string/join.hpp>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -154,7 +155,7 @@ int main(int argc, char **argv) {
                % FLAGS_map_file;
 
     try {
-        boost::optional<rows::Solution> solution;
+        boost::optional <rows::Solution> solution;
 
         auto problem_to_use = LoadReducedProblem(FLAGS_problem_file);
 
@@ -173,14 +174,20 @@ int main(int argc, char **argv) {
         wrapper.ConfigureModel(model);
         operations_research::Assignment const *assignment = nullptr;
         if (solution) {
+            solution.get().DebugPrintRoutes(wrapper, model);
             const auto solution_to_use = wrapper.ResolveValidationErrors(solution.get(), problem_to_use, model);
+            solution_to_use.DebugPrintRoutes(wrapper, model);
+
             const auto routes = wrapper.GetNodeRoutes(solution_to_use, model);
             auto initial_assignment = model.ReadAssignmentFromRoutes(routes, false);
+
             if (!model.solver()->CheckAssignment(initial_assignment)) {
                 throw util::ApplicationError("Solution for warm start is not valid.", STATUS_ERROR);
             }
+            VLOG(1) << "No errors detected";
             assignment = model.SolveFromAssignmentWithParameters(initial_assignment, wrapper.parameters());
         } else {
+            VLOG(1) << "Starting without solution";
             assignment = model.SolveWithParameters(wrapper.parameters());
         }
 
