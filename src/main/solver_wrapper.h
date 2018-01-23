@@ -1,8 +1,10 @@
 #ifndef ROWS_SOLVER_WRAPPER_H
 #define ROWS_SOLVER_WRAPPER_H
 
+#include <memory>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include <boost/bimap.hpp>
 #include <boost/bimap/unordered_set_of.hpp>
@@ -13,10 +15,12 @@
 
 #include <ortools/constraint_solver/routing.h>
 
-#include "problem.h"
-#include "location_container.h"
 #include "calendar_visit.h"
+#include "carer.h"
+#include "location_container.h"
+#include "problem.h"
 #include "route_validator.h"
+#include "service_user.h"
 
 namespace rows {
 
@@ -26,10 +30,29 @@ namespace rows {
 
     class SolverWrapper {
     public:
+
+        class LocalServiceUser {
+        public:
+            LocalServiceUser();
+
+            LocalServiceUser(const rows::ExtendedServiceUser &service_user, int64 visit_count);
+
+            int64 Preference(const rows::Carer &carer) const;
+
+            const rows::ExtendedServiceUser &service_user() const;
+
+            int64 visit_count() const;
+
+        private:
+            rows::ExtendedServiceUser service_user_;
+            int64 visit_count_;
+        };
+
         static const operations_research::RoutingModel::NodeIndex DEPOT;
         static const int64 SECONDS_IN_DAY;
         static const std::string TIME_DIMENSION;
-        static const boost::posix_time::time_duration ZERO_DURATION;
+        static const int64 CARE_CONTINUITY_MAX;
+        static const std::string CARE_CONTINUITY_DIMENSION;
 
         explicit SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config);
 
@@ -43,6 +66,8 @@ namespace rows {
         int64 ServiceTimePlusDistance(operations_research::RoutingModel::NodeIndex from,
                                       operations_research::RoutingModel::NodeIndex to);
 
+        int64 Preference(operations_research::RoutingModel::NodeIndex to, const rows::Carer &carer) const;
+
         operations_research::RoutingModel::NodeIndex Index(const CalendarVisit &visit) const;
 
         operations_research::RoutingModel::NodeIndex Index(const ScheduledVisit &visit) const;
@@ -52,6 +77,8 @@ namespace rows {
         boost::optional<operations_research::RoutingModel::NodeIndex> TryIndex(const ScheduledVisit &visit) const;
 
         rows::CalendarVisit CalendarVisit(operations_research::RoutingModel::NodeIndex visit) const;
+
+        const LocalServiceUser &ServiceUser(operations_research::RoutingModel::NodeIndex visit) const;
 
         rows::Diary Diary(operations_research::RoutingModel::NodeIndex carer) const;
 
@@ -100,6 +127,18 @@ namespace rows {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
         };
 
+        class CareContinuityMetrics {
+        public:
+            CareContinuityMetrics(SolverWrapper const *solver, rows::Carer carer);
+
+            int64 operator()(operations_research::RoutingModel::NodeIndex from,
+                             operations_research::RoutingModel::NodeIndex to) const;
+
+        private:
+            SolverWrapper const *solver_;
+            rows::Carer carer_;
+        };
+
         rows::Solution Resolve(const rows::Solution &solution,
                                const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const;
 
@@ -126,14 +165,19 @@ namespace rows {
 
         const rows::Problem &problem_;
         const Location depot_;
+        const LocalServiceUser depot_service_user_;
         boost::posix_time::time_duration time_window_;
         rows::CachedLocationContainer location_container_;
 
         operations_research::RoutingSearchParameters parameters_;
 
+        std::unordered_map<rows::ServiceUser, rows::SolverWrapper::LocalServiceUser> service_users_;
+
         boost::bimaps::bimap<
                 boost::bimaps::unordered_set_of<rows::CalendarVisit, PartialVisitOperations, PartialVisitOperations>,
                 operations_research::RoutingModel::NodeIndex> visit_index_;
+
+        std::vector<CareContinuityMetrics> care_continuity_metrics_;
     };
 }
 

@@ -11,12 +11,13 @@
 
 #include <ortools/constraint_solver/routing_flags.h>
 
-#include "location.h"
 #include "calendar_visit.h"
+#include "carer.h"
+#include "location.h"
 #include "scheduled_visit.h"
 #include "solution.h"
-
 #include "solver_wrapper.h"
+
 
 namespace rows {
 
@@ -26,6 +27,10 @@ namespace rows {
 
     const std::string SolverWrapper::TIME_DIMENSION{"Time"};
 
+    const int64 SolverWrapper::CARE_CONTINUITY_MAX = 100;
+
+    const std::string SolverWrapper::CARE_CONTINUITY_DIMENSION{"CareContinuity"};
+
     SolverWrapper::SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config)
             : SolverWrapper(problem, GetUniqueLocations(problem), config) {}
 
@@ -34,9 +39,28 @@ namespace rows {
                                  osrm::EngineConfig &config)
             : problem_(problem),
               depot_(GetCentralLocation(std::cbegin(locations), std::cend(locations))),
+              depot_service_user_(),
               time_window_(boost::posix_time::minutes(0)),
               location_container_(std::cbegin(locations), std::cend(locations), config),
-              parameters_(CreateSearchParameters()) {}
+              parameters_(CreateSearchParameters()),
+              service_users_() {
+        for (const auto &service_user : problem_.service_users()) {
+            const auto visit_count = std::count_if(std::cbegin(problem_.visits()),
+                                                   std::cend(problem_.visits()),
+                                                   [&service_user](const rows::CalendarVisit &visit) -> bool {
+                                                       return visit.service_user() == service_user;
+                                                   });
+            DCHECK_GT(visit_count, 0);
+            const auto insert_it = service_users_.insert(
+                    std::make_pair(static_cast<rows::ServiceUser>(service_user),
+                                   LocalServiceUser(service_user, visit_count)));
+            DCHECK(insert_it.second);
+        }
+
+        for (const auto &carer_pair : problem_.carers()) {
+            care_continuity_metrics_.push_back(CareContinuityMetrics(this, carer_pair.first));
+        }
+    }
 
     int64 SolverWrapper::Distance(operations_research::RoutingModel::NodeIndex from,
                                   operations_research::RoutingModel::NodeIndex to) {
@@ -83,6 +107,21 @@ namespace rows {
         const auto &carer_pair = problem_.carers()[carer.value()];
         return {carer_pair.first};
     }
+
+    const rows::SolverWrapper::LocalServiceUser &
+    SolverWrapper::ServiceUser(operations_research::RoutingModel::NodeIndex visit) const {
+        if (visit == DEPOT) {
+            return depot_service_user_;
+        }
+
+        const auto visit_index = visit.value();
+        DCHECK_GE(visit_index, 1);
+        const auto &calendar_visit = problem_.visits()[visit_index];
+        const auto find_it = service_users_.find(calendar_visit.service_user());
+        DCHECK(find_it != std::end(service_users_));
+        return find_it->second;
+    }
+
 
     std::vector<operations_research::IntervalVar *> SolverWrapper::Breaks(operations_research::Solver *const solver,
                                                                           const operations_research::RoutingModel::NodeIndex carer) const {
@@ -320,14 +359,29 @@ namespace rows {
     }
 
     void SolverWrapper::ConfigureModel(operations_research::RoutingModel &model) {
+        static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
+        static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
+
         model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&*this, &rows::SolverWrapper::Distance));
 
-        static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
-        model.AddDimension(NewPermanentCallback(&*this, &rows::SolverWrapper::ServiceTimePlusDistance),
+        model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServiceTimePlusDistance),
                            SECONDS_IN_DAY,
                            SECONDS_IN_DAY,
                            VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
                            TIME_DIMENSION);
+
+
+        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
+        for (const auto &carer_metrics : care_continuity_metrics_) {
+            care_continuity_evaluators.push_back(
+                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
+        }
+
+        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
+                                              CARE_CONTINUITY_MAX,
+                                              CARE_CONTINUITY_MAX,
+                                              START_FROM_ZERO_SERVICE_SATISFACTION,
+                                              CARE_CONTINUITY_DIMENSION);
 
         operations_research::RoutingDimension *const time_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::TIME_DIMENSION);
@@ -533,6 +587,11 @@ namespace rows {
         return std::min((value + time_window_).total_seconds(), static_cast<int>(SECONDS_IN_DAY));
     }
 
+    int64 SolverWrapper::Preference(operations_research::RoutingModel::NodeIndex to, const rows::Carer &carer) const {
+        const auto &service_user = ServiceUser(to);
+        return service_user.Preference(carer);
+    }
+
     std::size_t SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {
         static const std::hash<rows::ServiceUser> hash_service_user{};
         static const std::hash<boost::posix_time::ptime> hash_date_time{};
@@ -550,5 +609,36 @@ namespace rows {
         return left.service_user() == right.service_user()
                && left.datetime() == right.datetime()
                && left.duration() == right.duration();
+    }
+
+    SolverWrapper::CareContinuityMetrics::CareContinuityMetrics(SolverWrapper const *solver,
+                                                                rows::Carer carer)
+            : solver_(solver),
+              carer_(carer) {}
+
+    int64 SolverWrapper::CareContinuityMetrics::operator()(operations_research::RoutingModel::NodeIndex from,
+                                                           operations_research::RoutingModel::NodeIndex to) const {
+        return solver_->Preference(to, carer_);
+    }
+
+    SolverWrapper::LocalServiceUser::LocalServiceUser()
+            : LocalServiceUser(ExtendedServiceUser(), 1) {}
+
+
+    int64 SolverWrapper::LocalServiceUser::Preference(const rows::Carer &carer) const {
+        return static_cast<int64>(service_user_.preference(carer) * 100 / visit_count_);
+    }
+
+    SolverWrapper::LocalServiceUser::LocalServiceUser(const rows::ExtendedServiceUser &service_user,
+                                                      int64 visit_count)
+            : service_user_(service_user),
+              visit_count_(visit_count) {}
+
+    const rows::ExtendedServiceUser &SolverWrapper::LocalServiceUser::service_user() const {
+        return service_user_;
+    }
+
+    int64 SolverWrapper::LocalServiceUser::visit_count() const {
+        return visit_count_;
     }
 }

@@ -50,6 +50,10 @@ namespace rows {
     }
 
     std::int32_t Location::ToFixedValue(const std::string &text) {
+        if (text.empty()) {
+            return 0;
+        }
+
         static const auto COORDINATE_PRECISION = static_cast<int32_t>(osrm::COORDINATE_PRECISION);
         static const auto DECIMAL_PLACES = static_cast<int32_t>(std::log10(osrm::COORDINATE_PRECISION));
 

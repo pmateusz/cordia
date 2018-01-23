@@ -39,6 +39,8 @@ namespace rows {
 
         const std::vector<std::pair<Carer, std::vector<Diary> > > &carers() const;
 
+        const std::vector<ExtendedServiceUser> &service_users() const;
+
         const boost::optional<Diary> diary(const Carer &carer, boost::posix_time::ptime::date_type date) const;
 
         /*!

@@ -44,7 +44,7 @@ namespace rows {
     }
 
     ExtendedServiceUser::ExtendedServiceUser()
-            : ExtendedServiceUser("", Address(), Location(0, 0), std::unordered_map<Carer, double>()) {}
+            : ExtendedServiceUser("", Address(), Location("", ""), std::unordered_map<Carer, double>()) {}
 
     ExtendedServiceUser::ExtendedServiceUser(std::string id,
                                              Address address,

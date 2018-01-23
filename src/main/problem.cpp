@@ -24,6 +24,10 @@ namespace rows {
         return carers_;
     }
 
+    const std::vector<ExtendedServiceUser> &Problem::service_users() const {
+        return service_users_;
+    }
+
     bool Problem::IsAdmissible() const {
         auto required_duration_sec = 0;
         for (const auto &visit : visits_) {
