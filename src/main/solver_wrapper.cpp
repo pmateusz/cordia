@@ -131,23 +131,32 @@ namespace rows {
         boost::posix_time::ptime last_end_time(diary.date());
         boost::posix_time::ptime next_day(diary.date() + boost::gregorian::date_duration(1));
 
-        BreakType break_type = BreakType::BEFORE_WORKDAY;
-        for (const auto &event : diary.events()) {
+        const auto &events = diary.events();
+        if (!events.empty()) {
+            auto event_it = std::begin(events);
+            const auto event_it_end = std::end(events);
 
             result.push_back(CreateBreak(solver,
                                          last_end_time.time_of_day(),
-                                         boost::posix_time::time_period(last_end_time, event.begin()).length(),
-                                         GetBreakLabel(carer, break_type)));
+                                         event_it->begin().time_of_day(),
+                                         GetBreakLabel(carer, BreakType::BEFORE_WORKDAY)));
 
-            last_end_time = event.end();
-            break_type = BreakType::BREAK;
+            auto prev_event_it = event_it++;
+            while (event_it != event_it_end) {
+                result.push_back(CreateBreak(solver,
+                                             prev_event_it->end().time_of_day(),
+                                             event_it->begin() - prev_event_it->end(),
+                                             GetBreakLabel(carer, BreakType::BREAK)));
+
+                prev_event_it = event_it++;
+            }
+
+            result.push_back(CreateBreak(solver,
+                                         prev_event_it->end().time_of_day(),
+                                         next_day - prev_event_it->end(),
+                                         GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
         }
 
-        break_type = BreakType::AFTER_WORKDAY;
-        result.push_back(CreateBreak(solver,
-                                     last_end_time.time_of_day(),
-                                     boost::posix_time::time_period(last_end_time, next_day).length(),
-                                     GetBreakLabel(carer, break_type)));
 
         return result;
     }
@@ -261,6 +270,19 @@ namespace rows {
                                                                  const boost::posix_time::time_duration &start_time,
                                                                  const boost::posix_time::time_duration &duration,
                                                                  const std::string &label) const {
+        static const auto IS_OPTIONAL = false;
+        return solver->MakeFixedDurationIntervalVar(
+                start_time.total_seconds(),
+                start_time.total_seconds(),
+                duration.total_seconds(),
+                IS_OPTIONAL,
+                label);
+    }
+
+    operations_research::IntervalVar *SolverWrapper::CreateBreakWithTimeWindows(operations_research::Solver *solver,
+                                                                                const boost::posix_time::time_duration &start_time,
+                                                                                const boost::posix_time::time_duration &duration,
+                                                                                const std::string &label) const {
         static const auto IS_OPTIONAL = false;
         return solver->MakeFixedDurationIntervalVar(
                 GetBeginWindow(start_time),

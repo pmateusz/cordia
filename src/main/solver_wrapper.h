@@ -157,6 +157,11 @@ namespace rows {
                                                       const boost::posix_time::time_duration &duration,
                                                       const std::string &label) const;
 
+        operations_research::IntervalVar *CreateBreakWithTimeWindows(operations_research::Solver *solver,
+                                                                     const boost::posix_time::time_duration &start_time,
+                                                                     const boost::posix_time::time_duration &duration,
+                                                                     const std::string &label) const;
+
         static std::string GetBreakLabel(operations_research::RoutingModel::NodeIndex carer, BreakType break_type);
 
         SolverWrapper(const rows::Problem &problem,

@@ -175,18 +175,60 @@ namespace rows {
 
                 continue;
             }
+            
+            // TODO: travel times seems to be wrong
+            // TODO: test coordinate conversion
+            auto visit_it = std::begin(visits_to_use);
+            const auto visit_it_end = std::end(visits_to_use);
+            if (visit_it != visit_it_end) {
+                boost::posix_time::ptime::time_duration_type last_service_duration = boost::posix_time::seconds(0);
+                auto last_position = solver.depot();
+                auto last_time = event_it->begin().time_of_day();
+                auto break_start = event_it->end().time_of_day();
 
-            auto current_time = event_it->begin().time_of_day();
-            auto current_position = visits_to_use[0].location().get();
-            for (const auto &visit : visits_to_use) {
-                auto error_ptr = TryPerformVisit(route,
-                                                 visit,
-                                                 problem,
-                                                 solver,
-                                                 current_position,
-                                                 current_time);
-                if (error_ptr) {
-                    validation_errors.emplace_back(std::move(error_ptr));
+                while (visit_it != visit_it_end) {
+                    auto current_location = visit_it->location().get();
+                    auto current_time = last_time
+                                        + last_service_duration
+                                        + solver.TravelTime(last_position, current_location);
+                    auto earliest_arrival_time = boost::posix_time::seconds(
+                            solver.GetBeginWindow(visit_it->datetime().time_of_day()));
+                    auto latest_arrival_time = boost::posix_time::seconds(
+                            solver.GetEndWindow(visit_it->datetime().time_of_day()));
+                    const auto current_arrival = current_time = std::max(
+                            static_cast<decltype(last_time)>(earliest_arrival_time),
+                            current_time);
+
+                    if (current_time >= latest_arrival_time) {
+                        validation_errors.emplace_back(
+                                CreateLateArrivalError(route, *visit_it, current_time - latest_arrival_time));
+                        ++visit_it;
+                        break;
+                    } else {
+                        const auto current_service_duration = visit_it->duration();
+                        current_time += current_service_duration;
+
+                        auto next_location = solver.depot();
+                        auto prev_visit_it = visit_it++;
+                        if (visit_it != visit_it_end) {
+                            next_location = visit_it->location().get();
+                        }
+
+                        current_time += solver.TravelTime(current_location, next_location);
+                        if (current_time >= break_start) {
+                            validation_errors.emplace_back(CreateContractualBreakViolationError(route, *prev_visit_it));
+                            break;
+                        } else {
+                            last_position = current_location;
+                            last_service_duration = current_service_duration;
+                            last_time = current_arrival;
+                        }
+                    }
+                }
+
+                while (visit_it != visit_it_end) {
+                    validation_errors.emplace_back(CreateContractualBreakViolationError(route, *visit_it));
+                    ++visit_it;
                 }
             }
         }
