@@ -143,6 +143,15 @@ namespace rows {
             }
         }
 
+        // TODO:
+        for (const auto &carer : problem.carers()) {
+            for (const auto &diary : carer.second) {
+                for (const auto &event : diary.events()) {
+                    LOG(INFO) << "[ " << event.begin() << ", " << event.end() << "]";
+                }
+            }
+        }
+
         for (const auto &route : routes) {
             std::vector<ScheduledVisit> visits_to_use;
             for (const auto &visit : route.visits()) {
@@ -164,6 +173,11 @@ namespace rows {
                 }
 
                 continue;
+            }
+
+            // TODO:
+            for (const auto &event : diary.get().events()) {
+                LOG(INFO) << "[ " << event.begin() << ", " << event.end() << "]";
             }
 
             auto event_it = std::begin(diary.get().events());
@@ -450,9 +464,15 @@ namespace rows {
                              const rows::Route &route,
                              const rows::Problem &problem,
                              rows::SolverWrapper &solver) const {
-        const auto &diary = problem.diary(route.carer(), partial_route.front().datetime().date()).get();
-        auto work_interval_it = std::begin(diary.events());
-        const auto work_interval_end_it = std::end(diary.events());
+        const auto diary = problem.diary(route.carer(), partial_route.front().datetime().date());
+
+        // TODO:
+        for (const auto &event : diary.get().events()) {
+            LOG(INFO) << "[ " << event.begin() << ", " << event.end() << "]";
+        }
+
+        auto work_interval_it = std::begin(diary.get().events());
+        const auto work_interval_end_it = std::end(diary.get().events());
 
         if (work_interval_it == work_interval_end_it) {
             return CreateContractualBreakViolationError(route, partial_route.back());

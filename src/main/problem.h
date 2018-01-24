@@ -204,6 +204,8 @@ namespace rows {
                     boost::posix_time::ptime end = boost::date_time::parse_delimited_time<boost::posix_time::ptime>(
                             end_it.value().template get<std::string>(), 'T');
 
+                    // TODO:
+                    LOG(INFO) << "[ " << begin << ", " << end << " ]";
                     events.emplace_back(boost::posix_time::time_period(begin, end));
                 }
 
@@ -229,6 +231,15 @@ namespace rows {
 
         const auto visits = LoadVisits(document, service_user_index);
         const auto carers = LoadCarers(document);
+
+        // TODO:
+        for (const auto &carer : carers) {
+            for (const auto &diary : carer.second) {
+                for (const auto &event : diary.events()) {
+                    LOG(INFO) << "[ " << event.begin() << ", " << event.end() << "]";
+                }
+            }
+        }
 
         return Problem(std::move(visits), std::move(carers), std::move(service_users));
     }
