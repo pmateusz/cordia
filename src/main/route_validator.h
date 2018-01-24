@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include <ortools/constraint_solver/routing.h>
+
 #include <boost/date_time.hpp>
 #include <boost/optional.hpp>
 
@@ -117,6 +119,12 @@ namespace rows {
                                                          rows::SolverWrapper &solver,
                                                          rows::Location &location,
                                                          boost::posix_time::time_duration &time) const;
+
+        std::unique_ptr<ValidationError> Validate(
+                const std::vector<rows::ScheduledVisit> &partial_route,
+                const rows::Route &route,
+                const rows::Problem &problem,
+                rows::SolverWrapper &solver) const;
     };
 
     std::ostream &operator<<(std::ostream &out, RouteValidator::ErrorCode error_code);
