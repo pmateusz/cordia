@@ -15,7 +15,7 @@ namespace rows {
     class ScheduledVisit {
     public:
         enum class VisitType {
-            UNKNOWN, OK, CANCELLED, MOVED
+            UNKNOWN, OK, CANCELLED, MOVED, INVALID
         };
 
         ScheduledVisit();
@@ -64,6 +64,8 @@ namespace rows {
 
         VisitType type() const;
 
+        void type(VisitType type);
+
         const boost::optional<CalendarVisit> &calendar_visit() const;
 
         bool operator==(const ScheduledVisit &other) const;
@@ -90,7 +92,7 @@ namespace rows {
         static const DateTime::JsonLoader datetime_loader{};
         static const CalendarVisit::JsonLoader visit_loader{};
 
-        ScheduledVisit::VisitType visit_type = VisitType::UNKNOWN;
+        ScheduledVisit::VisitType visit_type{VisitType::UNKNOWN};
         const auto cancelled_it = document.find("cancelled");
         if (cancelled_it != std::end(document)) {
             if (cancelled_it.value().template get<bool>()) {
@@ -146,7 +148,7 @@ namespace rows {
             }
         }
 
-        return {visit_type, carer, datetime, duration, check_in, check_out, calendar_visit};
+        return ScheduledVisit(visit_type, carer, datetime, duration, check_in, check_out, calendar_visit);
     }
 }
 

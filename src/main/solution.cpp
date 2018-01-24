@@ -23,7 +23,9 @@ rows::Route rows::Solution::GetRoute(const rows::Carer &carer) const {
     for (const auto &visit : visits_) {
         if (visit.calendar_visit()
             && carer == visit.carer()
-            && visit.type() != ScheduledVisit::VisitType::CANCELLED) {
+            && (visit.type() != ScheduledVisit::VisitType::CANCELLED
+                && visit.type() != ScheduledVisit::VisitType::INVALID
+                && visit.type() != ScheduledVisit::VisitType::MOVED)) {
             carer_visits.push_back(visit);
         }
     }
@@ -111,6 +113,7 @@ void rows::Solution::DebugPrintRoutes(rows::SolverWrapper &solver,
               << static_cast<double>(visits_with_no_calendar) / visits_.size();
 
     auto route_number = 1;
+    operations_research::RoutingModel::NodeIndex carer_index{0};
     for (const auto &route : solver.GetNodeRoutes(*this, model)) {
         std::vector<std::string> node_text;
         std::transform(std::cbegin(route), std::cend(route), std::back_inserter(node_text),
@@ -118,6 +121,20 @@ void rows::Solution::DebugPrintRoutes(rows::SolverWrapper &solver,
                            return std::to_string(node.value());
                        });
         LOG(INFO) << "Route " << route_number << ": " << boost::algorithm::join(node_text, ", ");
+        for (const auto &node : route) {
+            LOG(INFO) << solver.CalendarVisit(node);
+        }
+
+        if (!route.empty()) {
+            LOG(INFO) << "---";
+            const auto route = GetRoute(solver.Carer(carer_index));
+            for (const auto &visit : route.visits()) {
+                LOG(INFO) << visit;
+            }
+            LOG(INFO) << "---";
+        }
+
         ++route_number;
+        ++carer_index;
     }
 }

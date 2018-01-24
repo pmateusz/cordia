@@ -10,6 +10,7 @@
 #include <osrm/coordinate.hpp>
 
 #include <ortools/constraint_solver/routing_flags.h>
+#include <util/aplication_error.h>
 
 #include "calendar_visit.h"
 #include "carer.h"
@@ -86,8 +87,20 @@ namespace rows {
         }
 
         const auto visit = CalendarVisit(from);
-        const auto value = visit.duration().total_seconds() + Distance(from, to);
-        return value;
+        const auto service_time = visit.duration();
+        const auto travel_time = boost::posix_time::seconds(Distance(from, to));
+
+//        if (to != DEPOT) {
+//            LOG(INFO) << " --> [travel] from: " << CalendarVisit(from).location().get()
+//                      << " to: " << CalendarVisit(to).location().get()
+//                      << ": " << travel_time << " after service: " << service_time;
+//        } else {
+//            LOG(INFO) << " --> [travel] from: " << CalendarVisit(from).location().get()
+//                      << " to: " << depot_
+//                      << ": " << travel_time << " after service: " << service_time;
+//        }
+
+        return (service_time + travel_time).total_seconds();
     }
 
     rows::CalendarVisit SolverWrapper::CalendarVisit(const operations_research::RoutingModel::NodeIndex visit) const {
@@ -97,6 +110,7 @@ namespace rows {
     }
 
     rows::Diary SolverWrapper::Diary(const operations_research::RoutingModel::NodeIndex carer) const {
+        // TODO: fix this ugly hack
         const auto carer_pair = problem_.carers().at(static_cast<std::size_t>(carer.value()));
         DCHECK_EQ(carer_pair.second.size(), 1);
         return {carer_pair.second.front()};
@@ -383,63 +397,70 @@ namespace rows {
                            VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
                            TIME_DIMENSION);
 
-        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
-        for (const auto &carer_metrics : care_continuity_metrics_) {
-            care_continuity_evaluators.push_back(
-                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
-        }
+//        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
+//        for (const auto &carer_metrics : care_continuity_metrics_) {
+//            care_continuity_evaluators.push_back(
+//                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
+//        }
 
-        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
-                                              CARE_CONTINUITY_MAX,
-                                              CARE_CONTINUITY_MAX,
-                                              START_FROM_ZERO_SERVICE_SATISFACTION,
-                                              CARE_CONTINUITY_DIMENSION);
+//        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
+//                                              CARE_CONTINUITY_MAX,
+//                                              CARE_CONTINUITY_MAX,
+//                                              START_FROM_ZERO_SERVICE_SATISFACTION,
+//                                              CARE_CONTINUITY_DIMENSION);
 
-        operations_research::RoutingDimension *const time_dimension = model.GetMutableDimension(
+        const operations_research::RoutingDimension &time_dimension = model.GetDimensionOrDie(
                 rows::SolverWrapper::TIME_DIMENSION);
 
-        operations_research::RoutingDimension *const care_continuity_dimension = model.GetMutableDimension(
-                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
+//        operations_research::RoutingDimension *const care_continuity_dimension = model.GetMutableDimension(
+//                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
         operations_research::Solver *const solver = model.solver();
-        for (const auto &carer_index : Carers()) {
-            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver, carer_index), carer_index.value());
-        }
+        // TODO: fix taking a diary
+//        for (const auto &carer_index : Carers()) {
+//            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver, carer_index), carer_index.value());
+//        }
 
         // set visit start times
+
         for (operations_research::RoutingModel::NodeIndex visit_node{1}; visit_node < model.nodes(); ++visit_node) {
             const auto &visit = CalendarVisit(visit_node);
 
             const auto exact_start = visit.datetime().time_of_day();
-            auto visit_start = time_dimension->CumulVar(visit_node.value());
-            if (!HasTimeWindows()) {
-                visit_start->SetValue(exact_start.total_seconds());
-            } else {
+            auto visit_start = time_dimension.CumulVar(visit_node.value());
+            if (HasTimeWindows()) {
                 visit_start->SetRange(GetBeginWindow(exact_start), GetEndWindow(exact_start));
+
+                const auto start_window = boost::posix_time::seconds(GetBeginWindow(exact_start));
+                const auto end_window = boost::posix_time::seconds(GetEndWindow(exact_start));
+                DCHECK_LT(start_window, end_window);
+                DCHECK_EQ((start_window + end_window) / 2, exact_start);
+            } else {
+                visit_start->SetValue(exact_start.total_seconds());
             }
 
-            model.AddToAssignment(time_dimension->SlackVar(visit_node.value()));
+//            model.AddToAssignment(time_dimension.SlackVar(visit_node.value()));
 
             visit_index_.insert({visit, visit_node});
         }
 
         // minimize time variables
-        for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
-            // this may be wrong after adding care continuity
-            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
-        }
+//        for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
+//            // this may be wrong after adding care continuity
+//            model.AddVariableMinimizedByFinalizer(time_dimension.CumulVar(variable_index));
+//        }
 
         // minimize route duration
-        for (auto carer_index = 0; carer_index < model.vehicles(); ++carer_index) {
-            model.AddVariableMaximizedByFinalizer(time_dimension->CumulVar(model.Start(carer_index)));
-            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(carer_index)));
+//        for (auto carer_index = 0; carer_index < model.vehicles(); ++carer_index) {
+//            model.AddVariableMaximizedByFinalizer(time_dimension.CumulVar(model.Start(carer_index)));
+//            model.AddVariableMinimizedByFinalizer(time_dimension.CumulVar(model.End(carer_index)));
 
-            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(model.Start(carer_index)));
-            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(model.End(carer_index)));
-        }
+//            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(model.Start(carer_index)));
+//            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(model.End(carer_index)));
+//        }
 
         // Adding penalty costs to allow skipping orders.
-        const int64 kPenalty = 100000;
+        const int64 kPenalty = 10000000;
         const operations_research::RoutingModel::NodeIndex kFirstNodeAfterDepot(1);
         for (operations_research::RoutingModel::NodeIndex order = kFirstNodeAfterDepot;
              order < model.nodes(); ++order) {
@@ -447,9 +468,10 @@ namespace rows {
             model.AddDisjunction(orders, kPenalty);
         }
 
+        // TODO: closing model -- log more information
         model.CloseModelWithParameters(parameters_);
 
-        PrecomputeDistances();
+//        PrecomputeDistances();
     }
 
     const operations_research::RoutingSearchParameters &SolverWrapper::parameters() const {
@@ -524,13 +546,25 @@ namespace rows {
 
     rows::Solution SolverWrapper::Resolve(const rows::Solution &solution,
                                           const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError>> &validation_errors) const {
+        std::unordered_set<ScheduledVisit> visits_to_ignore;
         std::unordered_set<ScheduledVisit> visits_to_release;
+        std::unordered_set<ScheduledVisit> visits_to_move;
 
         for (const auto &error : validation_errors) {
             switch (error->error_code()) {
+                case RouteValidator::ErrorCode::MOVED: {
+                    const auto &error_to_use = dynamic_cast<const rows::RouteValidator::ScheduledVisitError &>(*error);
+                    visits_to_move.insert(error_to_use.visit());
+                    break;
+                }
+                case RouteValidator::ErrorCode::MISSING_INFO:
+                case RouteValidator::ErrorCode::ORPHANED: {
+                    const auto &error_to_use = dynamic_cast<const rows::RouteValidator::ScheduledVisitError &>(*error);
+                    visits_to_ignore.insert(error_to_use.visit());
+                    break;
+                }
                 case RouteValidator::ErrorCode::ABSENT_CARER:
                 case RouteValidator::ErrorCode::BREAK_VIOLATION:
-                case RouteValidator::ErrorCode::MISSING_INFO:
                 case RouteValidator::ErrorCode::LATE_ARRIVAL: {
                     const auto &error_to_use = dynamic_cast<const rows::RouteValidator::ScheduledVisitError &>(*error);
                     visits_to_release.insert(error_to_use.visit());
@@ -539,8 +573,8 @@ namespace rows {
                 case RouteValidator::ErrorCode::TOO_MANY_CARERS:
                     continue; // is handled separately after all other problems are treated
                 default:
-                    VLOG(1) << "Error code:" << error->error_code() << " ignored";
-                    continue;
+                    throw util::ApplicationError((boost::format("Error code %1% ignored") % error->error_code()).str(),
+                                                 1);
             }
         }
         for (const auto &error : validation_errors) {
@@ -582,10 +616,17 @@ namespace rows {
         for (const auto &visit : solution.visits()) {
             ScheduledVisit visit_to_use{visit};
             if (visits_to_release.find(visit_to_use) != std::end(visits_to_release)) {
-                const auto &carer_id = visit_to_use.carer().get().sap_number();
-                visit_to_use.carer().reset();
+                boost::optional<rows::Carer> &carer = visit_to_use.carer();
+                const auto &carer_id = carer.get().sap_number();
+                carer.reset();
                 released_visits++;
                 VLOG(1) << "Carer " << carer_id << " removed from visit: " << visit_to_use;
+            } else if (visits_to_ignore.find(visit_to_use) != std::end(visits_to_ignore)) {
+                visit_to_use.type(ScheduledVisit::VisitType::INVALID);
+                VLOG(1) << "Visit " << visit_to_use << " is ignored due to errors";
+            } else if (visits_to_move.find(visit_to_use) != std::end(visits_to_move)) {
+                visit_to_use.type(ScheduledVisit::VisitType::MOVED);
+                VLOG(1) << "Visit " << visit_to_use << " is moved";
             }
             visits_to_use.emplace_back(visit_to_use);
         }
@@ -634,7 +675,7 @@ namespace rows {
     SolverWrapper::CareContinuityMetrics::CareContinuityMetrics(SolverWrapper const *solver,
                                                                 rows::Carer carer)
             : solver_(solver),
-              carer_(carer) {}
+              carer_(std::move(carer)) {}
 
     int64 SolverWrapper::CareContinuityMetrics::operator()(operations_research::RoutingModel::NodeIndex from,
                                                            operations_research::RoutingModel::NodeIndex to) const {

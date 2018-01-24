@@ -155,7 +155,7 @@ int main(int argc, char **argv) {
                % FLAGS_map_file;
 
     try {
-        boost::optional <rows::Solution> solution;
+        boost::optional<rows::Solution> solution;
 
         auto problem_to_use = LoadReducedProblem(FLAGS_problem_file);
 
@@ -177,6 +177,12 @@ int main(int argc, char **argv) {
             solution.get().DebugPrintRoutes(wrapper, model);
             const auto solution_to_use = wrapper.ResolveValidationErrors(solution.get(), problem_to_use, model);
             solution_to_use.DebugPrintRoutes(wrapper, model);
+
+            for (const auto &visit : solution_to_use.visits()) {
+                if (visit.carer().is_initialized()) {
+                    LOG(INFO) << visit;
+                }
+            }
 
             const auto routes = wrapper.GetNodeRoutes(solution_to_use, model);
             auto initial_assignment = model.ReadAssignmentFromRoutes(routes, false);

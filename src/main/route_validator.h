@@ -37,7 +37,9 @@ namespace rows {
             ABSENT_CARER,
             BREAK_VIOLATION,
             LATE_ARRIVAL,
-            MISSING_INFO
+            MISSING_INFO,
+            ORPHANED, // information about the visit is not available in the problem definition
+            MOVED // either start time or duration or both do not match the calendar visit
         };
 
         class ValidationError {
@@ -112,6 +114,12 @@ namespace rows {
         std::unique_ptr<ValidationError> CreateContractualBreakViolationError(const rows::Route &route,
                                                                               const rows::ScheduledVisit &visit,
                                                                               std::vector<rows::Event> overlapping_slots) const;
+
+        std::unique_ptr<rows::RouteValidator::ValidationError> CreateOrphanedError(const Route &route,
+                                                                                   const ScheduledVisit &visit) const;
+
+        std::unique_ptr<rows::RouteValidator::ValidationError> CreateMovedError(const Route &route,
+                                                                                const ScheduledVisit &visit) const;
 
         std::unique_ptr<ValidationError> TryPerformVisit(const rows::Route &route,
                                                          const rows::ScheduledVisit &visit,
