@@ -409,17 +409,17 @@ namespace rows {
 //                                              START_FROM_ZERO_SERVICE_SATISFACTION,
 //                                              CARE_CONTINUITY_DIMENSION);
 
-        const operations_research::RoutingDimension &time_dimension = model.GetDimensionOrDie(
+        operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::TIME_DIMENSION);
 
-//        operations_research::RoutingDimension *const care_continuity_dimension = model.GetMutableDimension(
-//                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
+        operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
+                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
         operations_research::Solver *const solver = model.solver();
         // TODO: fix taking a diary
-//        for (const auto &carer_index : Carers()) {
-//            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver, carer_index), carer_index.value());
-//        }
+        for (const auto &carer_index : Carers()) {
+            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver, carer_index), carer_index.value());
+        }
 
         // set visit start times
 
@@ -427,7 +427,7 @@ namespace rows {
             const auto &visit = CalendarVisit(visit_node);
 
             const auto exact_start = visit.datetime().time_of_day();
-            auto visit_start = time_dimension.CumulVar(visit_node.value());
+            auto visit_start = time_dimension->CumulVar(visit_node.value());
             if (HasTimeWindows()) {
                 visit_start->SetRange(GetBeginWindow(exact_start), GetEndWindow(exact_start));
 

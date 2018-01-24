@@ -503,6 +503,10 @@ namespace rows {
                              const rows::Route &route,
                              const rows::Problem &problem,
                              rows::SolverWrapper &solver) const {
+        if (partial_route.empty()) {
+            return nullptr;
+        }
+
         const auto diary = problem.diary(route.carer(), partial_route.front().datetime().date());
 
         auto work_interval_it = std::begin(diary.get().events());
@@ -530,6 +534,15 @@ namespace rows {
                << "]";
         LOG(INFO) << stream.str();
 
+        while (work_interval_it != work_interval_end_it
+               && partial_route[0].datetime() < work_interval_it->begin()) {
+            ++work_interval_it;
+        }
+
+        if (work_interval_it == work_interval_end_it) {
+            return CreateContractualBreakViolationError(route, partial_route.front());
+        }
+
         auto last_time = work_interval_it->begin().time_of_day();
         auto last_position = solver.depot();
 
@@ -540,11 +553,21 @@ namespace rows {
                     boost::posix_time::seconds(solver.GetEndWindow(visit.datetime().time_of_day())));
             const auto travel_time = solver.TravelTime(last_position, visit.location().get());
             const auto current_arrival = last_time + travel_time;
-            // TODO -> if current arrival not fit into current open window - fail with contractual breaks
+
+            if (current_arrival > work_interval_it->end().time_of_day()) {
+                return CreateContractualBreakViolationError(route, partial_route.back());
+            }
 
             const auto service_start = std::max(current_arrival, earliest_arrival);
-
-            // TODO -> if service start do not fit into current working hours move to the next slot
+//
+//            while (work_interval_it != work_interval_end_it
+//                   && service_start >= work_interval_it->end().time_of_day()) {
+//                ++work_interval_it;
+//            }
+//
+//            if (work_interval_it == work_interval_end_it) {
+//                return CreateContractualBreakViolationError(route, partial_route.back());
+//            }
 
             if (service_start >= latest_arrival) {
                 std::stringstream local_msg_stream;
@@ -593,44 +616,44 @@ namespace rows {
             return CreateContractualBreakViolationError(route, partial_route.back());
         }
 
-        int64 raw_last_time = work_interval_it->begin().time_of_day().total_seconds();
-        auto last_index = SolverWrapper::DEPOT;
-        for (const auto &visit : partial_route) {
-            const auto current_index = solver.Index(visit);
-            const auto earliest_arrival = solver.GetBeginWindow(visit.datetime().time_of_day());
-            const auto latest_arrival = solver.GetEndWindow(visit.datetime().time_of_day());
-            const auto current_arrival = raw_last_time + solver.ServicePlusTravelTime(last_index, current_index);
-            const auto service_start = std::max(current_arrival, earliest_arrival);
-
-            if (service_start >= latest_arrival) {
-                std::stringstream local_msg_stream;
-                local_msg_stream << "\t\t [violation]"
-                                 << " approached: " << visit.location().get()
-                                 << " [ " << boost::posix_time::seconds(earliest_arrival) << ","
-                                 << boost::posix_time::seconds(latest_arrival) << " ]"
-                                 << " arrived: " << boost::posix_time::seconds(current_arrival)
-                                 << " service_start: " << boost::posix_time::seconds(service_start)
-                                 << " latest_service_start: : " << boost::posix_time::seconds(latest_arrival);
-
-                LOG(INFO) << local_msg_stream.str();
-                return CreateLateArrivalError(route, visit, boost::posix_time::seconds(service_start - latest_arrival));
-            }
-
-            std::stringstream msg_stream;
-            msg_stream << "\t\t --> approached: " << visit.location().get()
-                       << " [ " << boost::posix_time::seconds(earliest_arrival) << ","
-                       << boost::posix_time::seconds(latest_arrival) << " ]"
-                       << " arrived: " << boost::posix_time::seconds(current_arrival)
-                       << " service_start: " << boost::posix_time::seconds(service_start);
-            LOG(INFO) << msg_stream.str();
-            raw_last_time = service_start;
-            last_index = current_index;
-        }
-
-        raw_last_time += solver.ServicePlusTravelTime(last_index, SolverWrapper::DEPOT);
-        if (raw_last_time > work_interval_it->end().time_of_day().total_seconds()) {
-            return CreateContractualBreakViolationError(route, partial_route.back());
-        }
+//        int64 raw_last_time = work_interval_it->begin().time_of_day().total_seconds();
+//        auto last_index = SolverWrapper::DEPOT;
+//        for (const auto &visit : partial_route) {
+//            const auto current_index = solver.Index(visit);
+//            const auto earliest_arrival = solver.GetBeginWindow(visit.datetime().time_of_day());
+//            const auto latest_arrival = solver.GetEndWindow(visit.datetime().time_of_day());
+//            const auto current_arrival = raw_last_time + solver.ServicePlusTravelTime(last_index, current_index);
+//            const auto service_start = std::max(current_arrival, earliest_arrival);
+//
+//            if (service_start >= latest_arrival) {
+//                std::stringstream local_msg_stream;
+//                local_msg_stream << "\t\t [violation]"
+//                                 << " approached: " << visit.location().get()
+//                                 << " [ " << boost::posix_time::seconds(earliest_arrival) << ","
+//                                 << boost::posix_time::seconds(latest_arrival) << " ]"
+//                                 << " arrived: " << boost::posix_time::seconds(current_arrival)
+//                                 << " service_start: " << boost::posix_time::seconds(service_start)
+//                                 << " latest_service_start: : " << boost::posix_time::seconds(latest_arrival);
+//
+//                LOG(INFO) << local_msg_stream.str();
+//                return CreateLateArrivalError(route, visit, boost::posix_time::seconds(service_start - latest_arrival));
+//            }
+//
+//            std::stringstream msg_stream;
+//            msg_stream << "\t\t --> approached: " << visit.location().get()
+//                       << " [ " << boost::posix_time::seconds(earliest_arrival) << ","
+//                       << boost::posix_time::seconds(latest_arrival) << " ]"
+//                       << " arrived: " << boost::posix_time::seconds(current_arrival)
+//                       << " service_start: " << boost::posix_time::seconds(service_start);
+//            LOG(INFO) << msg_stream.str();
+//            raw_last_time = service_start;
+//            last_index = current_index;
+//        }
+//
+//        raw_last_time += solver.ServicePlusTravelTime(last_index, SolverWrapper::DEPOT);
+//        if (raw_last_time > work_interval_it->end().time_of_day().total_seconds()) {
+//            return CreateContractualBreakViolationError(route, partial_route.back());
+//        }
 
         return nullptr;
     }
