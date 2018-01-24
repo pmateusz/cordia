@@ -540,7 +540,11 @@ namespace rows {
                     boost::posix_time::seconds(solver.GetEndWindow(visit.datetime().time_of_day())));
             const auto travel_time = solver.TravelTime(last_position, visit.location().get());
             const auto current_arrival = last_time + travel_time;
+            // TODO -> if current arrival not fit into current open window - fail with contractual breaks
+
             const auto service_start = std::max(current_arrival, earliest_arrival);
+
+            // TODO -> if service start do not fit into current working hours move to the next slot
 
             if (service_start >= latest_arrival) {
                 std::stringstream local_msg_stream;
