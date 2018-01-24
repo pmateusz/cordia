@@ -559,15 +559,15 @@ namespace rows {
             }
 
             const auto service_start = std::max(current_arrival, earliest_arrival);
-//
-//            while (work_interval_it != work_interval_end_it
-//                   && service_start >= work_interval_it->end().time_of_day()) {
-//                ++work_interval_it;
-//            }
-//
-//            if (work_interval_it == work_interval_end_it) {
-//                return CreateContractualBreakViolationError(route, partial_route.back());
-//            }
+            while (work_interval_it != work_interval_end_it
+                   && (service_start >= work_interval_it->end().time_of_day()
+                       || service_start < work_interval_it->begin().time_of_day())) {
+                ++work_interval_it;
+            }
+
+            if (work_interval_it == work_interval_end_it) {
+                return CreateContractualBreakViolationError(route, partial_route.back());
+            }
 
             if (service_start >= latest_arrival) {
                 std::stringstream local_msg_stream;
