@@ -175,9 +175,7 @@ namespace rows {
 
                 continue;
             }
-            
-            // TODO: travel times seems to be wrong
-            // TODO: test coordinate conversion
+
             auto visit_it = std::begin(visits_to_use);
             const auto visit_it_end = std::end(visits_to_use);
             if (visit_it != visit_it_end) {

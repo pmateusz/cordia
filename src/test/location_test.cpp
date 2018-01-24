@@ -1,15 +1,36 @@
 #include <algorithm>
+#include <functional>
 #include <unordered_set>
 #include <string>
 #include <vector>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <osrm/coordinate.hpp>
+#include <osrm/util/alias.hpp>
+#include <osrm/util/coordinate.hpp>
+
 #include <nlohmann/json.hpp>
 #include <scheduled_visit.h>
 
 #include "util/logging.h"
 #include "location.h"
+
+TEST(TestLocation, CanParseFixedPositionCoordinates) {
+    // given
+    const std::vector<std::pair<std::string, std::string> > coordinates{std::make_pair("55.8886039", "-4.3429593"),
+                                                                        std::make_pair("55.8860328", "-4.3766147"),
+                                                                        std::make_pair("55.8987748", "-4.3786532"),
+                                                                        std::make_pair("55.8886039", "-4.3429593")};
+    for (const auto &pair : coordinates) {
+        // when
+        rows::Location location{pair.first, pair.second};
+
+        // then
+        EXPECT_NEAR(static_cast<double>(osrm::toFloating(location.latitude())), std::stod(pair.first), 10E-4);
+        EXPECT_NEAR(static_cast<double>(osrm::toFloating(location.longitude())), std::stod(pair.second), 10E-4);
+    }
+}
 
 TEST(TestLocation, CanDeserializeFromJson) {
     // given
