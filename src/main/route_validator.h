@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include <ortools/constraint_solver/routing.h>
+
 #include <boost/date_time.hpp>
 #include <boost/optional.hpp>
 
@@ -35,7 +37,9 @@ namespace rows {
             ABSENT_CARER,
             BREAK_VIOLATION,
             LATE_ARRIVAL,
-            MISSING_INFO
+            MISSING_INFO,
+            ORPHANED, // information about the visit is not available in the problem definition
+            MOVED // either start time or duration or both do not match the calendar visit
         };
 
         class ValidationError {
@@ -111,12 +115,24 @@ namespace rows {
                                                                               const rows::ScheduledVisit &visit,
                                                                               std::vector<rows::Event> overlapping_slots) const;
 
+        std::unique_ptr<rows::RouteValidator::ValidationError> CreateOrphanedError(const Route &route,
+                                                                                   const ScheduledVisit &visit) const;
+
+        std::unique_ptr<rows::RouteValidator::ValidationError> CreateMovedError(const Route &route,
+                                                                                const ScheduledVisit &visit) const;
+
         std::unique_ptr<ValidationError> TryPerformVisit(const rows::Route &route,
                                                          const rows::ScheduledVisit &visit,
                                                          const rows::Problem &problem,
                                                          rows::SolverWrapper &solver,
                                                          rows::Location &location,
                                                          boost::posix_time::time_duration &time) const;
+
+        std::unique_ptr<ValidationError> Validate(
+                const std::vector<rows::ScheduledVisit> &partial_route,
+                const rows::Route &route,
+                const rows::Problem &problem,
+                rows::SolverWrapper &solver) const;
     };
 
     std::ostream &operator<<(std::ostream &out, RouteValidator::ErrorCode error_code);

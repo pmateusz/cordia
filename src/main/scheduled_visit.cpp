@@ -1,6 +1,7 @@
 #include <glog/logging.h>
 
 #include <boost/date_time.hpp>
+#include <util/aplication_error.h>
 
 #include "scheduled_visit.h"
 
@@ -92,6 +93,10 @@ namespace rows {
         return type_;
     }
 
+    void ScheduledVisit::type(VisitType type) {
+        type_ = type;
+    }
+
     const boost::optional<CalendarVisit> &ScheduledVisit::calendar_visit() const {
         return calendar_visit_;
     }
@@ -158,6 +163,14 @@ namespace rows {
             case ScheduledVisit::VisitType::OK:
                 out << "OK";
                 break;
+            case ScheduledVisit::VisitType::INVALID:
+                out << "INVALID";
+                break;
+            default:
+                throw util::ApplicationError(
+                        (boost::format("Handling not implemented for visit type: %1%") %
+                         static_cast<int>(visit_type)).str(),
+                        1);
         }
         return out;
     }

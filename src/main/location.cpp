@@ -1,6 +1,6 @@
-#include "location.h"
-
 #include <boost/format.hpp>
+
+#include "location.h"
 
 namespace rows {
 
@@ -50,23 +50,30 @@ namespace rows {
     }
 
     std::int32_t Location::ToFixedValue(const std::string &text) {
-        if (text.empty()) {
-            return 0;
-        }
-
         static const auto COORDINATE_PRECISION = static_cast<int32_t>(osrm::COORDINATE_PRECISION);
         static const auto DECIMAL_PLACES = static_cast<int32_t>(std::log10(osrm::COORDINATE_PRECISION));
 
+        if (text.empty()) {
+            return 0;
+        }
         const auto dot_position = text.find('.');
         if (dot_position == std::string::npos) {
             return std::stoi(text) * COORDINATE_PRECISION;
         }
 
-        const auto value_part = text.substr(0, dot_position);
-        const auto decimal_part = text.substr(dot_position + 1, static_cast<unsigned long>(DECIMAL_PLACES));
-        const auto decimal_factor = static_cast<long>(std::pow(10.0, DECIMAL_PLACES - decimal_part.size()));
-        return static_cast<int32_t>(std::stol(value_part) * COORDINATE_PRECISION
-                                    + std::stol(decimal_part) * decimal_factor);
+        const std::string raw_value_part{text.substr(0, dot_position)};
+        const std::string raw_decimal_part{text.substr(dot_position + 1, static_cast<unsigned long>(DECIMAL_PLACES))};
+
+        const auto value_part = std::stol(raw_value_part) * COORDINATE_PRECISION;
+        const auto decimal_factor = static_cast<long>(std::pow(10.0, DECIMAL_PLACES - raw_decimal_part.size()));
+        const auto decimal_part = std::stol(raw_decimal_part) * decimal_factor;
+
+        auto decimal_coefficient = 1l;
+        if (value_part < 0) {
+            decimal_coefficient = -1l;
+        }
+
+        return static_cast<std::int32_t>(value_part + decimal_coefficient * decimal_part);
     }
 
     std::ostream &operator<<(std::ostream &out, const Location &object) {

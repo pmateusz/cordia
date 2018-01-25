@@ -1,9 +1,11 @@
 #include <algorithm>
 #include <sstream>
+#include <unordered_set>
 #include <unordered_map>
 #include <vector>
 
 #include <boost/format.hpp>
+#include <boost/date_time.hpp>
 #include <boost/algorithm/string/join.hpp>
 
 #include "route_validator.h"
@@ -35,6 +37,12 @@ namespace rows {
                 break;
             case RouteValidator::ErrorCode::UNKNOWN:
                 out << "UNKNOWN";
+                break;
+            case RouteValidator::ErrorCode::MOVED:
+                out << "MOVED";
+                break;
+            case RouteValidator::ErrorCode::ORPHANED:
+                out << "ORPHANED";
                 break;
         }
         return out;
@@ -95,7 +103,7 @@ namespace rows {
     RouteValidator::Validate(const std::vector<rows::Route> &routes,
                              const rows::Problem &problem,
                              SolverWrapper &solver) const {
-        std::vector<std::unique_ptr<rows::RouteValidator::ValidationError>> validation_errors;
+        std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > validation_errors;
 
         // find visits with incomplete information
         for (const auto &route: routes) {
@@ -149,6 +157,19 @@ namespace rows {
                 if (!IsAssignedAndActive(visit)) {
                     continue;
                 }
+
+                const auto index = solver.TryIndex(visit);
+                if (!index.is_initialized()) {
+                    validation_errors.emplace_back(CreateOrphanedError(route, visit));
+                    continue;
+                }
+
+                if (visit.datetime() != visit.calendar_visit().get().datetime()
+                    || visit.duration() != visit.calendar_visit().get().duration()) {
+                    validation_errors.emplace_back(CreateMovedError(route, visit));
+                    continue;
+                }
+
                 visits_to_use.push_back(visit);
             }
 
@@ -176,17 +197,17 @@ namespace rows {
                 continue;
             }
 
-            auto current_time = event_it->begin().time_of_day();
-            auto current_position = visits_to_use[0].location().get();
-            for (const auto &visit : visits_to_use) {
-                auto error_ptr = TryPerformVisit(route,
-                                                 visit,
-                                                 problem,
-                                                 solver,
-                                                 current_position,
-                                                 current_time);
+            const auto visit_it_end = std::end(visits_to_use);
+            std::vector<rows::ScheduledVisit> partial_route;
+            for (auto visit_it = std::begin(visits_to_use); visit_it != visit_it_end; ++visit_it) {
+                std::vector<rows::ScheduledVisit> route_candidate{partial_route};
+                route_candidate.push_back(*visit_it);
+
+                auto error_ptr = Validate(route_candidate, route, problem, solver);
                 if (error_ptr) {
                     validation_errors.emplace_back(std::move(error_ptr));
+                } else {
+                    partial_route = std::move(route_candidate);
                 }
             }
         }
@@ -197,82 +218,7 @@ namespace rows {
     bool rows::RouteValidator::IsAssignedAndActive(const rows::ScheduledVisit &visit) {
         return visit.calendar_visit().is_initialized()
                && visit.carer().is_initialized()
-               && visit.type() != ScheduledVisit::VisitType::CANCELLED;
-    }
-
-    std::unique_ptr<rows::RouteValidator::ValidationError> rows::RouteValidator::TryPerformVisit(
-            const rows::Route &route,
-            const rows::ScheduledVisit &visit,
-            const rows::Problem &problem,
-            rows::SolverWrapper &solver,
-            rows::Location &location,
-            boost::posix_time::time_duration &time) const {
-        boost::posix_time::time_duration time_to_use{time};
-
-        const auto &diary = problem.diary(route.carer(), visit.datetime().date()).get();
-        auto work_interval_it = std::begin(diary.events());
-        const auto work_interval_end_it = std::end(diary.events());
-
-        // find current work interval
-        for (; work_interval_it != work_interval_end_it
-               && work_interval_it->end().time_of_day() < time_to_use;
-               ++work_interval_it);
-
-        if (work_interval_it == work_interval_end_it) {
-            return CreateContractualBreakViolationError(route, visit);
-        }
-
-        // find effective time of approaching the destination
-        if (visit.location() != location) {
-            auto remaining_travel_duration = solver.TravelTime(location, visit.location().get());
-            while (remaining_travel_duration > boost::posix_time::seconds(0)) {
-                if (time_to_use + remaining_travel_duration < work_interval_it->end().time_of_day()) {
-                    time_to_use += remaining_travel_duration;
-                    remaining_travel_duration = boost::posix_time::seconds(0);
-                    break;
-                }
-
-                // TODO: no time splitting
-                remaining_travel_duration -= work_interval_it->end().time_of_day() - time_to_use;
-
-                ++work_interval_it;
-                if (work_interval_it == work_interval_end_it) {
-                    return CreateContractualBreakViolationError(route, visit);
-                }
-
-                time_to_use = work_interval_it->begin().time_of_day();
-            }
-        }
-
-        const auto visit_window_begin = static_cast<boost::posix_time::time_duration>(boost::posix_time::seconds(
-                solver.GetBeginWindow(visit.datetime().time_of_day())));
-        const auto visit_window_end = static_cast<boost::posix_time::time_duration>(boost::posix_time::seconds(
-                solver.GetEndWindow(visit.datetime().time_of_day())));
-        time_to_use = std::max(time_to_use, visit_window_begin);
-        if (time_to_use > visit_window_end) {
-            return CreateLateArrivalError(route, visit, time_to_use - visit_window_end);
-        }
-
-        while (true) {
-            if (time_to_use > visit_window_end) {
-                return CreateLateArrivalError(route, visit, time_to_use - visit_window_end);
-            }
-
-            auto service_finish = time_to_use + visit.duration();
-            if (service_finish <= work_interval_it->end().time_of_day()) {
-                // visit can be performed
-                location = visit.location().get();
-                time = service_finish;
-                return nullptr;
-            }
-
-            ++work_interval_it;
-            if (work_interval_it == work_interval_end_it) {
-                return CreateContractualBreakViolationError(route, visit);
-            }
-
-            time_to_use = work_interval_it->begin().time_of_day();
-        }
+               && visit.type() == ScheduledVisit::VisitType::UNKNOWN;
     }
 
     std::unique_ptr<RouteValidator::ValidationError> RouteValidator::CreateAbsentCarerError(
@@ -355,5 +301,163 @@ namespace rows {
             const rows::ScheduledVisit &visit,
             std::string error_msg) const {
         return std::make_unique<ScheduledVisitError>(ErrorCode::MISSING_INFO, visit, route, error_msg);
+    }
+
+    std::unique_ptr<rows::RouteValidator::ValidationError>
+    RouteValidator::CreateOrphanedError(const Route &route, const ScheduledVisit &visit) const {
+        return std::make_unique<ScheduledVisitError>(ErrorCode::ORPHANED,
+                                                     visit,
+                                                     route,
+                                                     (boost::format(
+                                                             "The visit %1% is not present in the problem definition.")
+                                                      % visit).str());
+    }
+
+    std::unique_ptr<rows::RouteValidator::ValidationError> RouteValidator::CreateMovedError(
+            const Route &route,
+            const ScheduledVisit &visit) const {
+        std::string error_msg;
+
+        const auto &calendar_visit = visit.calendar_visit().get();
+        if (visit.datetime() != calendar_visit.datetime()) {
+            error_msg = (boost::format(
+                    "The visit %1% datetime was moved from %2% to %3%.")
+                         % visit
+                         % calendar_visit.datetime()
+                         % visit.datetime()).str();
+        } else if (visit.duration() != calendar_visit.duration()) {
+            error_msg = (boost::format(
+                    "The visit %1% duration was changed from %2% to %3%.")
+                         % visit
+                         % calendar_visit.datetime()
+                         % visit.datetime()).str();
+        }
+
+        return std::make_unique<ScheduledVisitError>(ErrorCode::MOVED,
+                                                     visit,
+                                                     route,
+                                                     error_msg);
+    }
+
+    std::unique_ptr<RouteValidator::ValidationError>
+    RouteValidator::Validate(const std::vector<rows::ScheduledVisit> &partial_route,
+                             const rows::Route &route,
+                             const rows::Problem &problem,
+                             rows::SolverWrapper &solver) const {
+        if (partial_route.empty()) {
+            return nullptr;
+        }
+
+        const auto diary = problem.diary(route.carer(), partial_route.front().datetime().date());
+
+        auto work_interval_it = std::begin(diary.get().events());
+        const auto work_interval_end_it = std::end(diary.get().events());
+
+        if (work_interval_it == work_interval_end_it) {
+            return CreateContractualBreakViolationError(route, partial_route.back());
+        }
+
+        if (VLOG_IS_ON(1)) {
+            std::vector<std::string> text_locations;
+            std::transform(std::cbegin(partial_route),
+                           std::cend(partial_route),
+                           std::back_inserter(text_locations),
+                           [](const rows::ScheduledVisit &visit) -> std::string {
+                               std::stringstream local_stream;
+                               local_stream << visit.location().get();
+                               return local_stream.str();
+                           });
+
+            std::vector<std::string> text_intervals;
+            auto local_work_interval_it = work_interval_it;
+            std::transform(local_work_interval_it,
+                           work_interval_end_it,
+                           std::back_inserter(text_intervals),
+                           [](const rows::Event &event) -> std::string {
+                               std::stringstream local_stream;
+                               local_stream << event;
+                               return local_stream.str();
+                           });
+
+            VLOG(1) << "Validating path: " << boost::algorithm::join(text_locations, ", ")
+                    << " within work intervals: " << boost::algorithm::join(text_intervals, ", ");
+        }
+
+        while (work_interval_it != work_interval_end_it
+               && partial_route[0].datetime() < work_interval_it->begin()) {
+            ++work_interval_it;
+        }
+
+        if (work_interval_it == work_interval_end_it) {
+            return CreateContractualBreakViolationError(route, partial_route.front());
+        }
+
+        auto last_time = work_interval_it->begin().time_of_day();
+        auto last_position = solver.depot();
+
+        for (const auto &visit : partial_route) {
+            const auto earliest_arrival = static_cast<boost::posix_time::time_duration>(
+                    boost::posix_time::seconds(solver.GetBeginWindow(visit.datetime().time_of_day())));
+            const auto latest_arrival = static_cast<boost::posix_time::time_duration>(
+                    boost::posix_time::seconds(solver.GetEndWindow(visit.datetime().time_of_day())));
+            const auto travel_time = solver.TravelTime(last_position, visit.location().get());
+            const auto current_arrival = last_time + travel_time;
+
+            if (current_arrival > work_interval_it->end().time_of_day()) {
+                return CreateContractualBreakViolationError(route, partial_route.back());
+            }
+
+            const auto &service_start = std::max(current_arrival, earliest_arrival);
+            while (work_interval_it != work_interval_end_it
+                   && (service_start >= work_interval_it->end().time_of_day()
+                       || service_start < work_interval_it->begin().time_of_day())) {
+                ++work_interval_it;
+            }
+
+            if (work_interval_it == work_interval_end_it) {
+                return CreateContractualBreakViolationError(route, partial_route.back());
+            }
+
+            if (service_start > latest_arrival) {
+                VLOG(1) << "[LATEST_ARRIVAL_CONSTRAINT_VIOLATION] "
+                        << " approached: " << visit.location().get()
+                        << " [ " << earliest_arrival << "," << latest_arrival << " ]"
+                        << " travelled: " << travel_time
+                        << " arrived: " << current_arrival
+                        << " service_start: " << service_start
+                        << " latest_service_start: : " << latest_arrival;
+                return CreateLateArrivalError(route, visit, service_start - latest_arrival);
+            }
+
+            const auto service_finish = service_start + visit.duration();
+            if (service_finish > work_interval_it->end().time_of_day()) {
+                VLOG(1) << "[BREAK_CONSTRAINT_VIOLATION]"
+                        << " approached: " << visit.location().get()
+                        << " [ " << earliest_arrival << "," << latest_arrival << " ]"
+                        << " travelled: " << travel_time
+                        << " arrived: " << current_arrival
+                        << " service_start: " << service_start
+                        << " completed_service: " << service_finish
+                        << " planned_break: " << work_interval_it->end().time_of_day();
+
+                return CreateContractualBreakViolationError(route, partial_route.back());
+            }
+
+            VLOG(1) << "approached: " << visit.location().get()
+                    << " [ " << earliest_arrival << "," << latest_arrival << " ]"
+                    << " travelled: " << travel_time
+                    << " arrived: " << current_arrival
+                    << " started_service: " << service_start
+                    << " completed_service: " << service_finish;
+
+            last_time = service_finish;
+            last_position = visit.location().get();
+        }
+
+        last_time += solver.TravelTime(last_position, solver.depot());
+        if (last_time > work_interval_it->end().time_of_day()) {
+            return CreateContractualBreakViolationError(route, partial_route.back());
+        }
+        return nullptr;
     }
 }

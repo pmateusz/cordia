@@ -1,6 +1,7 @@
 #ifndef ROWS_SOLVER_WRAPPER_H
 #define ROWS_SOLVER_WRAPPER_H
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -63,8 +64,8 @@ namespace rows {
         int64 Distance(operations_research::RoutingModel::NodeIndex from,
                        operations_research::RoutingModel::NodeIndex to);
 
-        int64 ServiceTimePlusDistance(operations_research::RoutingModel::NodeIndex from,
-                                      operations_research::RoutingModel::NodeIndex to);
+        int64 ServicePlusTravelTime(operations_research::RoutingModel::NodeIndex from,
+                                    operations_research::RoutingModel::NodeIndex to);
 
         int64 Preference(operations_research::RoutingModel::NodeIndex to, const rows::Carer &carer) const;
 
@@ -113,8 +114,8 @@ namespace rows {
                                                const rows::Problem &problem,
                                                const operations_research::RoutingModel &model);
 
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
-        GetNodeRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
+        std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit> > >
+        GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
 
         bool HasTimeWindows() const;
 
@@ -148,14 +149,17 @@ namespace rows {
             bool operator()(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const noexcept;
         };
 
-        void PrecomputeDistances();
-
         operations_research::RoutingSearchParameters CreateSearchParameters() const;
 
         operations_research::IntervalVar *CreateBreak(operations_research::Solver *solver,
                                                       const boost::posix_time::time_duration &start_time,
                                                       const boost::posix_time::time_duration &duration,
                                                       const std::string &label) const;
+
+        operations_research::IntervalVar *CreateBreakWithTimeWindows(operations_research::Solver *solver,
+                                                                     const boost::posix_time::time_duration &start_time,
+                                                                     const boost::posix_time::time_duration &duration,
+                                                                     const std::string &label) const;
 
         static std::string GetBreakLabel(operations_research::RoutingModel::NodeIndex carer, BreakType break_type);
 
