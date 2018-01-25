@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <unordered_set>
 #include <unordered_map>
+#include <sstream>
 
 #include <boost/algorithm/string.hpp>
 
@@ -100,41 +101,37 @@ void rows::Solution::UpdateVisitLocations(const std::vector<rows::CalendarVisit>
     }
 }
 
-void rows::Solution::DebugPrintRoutes(rows::SolverWrapper &solver,
-                                      const operations_research::RoutingModel &model) const {
-    auto visits_with_no_calendar = 0;
-    for (const auto &visit : visits_) {
-        if (!visit.calendar_visit()) {
-            ++visits_with_no_calendar;
+std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver,
+                                        const operations_research::RoutingModel &model) const {
+    std::stringstream status_stream;
+
+    const auto visits_with_no_calendar = std::count_if(std::cbegin(visits_),
+                                                       std::cend(visits_),
+                                                       [](const rows::ScheduledVisit &visit) -> bool {
+                                                           return visit.calendar_visit().is_initialized();
+                                                       });
+
+    status_stream << "Visits with no calendar event: " << visits_with_no_calendar
+                  << " of " << visits_.size()
+                  << " total, ratio: " << static_cast<double>(visits_with_no_calendar) / visits_.size()
+                  << std::endl;
+
+    const auto routes = solver.GetRoutes(*this, model);
+    DCHECK_EQ(routes.size(), model.vehicles());
+
+    for (operations_research::RoutingModel::NodeIndex carer_index{0}; carer_index < model.vehicles(); ++carer_index) {
+        const auto &node_route = routes[carer_index.value()];
+        const auto carer = solver.Carer(carer_index);
+
+        status_stream << "Route " << carer_index << " " << carer << ":" << std::endl;
+        if (node_route.empty()) {
+            continue;
+        }
+
+        for (const auto &node_visit_pair : node_route) {
+            status_stream << '\t' << '\t' << node_visit_pair.first << " - " << node_visit_pair.second << std::endl;
         }
     }
 
-    LOG(INFO) << "Percentage of visits without calendar event: "
-              << static_cast<double>(visits_with_no_calendar) / visits_.size();
-
-    auto route_number = 1;
-    operations_research::RoutingModel::NodeIndex carer_index{0};
-    for (const auto &route : solver.GetNodeRoutes(*this, model)) {
-        std::vector<std::string> node_text;
-        std::transform(std::cbegin(route), std::cend(route), std::back_inserter(node_text),
-                       [](const operations_research::RoutingModel::NodeIndex node) -> std::string {
-                           return std::to_string(node.value());
-                       });
-        LOG(INFO) << "Route " << route_number << ": " << boost::algorithm::join(node_text, ", ");
-        for (const auto &node : route) {
-            LOG(INFO) << solver.CalendarVisit(node);
-        }
-
-        if (!route.empty()) {
-            LOG(INFO) << "---";
-            const auto route = GetRoute(solver.Carer(carer_index));
-            for (const auto &visit : route.visits()) {
-                LOG(INFO) << visit;
-            }
-            LOG(INFO) << "---";
-        }
-
-        ++route_number;
-        ++carer_index;
-    }
+    return status_stream.str();
 }

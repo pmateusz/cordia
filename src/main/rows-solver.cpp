@@ -42,7 +42,6 @@
 #include "problem.h"
 #include "solver_wrapper.h"
 #include "gexf_writer.h"
-#include "route_validator.h"
 
 
 static const int STATUS_ERROR = 1;
@@ -145,7 +144,11 @@ int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
 
     gflags::SetVersionString("0.0.1");
-    gflags::SetUsageMessage("Robust Optimization for Workforce Scheduling");
+    gflags::SetUsageMessage("Robust Optimization for Workforce Scheduling\n"
+                                    "Example: rows-main"
+                                    " --problem_file=problem.json"
+                                    " --map_file=./data/scotland-latest.osrm"
+                                    " --solution_file=past_solution.json");
     static const bool REMOVE_FLAGS = false;
     gflags::ParseCommandLineFlags(&argc, &argv, REMOVE_FLAGS);
 
@@ -174,25 +177,36 @@ int main(int argc, char **argv) {
         wrapper.ConfigureModel(model);
         operations_research::Assignment const *assignment = nullptr;
         if (solution) {
-            solution.get().DebugPrintRoutes(wrapper, model);
+            VLOG(1) << "Starting with a solution.";
+            VLOG(1) << solution.get().DebugStatus(wrapper, model);
             const auto solution_to_use = wrapper.ResolveValidationErrors(solution.get(), problem_to_use, model);
-            solution_to_use.DebugPrintRoutes(wrapper, model);
+            VLOG(1) << solution_to_use.DebugStatus(wrapper, model);
 
-            for (const auto &visit : solution_to_use.visits()) {
-                if (visit.carer().is_initialized()) {
-                    LOG(INFO) << visit;
+            if (VLOG_IS_ON(1)) {
+                for (const auto &visit : solution_to_use.visits()) {
+                    if (visit.carer().is_initialized()) {
+                        VLOG(1) << visit;
+                    }
                 }
             }
 
-            const auto routes = wrapper.GetNodeRoutes(solution_to_use, model);
-            auto initial_assignment = model.ReadAssignmentFromRoutes(routes, false);
+            const auto routes = wrapper.GetRoutes(solution_to_use, model);
+            std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > node_routes;
+            for (const auto &route : routes) {
+                std::vector<operations_research::RoutingModel::NodeIndex> node_route;
+                for (const auto &node_visit_pair : route) {
+                    node_route.emplace_back(node_visit_pair.first);
+                }
+                node_routes.emplace_back(std::move(node_route));
+            }
+
+            auto initial_assignment = model.ReadAssignmentFromRoutes(node_routes, false);
             if (!model.solver()->CheckAssignment(initial_assignment)) {
                 throw util::ApplicationError("Solution for warm start is not valid.", STATUS_ERROR);
             }
-            VLOG(1) << "No errors detected";
             assignment = model.SolveFromAssignmentWithParameters(initial_assignment, wrapper.parameters());
         } else {
-            VLOG(1) << "Starting without solution";
+            VLOG(1) << "Starting without solution.";
             assignment = model.SolveWithParameters(wrapper.parameters());
         }
 

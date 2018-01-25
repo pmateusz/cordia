@@ -49,7 +49,7 @@ namespace rows {
     }
 
     std::pair<boost::posix_time::ptime, boost::posix_time::ptime> Problem::Timespan() const {
-        LOG_ASSERT(!visits_.empty());
+        DCHECK(!visits_.empty());
 
         std::vector<boost::posix_time::ptime> times;
         for (const auto &visit : visits_) {

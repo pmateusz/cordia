@@ -1,6 +1,7 @@
 #ifndef ROWS_SOLVER_WRAPPER_H
 #define ROWS_SOLVER_WRAPPER_H
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -113,8 +114,8 @@ namespace rows {
                                                const rows::Problem &problem,
                                                const operations_research::RoutingModel &model);
 
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
-        GetNodeRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
+        std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit> > >
+        GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
 
         bool HasTimeWindows() const;
 
@@ -147,8 +148,6 @@ namespace rows {
 
             bool operator()(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const noexcept;
         };
-
-        void PrecomputeDistances();
 
         operations_research::RoutingSearchParameters CreateSearchParameters() const;
 

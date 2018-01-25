@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <numeric>
 #include <vector>
+#include <chrono>
 
 #include <glog/logging.h>
 
@@ -11,6 +12,7 @@
 
 #include <ortools/constraint_solver/routing_flags.h>
 #include <util/aplication_error.h>
+
 
 #include "calendar_visit.h"
 #include "carer.h"
@@ -89,17 +91,6 @@ namespace rows {
         const auto visit = CalendarVisit(from);
         const auto service_time = visit.duration();
         const auto travel_time = boost::posix_time::seconds(Distance(from, to));
-
-//        if (to != DEPOT) {
-//            LOG(INFO) << " --> [travel] from: " << CalendarVisit(from).location().get()
-//                      << " to: " << CalendarVisit(to).location().get()
-//                      << ": " << travel_time << " after service: " << service_time;
-//        } else {
-//            LOG(INFO) << " --> [travel] from: " << CalendarVisit(from).location().get()
-//                      << " to: " << depot_
-//                      << ": " << travel_time << " after service: " << service_time;
-//        }
-
         return (service_time + travel_time).total_seconds();
     }
 
@@ -306,10 +297,6 @@ namespace rows {
                 label);
     }
 
-    void SolverWrapper::PrecomputeDistances() {
-        location_container_.ComputeDistances();
-    }
-
     std::vector<rows::Location> SolverWrapper::GetUniqueLocations(const rows::Problem &problem) {
         std::unordered_set<rows::Location> location_set;
         for (const auto &visit : problem.visits()) {
@@ -412,17 +399,15 @@ namespace rows {
         operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::TIME_DIMENSION);
 
-        operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
-                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
+//        operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
+//                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
         operations_research::Solver *const solver = model.solver();
-        // TODO: fix taking a diary
         for (const auto &carer_index : Carers()) {
             time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver, carer_index), carer_index.value());
         }
 
         // set visit start times
-
         for (operations_research::RoutingModel::NodeIndex visit_node{1}; visit_node < model.nodes(); ++visit_node) {
             const auto &visit = CalendarVisit(visit_node);
 
@@ -468,10 +453,26 @@ namespace rows {
             model.AddDisjunction(orders, kPenalty);
         }
 
-        // TODO: closing model -- log more information
+        VLOG(1) << "Finalizing definition of the routing model...";
+        const auto start_time_model_closing = std::chrono::high_resolution_clock::now();
+
         model.CloseModelWithParameters(parameters_);
 
-//        PrecomputeDistances();
+        const auto end_time_model_closing = std::chrono::high_resolution_clock::now();
+        VLOG(1) << boost::format("Definition of the routing model finalized in %1% seconds")
+                   % std::chrono::duration_cast<std::chrono::seconds>(
+                end_time_model_closing - start_time_model_closing).count();
+
+        VLOG(1) << "Computing missing entries of the distance matrix...";
+        const auto start_time_distance_computation = std::chrono::high_resolution_clock::now();
+
+        const auto distance_pairs = location_container_.ComputeDistances();
+
+        const auto end_time_distance_computation = std::chrono::high_resolution_clock::now();
+        VLOG(1) << boost::format("Computed distances between %1% locations in %2% seconds")
+                   % distance_pairs
+                   % std::chrono::duration_cast<std::chrono::seconds>(
+                end_time_distance_computation - start_time_distance_computation).count();
     }
 
     const operations_research::RoutingSearchParameters &SolverWrapper::parameters() const {
@@ -482,17 +483,17 @@ namespace rows {
         return depot_;
     }
 
-    std::vector<std::vector<operations_research::RoutingModel::NodeIndex>>
-    SolverWrapper::GetNodeRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const {
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex>> routes;
+    std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit> > >
+    SolverWrapper::GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const {
+        std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit>>> routes;
         for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
             const auto carer = Carer(vehicle);
-            std::vector<operations_research::RoutingModel::NodeIndex> route;
+            std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit >> route;
             const auto local_route = solution.GetRoute(carer);
             for (const auto &element : local_route.visits()) {
                 const auto index = TryIndex(element);
                 if (index.is_initialized()) {
-                    route.push_back(index.get());
+                    route.push_back(std::make_pair(index.get(), element));
                 }
             }
             routes.emplace_back(std::move(route));
@@ -505,12 +506,12 @@ namespace rows {
                                                           const operations_research::RoutingModel &model) {
         static const rows::RouteValidator validator{};
 
+        VLOG(1) << "Starting validation of the solution for warm start...";
+
+        const auto start_error_resolution = std::chrono::high_resolution_clock::now();
         rows::Solution solution_to_use{solution};
-        auto validation_round = 0;
         while (true) {
             std::vector<std::unique_ptr<rows::RouteValidator::ValidationError>> validation_errors;
-            validation_round++;
-
             std::vector<rows::Route> routes;
             for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
                 const auto carer = Carer(vehicle);
@@ -518,30 +519,39 @@ namespace rows {
             }
 
             validation_errors = validator.Validate(routes, problem, *this);
-            for (const auto &error_ptr : validation_errors) {
-                VLOG(1) << *error_ptr;
+            if (VLOG_IS_ON(1)) {
+                for (const auto &error_ptr : validation_errors) {
+                    VLOG(1) << *error_ptr;
+                }
             }
 
             if (validation_errors.empty()) {
-                static const auto &is_assigned = [](const rows::ScheduledVisit &visit) -> bool {
-                    return visit.carer().is_initialized();
-                };
-                const auto initial_size = std::count_if(std::cbegin(solution.visits()),
-                                                        std::cend(solution.visits()),
-                                                        is_assigned);
-                const auto reduced_size = std::count_if(std::cbegin(solution_to_use.visits()),
-                                                        std::cend(solution_to_use.visits()),
-                                                        is_assigned);
-                if (initial_size != reduced_size) {
-                    VLOG(1) << (boost::format("Removed %1% visit assignments due to constrain violations")
-                                % (initial_size - reduced_size)).str();
-                }
-
-                return solution_to_use;
+                break;
             }
 
             solution_to_use = Resolve(solution_to_use, validation_errors);
         }
+        const auto end_error_resolution = std::chrono::high_resolution_clock::now();
+
+        if (VLOG_IS_ON(1)) {
+            static const auto &is_assigned = [](const rows::ScheduledVisit &visit) -> bool {
+                return visit.carer().is_initialized();
+            };
+            const auto initial_size = std::count_if(std::cbegin(solution.visits()),
+                                                    std::cend(solution.visits()),
+                                                    is_assigned);
+            const auto reduced_size = std::count_if(std::cbegin(solution_to_use.visits()),
+                                                    std::cend(solution_to_use.visits()),
+                                                    is_assigned);
+            VLOG_IF(1, initial_size != reduced_size)
+            << boost::format("Removed %1% visit assignments due to constrain violations.")
+               % (initial_size - reduced_size);
+        }
+        VLOG(1) << boost::format("Validation of the solution for warm start completed in %1% seconds")
+                   % std::chrono::duration_cast<std::chrono::seconds>(
+                end_error_resolution - start_error_resolution).count();
+
+        return solution_to_use;
     }
 
     rows::Solution SolverWrapper::Resolve(const rows::Solution &solution,

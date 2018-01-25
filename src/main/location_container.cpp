@@ -163,12 +163,9 @@ namespace rows {
         return distance;
     }
 
-    void CachedLocationContainer::ComputeDistances() {
-        VLOG(1) << "Started computation of full distance matrix";
-
-        const auto start_time = std::chrono::high_resolution_clock::now();
-
+    std::size_t CachedLocationContainer::ComputeDistances() {
         std::size_t distance_pairs = 0;
+
         for (const auto &source_pair : location_index_) {
             const auto &source_location = source_pair.first;
             const auto source_index = source_pair.second;
@@ -187,9 +184,6 @@ namespace rows {
             }
         }
 
-        const auto end_time = std::chrono::high_resolution_clock::now();
-        VLOG(1) << boost::format("Computed distances between %1% locations in %2% seconds")
-                   % distance_pairs
-                   % std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
+        return distance_pairs;
     }
 }
