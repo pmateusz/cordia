@@ -569,7 +569,7 @@ namespace rows {
                 return CreateContractualBreakViolationError(route, partial_route.back());
             }
 
-            if (service_start >= latest_arrival) {
+            if (service_start > latest_arrival) {
                 std::stringstream local_msg_stream;
                 local_msg_stream << "\t\t [violation]"
                                  << " approached: " << visit.location().get()
@@ -584,7 +584,7 @@ namespace rows {
             }
 
             const auto service_finish = service_start + visit.duration();
-            if (service_finish >= work_interval_it->end().time_of_day()) {
+            if (service_finish > work_interval_it->end().time_of_day()) {
                 std::stringstream local_msg_stream;
                 local_msg_stream << "\t\t [violation]"
                                  << " approached: " << visit.location().get()
