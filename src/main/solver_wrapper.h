@@ -40,6 +40,8 @@ namespace rows {
 
             int64 Preference(const rows::Carer &carer) const;
 
+            bool IsPreferred(const rows::Carer &carer) const;
+
             const rows::ExtendedServiceUser &service_user() const;
 
             int64 visit_count() const;
@@ -106,7 +108,7 @@ namespace rows {
         static std::vector<rows::Location> GetUniqueLocations(const rows::Problem &problem);
 
         template<typename IteratorType>
-        static Location GetCentralLocation(IteratorType begin_it, IteratorType end_it);
+        Location GetCentralLocation(IteratorType begin_it, IteratorType end_it);
 
         const operations_research::RoutingSearchParameters &parameters() const;
 
@@ -130,15 +132,24 @@ namespace rows {
 
         class CareContinuityMetrics {
         public:
-            CareContinuityMetrics(SolverWrapper const *solver, rows::Carer carer);
+            CareContinuityMetrics(const SolverWrapper &solver, const rows::Carer &carer);
 
             int64 operator()(operations_research::RoutingModel::NodeIndex from,
                              operations_research::RoutingModel::NodeIndex to) const;
 
         private:
-            SolverWrapper const *solver_;
-            rows::Carer carer_;
+            std::unordered_map<operations_research::RoutingModel::NodeIndex, int64> values_;
         };
+
+        std::tuple<double, double, double>
+        ToCartesianCoordinates(const osrm::FixedLatitude &latitude, const osrm::FixedLongitude &longitude) const;
+
+        std::pair<osrm::FixedLatitude, osrm::FixedLongitude>
+        ToGeographicCoordinates(const std::tuple<double, double, double> &coordinates) const;
+
+
+        std::tuple<double, double, double>
+        GetAveragePoint(const std::vector<std::tuple<double, double, double> > &points) const;
 
         rows::Solution Resolve(const rows::Solution &solution,
                                const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const;

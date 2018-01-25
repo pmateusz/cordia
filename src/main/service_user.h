@@ -69,6 +69,8 @@ namespace rows {
 
         double preference(const Carer &carer) const;
 
+        bool IsPreferred(const Carer &carer) const;
+
         const Address &address() const;
 
         const Location &location() const;

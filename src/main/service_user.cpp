@@ -113,6 +113,10 @@ namespace rows {
         return location_;
     }
 
+    bool ExtendedServiceUser::IsPreferred(const Carer &carer) const {
+        return carer_preference_.find(carer) != std::end(carer_preference_);
+    }
+
     double ExtendedServiceUser::preference(const Carer &carer) const {
         const auto carer_preference_it = carer_preference_.find(carer);
         if (carer_preference_it == std::end(carer_preference_)) {

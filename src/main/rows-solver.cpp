@@ -210,6 +210,8 @@ int main(int argc, char **argv) {
             assignment = model.SolveWithParameters(wrapper.parameters());
         }
 
+        VLOG(1) << model.solver()->DebugString();
+
         if (assignment == nullptr) {
             throw util::ApplicationError("No solution found.", STATUS_ERROR);
         }

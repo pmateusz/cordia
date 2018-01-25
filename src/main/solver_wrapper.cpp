@@ -2,13 +2,16 @@
 #include <numeric>
 #include <vector>
 #include <chrono>
+#include <tuple>
+#include <cmath>
 
 #include <glog/logging.h>
 
-#include <boost/date_time/posix_time/ptime.hpp>
+#include <boost/date_time.hpp>
 #include <boost/format.hpp>
 
 #include <osrm/coordinate.hpp>
+#include <osrm/util/coordinate.hpp>
 
 #include <ortools/constraint_solver/routing_flags.h>
 #include <util/aplication_error.h>
@@ -30,7 +33,7 @@ namespace rows {
 
     const std::string SolverWrapper::TIME_DIMENSION{"Time"};
 
-    const int64 SolverWrapper::CARE_CONTINUITY_MAX = 100;
+    const int64 SolverWrapper::CARE_CONTINUITY_MAX = 10000;
 
     const std::string SolverWrapper::CARE_CONTINUITY_DIMENSION{"CareContinuity"};
 
@@ -60,7 +63,7 @@ namespace rows {
         }
 
         for (const auto &carer_pair : problem_.carers()) {
-            care_continuity_metrics_.emplace_back(this, carer_pair.first);
+            care_continuity_metrics_.emplace_back(*this, carer_pair.first);
         }
     }
 
@@ -309,18 +312,15 @@ namespace rows {
 
     template<typename IteratorType>
     Location SolverWrapper::GetCentralLocation(IteratorType begin_it, IteratorType end_it) {
-        double latitude = 0, longitude = 0;
+        std::vector<std::tuple<double, double, double> > points;
 
-        auto element_count = 1.0;
-        for (auto location_it = begin_it; location_it != end_it; ++location_it) {
-            latitude += static_cast<double>(osrm::toFloating(location_it->latitude()));
-            longitude += static_cast<double>(osrm::toFloating(location_it->longitude()));
-            element_count += 1.0;
+        for (auto it = begin_it; it != end_it; ++it) {
+            points.push_back(ToCartesianCoordinates(it->latitude(), it->longitude()));
         }
 
-        const auto denominator = std::max(1.0, element_count);
-        return Location(osrm::toFixed(osrm::util::FloatLatitude{latitude / denominator}),
-                        osrm::toFixed(osrm::util::FloatLongitude{longitude / denominator}));
+        const auto average_point = GetAveragePoint(points);
+        std::pair<osrm::FixedLatitude, osrm::FixedLongitude> average_geo_point = ToGeographicCoordinates(average_point);
+        return Location(average_geo_point.first, average_geo_point.second);
     }
 
 
@@ -365,8 +365,8 @@ namespace rows {
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-        parameters.mutable_local_search_operators()->set_use_path_lns(false);
-        parameters.mutable_local_search_operators()->set_use_inactive_lns(false);
+        parameters.set_use_light_propagation(true);
+        parameters.set_time_limit_ms(boost::posix_time::seconds(10).total_milliseconds());
         return parameters;
     }
 
@@ -384,23 +384,23 @@ namespace rows {
                            VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
                            TIME_DIMENSION);
 
-//        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
-//        for (const auto &carer_metrics : care_continuity_metrics_) {
-//            care_continuity_evaluators.push_back(
-//                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
-//        }
+        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
+        for (const auto &carer_metrics : care_continuity_metrics_) {
+            care_continuity_evaluators.push_back(
+                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
+        }
 
-//        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
-//                                              CARE_CONTINUITY_MAX,
-//                                              CARE_CONTINUITY_MAX,
-//                                              START_FROM_ZERO_SERVICE_SATISFACTION,
-//                                              CARE_CONTINUITY_DIMENSION);
+        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
+                                              0,
+                                              CARE_CONTINUITY_MAX,
+                                              START_FROM_ZERO_SERVICE_SATISFACTION,
+                                              CARE_CONTINUITY_DIMENSION);
 
         operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::TIME_DIMENSION);
 
-//        operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
-//                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
+        operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
+                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
         operations_research::Solver *const solver = model.solver();
         for (const auto &carer_index : Carers()) {
@@ -424,25 +424,22 @@ namespace rows {
                 visit_start->SetValue(exact_start.total_seconds());
             }
 
-//            model.AddToAssignment(time_dimension.SlackVar(visit_node.value()));
+            model.AddToAssignment(time_dimension->SlackVar(visit_node.value()));
 
             visit_index_.insert({visit, visit_node});
         }
 
         // minimize time variables
-//        for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
-//            // this may be wrong after adding care continuity
-//            model.AddVariableMinimizedByFinalizer(time_dimension.CumulVar(variable_index));
-//        }
+        for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
+            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(variable_index));
+        }
 
         // minimize route duration
-//        for (auto carer_index = 0; carer_index < model.vehicles(); ++carer_index) {
-//            model.AddVariableMaximizedByFinalizer(time_dimension.CumulVar(model.Start(carer_index)));
-//            model.AddVariableMinimizedByFinalizer(time_dimension.CumulVar(model.End(carer_index)));
-
-//            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(model.Start(carer_index)));
-//            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(model.End(carer_index)));
-//        }
+        for (auto carer_index = 0; carer_index < model.vehicles(); ++carer_index) {
+            model.AddVariableMaximizedByFinalizer(time_dimension->CumulVar(model.Start(carer_index)));
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(carer_index)));
+        }
 
         // Adding penalty costs to allow skipping orders.
         const int64 kPenalty = 10000000;
@@ -663,6 +660,39 @@ namespace rows {
         return service_user.Preference(carer);
     }
 
+    std::tuple<double, double, double> SolverWrapper::ToCartesianCoordinates(const osrm::FixedLatitude &latitude,
+                                                                             const osrm::FixedLongitude &longitude) const {
+        const auto latitude_to_use = (static_cast<double>(osrm::toFloating(latitude)) * M_PI) / 180.0;
+        const auto longitude_to_use = (static_cast<double>(osrm::toFloating(longitude)) * M_PI) / 180.0;
+
+        double x = cos(latitude_to_use) * cos(longitude_to_use);
+        double y = cos(latitude_to_use) * sin(longitude_to_use);
+        double z = sin(latitude_to_use);
+        return {x, y, z};
+    }
+
+    std::pair<osrm::FixedLatitude, osrm::FixedLongitude>
+    SolverWrapper::ToGeographicCoordinates(const std::tuple<double, double, double> &coordinates) const {
+        const auto longitude = (atan2(std::get<1>(coordinates), std::get<0>(coordinates)) * 180.0) / M_PI;
+        const auto hyperplane = sqrt(pow(std::get<0>(coordinates), 2.0) + pow(std::get<1>(coordinates), 2.0));
+        const auto latitude = (atan2(std::get<2>(coordinates), hyperplane) * 180.0) / M_PI;
+
+        return std::make_pair(osrm::toFixed(osrm::util::FloatLatitude{latitude}),
+                              osrm::toFixed(osrm::util::FloatLongitude{longitude}));
+    }
+
+    std::tuple<double, double, double>
+    SolverWrapper::GetAveragePoint(const std::vector<std::tuple<double, double, double> > &points) const {
+        double x = 0.0, y = 0.0, z = 0.0;
+        for (const auto &point : points) {
+            x += std::get<0>(point);
+            y += std::get<1>(point);
+            z += std::get<2>(point);
+        }
+        const double points_count = std::max(static_cast<double>(points.size()), 1.0);
+        return {x / points_count, y / points_count, z / points_count};
+    }
+
     std::size_t SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {
         static const std::hash<rows::ServiceUser> hash_service_user{};
         static const std::hash<boost::posix_time::ptime> hash_date_time{};
@@ -682,14 +712,25 @@ namespace rows {
                && left.duration() == right.duration();
     }
 
-    SolverWrapper::CareContinuityMetrics::CareContinuityMetrics(SolverWrapper const *solver,
-                                                                rows::Carer carer)
-            : solver_(solver),
-              carer_(std::move(carer)) {}
+    SolverWrapper::CareContinuityMetrics::CareContinuityMetrics(const SolverWrapper &solver,
+                                                                const rows::Carer &carer)
+            : values_() {
+        const auto nodes_count = solver.NodesCount();
+        for (operations_research::RoutingModel::NodeIndex visit_index{1}; visit_index < nodes_count; ++visit_index) {
+            const auto &service_user = solver.ServiceUser(visit_index);
+            if (service_user.IsPreferred(carer)) {
+                values_.insert(std::make_pair(visit_index, service_user.Preference(carer)));
+            }
+        }
+    }
 
     int64 SolverWrapper::CareContinuityMetrics::operator()(operations_research::RoutingModel::NodeIndex from,
                                                            operations_research::RoutingModel::NodeIndex to) const {
-        return solver_->Preference(to, carer_);
+        const auto to_it = values_.find(to);
+        if (to_it == std::end(values_)) {
+            return 0;
+        }
+        return to_it->second;
     }
 
     SolverWrapper::LocalServiceUser::LocalServiceUser()
@@ -704,6 +745,10 @@ namespace rows {
                                                       int64 visit_count)
             : service_user_(service_user),
               visit_count_(visit_count) {}
+
+    bool SolverWrapper::LocalServiceUser::IsPreferred(const rows::Carer &carer) const {
+        return service_user_.IsPreferred(carer);
+    }
 
     const rows::ExtendedServiceUser &SolverWrapper::LocalServiceUser::service_user() const {
         return service_user_;
