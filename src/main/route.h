@@ -12,6 +12,8 @@ namespace rows {
     public:
         Route();
 
+        explicit Route(Carer carer);
+
         Route(Carer carer, std::vector<ScheduledVisit> visits);
 
         Route(const Route &route);
@@ -25,6 +27,8 @@ namespace rows {
         const Carer &carer() const;
 
         const std::vector<ScheduledVisit> &visits() const;
+
+        std::vector<ScheduledVisit> &visits();
 
     private:
         Carer carer_;

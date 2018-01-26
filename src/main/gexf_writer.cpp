@@ -5,6 +5,7 @@
 
 #include "util/pretty_print.h"
 #include "solver_wrapper.h"
+#include "route_validator.h"
 
 namespace rows {
 
@@ -101,8 +102,8 @@ namespace rows {
             data.setNodeValue(visit_id, DURATION.Id, boost::posix_time::to_simple_string(visit.duration()));
         }
 
-//        operations_research::RoutingDimension *const time_dim = model.GetMutableDimension(
-//                rows::SolverWrapper::TIME_DIMENSION);
+        operations_research::RoutingDimension *time_dim = model.GetMutableDimension(
+                rows::SolverWrapper::TIME_DIMENSION);
 
         // TODO: id allocation should be a class
 
@@ -119,29 +120,24 @@ namespace rows {
             data.setNodeLabel(carer_id, carer_id);
             data.setNodeValue(carer_id, ID.Id, carer_id);
             data.setNodeValue(carer_id, TYPE.Id, CARER_NODE);
+            data.setNodeValue(carer_id, SAP_NUMBER.Id, carer.sap_number());
 
             if (!model.IsVehicleUsed(solution, carer_index.value())) {
                 data.setNodeValue(carer_id, DROPPED.Id, TRUE_VALUE);
                 continue;
             }
 
-            data.setNodeValue(carer_id, SAP_NUMBER.Id, carer.sap_number());
-
             auto start_visit = model.Start(carer_index.value());
 
             DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit))));
 
-            boost::posix_time::time_duration work_available{boost::posix_time::seconds(0)};
-            const auto diary = solver.Diary(carer_index);
-            for (const auto &event : diary.events()) {
-                work_available += event.duration();
-            }
-
             auto total_visits = 0;
-            boost::posix_time::time_duration work_duration{boost::posix_time::seconds(0)};
+            // TODO: I want to extract time and continuity of care from the solution
+            // TODO: validator is the place to get information about time
             while (true) {
 // information about slack variables
-//                operations_research::IntVar *const time_var = time_dim->CumulVar(start_visit);
+                operations_research::IntVar *const time_var = time_dim->CumulVar(start_visit);
+                LOG(INFO) << boost::posix_time::seconds(time_var->Value());
 //                operations_research::IntVar *const slack_var = model.IsEnd(start_visit) ? nullptr : time_dim->SlackVar(
 //                        start_visit);
 //                if (slack_var != nullptr && solution.Contains(slack_var)) {
@@ -177,13 +173,7 @@ namespace rows {
                 const auto travel_time = solver.Distance(start_visit_node, end_visit_node);
                 DCHECK_GE(travel_time, 0);
                 if (!model.IsEnd(end_visit)) {
-                    if (!model.IsStart(start_visit)) {
-                        work_duration += boost::posix_time::seconds(travel_time);
-                    }
-
                     const auto &visit = solver.CalendarVisit(end_visit_node);
-                    work_duration += visit.duration();
-
                     data.setNodeValue(end_visit_id, ASSIGNED_CARER.Id, carer_id);
 
                     ++total_visits;
@@ -196,15 +186,20 @@ namespace rows {
             if (total_visits > 0) {
                 data.setNodeValue(carer_id, UTILIZATION_VISITS.Id, std::to_string(total_visits));
             }
-            data.setNodeValue(carer_id, UTILIZATION_AVAILABLE.Id, boost::posix_time::to_simple_string(work_available));
-            data.setNodeValue(carer_id, UTILIZATION_ABSOLUTE.Id, boost::posix_time::to_simple_string(work_duration));
 
-            DCHECK_LE(work_duration, work_available);
-            if (work_duration.total_seconds() > 0) {
-                const auto relative_duration = static_cast<double>(work_duration.total_seconds())
-                                               / work_available.total_seconds();
-                data.setNodeValue(carer_id, UTILIZATION_RELATIVE.Id, std::to_string(relative_duration));
-            }
+// TODO: complete the piece below
+//            rows::RouteValidator route_validator;
+//            route_validator.Validate()
+//
+//            data.setNodeValue(carer_id, UTILIZATION_AVAILABLE.Id, boost::posix_time::to_simple_string(work_available));
+//            data.setNodeValue(carer_id, UTILIZATION_ABSOLUTE.Id, boost::posix_time::to_simple_string(work_duration));
+//
+//            DCHECK_LE(work_duration, work_available);
+//            if (work_duration.total_seconds() > 0) {
+//                const auto relative_duration = static_cast<double>(work_duration.total_seconds())
+//                                               / work_available.total_seconds();
+//                data.setNodeValue(carer_id, UTILIZATION_RELATIVE.Id, std::to_string(relative_duration));
+//            }
         }
 
         DCHECK(env_ptr->checkIntegrity());

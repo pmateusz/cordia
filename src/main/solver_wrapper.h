@@ -119,6 +119,8 @@ namespace rows {
         std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit> > >
         GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
 
+        // TODO: add method to return routes and remove the function above
+
         bool HasTimeWindows() const;
 
         int64 GetBeginWindow(boost::posix_time::time_duration value) const;

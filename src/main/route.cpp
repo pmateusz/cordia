@@ -8,6 +8,9 @@ namespace rows {
     Route::Route()
             : Route(Carer(), std::vector<ScheduledVisit>()) {}
 
+    Route::Route(Carer carer)
+            : Route(std::move(carer), std::vector<rows::ScheduledVisit>()) {}
+
     Route::Route(rows::Carer carer, std::vector<rows::ScheduledVisit> visits)
             : carer_(std::move(carer)),
               visits_(std::move(visits)) {}
@@ -37,6 +40,10 @@ namespace rows {
     }
 
     const std::vector<ScheduledVisit> &rows::Route::visits() const {
+        return visits_;
+    }
+
+    std::vector<ScheduledVisit> &Route::visits() {
         return visits_;
     }
 }
