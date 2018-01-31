@@ -19,7 +19,10 @@ SELECT visit.VisitID AS 'visit_id',
        service_user_view.Street AS 'street',
        service_user_view.Town AS 'town',
        service_user_view.Postcode AS 'post_code',
-       aom.LtAomId AS 'aom_code'
+       aom.LtAomId AS 'aom_code', 
+	visit_type.VisitType AS 'visit_type',
+	visit_task.TaskName AS 'task_name',
+	visit_task.TaskNo AS 'task_no'
   FROM SparkCare.dbo.Visit AS visit
        INNER JOIN SparkCare.dbo.ServiceUserView AS service_user_view
        ON visit.ServiceUserID = service_user_view.ServiceUserID
@@ -29,6 +32,8 @@ SELECT visit.VisitID AS 'visit_id',
        ON visit.ServiceTypeID = service_type.ServiceTypeID
        LEFT OUTER JOIN SparkCare.dbo.VisitType AS visit_type
        ON visit.VisitTypeID = visit_type.VisitTypeID
+	INNER JOIN SparkCare.dbo.VisitTask visit_task
+	ON visit_task.VisitID = visit.VisitID
  WHERE visit.VisitDate BETWEEN @START_TIME AND @END_TIME
        AND aom.LtAomId = @AOM_ID
        AND visit.Suspended = 0
