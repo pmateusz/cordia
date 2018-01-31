@@ -83,16 +83,21 @@ namespace rows {
 
         const LocalServiceUser &ServiceUser(operations_research::RoutingModel::NodeIndex visit) const;
 
-        rows::Diary Diary(operations_research::RoutingModel::NodeIndex carer) const;
+        boost::optional<rows::Diary> Diary(operations_research::RoutingModel::NodeIndex carer,
+                                           boost::gregorian::date date) const;
+
+        boost::optional<rows::Diary> Diary(const rows::Carer &carer,
+                                           boost::gregorian::date date) const;
 
         rows::Carer Carer(operations_research::RoutingModel::NodeIndex carer) const;
 
         std::vector<operations_research::IntervalVar *> Breaks(operations_research::Solver *solver,
-                                                               operations_research::RoutingModel::NodeIndex carer) const;
-
-        std::vector<operations_research::RoutingModel::NodeIndex> Carers() const;
+                                                               const rows::Carer &carer,
+                                                               const rows::Diary &diary) const;
 
         const Location &depot() const;
+
+        const Problem &problem() const;
 
         int NodesCount() const;
 
@@ -118,8 +123,6 @@ namespace rows {
 
         std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit> > >
         GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
-
-        // TODO: add method to return routes and remove the function above
 
         bool HasTimeWindows() const;
 
@@ -174,7 +177,7 @@ namespace rows {
                                                                      const boost::posix_time::time_duration &duration,
                                                                      const std::string &label) const;
 
-        static std::string GetBreakLabel(operations_research::RoutingModel::NodeIndex carer, BreakType break_type);
+        static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
 
         SolverWrapper(const rows::Problem &problem,
                       const std::vector<rows::Location> &locations,

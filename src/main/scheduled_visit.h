@@ -20,6 +20,8 @@ namespace rows {
 
         ScheduledVisit();
 
+        ScheduledVisit(VisitType type, Carer carer, CalendarVisit calendar_visit);
+
         ScheduledVisit(VisitType type,
                        boost::optional<Carer> carer,
                        boost::posix_time::ptime datetime,

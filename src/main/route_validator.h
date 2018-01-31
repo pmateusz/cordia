@@ -90,13 +90,43 @@ namespace rows {
             std::string error_message_;
         };
 
+        class Metrics {
+        public:
+            Metrics();
+
+            Metrics(boost::posix_time::time_duration available_time,
+                    boost::posix_time::time_duration service_time,
+                    boost::posix_time::time_duration travel_time);
+
+            Metrics(const Metrics &metrics);
+
+            Metrics(Metrics &&metrics) noexcept;
+
+            Metrics &operator=(const Metrics &metrics);
+
+            Metrics &operator=(Metrics &&metrics) noexcept;
+
+            boost::posix_time::time_duration available_time() const;
+
+            boost::posix_time::time_duration service_time() const;
+
+            boost::posix_time::time_duration travel_time() const;
+
+            boost::posix_time::time_duration idle_time() const;
+
+        private:
+            boost::posix_time::time_duration available_time_;
+            boost::posix_time::time_duration service_time_;
+            boost::posix_time::time_duration travel_time_;
+        };
+
         class ValidationResult {
         public:
             ValidationResult();
 
-            ValidationResult(boost::posix_time::time_duration available_time,
-                             boost::posix_time::time_duration service_time,
-                             boost::posix_time::time_duration travel_time);
+            explicit ValidationResult(Metrics metrics);
+
+            explicit ValidationResult(std::unique_ptr<ValidationError> &&error) noexcept;
 
             ValidationResult(const ValidationResult &other) = delete;
 
@@ -106,16 +136,14 @@ namespace rows {
 
             ValidationResult &operator=(ValidationResult &&other) noexcept;
 
-            ValidationResult(std::unique_ptr<ValidationError> &&error) noexcept;
+            const Metrics &metrics() const;
 
             const std::unique_ptr<ValidationError> &error() const;
 
             std::unique_ptr<ValidationError> &error();
 
         private:
-            boost::posix_time::time_duration available_time_;
-            boost::posix_time::time_duration service_time_;
-            boost::posix_time::time_duration travel_time_;
+            Metrics metrics_;
             std::unique_ptr<ValidationError> error_;
         };
 
@@ -123,9 +151,7 @@ namespace rows {
                                                                 const rows::Problem &problem,
                                                                 rows::SolverWrapper &solver) const;
 
-        ValidationResult Validate(const rows::Route &route,
-                                  const rows::Problem &problem,
-                                  rows::SolverWrapper &solver) const;
+        ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const;
 
     private:
         static bool IsAssignedAndActive(const rows::ScheduledVisit &visit);

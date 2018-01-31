@@ -103,11 +103,37 @@ namespace rows {
         return problem_.visits()[visit.value() - 1];
     }
 
-    rows::Diary SolverWrapper::Diary(const operations_research::RoutingModel::NodeIndex carer) const {
-        // TODO: fix this ugly hack
-        const auto carer_pair = problem_.carers().at(static_cast<std::size_t>(carer.value()));
-        DCHECK_EQ(carer_pair.second.size(), 1);
-        return {carer_pair.second.front()};
+    boost::optional<rows::Diary> FindDiaryOrNone(const std::vector<rows::Diary> &diaries, boost::gregorian::date date) {
+        const auto find_date_it = std::find_if(std::cbegin(diaries),
+                                               std::cend(diaries),
+                                               [&date](const rows::Diary &diary) -> bool {
+                                                   return diary.date() == date;
+                                               });
+        if (find_date_it != std::cend(diaries)) {
+            return boost::make_optional(*find_date_it);
+        }
+        return boost::none;
+    }
+
+    boost::optional<rows::Diary>
+    SolverWrapper::Diary(const operations_research::RoutingModel::NodeIndex carer, boost::gregorian::date date) const {
+        const auto &carer_pairs = problem_.carers();
+        const auto carer_pair = carer_pairs.at(static_cast<std::size_t>(carer.value()));
+        return FindDiaryOrNone(carer_pair.second, date);
+    }
+
+    boost::optional<rows::Diary> SolverWrapper::Diary(const rows::Carer &carer, boost::gregorian::date date) const {
+        const auto &carer_pairs = problem_.carers();
+        const auto find_carer_pair_it = std::find_if(std::cbegin(carer_pairs),
+                                                     std::cend(carer_pairs),
+                                                     [&carer](const std::pair<rows::Carer,
+                                                             std::vector<rows::Diary> > &pair) -> bool {
+                                                         return pair.first == carer;
+                                                     });
+        if (find_carer_pair_it == std::cend(carer_pairs)) {
+            return boost::none;
+        }
+        return FindDiaryOrNone(find_carer_pair_it->second, date);
     }
 
     rows::Carer SolverWrapper::Carer(const operations_research::RoutingModel::NodeIndex carer) const {
@@ -131,10 +157,9 @@ namespace rows {
 
 
     std::vector<operations_research::IntervalVar *> SolverWrapper::Breaks(operations_research::Solver *const solver,
-                                                                          const operations_research::RoutingModel::NodeIndex carer) const {
+                                                                          const rows::Carer &carer,
+                                                                          const rows::Diary &diary) const {
         std::vector<operations_research::IntervalVar *> result;
-
-        const auto &diary = Diary(carer);
 
         boost::posix_time::ptime last_end_time(diary.date());
         boost::posix_time::ptime next_day(diary.date() + boost::gregorian::date_duration(1));
@@ -165,11 +190,10 @@ namespace rows {
                                          GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
         }
 
-
         return result;
     }
 
-    std::string SolverWrapper::GetBreakLabel(const operations_research::RoutingModel::NodeIndex carer,
+    std::string SolverWrapper::GetBreakLabel(const rows::Carer &carer,
                                              SolverWrapper::BreakType break_type) {
         switch (break_type) {
             case BreakType::BEFORE_WORKDAY:
@@ -181,12 +205,6 @@ namespace rows {
             default:
                 throw std::domain_error((boost::format("Handling label '%1%' is not implemented") % carer).str());
         }
-    }
-
-    std::vector<operations_research::RoutingModel::NodeIndex> SolverWrapper::Carers() const {
-        std::vector<operations_research::RoutingModel::NodeIndex> result(problem_.carers().size());
-        std::iota(std::begin(result), std::end(result), operations_research::RoutingModel::NodeIndex(0));
-        return result;
     }
 
     int SolverWrapper::NodesCount() const {
@@ -402,9 +420,14 @@ namespace rows {
         operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
+        const auto &carer_diary_pairs = problem_.carers();
         operations_research::Solver *const solver = model.solver();
-        for (const auto &carer_index : Carers()) {
-            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver, carer_index), carer_index.value());
+        for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
+            const auto &carer_diary_pair = carer_diary_pairs[vehicle.value()];
+            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver,
+                                                              carer_diary_pair.first,
+                                                              carer_diary_pair.second.front()),
+                                                       vehicle.value());
         }
 
         // set visit start times
@@ -490,7 +513,7 @@ namespace rows {
             for (const auto &element : local_route.visits()) {
                 const auto index = TryIndex(element);
                 if (index.is_initialized()) {
-                    route.push_back(std::make_pair(index.get(), element));
+                    route.emplace_back(index.get(), element);
                 }
             }
             routes.emplace_back(std::move(route));
@@ -691,6 +714,10 @@ namespace rows {
         }
         const double points_count = std::max(static_cast<double>(points.size()), 1.0);
         return {x / points_count, y / points_count, z / points_count};
+    }
+
+    const Problem &SolverWrapper::problem() const {
+        return problem_;
     }
 
     std::size_t SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {
