@@ -358,7 +358,7 @@ namespace rows {
                     std::make_unique<ScheduledVisitError>(CreateContractualBreakViolationError(route, visits.back()))};
         }
 
-        for (auto interval_it = work_interval_it; interval_it != work_interval_end_it; ++work_interval_it) {
+        for (auto interval_it = work_interval_it; interval_it != work_interval_end_it; ++interval_it) {
             total_available_time += interval_it->duration();
         }
 

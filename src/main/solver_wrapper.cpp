@@ -383,8 +383,10 @@ namespace rows {
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-        parameters.set_use_light_propagation(true);
         parameters.set_time_limit_ms(boost::posix_time::seconds(10).total_milliseconds());
+//        parameters.set_use_light_propagation(true);
+        parameters.mutable_local_search_operators()->set_use_path_lns(false);
+        parameters.mutable_local_search_operators()->set_use_inactive_lns(false);
         return parameters;
     }
 
@@ -402,6 +404,9 @@ namespace rows {
                            VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
                            TIME_DIMENSION);
 
+        operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(
+                rows::SolverWrapper::TIME_DIMENSION);
+
         std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
         for (const auto &carer_metrics : care_continuity_metrics_) {
             care_continuity_evaluators.push_back(
@@ -413,9 +418,6 @@ namespace rows {
                                               CARE_CONTINUITY_MAX,
                                               START_FROM_ZERO_SERVICE_SATISFACTION,
                                               CARE_CONTINUITY_DIMENSION);
-
-        operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(
-                rows::SolverWrapper::TIME_DIMENSION);
 
         operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
@@ -455,7 +457,7 @@ namespace rows {
         // minimize time variables
         for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
             model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
-            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->CumulVar(variable_index));
+            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->TransitVar(variable_index));
         }
 
         // minimize route duration

@@ -14,6 +14,7 @@
 
 #include <ortools/constraint_solver/constraint_solver.h>
 #include <ortools/constraint_solver/routing.h>
+
 #include "location.h"
 
 namespace rows {
@@ -68,32 +69,41 @@ namespace rows {
 
             void SetDefaultValues(const rows::Location &location);
 
-            void AddNode(operations_research::RoutingModel::NodeIndex index);
+            std::string DepotId(operations_research::RoutingModel::NodeIndex depot_index) const;
 
-            void SetNodeLabel(operations_research::RoutingModel::NodeIndex index,
+            std::string CarerId(operations_research::RoutingModel::NodeIndex carer_index) const;
+
+            std::string VisitId(operations_research::RoutingModel::NodeIndex visit_index) const;
+
+            std::string EdgeId(const std::string &from_id,
+                               const std::string &to_id,
+                               const std::string &prefix) const;
+
+            void AddNode(const std::string &node_id,
+                         const std::string &label);
+
+            void SetNodeValue(const std::string &node_id,
+                              const GephiAttributeMeta &attribute,
+                              const boost::posix_time::time_duration &value);
+
+            void SetNodeValue(const std::string &node_id,
+                              const GephiAttributeMeta &attribute,
+                              const osrm::util::FixedLongitude &value);
+
+            void SetNodeValue(const std::string &node_id,
+                              const GephiAttributeMeta &attribute,
+                              const osrm::util::FixedLatitude &value);
+
+            void SetNodeValue(const std::string &node_id,
+                              const GephiAttributeMeta &attribute,
                               const std::string &value);
 
-            void SetNodeValue(operations_research::RoutingModel::NodeIndex index,
-                              const GephiAttributeMeta &attribute,
-                              boost::posix_time::time_duration value);
+            void AddEdge(const std::string &edge_id,
+                         const std::string &from_id,
+                         const std::string &to_id,
+                         const std::string &label);
 
-            void SetNodeValue(operations_research::RoutingModel::NodeIndex index,
-                              const GephiAttributeMeta &attribute,
-                              std::string value);
-
-            void SetNodeValue(operations_research::RoutingModel::NodeIndex index,
-                              const GephiAttributeMeta &attribute,
-                              osrm::util::FixedLongitude value);
-
-            void SetNodeValue(operations_research::RoutingModel::NodeIndex index,
-                              const GephiAttributeMeta &attribute,
-                              osrm::util::FixedLatitude value);
-
-            void AddEdge(operations_research::RoutingModel::NodeIndex from,
-                         operations_research::RoutingModel::NodeIndex to);
-
-            void SetEdgeValue(operations_research::RoutingModel::NodeIndex from,
-                              operations_research::RoutingModel::NodeIndex to,
+            void SetEdgeValue(const std::string &edge_id,
                               const GephiAttributeMeta &attribute,
                               const boost::posix_time::time_duration &value);
 
@@ -101,15 +111,6 @@ namespace rows {
 
         private:
             std::unique_ptr<libgexf::GEXF> env_ptr_;
-
-            long next_node_id_;
-            std::unordered_map<operations_research::RoutingModel::NodeIndex, std::string> node_ids_;
-
-            long next_edge_id_;
-            std::unordered_map<
-                    std::pair<operations_research::RoutingModel::NodeIndex,
-                            operations_research::RoutingModel::NodeIndex>,
-                    std::string> edge_ids_;
         };
     };
 }
