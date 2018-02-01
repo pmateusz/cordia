@@ -103,7 +103,11 @@ namespace rows {
 
         rows::CalendarVisit CalendarVisit(operations_research::RoutingModel::NodeIndex visit) const;
 
+        const LocalServiceUser &ServiceUser(const rows::ServiceUser &service_user) const;
+
         const LocalServiceUser &ServiceUser(operations_research::RoutingModel::NodeIndex visit) const;
+
+        operations_research::IntVar const *CareContinuityDimVar(const rows::ExtendedServiceUser &service_user) const;
 
         boost::optional<rows::Diary> Diary(operations_research::RoutingModel::NodeIndex carer,
                                            boost::gregorian::date date) const;

@@ -73,6 +73,8 @@ namespace rows {
 
             std::string DepotId(operations_research::RoutingModel::NodeIndex depot_index) const;
 
+            std::string ServiceUserId(operations_research::RoutingModel::NodeIndex service_user_id) const;
+
             std::string CarerId(operations_research::RoutingModel::NodeIndex carer_index) const;
 
             std::string VisitId(operations_research::RoutingModel::NodeIndex visit_index) const;

@@ -1,8 +1,6 @@
 #include "gexf_writer.h"
 
 #include "util/pretty_print.h"
-#include "solver_wrapper.h"
-#include "route_validator.h"
 
 namespace rows {
 
@@ -35,6 +33,7 @@ namespace rows {
                            const operations_research::Assignment &solution) const {
         static const auto VISIT_NODE = "visit";
         static const auto CARER_NODE = "carer";
+        static const auto SERVICE_USER_NODE = "user";
         static const auto TRUE_VALUE = "true";
 
         operations_research::RoutingDimension const *care_continuity_dim = model.GetMutableDimension(
@@ -81,8 +80,45 @@ namespace rows {
 
         static const RouteValidator validator{};
 
-        // TODO: display service users as nodes
-        // TODO: attach satisfaction with each user
+        operations_research::RoutingModel::NodeIndex next_user_node{0};
+        std::unordered_map <rows::ServiceUser,
+        operations_research::RoutingModel::NodeIndex> user_ids;
+        for (const auto &service_user : solver.problem().service_users()) {
+            const auto user_node = next_user_node++;
+            const auto inserted = user_ids.emplace(service_user, user_node);
+            DCHECK(inserted.second);
+
+            const auto user_id = gexf.ServiceUserId(user_node);
+            gexf.AddNode(user_id, (boost::format("user %1%") % user_node).str());
+            gexf.SetNodeValue(user_id, ID, service_user.id());
+            gexf.SetNodeValue(user_id, TYPE, SERVICE_USER_NODE);
+
+            const auto &location = service_user.location();
+            gexf.SetNodeValue(user_id, LONGITUDE, location.longitude());
+            gexf.SetNodeValue(user_id, LATITUDE, location.latitude());
+            gexf.SetNodeValue(user_id,
+                              SATISFACTION,
+                              std::to_string(solution.Min(solver.CareContinuityDimVar(service_user))));
+
+            auto visit_counter = 1;
+            for (operations_research::RoutingModel::NodeIndex visit_index{1};
+                 visit_index < model.nodes();
+                 ++visit_index) {
+                const auto &visit = solver.CalendarVisit(visit_index);
+                if (visit.service_user() != service_user) {
+                    continue;
+                }
+
+                const auto visit_id = gexf.VisitId(visit_index);
+                const auto edge_id = gexf.EdgeId(user_id, visit_id, "uv_");
+                gexf.AddEdge(edge_id,
+                             user_id,
+                             visit_id,
+                             (boost::format("Visit %1% of %2%")
+                              % visit_counter++
+                              % service_user.id()).str());
+            }
+        }
 
         for (operations_research::RoutingModel::NodeIndex carer_index{0};
              carer_index < model.vehicles();
@@ -90,7 +126,7 @@ namespace rows {
             const auto &carer = solver.Carer(carer_index);
             const auto carer_id = gexf.CarerId(carer_index);
 
-            std::vector<rows::ScheduledVisit> route;
+            std::vector <rows::ScheduledVisit> route;
 
             gexf.AddNode(carer_id, (boost::format("carer %1%") % carer_index.value()).str());
             gexf.SetNodeValue(carer_id, ID, carer.sap_number());
@@ -117,7 +153,7 @@ namespace rows {
                     const auto &calendar_visit = solver.CalendarVisit(start_visit_node);
                     route.emplace_back(ScheduledVisit::VisitType::UNKNOWN, carer, calendar_visit);
 
-                    const auto carer_visit_edge_id = gexf.EdgeId(carer_id, start_visit_id, "c");
+                    const auto carer_visit_edge_id = gexf.EdgeId(carer_id, start_visit_id, "c_");
                     gexf.AddEdge(carer_visit_edge_id,
                                  carer_id,
                                  start_visit_id,
@@ -143,7 +179,7 @@ namespace rows {
                     end_visit_id = gexf.VisitId(end_visit_node);
                 }
 
-                const auto visit_visit_edge_id = gexf.EdgeId(start_visit_id, end_visit_id, "v");
+                const auto visit_visit_edge_id = gexf.EdgeId(start_visit_id, end_visit_id, "r_");
                 gexf.AddEdge(visit_visit_edge_id,
                              start_visit_id,
                              end_visit_id,
@@ -300,7 +336,26 @@ namespace rows {
                 % to_id).str();
     }
 
+    std::string GexfWriter::GexfEnvironmentWrapper::ServiceUserId(
+            operations_research::RoutingModel::NodeIndex service_user_id) const {
+        return (boost::format("u%1%")
+                % service_user_id).str();
+    }
+
     void GexfWriter::GexfEnvironmentWrapper::SetStats(const rows::SolverWrapper::Statistics &stats) {
-        // TODO fill description with statistics
+        env_ptr_->getMetaData().setDescription(
+                (boost::format("Cost: %1%\nErrors: %2%\nDropped visits: %3%\n"
+                                       "Care continuity: mean: %4% median: %5% stddev: %6%\n"
+                                       "Carer utility: mean: %7% median: %8% stddev: %9% total ration: %10%\n")
+                 % stats.Cost
+                 % stats.Errors
+                 % stats.DroppedVisits
+                 % stats.CareContinuity.Mean
+                 % stats.CareContinuity.Median
+                 % stats.CareContinuity.Stddev
+                 % stats.CarerUtility.Mean
+                 % stats.CarerUtility.Median
+                 % stats.CarerUtility.Stddev
+                 % stats.CarerUtility.TotalMean).str());
     }
 }

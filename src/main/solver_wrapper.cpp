@@ -153,8 +153,8 @@ namespace rows {
         return {carer_pair.first};
     }
 
-    const rows::SolverWrapper::LocalServiceUser &
-    SolverWrapper::ServiceUser(operations_research::RoutingModel::NodeIndex visit) const {
+    const rows::SolverWrapper::LocalServiceUser &SolverWrapper::ServiceUser(
+            operations_research::RoutingModel::NodeIndex visit) const {
         if (visit == DEPOT) {
             return depot_service_user_;
         }
@@ -162,11 +162,15 @@ namespace rows {
         const auto visit_index = visit.value();
         DCHECK_GE(visit_index, 1);
         const auto &calendar_visit = problem_.visits()[visit_index];
-        const auto find_it = service_users_.find(calendar_visit.service_user());
+        return ServiceUser(calendar_visit.service_user());
+    }
+
+    const rows::SolverWrapper::LocalServiceUser &SolverWrapper::ServiceUser(
+            const rows::ServiceUser &service_user) const {
+        const auto find_it = service_users_.find(service_user);
         DCHECK(find_it != std::end(service_users_));
         return find_it->second;
     }
-
 
     std::vector<operations_research::IntervalVar *> SolverWrapper::Breaks(operations_research::Solver *const solver,
                                                                           const rows::Carer &carer,
@@ -848,14 +852,14 @@ namespace rows {
         stats.CareContinuity.Median = boost::accumulators::median(care_continuity_stats);
         stats.CareContinuity.Stddev = sqrt(boost::accumulators::variance(care_continuity_stats));
 
-        for (const auto &user_satisfaction_pair : care_continuity_) {
-            VLOG(1) << boost::format("User %1% satisfaction %2%")
-                       % user_satisfaction_pair.first.id()
-                       % solution.Min(user_satisfaction_pair.second)
-                    << std::endl;
-        }
-
         return stats;
+    }
+
+    operations_research::IntVar const *SolverWrapper::CareContinuityDimVar(
+            const rows::ExtendedServiceUser &service_user) const {
+        const auto service_user_it = care_continuity_.find(service_user);
+        DCHECK(service_user_it != std::cend(care_continuity_));
+        return service_user_it->second;
     }
 
     std::size_t SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {
