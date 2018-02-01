@@ -362,7 +362,7 @@ namespace rows {
             total_available_time += interval_it->duration();
         }
 
-        if (VLOG_IS_ON(1)) {
+        if (VLOG_IS_ON(2)) {
             std::vector<std::string> text_locations;
             std::transform(std::cbegin(visits),
                            std::cend(visits),
@@ -384,7 +384,7 @@ namespace rows {
                                return local_stream.str();
                            });
 
-            VLOG(1) << "Validating path: " << boost::algorithm::join(text_locations, ", ")
+            VLOG(2) << "Validating path: " << boost::algorithm::join(text_locations, ", ")
                     << " within work intervals: " << boost::algorithm::join(text_intervals, ", ");
         }
 
@@ -429,7 +429,7 @@ namespace rows {
             }
 
             if (service_start > latest_arrival) {
-                VLOG(1) << "[LATEST_ARRIVAL_CONSTRAINT_VIOLATION] "
+                VLOG(2) << "[LATEST_ARRIVAL_CONSTRAINT_VIOLATION] "
                         << " approached: " << visit.location().get()
                         << " [ " << earliest_arrival << "," << latest_arrival << " ]"
                         << " travelled: " << travel_time
@@ -444,7 +444,7 @@ namespace rows {
             total_service_time += visit.duration();
 
             if (service_finish > work_interval_it->end().time_of_day()) {
-                VLOG(1) << "[BREAK_CONSTRAINT_VIOLATION]"
+                VLOG(2) << "[BREAK_CONSTRAINT_VIOLATION]"
                         << " approached: " << visit.location().get()
                         << " [ " << earliest_arrival << "," << latest_arrival << " ]"
                         << " travelled: " << travel_time

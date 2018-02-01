@@ -8,12 +8,19 @@
 #include <glog/logging.h>
 
 #include <boost/date_time.hpp>
+#include <boost/algorithm/string/join.hpp>
+#include <boost/accumulators/accumulators.hpp>
+#include <boost/accumulators/statistics/stats.hpp>
+#include <boost/accumulators/statistics/mean.hpp>
+#include <boost/accumulators/statistics/median.hpp>
+#include <boost/accumulators/statistics/variance.hpp>
 #include <boost/format.hpp>
 
 #include <osrm/coordinate.hpp>
 #include <osrm/util/coordinate.hpp>
 
 #include <ortools/constraint_solver/routing_flags.h>
+#include <ortools/sat/integer_expr.h>
 #include <util/aplication_error.h>
 
 
@@ -49,7 +56,9 @@ namespace rows {
               time_window_(boost::posix_time::minutes(30)),
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(CreateSearchParameters()),
-              service_users_() {
+              service_users_(),
+              care_continuity_(),
+              care_continuity_metrics_() {
         for (const auto &service_user : problem_.service_users()) {
             const auto visit_count = std::count_if(std::cbegin(problem_.visits()),
                                                    std::cend(problem_.visits()),
@@ -60,6 +69,8 @@ namespace rows {
             const auto insert_it = service_users_.insert(
                     std::make_pair(service_user, LocalServiceUser(service_user, visit_count)));
             DCHECK(insert_it.second);
+
+            care_continuity_.insert(std::make_pair(service_user, nullptr));
         }
 
         for (const auto &carer_pair : problem_.carers()) {
@@ -103,7 +114,8 @@ namespace rows {
         return problem_.visits()[visit.value() - 1];
     }
 
-    boost::optional<rows::Diary> FindDiaryOrNone(const std::vector<rows::Diary> &diaries, boost::gregorian::date date) {
+    boost::optional<rows::Diary>
+    FindDiaryOrNone(const std::vector<rows::Diary> &diaries, boost::gregorian::date date) {
         const auto find_date_it = std::find_if(std::cbegin(diaries),
                                                std::cend(diaries),
                                                [&date](const rows::Diary &diary) -> bool {
@@ -127,7 +139,7 @@ namespace rows {
         const auto find_carer_pair_it = std::find_if(std::cbegin(carer_pairs),
                                                      std::cend(carer_pairs),
                                                      [&carer](const std::pair<rows::Carer,
-                                                             std::vector<rows::Diary> > &pair) -> bool {
+                                                             std::vector<rows::Diary>> &pair) -> bool {
                                                          return pair.first == carer;
                                                      });
         if (find_carer_pair_it == std::cend(carer_pairs)) {
@@ -215,81 +227,73 @@ namespace rows {
         return static_cast<int>(problem_.carers().size());
     }
 
-    void SolverWrapper::DisplayPlan(const operations_research::RoutingModel &routing,
-                                    const operations_research::Assignment &plan, bool use_same_vehicle_costs,
-                                    int64 max_nodes_per_group, int64 same_vehicle_cost,
-                                    const operations_research::RoutingDimension &time_dimension) {
+    void SolverWrapper::DisplayPlan(const operations_research::RoutingModel &model,
+                                    const operations_research::Assignment &solution) {
+        const auto stats = CalculateStats(model, solution);
+        operations_research::RoutingDimension const *time_dimension = model.GetMutableDimension(TIME_DIMENSION);
+
         std::stringstream out;
-        out << boost::format("Cost %1% ") % plan.ObjectiveValue() << std::endl;
 
-        std::stringstream dropped_stream;
-        for (int order = 1; order < routing.nodes(); ++order) {
-            if (plan.Value(routing.NextVar(order)) == order) {
-                if (dropped_stream.rdbuf()->in_avail() == 0) {
-                    dropped_stream << ' ' << order;
-                } else {
-                    dropped_stream << ',' << ' ' << order;
-                }
-            }
+        out << boost::format("Cost: %1$g") % stats.Cost
+            << std::endl;
+
+        if (stats.Errors > 0) {
+            out << boost::format("Solution has %1% validation errors") % stats.Errors << std::endl;
         }
 
-        if (dropped_stream.rdbuf()->in_avail() > 0) {
-            out << "Dropped orders:" << dropped_stream.str() << std::endl;
-        }
+        out << boost::format("Carer utilization: mean: %1% median %2% stddev %3% total ratio %4%")
+               % stats.CarerUtility.Mean
+               % stats.CarerUtility.Median
+               % stats.CarerUtility.Stddev
+               % stats.CarerUtility.TotalMean
+            << std::endl;
 
-        if (use_same_vehicle_costs) {
-            int group_size = 0;
-            int64 group_same_vehicle_cost = 0;
-            std::set<int64> visited;
-            const operations_research::RoutingModel::NodeIndex kFirstNodeAfterDepot(1);
-            for (operations_research::RoutingModel::NodeIndex order = kFirstNodeAfterDepot;
-                 order < routing.nodes(); ++order) {
-                ++group_size;
-                visited.insert(plan.Value(routing.VehicleVar(routing.NodeToIndex(order))));
-                if (group_size == max_nodes_per_group) {
-                    if (visited.size() > 1) {
-                        group_same_vehicle_cost += (visited.size() - 1) * same_vehicle_cost;
-                    }
-                    group_size = 0;
-                    visited.clear();
-                }
-            }
-            if (visited.size() > 1) {
-                group_same_vehicle_cost += (visited.size() - 1) * same_vehicle_cost;
-            }
-            LOG(INFO) << "Same vehicle costs: " << group_same_vehicle_cost;
+        if (stats.DroppedVisits == 0) {
+            out << "No dropped visits";
+        } else {
+            out << boost::format("Dropped visits: %1%")
+                   % stats.DroppedVisits;
         }
+        out << std::endl;
 
-        for (int route_number = 0; route_number < routing.vehicles(); ++route_number) {
-            int64 order = routing.Start(route_number);
+        out << boost::format("Continuity of care average: %1% mean: %2% stddev: %3%")
+               % stats.CareContinuity.Mean
+               % stats.CareContinuity.Median
+               % stats.CareContinuity.Stddev
+            << std::endl;
+
+        for (int route_number = 0; route_number < model.vehicles(); ++route_number) {
+            int64 order = model.Start(route_number);
             out << boost::format("Route %1%: ") % route_number;
 
-            if (routing.IsEnd(plan.Value(routing.NextVar(order)))) {
+            if (model.IsEnd(solution.Value(model.NextVar(order)))) {
                 out << "Empty" << std::endl;
             } else {
                 while (true) {
-                    operations_research::IntVar *const time_var =
-                            time_dimension.CumulVar(order);
-                    operations_research::IntVar *const slack_var =
-                            routing.IsEnd(order) ? nullptr : time_dimension.SlackVar(order);
-                    if (slack_var != nullptr && plan.Contains(slack_var)) {
+                    operations_research::IntVar *const time_var = time_dimension->CumulVar(order);
+                    if (model.IsEnd(order)) {
+                        out << boost::format("%1% Time(%2%, %3%)")
+                               % order
+                               % solution.Min(time_var)
+                               % solution.Max(time_var);
+                        break;
+                    }
+
+                    operations_research::IntVar *const slack_var = time_dimension->SlackVar(order);
+                    if (slack_var != nullptr && solution.Contains(slack_var)) {
                         out << boost::format("%1% Time(%2%, %3%) Slack(%4%, %5%) -> ")
                                % order
-                               % plan.Min(time_var) % plan.Max(time_var)
-                               % plan.Min(slack_var) % plan.Max(slack_var);
-                    } else {
-                        out << boost::format("%1% Time(%2%, %3%) ->")
-                               % order
-                               % plan.Min(time_var)
-                               % plan.Max(time_var);
+                               % solution.Min(time_var) % solution.Max(time_var)
+                               % solution.Min(slack_var) % solution.Max(slack_var);
                     }
-                    if (routing.IsEnd(order)) break;
-                    order = plan.Value(routing.NextVar(order));
+
+                    order = solution.Value(model.NextVar(order));
                 }
                 out << std::endl;
             }
         }
-        LOG(INFO) << out.str();
+
+        LOG(INFO) << out.rdbuf();
     }
 
     operations_research::IntervalVar *SolverWrapper::CreateBreak(operations_research::Solver *const solver,
@@ -330,15 +334,16 @@ namespace rows {
 
     template<typename IteratorType>
     Location SolverWrapper::GetCentralLocation(IteratorType begin_it, IteratorType end_it) {
-        std::vector<std::tuple<double, double, double> > points;
+        std::vector<std::tuple<double, double, double>> points;
 
         for (auto it = begin_it; it != end_it; ++it) {
             points.push_back(ToCartesianCoordinates(it->latitude(), it->longitude()));
         }
 
         const auto average_point = GetAveragePoint(points);
-        std::pair<osrm::FixedLatitude, osrm::FixedLongitude> average_geo_point = ToGeographicCoordinates(average_point);
-        return Location(average_geo_point.first, average_geo_point.second);
+        std::pair<osrm::FixedLatitude, osrm::FixedLongitude> average_geo_point = ToGeographicCoordinates(
+                average_point);
+        return {average_geo_point.first, average_geo_point.second};
     }
 
 
@@ -457,7 +462,6 @@ namespace rows {
         // minimize time variables
         for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
             model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
-            model.AddVariableMaximizedByFinalizer(care_continuity_dimension->TransitVar(variable_index));
         }
 
         // minimize route duration
@@ -465,6 +469,32 @@ namespace rows {
             model.AddVariableMaximizedByFinalizer(time_dimension->CumulVar(model.Start(carer_index)));
             model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(carer_index)));
         }
+
+        // define and maximize the service satisfaction
+        for (const auto &service_user : problem_.service_users()) {
+            std::vector<operations_research::IntVar *> service_user_visits;
+
+            for (const auto &visit : problem_.visits()) {
+                if (visit.service_user() != service_user) {
+                    continue;
+                }
+
+                const auto visit_it = visit_index_.left.find(visit);
+                DCHECK(visit_it != std::end(visit_index_.left));
+
+                service_user_visits.push_back(care_continuity_dimension->TransitVar(visit_it->second.value()));
+            }
+
+            auto find_it = care_continuity_.find(service_user);
+            DCHECK(find_it != std::end(care_continuity_));
+
+            const auto care_satisfaction = model.solver()->MakeSum(service_user_visits)->Var();
+            find_it->second = care_satisfaction;
+
+            model.AddToAssignment(care_satisfaction);
+            model.AddVariableMaximizedByFinalizer(care_satisfaction);
+        }
+
 
         // Adding penalty costs to allow skipping orders.
         const int64 kPenalty = 10000000;
@@ -505,9 +535,11 @@ namespace rows {
         return depot_;
     }
 
-    std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit> > >
+    std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit>>>
+
     SolverWrapper::GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const {
-        std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit>>> routes;
+        std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit >>>
+                routes;
         for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
             const auto carer = Carer(vehicle);
             std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit >> route;
@@ -707,7 +739,7 @@ namespace rows {
     }
 
     std::tuple<double, double, double>
-    SolverWrapper::GetAveragePoint(const std::vector<std::tuple<double, double, double> > &points) const {
+    SolverWrapper::GetAveragePoint(const std::vector<std::tuple<double, double, double>> &points) const {
         double x = 0.0, y = 0.0, z = 0.0;
         for (const auto &point : points) {
             x += std::get<0>(point);
@@ -720,6 +752,110 @@ namespace rows {
 
     const Problem &SolverWrapper::problem() const {
         return problem_;
+    }
+
+    SolverWrapper::Statistics SolverWrapper::CalculateStats(const operations_research::RoutingModel &model,
+                                                            const operations_research::Assignment &solution) {
+        static const rows::RouteValidator route_validator{};
+
+        SolverWrapper::Statistics stats;
+
+        operations_research::RoutingDimension const *time_dimension = model.GetMutableDimension(TIME_DIMENSION);
+
+        stats.Cost = solution.ObjectiveValue();
+
+        std::vector<rows::Route> routes;
+        for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
+            auto carer = Carer(vehicle);
+            std::vector<rows::ScheduledVisit> carer_visits;
+
+            auto order = model.Start(static_cast<int>(model.NodeToIndex(vehicle)));
+            if (!model.IsEnd(solution.Value(model.NextVar(order)))) {
+                while (!model.IsEnd(order)) {
+                    const auto visit_index = model.IndexToNode(order);
+                    if (visit_index != DEPOT) {
+                        carer_visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
+                                                  carer,
+                                                  CalendarVisit(visit_index));
+                    }
+
+                    order = solution.Value(model.NextVar(order));
+                }
+            }
+
+            routes.emplace_back(std::move(carer), std::move(carer_visits));
+        }
+
+        const auto validation_errors = route_validator.Validate(routes, problem_, *this);
+        if (!validation_errors.empty()) {
+            stats.Errors = validation_errors.size();
+
+            VLOG(1) << boost::format("Solution has %1% validation errors") % stats.Errors << std::endl;
+            for (const auto &error : validation_errors) {
+                VLOG(1) << *error << std::endl;
+            }
+        }
+
+        boost::accumulators::accumulator_set<double,
+                boost::accumulators::stats<
+                        boost::accumulators::tag::mean,
+                        boost::accumulators::tag::median,
+                        boost::accumulators::tag::variance> > carer_work_stats;
+
+        boost::posix_time::time_duration total_available_time;
+        boost::posix_time::time_duration total_work_time;
+        for (const auto &route : routes) {
+            const auto validation_result = route_validator.Validate(route, *this);
+            if (!validation_result.error()) {
+                const auto &metrics = validation_result.metrics();
+                const auto work_time = metrics.available_time() - metrics.idle_time();
+                if (metrics.available_time().total_seconds() == 0) {
+                    continue;
+                }
+
+                const auto relative_utilization = static_cast<double>(work_time.total_seconds())
+                                                  / metrics.available_time().total_seconds();
+                DCHECK_GE(relative_utilization, 0.0);
+                carer_work_stats(relative_utilization);
+
+                total_available_time += metrics.available_time();
+                total_work_time += work_time;
+            }
+        }
+        stats.CarerUtility.Mean = boost::accumulators::mean(carer_work_stats);
+        stats.CarerUtility.Median = boost::accumulators::median(carer_work_stats);
+        stats.CarerUtility.Stddev = sqrt(boost::accumulators::variance(carer_work_stats));
+        stats.CarerUtility.TotalMean = (static_cast<double>(total_work_time.total_seconds()) /
+                                        total_available_time.total_seconds());
+
+        stats.DroppedVisits = 0;
+        for (int order = 1; order < model.nodes(); ++order) {
+            if (solution.Value(model.NextVar(order)) == order) {
+                ++stats.DroppedVisits;
+            }
+        }
+
+        boost::accumulators::accumulator_set<double,
+                boost::accumulators::stats<
+                        boost::accumulators::tag::mean,
+                        boost::accumulators::tag::median,
+                        boost::accumulators::tag::variance> > care_continuity_stats;
+
+        for (const auto &user_satisfaction_pair : care_continuity_) {
+            care_continuity_stats(solution.Value(user_satisfaction_pair.second));
+        }
+        stats.CareContinuity.Mean = boost::accumulators::mean(care_continuity_stats);
+        stats.CareContinuity.Median = boost::accumulators::median(care_continuity_stats);
+        stats.CareContinuity.Stddev = sqrt(boost::accumulators::variance(care_continuity_stats));
+
+        for (const auto &user_satisfaction_pair : care_continuity_) {
+            VLOG(1) << boost::format("User %1% satisfaction %2%")
+                       % user_satisfaction_pair.first.id()
+                       % solution.Min(user_satisfaction_pair.second)
+                    << std::endl;
+        }
+
+        return stats;
     }
 
     std::size_t SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {

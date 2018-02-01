@@ -16,6 +16,7 @@
 #include <ortools/constraint_solver/routing.h>
 
 #include "location.h"
+#include "solver_wrapper.h"
 
 namespace rows {
 
@@ -44,6 +45,7 @@ namespace rows {
         static const GephiAttributeMeta DURATION;
         static const GephiAttributeMeta ASSIGNED_CARER;
         static const GephiAttributeMeta TYPE;
+        static const GephiAttributeMeta SATISFACTION;
 
         static const GephiAttributeMeta TRAVEL_TIME;
 
@@ -78,6 +80,8 @@ namespace rows {
             std::string EdgeId(const std::string &from_id,
                                const std::string &to_id,
                                const std::string &prefix) const;
+
+            void SetStats(const rows::SolverWrapper::Statistics &stats);
 
             void AddNode(const std::string &node_id,
                          const std::string &label);

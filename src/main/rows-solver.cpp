@@ -210,6 +210,7 @@ int main(int argc, char **argv) {
             assignment = model.SolveWithParameters(wrapper.parameters());
         }
 
+        VLOG(1) << model.solver()->LocalSearchProfile();
         VLOG(1) << model.solver()->DebugString();
 
         if (assignment == nullptr) {
@@ -219,12 +220,7 @@ int main(int argc, char **argv) {
         rows::GexfWriter solution_writer;
         solution_writer.Write("../solution.gexf", wrapper, model, *assignment);
 
-        wrapper.DisplayPlan(model,
-                            *assignment,
-                /*use_same_vehicle_costs=*/false,
-                /*max_nodes_per_group=*/0,
-                /*same_vehicle_cost=*/0,
-                            model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION));
+        wrapper.DisplayPlan(model, *assignment);
 
         return STATUS_OK;
     } catch (util::ApplicationError &ex) {
