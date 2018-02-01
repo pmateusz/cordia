@@ -1,13 +1,22 @@
 #ifndef ROWS_GEXFWRITER_H
 #define ROWS_GEXFWRITER_H
 
+#include <memory>
 #include <string>
 #include <utility>
+#include <unordered_map>
+
+#include <libgexf/gexf.h>
+#include <libgexf/libgexf.h>
 
 #include <boost/filesystem.hpp>
+#include <boost/date_time.hpp>
 
 #include <ortools/constraint_solver/constraint_solver.h>
 #include <ortools/constraint_solver/routing.h>
+
+#include "location.h"
+#include "solver_wrapper.h"
 
 namespace rows {
 
@@ -36,19 +45,79 @@ namespace rows {
         static const GephiAttributeMeta DURATION;
         static const GephiAttributeMeta ASSIGNED_CARER;
         static const GephiAttributeMeta TYPE;
+        static const GephiAttributeMeta SATISFACTION;
+
+        static const GephiAttributeMeta TRAVEL_TIME;
 
         static const GephiAttributeMeta SAP_NUMBER;
-        static const GephiAttributeMeta UTILIZATION_RELATIVE;
-        static const GephiAttributeMeta UTILIZATION_ABSOLUTE;
-        static const GephiAttributeMeta UTILIZATION_AVAILABLE;
-        static const GephiAttributeMeta UTILIZATION_VISITS;
-        static const GephiAttributeMeta TRAVEL_TIME;
+        static const GephiAttributeMeta UTIL_RELATIVE;
+        static const GephiAttributeMeta UTIL_ABSOLUTE_TIME;
+        static const GephiAttributeMeta UTIL_AVAILABLE_TIME;
+        static const GephiAttributeMeta UTIL_SERVICE_TIME;
+        static const GephiAttributeMeta UTIL_TRAVEL_TIME;
+        static const GephiAttributeMeta UTIL_IDLE_TIME;
+        static const GephiAttributeMeta UTIL_VISITS_COUNT;
         static const GephiAttributeMeta DROPPED;
 
         void Write(const boost::filesystem::path &file_path,
                    SolverWrapper &solver,
                    const operations_research::RoutingModel &model,
                    const operations_research::Assignment &solution) const;
+
+    private:
+        class GexfEnvironmentWrapper {
+        public:
+            GexfEnvironmentWrapper();
+
+            void SetDefaultValues(const rows::Location &location);
+
+            std::string DepotId(operations_research::RoutingModel::NodeIndex depot_index) const;
+
+            std::string ServiceUserId(operations_research::RoutingModel::NodeIndex service_user_id) const;
+
+            std::string CarerId(operations_research::RoutingModel::NodeIndex carer_index) const;
+
+            std::string VisitId(operations_research::RoutingModel::NodeIndex visit_index) const;
+
+            std::string EdgeId(const std::string &from_id,
+                               const std::string &to_id,
+                               const std::string &prefix) const;
+
+            void SetStats(const rows::SolverWrapper::Statistics &stats);
+
+            void AddNode(const std::string &node_id,
+                         const std::string &label);
+
+            void SetNodeValue(const std::string &node_id,
+                              const GephiAttributeMeta &attribute,
+                              const boost::posix_time::time_duration &value);
+
+            void SetNodeValue(const std::string &node_id,
+                              const GephiAttributeMeta &attribute,
+                              const osrm::util::FixedLongitude &value);
+
+            void SetNodeValue(const std::string &node_id,
+                              const GephiAttributeMeta &attribute,
+                              const osrm::util::FixedLatitude &value);
+
+            void SetNodeValue(const std::string &node_id,
+                              const GephiAttributeMeta &attribute,
+                              const std::string &value);
+
+            void AddEdge(const std::string &edge_id,
+                         const std::string &from_id,
+                         const std::string &to_id,
+                         const std::string &label);
+
+            void SetEdgeValue(const std::string &edge_id,
+                              const GephiAttributeMeta &attribute,
+                              const boost::posix_time::time_duration &value);
+
+            void Write(const boost::filesystem::path &file_path);
+
+        private:
+            std::unique_ptr<libgexf::GEXF> env_ptr_;
+        };
     };
 }
 

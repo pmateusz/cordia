@@ -1,14 +1,8 @@
 #include "gexf_writer.h"
 
-#include <libgexf/gexf.h>
-#include <libgexf/libgexf.h>
-
 #include "util/pretty_print.h"
-#include "solver_wrapper.h"
 
 namespace rows {
-
-    // TODO: verify that the solution does not violate constraints
 
     const GexfWriter::GephiAttributeMeta GexfWriter::ID{"0", "id", "long", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::LONGITUDE{"1", "longitude", "double", "0"};
@@ -16,17 +10,22 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::TYPE{"3", "type", "string", "unknown"};
     const GexfWriter::GephiAttributeMeta GexfWriter::ASSIGNED_CARER{"4", "assigned_carer", "long", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::DROPPED{"5", "dropped", "bool", "false"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::SATISFACTION{"6", "satisfaction", "double", "0.0"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"6", "start_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"7", "duration", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"7", "start_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"8", "duration", "string", "00:00:00"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::SAP_NUMBER{"8", "sap_number", "string", "unknown"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_RELATIVE{"9", "work_rel", "double", "0"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_ABSOLUTE{"10", "work_abs", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_AVAILABLE{"11", "work_available", "string",
-                                                                           "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTILIZATION_VISITS{"12", "work_visits", "long", "0"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"1", "travel_time", "long", "0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"9", "travel_time", "string", "00:00:00"};
+
+    const GexfWriter::GephiAttributeMeta GexfWriter::SAP_NUMBER{"10", "sap_number", "string", "unknown"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_RELATIVE{"11", "work_relative", "double", "0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_ABSOLUTE_TIME{"12", "work_total_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_AVAILABLE_TIME{"13", "work_available_time", "string",
+                                                                         "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_SERVICE_TIME{"14", "work_service_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_TRAVEL_TIME{"15", "work_travel_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_IDLE_TIME{"16", "work_idle_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_VISITS_COUNT{"17", "work_visits_count", "long", "0"};
 
     void GexfWriter::Write(const boost::filesystem::path &file_path,
                            SolverWrapper &solver,
@@ -34,182 +33,329 @@ namespace rows {
                            const operations_research::Assignment &solution) const {
         static const auto VISIT_NODE = "visit";
         static const auto CARER_NODE = "carer";
+        static const auto SERVICE_USER_NODE = "user";
         static const auto TRUE_VALUE = "true";
 
-        std::unique_ptr<libgexf::GEXF> env_ptr = std::make_unique<libgexf::GEXF>();
+        operations_research::RoutingDimension const *care_continuity_dim = model.GetMutableDimension(
+                SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
-        auto &data = env_ptr->getData();
+        operations_research::RoutingDimension const *time_dim = model.GetMutableDimension(
+                rows::SolverWrapper::TIME_DIMENSION);
+
+        const auto stats = solver.CalculateStats(model, solution);
+
+        GexfEnvironmentWrapper gexf;
+        gexf.SetStats(stats);
+
+        const auto central_location = solver.depot();
+        gexf.SetDefaultValues(central_location);
+
+        const auto depot_id = gexf.DepotId(SolverWrapper::DEPOT);
+        gexf.AddNode(depot_id, "depot");
+
+        gexf.SetNodeValue(depot_id, LATITUDE, central_location.latitude());
+        gexf.SetNodeValue(depot_id, LONGITUDE, central_location.longitude());
+        gexf.SetNodeValue(depot_id, TYPE, VISIT_NODE);
+
+        for (operations_research::RoutingModel::NodeIndex visit_index{1};
+             visit_index < model.nodes();
+             ++visit_index) {
+            const auto visit_id = gexf.VisitId(visit_index);
+            const auto &visit = solver.CalendarVisit(visit_index);
+
+            gexf.AddNode(visit_id, (boost::format("visit %1%") % visit_index.value()).str());
+            gexf.SetNodeValue(visit_id, TYPE, VISIT_NODE);
+            if (visit.location()) {
+                gexf.SetNodeValue(visit_id, LATITUDE, visit.location().get().latitude());
+                gexf.SetNodeValue(visit_id, LONGITUDE, visit.location().get().longitude());
+            }
+            if (solution.Value(model.NextVar(visit_index.value())) == visit_index.value()) {
+                gexf.SetNodeValue(visit_id, DROPPED, TRUE_VALUE);
+            }
+
+            gexf.SetNodeValue(visit_id, START_TIME, visit.datetime().time_of_day());
+            gexf.SetNodeValue(visit_id, DURATION, visit.duration());
+        }
+
+
+        static const RouteValidator validator{};
+
+        operations_research::RoutingModel::NodeIndex next_user_node{0};
+        std::unordered_map <rows::ServiceUser,
+        operations_research::RoutingModel::NodeIndex> user_ids;
+        for (const auto &service_user : solver.problem().service_users()) {
+            const auto user_node = next_user_node++;
+            const auto inserted = user_ids.emplace(service_user, user_node);
+            DCHECK(inserted.second);
+
+            const auto user_id = gexf.ServiceUserId(user_node);
+            gexf.AddNode(user_id, (boost::format("user %1%") % user_node).str());
+            gexf.SetNodeValue(user_id, ID, service_user.id());
+            gexf.SetNodeValue(user_id, TYPE, SERVICE_USER_NODE);
+
+            const auto &location = service_user.location();
+            gexf.SetNodeValue(user_id, LONGITUDE, location.longitude());
+            gexf.SetNodeValue(user_id, LATITUDE, location.latitude());
+            gexf.SetNodeValue(user_id,
+                              SATISFACTION,
+                              std::to_string(solution.Min(solver.CareContinuityDimVar(service_user))));
+
+            auto visit_counter = 1;
+            for (operations_research::RoutingModel::NodeIndex visit_index{1};
+                 visit_index < model.nodes();
+                 ++visit_index) {
+                const auto &visit = solver.CalendarVisit(visit_index);
+                if (visit.service_user() != service_user) {
+                    continue;
+                }
+
+                const auto visit_id = gexf.VisitId(visit_index);
+                const auto edge_id = gexf.EdgeId(user_id, visit_id, "uv_");
+                gexf.AddEdge(edge_id,
+                             user_id,
+                             visit_id,
+                             (boost::format("Visit %1% of %2%")
+                              % visit_counter++
+                              % service_user.id()).str());
+            }
+        }
+
+        for (operations_research::RoutingModel::NodeIndex carer_index{0};
+             carer_index < model.vehicles();
+             ++carer_index) {
+            const auto &carer = solver.Carer(carer_index);
+            const auto carer_id = gexf.CarerId(carer_index);
+
+            std::vector <rows::ScheduledVisit> route;
+
+            gexf.AddNode(carer_id, (boost::format("carer %1%") % carer_index.value()).str());
+            gexf.SetNodeValue(carer_id, ID, carer.sap_number());
+            gexf.SetNodeValue(carer_id, TYPE, CARER_NODE);
+            gexf.SetNodeValue(carer_id, SAP_NUMBER, carer.sap_number());
+
+            if (!model.IsVehicleUsed(solution, carer_index.value())) {
+                gexf.SetNodeValue(carer_id, DROPPED, TRUE_VALUE);
+                continue;
+            }
+
+            auto start_visit_index = model.Start(carer_index.value());
+            DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit_index))));
+
+            while (true) {
+                const auto start_visit_node = model.IndexToNode(start_visit_index);
+                std::string start_visit_id;
+
+                if (start_visit_node == SolverWrapper::DEPOT) {
+                    start_visit_id = gexf.DepotId(start_visit_node);
+                } else {
+                    start_visit_id = gexf.VisitId(start_visit_node);
+
+                    const auto &calendar_visit = solver.CalendarVisit(start_visit_node);
+                    route.emplace_back(ScheduledVisit::VisitType::UNKNOWN, carer, calendar_visit);
+
+                    const auto carer_visit_edge_id = gexf.EdgeId(carer_id, start_visit_id, "c_");
+                    gexf.AddEdge(carer_visit_edge_id,
+                                 carer_id,
+                                 start_visit_id,
+                                 (boost::format("Carer %1% does visit %2%")
+                                  % carer_index
+                                  % start_visit_node).str());
+
+                    const auto &service_user = solver.ServiceUser(start_visit_node);
+                    gexf.SetNodeValue(start_visit_id,
+                                      SATISFACTION,
+                                      std::to_string(service_user.Preference(carer)));
+                }
+
+                if (model.IsEnd(start_visit_index)) { break; }
+
+                const auto end_visit_index = solution.Value(model.NextVar(start_visit_index));
+                const auto end_visit_node = model.IndexToNode(end_visit_index);
+
+                std::string end_visit_id;
+                if (end_visit_node == SolverWrapper::DEPOT) {
+                    end_visit_id = gexf.DepotId(end_visit_node);
+                } else {
+                    end_visit_id = gexf.VisitId(end_visit_node);
+                }
+
+                const auto visit_visit_edge_id = gexf.EdgeId(start_visit_id, end_visit_id, "r_");
+                gexf.AddEdge(visit_visit_edge_id,
+                             start_visit_id,
+                             end_visit_id,
+                             (boost::format("Visit %1% after %2%")
+                              % start_visit_node
+                              % end_visit_node).str());
+
+                const auto travel_time = solver.Distance(start_visit_node, end_visit_node);
+                DCHECK_GE(travel_time, 0);
+                if (!model.IsEnd(end_visit_index)) {
+                    gexf.SetNodeValue(end_visit_id, ASSIGNED_CARER, carer.sap_number());
+                }
+
+                gexf.SetEdgeValue(visit_visit_edge_id,
+                                  TRAVEL_TIME,
+                                  boost::posix_time::seconds(travel_time));
+                start_visit_index = end_visit_index;
+            }
+
+            if (route.empty()) {
+                continue;
+            }
+
+            gexf.SetNodeValue(carer_id, UTIL_VISITS_COUNT, std::to_string(route.size()));
+            const auto validation_result = validator.Validate(rows::Route(carer, route), solver);
+
+            if (validation_result.error()) {
+                LOG(ERROR) << (boost::format("Route %1% is invalid %2%")
+                               % carer
+                               % *validation_result.error()).str();
+            } else {
+                const auto &metrics = validation_result.metrics();
+                gexf.SetNodeValue(carer_id, UTIL_AVAILABLE_TIME, metrics.available_time());
+                gexf.SetNodeValue(carer_id, UTIL_SERVICE_TIME, metrics.service_time());
+                gexf.SetNodeValue(carer_id, UTIL_IDLE_TIME, metrics.idle_time());
+                gexf.SetNodeValue(carer_id, UTIL_TRAVEL_TIME, metrics.travel_time());
+
+                const auto work_duration = metrics.service_time() + metrics.travel_time();
+                DCHECK_LE(work_duration, metrics.available_time());
+                if (work_duration.total_seconds() > 0) {
+                    const auto relative_duration = static_cast<double>(work_duration.total_seconds())
+                                                   / metrics.available_time().total_seconds();
+                    gexf.SetNodeValue(carer_id, UTIL_RELATIVE, std::to_string(relative_duration));
+                    gexf.SetNodeValue(carer_id, UTIL_ABSOLUTE_TIME, work_duration);
+                }
+            }
+        }
+
+        gexf.Write(file_path);
+    }
+
+    GexfWriter::GexfEnvironmentWrapper::GexfEnvironmentWrapper()
+            : env_ptr_(std::make_unique<libgexf::GEXF>()) {}
+
+    void GexfWriter::GexfEnvironmentWrapper::SetDefaultValues(const rows::Location &location) {
+        auto &data = env_ptr_->getData();
         for (const auto &attr : {ID, TYPE, DROPPED, START_TIME, DURATION, ASSIGNED_CARER,
-                                 SAP_NUMBER, UTILIZATION_ABSOLUTE, UTILIZATION_AVAILABLE, UTILIZATION_RELATIVE,
-                                 UTILIZATION_VISITS}) {
+                                 SAP_NUMBER,
+                                 UTIL_RELATIVE,
+                                 UTIL_ABSOLUTE_TIME,
+                                 UTIL_AVAILABLE_TIME,
+                                 UTIL_SERVICE_TIME,
+                                 UTIL_TRAVEL_TIME,
+                                 UTIL_IDLE_TIME,
+                                 UTIL_VISITS_COUNT}) {
             data.addNodeAttributeColumn(attr.Id, attr.Name, attr.Type);
             data.setNodeAttributeDefault(attr.Id, attr.DefaultValue);
         }
 
-        const auto central_location = solver.depot();
         data.addNodeAttributeColumn(LATITUDE.Id, LATITUDE.Name, LATITUDE.Type);
-        data.setNodeAttributeDefault(LATITUDE.Id,
-                                     util::to_simple_string(osrm::toFloating(central_location.latitude())));
+        data.setNodeAttributeDefault(LATITUDE.Id, util::to_simple_string(osrm::toFloating(location.latitude())));
         data.addNodeAttributeColumn(LONGITUDE.Id, LONGITUDE.Name, LONGITUDE.Type);
-        data.setNodeAttributeDefault(LONGITUDE.Id,
-                                     util::to_simple_string(osrm::toFloating(central_location.longitude())));
-
+        data.setNodeAttributeDefault(LONGITUDE.Id, util::to_simple_string(osrm::toFloating(location.longitude())));
         data.addEdgeAttributeColumn(TRAVEL_TIME.Id, TRAVEL_TIME.Name, TRAVEL_TIME.Type);
         data.setEdgeAttributeDefault(TRAVEL_TIME.Id, TRAVEL_TIME.DefaultValue);
+    }
 
-        auto &graph = env_ptr->getDirectedGraph();
+    void GexfWriter::GexfEnvironmentWrapper::AddNode(const std::string &node_id,
+                                                     const std::string &label) {
+        CHECK(!env_ptr_->getDirectedGraph().containsNode(node_id));
 
-        long node_id = 0;
-        const auto raw_depot_id = node_id;
-        std::unordered_map<operations_research::RoutingModel::NodeIndex, std::string> node_ids;
-        node_ids.emplace(SolverWrapper::DEPOT, std::to_string(node_id++));
+        env_ptr_->getDirectedGraph().addNode(node_id);
+        env_ptr_->getData().setNodeLabel(node_id, label);
+    }
 
-        const auto depot_id = std::to_string(raw_depot_id);
-        graph.addNode(depot_id);
-        data.setNodeLabel(depot_id, "depot");
-        data.setNodeValue(depot_id, ID.Id, depot_id);
-        data.setNodeValue(depot_id, LATITUDE.Id,
-                          util::to_simple_string(osrm::toFloating(central_location.latitude())));
-        data.setNodeValue(depot_id, LONGITUDE.Id,
-                          util::to_simple_string(osrm::toFloating(central_location.longitude())));
-        data.setNodeValue(depot_id, TYPE.Id, VISIT_NODE);
+    void GexfWriter::GexfEnvironmentWrapper::Write(const boost::filesystem::path &file_path) {
+        DCHECK(env_ptr_->checkIntegrity());
 
-        for (operations_research::RoutingModel::NodeIndex visit_index{1}; visit_index < model.nodes(); ++visit_index) {
-            const auto &visit = solver.CalendarVisit(visit_index);
-
-            const auto raw_visit_id = node_id;
-            node_ids.emplace(visit_index, std::to_string(node_id++));
-            const auto visit_id = std::to_string(raw_visit_id);
-
-            graph.addNode(visit_id);
-
-            data.setNodeLabel(visit_id, visit_id);
-            data.setNodeValue(visit_id, ID.Id, visit_id);
-            data.setNodeValue(visit_id, TYPE.Id, VISIT_NODE);
-            if (visit.location()) {
-                data.setNodeValue(visit_id, LATITUDE.Id,
-                                  util::to_simple_string(osrm::toFloating(visit.location().get().latitude())));
-                data.setNodeValue(visit_id, LONGITUDE.Id,
-                                  util::to_simple_string(osrm::toFloating(visit.location().get().longitude())));
-            }
-            if (solution.Value(model.NextVar(visit_index.value())) == visit_index.value()) {
-                data.setNodeValue(visit_id, DROPPED.Id, TRUE_VALUE);
-            }
-
-            data.setNodeValue(visit_id, START_TIME.Id,
-                              boost::posix_time::to_simple_string(visit.datetime().time_of_day()));
-            data.setNodeValue(visit_id, DURATION.Id, boost::posix_time::to_simple_string(visit.duration()));
-        }
-
-//        operations_research::RoutingDimension *const time_dim = model.GetMutableDimension(
-//                rows::SolverWrapper::TIME_DIMENSION);
-
-        // TODO: id allocation should be a class
-
-        auto edge_id = 0;
-        for (operations_research::RoutingModel::NodeIndex carer_index{0};
-             carer_index < model.vehicles(); ++carer_index) {
-
-            const auto &carer = solver.Carer(carer_index);
-            const auto raw_carer_id = node_id;
-            node_ids.emplace(carer_index, std::to_string(node_id++));
-            const auto carer_id = std::to_string(raw_carer_id);
-            graph.addNode(carer_id);
-
-            data.setNodeLabel(carer_id, carer_id);
-            data.setNodeValue(carer_id, ID.Id, carer_id);
-            data.setNodeValue(carer_id, TYPE.Id, CARER_NODE);
-
-            if (!model.IsVehicleUsed(solution, carer_index.value())) {
-                data.setNodeValue(carer_id, DROPPED.Id, TRUE_VALUE);
-                continue;
-            }
-
-            data.setNodeValue(carer_id, SAP_NUMBER.Id, carer.sap_number());
-
-            auto start_visit = model.Start(carer_index.value());
-
-            DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit))));
-
-            boost::posix_time::time_duration work_available{boost::posix_time::seconds(0)};
-            const auto diary = solver.Diary(carer_index);
-            for (const auto &event : diary.events()) {
-                work_available += event.duration();
-            }
-
-            auto total_visits = 0;
-            boost::posix_time::time_duration work_duration{boost::posix_time::seconds(0)};
-            while (true) {
-// information about slack variables
-//                operations_research::IntVar *const time_var = time_dim->CumulVar(start_visit);
-//                operations_research::IntVar *const slack_var = model.IsEnd(start_visit) ? nullptr : time_dim->SlackVar(
-//                        start_visit);
-//                if (slack_var != nullptr && solution.Contains(slack_var)) {
-//                    boost::format("%1% Time(%2%, %3%) Slack(%4%, %5%) -> ")
-//                    % start_visit
-//                    % solution.Min(time_var) % solution.Max(time_var)
-//                    % solution.Min(slack_var) % solution.Max(slack_var);
-//                } else {
-//                    boost::format("%1% Time(%2%, %3%) ->")
-//                    % start_visit
-//                    % solution.Min(time_var)
-//                    % solution.Max(time_var);
-//                }
-
-                const auto carer_visit_edge = std::to_string(edge_id++);
-
-                const auto start_visit_node = model.IndexToNode(start_visit);
-                const auto start_visit_id = (*node_ids.find(
-                        operations_research::RoutingModel::NodeIndex(start_visit_node))).second;
-
-                graph.addEdge(carer_visit_edge, carer_id, start_visit_id);
-
-                if (model.IsEnd(start_visit)) { break; }
-
-                const auto start_visit_to_end_visit_edge = std::to_string(edge_id++);
-                const auto end_visit = solution.Value(model.NextVar(start_visit));
-                const auto end_visit_node = model.IndexToNode(end_visit);
-                const auto end_visit_id = (*node_ids.find(
-                        operations_research::RoutingModel::NodeIndex(end_visit_node))).second;
-
-                graph.addEdge(start_visit_to_end_visit_edge, start_visit_id, end_visit_id);
-
-                const auto travel_time = solver.Distance(start_visit_node, end_visit_node);
-                DCHECK_GE(travel_time, 0);
-                if (!model.IsEnd(end_visit)) {
-                    if (!model.IsStart(start_visit)) {
-                        work_duration += boost::posix_time::seconds(travel_time);
-                    }
-
-                    const auto &visit = solver.CalendarVisit(end_visit_node);
-                    work_duration += visit.duration();
-
-                    data.setNodeValue(end_visit_id, ASSIGNED_CARER.Id, carer_id);
-
-                    ++total_visits;
-                }
-
-                data.setEdgeValue(start_visit_to_end_visit_edge, TRAVEL_TIME.Id, std::to_string(travel_time));
-                start_visit = end_visit;
-            }
-
-            if (total_visits > 0) {
-                data.setNodeValue(carer_id, UTILIZATION_VISITS.Id, std::to_string(total_visits));
-            }
-            data.setNodeValue(carer_id, UTILIZATION_AVAILABLE.Id, boost::posix_time::to_simple_string(work_available));
-            data.setNodeValue(carer_id, UTILIZATION_ABSOLUTE.Id, boost::posix_time::to_simple_string(work_duration));
-
-            DCHECK_LE(work_duration, work_available);
-            if (work_duration.total_seconds() > 0) {
-                const auto relative_duration = static_cast<double>(work_duration.total_seconds())
-                                               / work_available.total_seconds();
-                data.setNodeValue(carer_id, UTILIZATION_RELATIVE.Id, std::to_string(relative_duration));
-            }
-        }
-
-        DCHECK(env_ptr->checkIntegrity());
-
-        libgexf::FileWriter file_writer(file_path.string(), env_ptr.get());
+        libgexf::FileWriter file_writer(file_path.string(), env_ptr_.get());
         file_writer.write();
+    }
+
+    void GexfWriter::GexfEnvironmentWrapper::AddEdge(const std::string &edge_id,
+                                                     const std::string &from_id,
+                                                     const std::string &to_id,
+                                                     const std::string &label) {
+        env_ptr_->getDirectedGraph().addEdge(edge_id, from_id, to_id);
+        env_ptr_->getData().setEdgeLabel(edge_id, label);
+    }
+
+    void GexfWriter::GexfEnvironmentWrapper::SetEdgeValue(const std::string &edge_id,
+                                                          const GexfWriter::GephiAttributeMeta &attribute,
+                                                          const boost::posix_time::time_duration &value) {
+        env_ptr_->getData().setEdgeValue(edge_id, attribute.Id, boost::posix_time::to_simple_string(value));
+    }
+
+    void GexfWriter::GexfEnvironmentWrapper::SetNodeValue(const std::string &node_id,
+                                                          const GexfWriter::GephiAttributeMeta &attribute,
+                                                          const boost::posix_time::time_duration &value) {
+        SetNodeValue(node_id, attribute, boost::posix_time::to_simple_string(value));
+    }
+
+    void GexfWriter::GexfEnvironmentWrapper::SetNodeValue(const std::string &node_id,
+                                                          const GexfWriter::GephiAttributeMeta &attribute,
+                                                          const osrm::util::FixedLongitude &value) {
+        SetNodeValue(node_id, attribute, util::to_simple_string(osrm::util::toFloating(value)));
+    }
+
+    void GexfWriter::GexfEnvironmentWrapper::SetNodeValue(const std::string &node_id,
+                                                          const GexfWriter::GephiAttributeMeta &attribute,
+                                                          const osrm::util::FixedLatitude &value) {
+        SetNodeValue(node_id, attribute, util::to_simple_string(osrm::util::toFloating(value)));
+    }
+
+    void GexfWriter::GexfEnvironmentWrapper::SetNodeValue(const std::string &node_id,
+                                                          const GexfWriter::GephiAttributeMeta &attribute,
+                                                          const std::string &value) {
+        CHECK(env_ptr_->getDirectedGraph().containsNode(node_id));
+
+        env_ptr_->getData().setNodeValue(node_id, attribute.Id, value);
+    }
+
+    std::string GexfWriter::GexfEnvironmentWrapper::DepotId(
+            operations_research::RoutingModel::NodeIndex depot_index) const {
+        return (boost::format("d%1%") % depot_index).str();
+    }
+
+    std::string GexfWriter::GexfEnvironmentWrapper::CarerId(
+            operations_research::RoutingModel::NodeIndex carer_index) const {
+        return (boost::format("c%1%") % carer_index).str();
+    }
+
+    std::string GexfWriter::GexfEnvironmentWrapper::VisitId(
+            operations_research::RoutingModel::NodeIndex visit_index) const {
+        return (boost::format("v%1%") % visit_index).str();
+    }
+
+    std::string GexfWriter::GexfEnvironmentWrapper::EdgeId(const std::string &from_id,
+                                                           const std::string &to_id,
+                                                           const std::string &prefix) const {
+        return (boost::format("e%1%%2%%3%")
+                % prefix
+                % from_id
+                % to_id).str();
+    }
+
+    std::string GexfWriter::GexfEnvironmentWrapper::ServiceUserId(
+            operations_research::RoutingModel::NodeIndex service_user_id) const {
+        return (boost::format("u%1%")
+                % service_user_id).str();
+    }
+
+    void GexfWriter::GexfEnvironmentWrapper::SetStats(const rows::SolverWrapper::Statistics &stats) {
+        env_ptr_->getMetaData().setDescription(
+                (boost::format("Cost: %1%\nErrors: %2%\nDropped visits: %3%\n"
+                                       "Care continuity: mean: %4% median: %5% stddev: %6%\n"
+                                       "Carer utility: mean: %7% median: %8% stddev: %9% total ration: %10%\n")
+                 % stats.Cost
+                 % stats.Errors
+                 % stats.DroppedVisits
+                 % stats.CareContinuity.Mean
+                 % stats.CareContinuity.Median
+                 % stats.CareContinuity.Stddev
+                 % stats.CarerUtility.Mean
+                 % stats.CarerUtility.Median
+                 % stats.CarerUtility.Stddev
+                 % stats.CarerUtility.TotalMean).str());
     }
 }

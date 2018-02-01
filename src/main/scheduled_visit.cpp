@@ -11,6 +11,17 @@ namespace rows {
             : ScheduledVisit(ScheduledVisit::VisitType::UNKNOWN, {}, {}, {}, {}, {}, {}) {}
 
     ScheduledVisit::ScheduledVisit(ScheduledVisit::VisitType type,
+                                   Carer carer,
+                                   CalendarVisit calendar_visit)
+            : ScheduledVisit(type,
+                             boost::make_optional(carer),
+                             calendar_visit.datetime(),
+                             calendar_visit.duration(),
+                             boost::none,
+                             boost::none,
+                             boost::make_optional(calendar_visit)) {}
+
+    ScheduledVisit::ScheduledVisit(ScheduledVisit::VisitType type,
                                    boost::optional<Carer> carer,
                                    boost::posix_time::ptime datetime,
                                    boost::posix_time::ptime::time_duration_type duration,
@@ -18,12 +29,12 @@ namespace rows {
                                    boost::optional<boost::posix_time::ptime> check_out,
                                    boost::optional<CalendarVisit> calendar_visit)
             : type_(type),
-              carer_(carer),
+              carer_(std::move(carer)),
               datetime_(datetime),
-              duration_(duration),
-              check_in_(check_in),
-              check_out_(check_out),
-              calendar_visit_(calendar_visit) {}
+              duration_(std::move(duration)),
+              check_in_(std::move(check_in)),
+              check_out_(std::move(check_out)),
+              calendar_visit_(std::move(calendar_visit)) {}
 
     ScheduledVisit::ScheduledVisit(const ScheduledVisit &other)
             : type_(other.type_),

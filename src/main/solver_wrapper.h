@@ -25,9 +25,9 @@
 
 namespace rows {
 
-    class Solution;
-
     class ScheduledVisit;
+
+    class Solution;
 
     class SolverWrapper {
     public:
@@ -51,6 +51,25 @@ namespace rows {
             int64 visit_count_;
         };
 
+        struct Statistics {
+            double Cost{0.0};
+            std::size_t DroppedVisits{0};
+            std::size_t Errors{0};
+
+            struct {
+                double Mean{0.0};
+                double Median{0.0};
+                double Stddev{0.0};
+            } CareContinuity;
+
+            struct {
+                double Mean{0.0};
+                double Median{0.0};
+                double Stddev{0.0};
+                double TotalMean{0.0};
+            } CarerUtility;
+        };
+
         static const operations_research::RoutingModel::NodeIndex DEPOT;
         static const int64 SECONDS_IN_DAY;
         static const std::string TIME_DIMENSION;
@@ -60,6 +79,9 @@ namespace rows {
         explicit SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config);
 
         void ConfigureModel(operations_research::RoutingModel &model);
+
+        Statistics CalculateStats(const operations_research::RoutingModel &model,
+                                  const operations_research::Assignment &solution);
 
         boost::posix_time::ptime::time_duration_type TravelTime(const Location &from, const Location &to);
 
@@ -81,29 +103,34 @@ namespace rows {
 
         rows::CalendarVisit CalendarVisit(operations_research::RoutingModel::NodeIndex visit) const;
 
+        const LocalServiceUser &ServiceUser(const rows::ServiceUser &service_user) const;
+
         const LocalServiceUser &ServiceUser(operations_research::RoutingModel::NodeIndex visit) const;
 
-        rows::Diary Diary(operations_research::RoutingModel::NodeIndex carer) const;
+        operations_research::IntVar const *CareContinuityDimVar(const rows::ExtendedServiceUser &service_user) const;
+
+        boost::optional<rows::Diary> Diary(operations_research::RoutingModel::NodeIndex carer,
+                                           boost::gregorian::date date) const;
+
+        boost::optional<rows::Diary> Diary(const rows::Carer &carer,
+                                           boost::gregorian::date date) const;
 
         rows::Carer Carer(operations_research::RoutingModel::NodeIndex carer) const;
 
         std::vector<operations_research::IntervalVar *> Breaks(operations_research::Solver *solver,
-                                                               operations_research::RoutingModel::NodeIndex carer) const;
-
-        std::vector<operations_research::RoutingModel::NodeIndex> Carers() const;
+                                                               const rows::Carer &carer,
+                                                               const rows::Diary &diary) const;
 
         const Location &depot() const;
+
+        const Problem &problem() const;
 
         int NodesCount() const;
 
         int VehicleCount() const;
 
         void DisplayPlan(const operations_research::RoutingModel &routing,
-                         const operations_research::Assignment &plan,
-                         bool use_same_vehicle_costs,
-                         int64 max_nodes_per_group,
-                         int64 same_vehicle_cost,
-                         const operations_research::RoutingDimension &time_dimension);
+                         const operations_research::Assignment &plan);
 
         static std::vector<rows::Location> GetUniqueLocations(const rows::Problem &problem);
 
@@ -112,9 +139,9 @@ namespace rows {
 
         const operations_research::RoutingSearchParameters &parameters() const;
 
-        rows::Solution ResolveValidationErrors(const rows::Solution &solution,
-                                               const rows::Problem &problem,
-                                               const operations_research::RoutingModel &model);
+        Solution ResolveValidationErrors(const rows::Solution &solution,
+                                         const rows::Problem &problem,
+                                         const operations_research::RoutingModel &model);
 
         std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit> > >
         GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
@@ -172,7 +199,7 @@ namespace rows {
                                                                      const boost::posix_time::time_duration &duration,
                                                                      const std::string &label) const;
 
-        static std::string GetBreakLabel(operations_research::RoutingModel::NodeIndex carer, BreakType break_type);
+        static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
 
         SolverWrapper(const rows::Problem &problem,
                       const std::vector<rows::Location> &locations,
@@ -191,6 +218,8 @@ namespace rows {
         boost::bimaps::bimap<
                 boost::bimaps::unordered_set_of<rows::CalendarVisit, PartialVisitOperations, PartialVisitOperations>,
                 operations_research::RoutingModel::NodeIndex> visit_index_;
+
+        std::unordered_map<rows::ExtendedServiceUser, operations_research::IntVar *> care_continuity_;
 
         std::vector<CareContinuityMetrics> care_continuity_metrics_;
     };
