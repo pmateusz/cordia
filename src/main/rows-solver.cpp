@@ -62,7 +62,7 @@ rows::Problem LoadReducedProblem(const std::string &problem_path) {
     problem_stream.open(problem_file.c_str());
     if (!problem_stream.is_open()) {
         throw util::ApplicationError((boost::format("Failed to open the file: %1%") % problem_file).str(),
-                                     STATUS_ERROR);
+                                     util::ErrorCode::ERROR);
     }
 
     nlohmann::json problem_json;
@@ -71,7 +71,7 @@ rows::Problem LoadReducedProblem(const std::string &problem_path) {
     } catch (...) {
         throw util::ApplicationError((boost::format("Failed to open the file: %1%") % problem_file).str(),
                                      boost::current_exception_diagnostic_information(),
-                                     STATUS_ERROR);
+                                     util::ErrorCode::ERROR);
     }
 
     rows::Problem problem;
@@ -81,7 +81,7 @@ rows::Problem LoadReducedProblem(const std::string &problem_path) {
     } catch (const std::domain_error &ex) {
         throw util::ApplicationError(
                 (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % problem_file % ex.what()).str(),
-                STATUS_ERROR);
+                util::ErrorCode::ERROR);
     }
 
     const auto timespan_pair = problem.Timespan();
@@ -103,7 +103,7 @@ rows::Solution LoadSolution(const std::string &solution_path, const rows::Proble
     solution_stream.open(solution_file.c_str());
     if (!solution_stream.is_open()) {
         throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
-                                     STATUS_ERROR);
+                                     util::ErrorCode::ERROR);
     }
 
     nlohmann::json solution_json;
@@ -112,7 +112,7 @@ rows::Solution LoadSolution(const std::string &solution_path, const rows::Proble
     } catch (...) {
         throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
                                      boost::current_exception_diagnostic_information(),
-                                     STATUS_ERROR);
+                                     util::ErrorCode::ERROR);
     }
 
     try {
@@ -123,7 +123,7 @@ rows::Solution LoadSolution(const std::string &solution_path, const rows::Proble
     } catch (const std::domain_error &ex) {
         throw util::ApplicationError(
                 (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % solution_file % ex.what()).str(),
-                STATUS_ERROR);
+                util::ErrorCode::ERROR);
     }
 }
 
@@ -134,7 +134,7 @@ osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
     config.algorithm = osrm::EngineConfig::Algorithm::MLD;
 
     if (!config.IsValid()) {
-        throw util::ApplicationError("Invalid Open Street Map engine configuration", 1);
+        throw util::ApplicationError("Invalid Open Street Map engine configuration", util::ErrorCode::ERROR);
     }
 
     return config;
@@ -202,7 +202,7 @@ int main(int argc, char **argv) {
 
             auto initial_assignment = model.ReadAssignmentFromRoutes(node_routes, false);
             if (!model.solver()->CheckAssignment(initial_assignment)) {
-                throw util::ApplicationError("Solution for warm start is not valid.", STATUS_ERROR);
+                throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
             }
             assignment = model.SolveFromAssignmentWithParameters(initial_assignment, wrapper.parameters());
         } else {
@@ -214,8 +214,12 @@ int main(int argc, char **argv) {
         VLOG(1) << model.solver()->DebugString();
 
         if (assignment == nullptr) {
-            throw util::ApplicationError("No solution found.", STATUS_ERROR);
+            throw util::ApplicationError("No solution found.", util::ErrorCode::ERROR);
         }
+
+        operations_research::Assignment validation_copy{assignment};
+        const auto is_solution_correct = model.solver()->CheckAssignment(&validation_copy);
+        DCHECK(is_solution_correct);
 
         rows::GexfWriter solution_writer;
         solution_writer.Write("../solution.gexf", wrapper, model, *assignment);
@@ -225,6 +229,6 @@ int main(int argc, char **argv) {
         return STATUS_OK;
     } catch (util::ApplicationError &ex) {
         LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();
-        return ex.exit_code();
+        return util::to_exit_code(ex.error_code());
     }
 }

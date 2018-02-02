@@ -181,7 +181,7 @@ namespace rows {
                 throw util::ApplicationError(
                         (boost::format("Handling not implemented for visit type: %1%") %
                          static_cast<int>(visit_type)).str(),
-                        1);
+                        util::ErrorCode::ERROR);
         }
         return out;
     }

@@ -53,7 +53,7 @@ namespace rows {
             : problem_(problem),
               depot_(GetCentralLocation(std::cbegin(locations), std::cend(locations))),
               depot_service_user_(),
-              time_window_(boost::posix_time::minutes(30)),
+              visit_time_window_(boost::posix_time::minutes(30)),
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(CreateSearchParameters()),
               service_users_(),
@@ -304,13 +304,7 @@ namespace rows {
                                                                  const boost::posix_time::time_duration &start_time,
                                                                  const boost::posix_time::time_duration &duration,
                                                                  const std::string &label) const {
-        static const auto IS_OPTIONAL = false;
-        return solver->MakeFixedDurationIntervalVar(
-                start_time.total_seconds(),
-                start_time.total_seconds(),
-                duration.total_seconds(),
-                IS_OPTIONAL,
-                label);
+        return solver->MakeFixedInterval(start_time.total_seconds(), duration.total_seconds(), label);
     }
 
     operations_research::IntervalVar *SolverWrapper::CreateBreakWithTimeWindows(operations_research::Solver *solver,
@@ -392,7 +386,7 @@ namespace rows {
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-        parameters.set_time_limit_ms(boost::posix_time::seconds(10).total_milliseconds());
+        parameters.set_time_limit_ms(boost::posix_time::seconds(20).total_milliseconds());
 //        parameters.set_use_light_propagation(true);
         parameters.mutable_local_search_operators()->set_use_path_lns(false);
         parameters.mutable_local_search_operators()->set_use_inactive_lns(false);
@@ -403,7 +397,7 @@ namespace rows {
         static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
 
-        VLOG(1) << "Time window width: " << time_window_;
+        VLOG(1) << "Time window width: " << visit_time_window_;
 
         model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
 
@@ -431,22 +425,35 @@ namespace rows {
         operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
-        const auto &carer_diary_pairs = problem_.carers();
+        if (model.nodes() == 0) {
+            throw util::ApplicationError("Model contains no visits.", util::ErrorCode::ERROR);
+        }
+
+        const auto schedule_day = CalendarVisit(operations_research::RoutingModel::NodeIndex{1}).datetime().date();
+        if (model.nodes() > 1) {
+            for (operations_research::RoutingModel::NodeIndex visit_node{2}; visit_node < model.nodes(); ++visit_node) {
+                const auto &visit = CalendarVisit(visit_node);
+                if (visit.datetime().date() != schedule_day) {
+                    throw util::ApplicationError("Visits span across multiple days.", util::ErrorCode::ERROR);
+                }
+            }
+
+        }
+
         operations_research::Solver *const solver = model.solver();
-        for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
-            const auto &carer_diary_pair = carer_diary_pairs[vehicle.value()];
-            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver,
-                                                              carer_diary_pair.first,
-                                                              carer_diary_pair.second.front()),
-                                                       vehicle.value());
+        for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+            const auto &carer = Carer(operations_research::RoutingModel::NodeIndex{vehicle});
+            const auto &diary = problem_.diary(carer, schedule_day);
+            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver, carer, diary.get()), vehicle);
         }
 
         // set visit start times
         for (operations_research::RoutingModel::NodeIndex visit_node{1}; visit_node < model.nodes(); ++visit_node) {
             const auto &visit = CalendarVisit(visit_node);
+            const auto visit_index = model.NodeToIndex(visit_node);
 
             const auto exact_start = visit.datetime().time_of_day();
-            auto visit_start = time_dimension->CumulVar(visit_node.value());
+            auto visit_start = time_dimension->CumulVar(visit_index);
             if (HasTimeWindows()) {
                 visit_start->SetRange(GetBeginWindow(exact_start), GetEndWindow(exact_start));
 
@@ -458,7 +465,7 @@ namespace rows {
                 visit_start->SetValue(exact_start.total_seconds());
             }
 
-            model.AddToAssignment(time_dimension->SlackVar(visit_node.value()));
+            model.AddToAssignment(time_dimension->SlackVar(visit_index));
 
             visit_index_.insert({visit, visit_node});
         }
@@ -469,9 +476,9 @@ namespace rows {
         }
 
         // minimize route duration
-        for (auto carer_index = 0; carer_index < model.vehicles(); ++carer_index) {
-            model.AddVariableMaximizedByFinalizer(time_dimension->CumulVar(model.Start(carer_index)));
-            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(carer_index)));
+        for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+            model.AddVariableMaximizedByFinalizer(time_dimension->CumulVar(model.Start(vehicle)));
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(vehicle)));
         }
 
         // define and maximize the service satisfaction
@@ -642,7 +649,7 @@ namespace rows {
                     continue; // is handled separately after all other problems are treated
                 default:
                     throw util::ApplicationError((boost::format("Error code %1% ignored") % error->error_code()).str(),
-                                                 1);
+                                                 util::ErrorCode::ERROR);
             }
         }
         for (const auto &error : validation_errors) {
@@ -705,15 +712,15 @@ namespace rows {
     }
 
     bool SolverWrapper::HasTimeWindows() const {
-        return time_window_.ticks() != 0;
+        return visit_time_window_.ticks() != 0;
     }
 
     int64 SolverWrapper::GetBeginWindow(boost::posix_time::time_duration value) const {
-        return std::max((value - time_window_).total_seconds(), 0);
+        return std::max((value - visit_time_window_).total_seconds(), 0);
     }
 
     int64 SolverWrapper::GetEndWindow(boost::posix_time::time_duration value) const {
-        return std::min((value + time_window_).total_seconds(), static_cast<int>(SECONDS_IN_DAY));
+        return std::min((value + visit_time_window_).total_seconds(), static_cast<int>(SECONDS_IN_DAY));
     }
 
     int64 SolverWrapper::Preference(operations_research::RoutingModel::NodeIndex to, const rows::Carer &carer) const {
@@ -769,11 +776,11 @@ namespace rows {
         stats.Cost = solution.ObjectiveValue();
 
         std::vector<rows::Route> routes;
-        for (operations_research::RoutingModel::NodeIndex vehicle{0}; vehicle < model.vehicles(); ++vehicle) {
-            auto carer = Carer(vehicle);
+        for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+            auto carer = Carer(operations_research::RoutingModel::NodeIndex{vehicle});
             std::vector<rows::ScheduledVisit> carer_visits;
 
-            auto order = model.Start(static_cast<int>(model.NodeToIndex(vehicle)));
+            auto order = model.Start(vehicle);
             if (!model.IsEnd(solution.Value(model.NextVar(order)))) {
                 while (!model.IsEnd(order)) {
                     const auto visit_index = model.IndexToNode(order);
@@ -798,6 +805,8 @@ namespace rows {
             for (const auto &error : validation_errors) {
                 VLOG(1) << *error << std::endl;
             }
+
+            DCHECK(false);
         }
 
         boost::accumulators::accumulator_set<double,

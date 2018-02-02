@@ -44,16 +44,21 @@ namespace rows {
 
         class ValidationError {
         public:
-            ValidationError(ErrorCode error_code);
+            explicit ValidationError(RouteValidator::ErrorCode error_code);
+
+            ValidationError(RouteValidator::ErrorCode error_code, std::string error_message);
 
             friend std::ostream &operator<<(std::ostream &out, const ValidationError &error);
 
-            ErrorCode error_code() const;
+            const std::string &error_message() const;
+
+            RouteValidator::ErrorCode error_code() const;
 
         protected:
-            virtual void Print(std::ostream &out) const = 0;
+            virtual void Print(std::ostream &out) const;
 
-            ErrorCode error_code_;
+            RouteValidator::ErrorCode error_code_;
+            std::string error_message_;
         };
 
         class RouteConflictError : public ValidationError {
@@ -75,9 +80,9 @@ namespace rows {
         class ScheduledVisitError : public ValidationError {
         public:
             ScheduledVisitError(ErrorCode error_code,
+                                std::string error_message,
                                 const ScheduledVisit &visit,
-                                const rows::Route &route,
-                                std::string error_message);
+                                const rows::Route &route);
 
             const rows::ScheduledVisit &visit() const;
 
@@ -87,7 +92,6 @@ namespace rows {
         private:
             rows::ScheduledVisit visit_;
             rows::Route route_;
-            std::string error_message_;
         };
 
         class Metrics {
@@ -159,6 +163,8 @@ namespace rows {
         ScheduledVisitError CreateMissingInformationError(const rows::Route &route,
                                                           const rows::ScheduledVisit &visit,
                                                           std::string error_msg) const;
+
+        ValidationError CreateValidationError(std::string error_msg) const;
 
         ScheduledVisitError CreateAbsentCarerError(const rows::Route &route,
                                                    const rows::ScheduledVisit &visit) const;

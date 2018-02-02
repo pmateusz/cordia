@@ -81,8 +81,8 @@ namespace rows {
         static const RouteValidator validator{};
 
         operations_research::RoutingModel::NodeIndex next_user_node{0};
-        std::unordered_map <rows::ServiceUser,
-        operations_research::RoutingModel::NodeIndex> user_ids;
+        std::unordered_map<rows::ServiceUser,
+                operations_research::RoutingModel::NodeIndex> user_ids;
         for (const auto &service_user : solver.problem().service_users()) {
             const auto user_node = next_user_node++;
             const auto inserted = user_ids.emplace(service_user, user_node);
@@ -126,7 +126,7 @@ namespace rows {
             const auto &carer = solver.Carer(carer_index);
             const auto carer_id = gexf.CarerId(carer_index);
 
-            std::vector <rows::ScheduledVisit> route;
+            std::vector<rows::ScheduledVisit> route;
 
             gexf.AddNode(carer_id, (boost::format("carer %1%") % carer_index.value()).str());
             gexf.SetNodeValue(carer_id, ID, carer.sap_number());
@@ -237,6 +237,7 @@ namespace rows {
     void GexfWriter::GexfEnvironmentWrapper::SetDefaultValues(const rows::Location &location) {
         auto &data = env_ptr_->getData();
         for (const auto &attr : {ID, TYPE, DROPPED, START_TIME, DURATION, ASSIGNED_CARER,
+                                 SATISFACTION,
                                  SAP_NUMBER,
                                  UTIL_RELATIVE,
                                  UTIL_ABSOLUTE_TIME,

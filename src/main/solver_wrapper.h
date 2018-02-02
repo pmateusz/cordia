@@ -208,7 +208,7 @@ namespace rows {
         const rows::Problem &problem_;
         const Location depot_;
         const LocalServiceUser depot_service_user_;
-        boost::posix_time::time_duration time_window_;
+        boost::posix_time::time_duration visit_time_window_;
         rows::CachedLocationContainer location_container_;
 
         operations_research::RoutingSearchParameters parameters_;
