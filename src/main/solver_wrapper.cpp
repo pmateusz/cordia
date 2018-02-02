@@ -806,7 +806,8 @@ namespace rows {
                 VLOG(1) << *error << std::endl;
             }
 
-            DCHECK(false);
+// TODO: comment out to run simulations
+//            DCHECK(false);
         }
 
         boost::accumulators::accumulator_set<double,

@@ -8,13 +8,13 @@ namespace util {
     inline bool COMP_GT(boost::posix_time::time_duration left,
                         boost::posix_time::time_duration right,
                         boost::posix_time::time_duration margin) {
-        return left > right;
+        return left > (right + margin);
     }
 
     inline bool COMP_LT(boost::posix_time::time_duration left,
                         boost::posix_time::time_duration right,
                         boost::posix_time::time_duration margin) {
-        return left < right;
+        return (left + margin) < right;
     }
 
     inline bool COMP_NEAR(boost::posix_time::time_duration left,

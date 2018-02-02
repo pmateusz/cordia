@@ -11,21 +11,22 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::ASSIGNED_CARER{"4", "assigned_carer", "long", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::DROPPED{"5", "dropped", "bool", "false"};
     const GexfWriter::GephiAttributeMeta GexfWriter::SATISFACTION{"6", "satisfaction", "double", "0.0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::USER{"7", "user", "string", "unknown"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"7", "start_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"8", "duration", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"8", "start_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"9", "duration", "string", "00:00:00"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"9", "travel_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"10", "travel_time", "string", "00:00:00"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::SAP_NUMBER{"10", "sap_number", "string", "unknown"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_RELATIVE{"11", "work_relative", "double", "0"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_ABSOLUTE_TIME{"12", "work_total_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_AVAILABLE_TIME{"13", "work_available_time", "string",
+    const GexfWriter::GephiAttributeMeta GexfWriter::SAP_NUMBER{"11", "sap_number", "string", "unknown"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_RELATIVE{"12", "work_relative", "double", "0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_ABSOLUTE_TIME{"13", "work_total_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_AVAILABLE_TIME{"14", "work_available_time", "string",
                                                                          "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_SERVICE_TIME{"14", "work_service_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_TRAVEL_TIME{"15", "work_travel_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_IDLE_TIME{"16", "work_idle_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_VISITS_COUNT{"17", "work_visits_count", "long", "0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_SERVICE_TIME{"15", "work_service_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_TRAVEL_TIME{"16", "work_travel_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_IDLE_TIME{"17", "work_idle_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_VISITS_COUNT{"18", "work_visits_count", "long", "0"};
 
     void GexfWriter::Write(const boost::filesystem::path &file_path,
                            SolverWrapper &solver,
@@ -75,6 +76,7 @@ namespace rows {
 
             gexf.SetNodeValue(visit_id, START_TIME, visit.datetime().time_of_day());
             gexf.SetNodeValue(visit_id, DURATION, visit.duration());
+            gexf.SetNodeValue(visit_id, USER, visit.service_user().id());
         }
 
 
@@ -99,6 +101,9 @@ namespace rows {
             gexf.SetNodeValue(user_id,
                               SATISFACTION,
                               std::to_string(solution.Min(solver.CareContinuityDimVar(service_user))));
+            gexf.SetNodeValue(user_id,
+                              UTIL_VISITS_COUNT,
+                              std::to_string(solver.ServiceUser(service_user).visit_count()));
 
             auto visit_counter = 1;
             for (operations_research::RoutingModel::NodeIndex visit_index{1};
@@ -236,7 +241,7 @@ namespace rows {
 
     void GexfWriter::GexfEnvironmentWrapper::SetDefaultValues(const rows::Location &location) {
         auto &data = env_ptr_->getData();
-        for (const auto &attr : {ID, TYPE, DROPPED, START_TIME, DURATION, ASSIGNED_CARER,
+        for (const auto &attr : {ID, TYPE, DROPPED, START_TIME, DURATION, ASSIGNED_CARER, USER,
                                  SATISFACTION,
                                  SAP_NUMBER,
                                  UTIL_RELATIVE,
