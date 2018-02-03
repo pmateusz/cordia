@@ -44,7 +44,6 @@
 #include "gexf_writer.h"
 
 
-static const int STATUS_ERROR = 1;
 static const int STATUS_OK = 1;
 
 DEFINE_string(problem_file, "../problem.json", "a file path to the problem instance");
@@ -171,7 +170,7 @@ int main(int argc, char **argv) {
         auto engine_config = CreateEngineConfig(FLAGS_map_file);
         rows::SolverWrapper wrapper(problem_to_use, engine_config);
 
-        operations_research::RoutingModel model{wrapper.NodesCount(),
+        operations_research::RoutingModel model{static_cast<int>(wrapper.problem().visits().size() + 1),
                                                 wrapper.VehicleCount(),
                                                 rows::SolverWrapper::DEPOT};
         wrapper.ConfigureModel(model);

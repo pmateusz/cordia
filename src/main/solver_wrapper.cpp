@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <numeric>
 #include <vector>
+#include <functional>
 #include <chrono>
 #include <tuple>
 #include <cmath>
@@ -71,10 +72,6 @@ namespace rows {
             DCHECK(insert_it.second);
 
             care_continuity_.insert(std::make_pair(service_user, nullptr));
-        }
-
-        for (const auto &carer_pair : problem_.carers()) {
-            care_continuity_metrics_.emplace_back(*this, carer_pair.first);
         }
     }
 
@@ -159,10 +156,9 @@ namespace rows {
             return depot_service_user_;
         }
 
-        const auto visit_index = visit.value();
-        DCHECK_GE(visit_index, 1);
-        const auto &calendar_visit = problem_.visits()[visit_index];
-        return ServiceUser(calendar_visit.service_user());
+        const auto find_it = visit_index_.right.find(visit);
+        DCHECK(find_it != std::cend(visit_index_.right));
+        return ServiceUser(find_it->second.service_user());
     }
 
     const rows::SolverWrapper::LocalServiceUser &SolverWrapper::ServiceUser(
@@ -221,10 +217,6 @@ namespace rows {
             default:
                 throw std::domain_error((boost::format("Handling label '%1%' is not implemented") % carer).str());
         }
-    }
-
-    int SolverWrapper::NodesCount() const {
-        return static_cast<int>(problem_.visits().size() + 1);
     }
 
     int SolverWrapper::VehicleCount() const {
@@ -386,15 +378,18 @@ namespace rows {
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-        parameters.set_time_limit_ms(boost::posix_time::seconds(20).total_milliseconds());
-//        parameters.set_use_light_propagation(true);
-        parameters.mutable_local_search_operators()->set_use_path_lns(false);
-        parameters.mutable_local_search_operators()->set_use_inactive_lns(false);
+        parameters.set_solution_limit(16);
+        parameters.set_time_limit_ms(boost::posix_time::minutes(3).total_milliseconds());
+
+        static const auto USE_ADVANCED_SEARCH = true;
+        parameters.set_use_light_propagation(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_path_lns(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_inactive_lns(USE_ADVANCED_SEARCH);
         return parameters;
     }
 
     void SolverWrapper::ConfigureModel(operations_research::RoutingModel &model) {
-        static const auto VEHICLES_CAN_START_AT_DIFFERENT_TIMES = true;
+        static const auto START_FROM_ZERO_TIME = true;
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
 
         VLOG(1) << "Time window width: " << visit_time_window_;
@@ -404,26 +399,11 @@ namespace rows {
         model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
                            SECONDS_IN_DAY,
                            SECONDS_IN_DAY,
-                           VEHICLES_CAN_START_AT_DIFFERENT_TIMES,
+                           START_FROM_ZERO_TIME,
                            TIME_DIMENSION);
 
         operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(
                 rows::SolverWrapper::TIME_DIMENSION);
-
-        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
-        for (const auto &carer_metrics : care_continuity_metrics_) {
-            care_continuity_evaluators.push_back(
-                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
-        }
-
-        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
-                                              0,
-                                              CARE_CONTINUITY_MAX,
-                                              START_FROM_ZERO_SERVICE_SATISFACTION,
-                                              CARE_CONTINUITY_DIMENSION);
-
-        operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
-                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
         if (model.nodes() == 0) {
             throw util::ApplicationError("Model contains no visits.", util::ErrorCode::ERROR);
@@ -437,14 +417,15 @@ namespace rows {
                     throw util::ApplicationError("Visits span across multiple days.", util::ErrorCode::ERROR);
                 }
             }
-
         }
 
         operations_research::Solver *const solver = model.solver();
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto &carer = Carer(operations_research::RoutingModel::NodeIndex{vehicle});
             const auto &diary = problem_.diary(carer, schedule_day);
-            time_dimension->SetBreakIntervalsOfVehicle(Breaks(solver, carer, diary.get()), vehicle);
+
+            const auto breaks = Breaks(solver, carer, diary.get());
+            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle);
         }
 
         // set visit start times
@@ -470,6 +451,25 @@ namespace rows {
             visit_index_.insert({visit, visit_node});
         }
 
+        for (const auto &carer_pair : problem_.carers()) {
+            care_continuity_metrics_.emplace_back(*this, carer_pair.first);
+        }
+
+        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
+        for (const auto &carer_metrics : care_continuity_metrics_) {
+            care_continuity_evaluators.push_back(
+                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
+        }
+
+        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
+                                              0,
+                                              CARE_CONTINUITY_MAX,
+                                              START_FROM_ZERO_SERVICE_SATISFACTION,
+                                              CARE_CONTINUITY_DIMENSION);
+
+        operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
+                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
+
         // minimize time variables
         for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
             model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
@@ -477,7 +477,7 @@ namespace rows {
 
         // minimize route duration
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
-            model.AddVariableMaximizedByFinalizer(time_dimension->CumulVar(model.Start(vehicle)));
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.Start(vehicle)));
             model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(vehicle)));
         }
 
@@ -505,7 +505,6 @@ namespace rows {
             model.AddToAssignment(care_satisfaction);
             model.AddVariableMaximizedByFinalizer(care_satisfaction);
         }
-
 
         // Adding penalty costs to allow skipping orders.
         const int64 kPenalty = 10000000;
@@ -775,7 +774,17 @@ namespace rows {
 
         stats.Cost = solution.ObjectiveValue();
 
-        std::vector<rows::Route> routes;
+        boost::accumulators::accumulator_set<double,
+                boost::accumulators::stats<
+                        boost::accumulators::tag::mean,
+                        boost::accumulators::tag::median,
+                        boost::accumulators::tag::variance> > carer_work_stats;
+
+        boost::posix_time::time_duration total_available_time;
+        boost::posix_time::time_duration total_work_time;
+
+        auto total_errors = 0;
+        std::vector<std::pair<rows::Route, RouteValidator::ValidationResult>> route_pairs;
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             auto carer = Carer(operations_research::RoutingModel::NodeIndex{vehicle});
             std::vector<rows::ScheduledVisit> carer_visits;
@@ -794,33 +803,13 @@ namespace rows {
                 }
             }
 
-            routes.emplace_back(std::move(carer), std::move(carer_visits));
-        }
+            rows::Route route{carer, carer_visits};
+            VLOG(2) << "Route: " << vehicle;
+            RouteValidator::ValidationResult validation_result = route_validator.Validate(route, *this);
 
-        const auto validation_errors = route_validator.Validate(routes, problem_, *this);
-        if (!validation_errors.empty()) {
-            stats.Errors = validation_errors.size();
-
-            VLOG(1) << boost::format("Solution has %1% validation errors") % stats.Errors << std::endl;
-            for (const auto &error : validation_errors) {
-                VLOG(1) << *error << std::endl;
-            }
-
-// TODO: comment out to run simulations
-//            DCHECK(false);
-        }
-
-        boost::accumulators::accumulator_set<double,
-                boost::accumulators::stats<
-                        boost::accumulators::tag::mean,
-                        boost::accumulators::tag::median,
-                        boost::accumulators::tag::variance> > carer_work_stats;
-
-        boost::posix_time::time_duration total_available_time;
-        boost::posix_time::time_duration total_work_time;
-        for (const auto &route : routes) {
-            const auto validation_result = route_validator.Validate(route, *this);
-            if (!validation_result.error()) {
+            if (validation_result.error()) {
+                ++total_errors;
+            } else {
                 const auto &metrics = validation_result.metrics();
                 const auto work_time = metrics.available_time() - metrics.idle_time();
                 if (metrics.available_time().total_seconds() == 0) {
@@ -835,7 +824,71 @@ namespace rows {
                 total_available_time += metrics.available_time();
                 total_work_time += work_time;
             }
+
+            route_pairs.emplace_back(std::move(route), std::move(validation_result));
         }
+
+        if (total_errors > 0) {
+            VLOG(2) << "Total validation errors: " << total_errors;
+
+            auto vehicle = 0;
+            for (const auto &route_pair : route_pairs) {
+                if (static_cast<bool>(route_pair.second.error())) {
+                    VLOG(1) << boost::format("Route %1%: %2%")
+                               % vehicle
+                               % *route_pair.second.error();
+
+                    VLOG(1) << "Expected path: ";
+                    for (const auto &visit : route_pair.first.visits()) {
+                        VLOG(1) << boost::format("[%1%, %2%] %3% %4%")
+                                   % boost::posix_time::seconds(GetBeginWindow(visit.datetime().time_of_day()))
+                                   % boost::posix_time::seconds(GetEndWindow(visit.datetime().time_of_day()))
+                                   % visit.duration()
+                                   % visit.service_user();
+                    }
+
+                    VLOG(1) << "Solved path: ";
+                    auto order = model.Start(vehicle);
+                    if (!model.IsEnd(solution.Value(model.NextVar(order)))) {
+                        while (!model.IsEnd(order)) {
+                            const auto visit_index = model.IndexToNode(order);
+                            if (visit_index != DEPOT) {
+                                const auto time_var = time_dimension->CumulVar(order);
+                                VLOG(1) << boost::format("[%1%, %2%]")
+                                           % boost::posix_time::seconds(solution.Min(time_var))
+                                           % boost::posix_time::seconds(solution.Max(time_var));
+                            }
+
+                            order = solution.Value(model.NextVar(order));
+                        }
+                    }
+
+                    // TODO: compare with results from the solution
+                }
+
+                ++vehicle;
+            }
+
+            for (const auto &break_interval : solution.IntervalVarContainer().elements()) {
+                const auto start = boost::posix_time::seconds(break_interval.StartValue());
+                const auto finish = start + boost::posix_time::seconds(break_interval.DurationValue());
+
+                if (break_interval.PerformedValue() == 1) {
+                    VLOG(1) << boost::format("%1% [%2%,%3%] %4%")
+                               % break_interval.Var()->name()
+                               % start
+                               % finish
+                               % break_interval.DebugString();
+                } else {
+                    VLOG(1) << break_interval.Var()->name() << " unperformed";
+                }
+            }
+        }
+
+        VLOG(1) << model.DebugOutputAssignment(solution, "");
+
+        DCHECK_EQ(total_errors, 0);
+
         stats.CarerUtility.Mean = boost::accumulators::mean(carer_work_stats);
         stats.CarerUtility.Median = boost::accumulators::median(carer_work_stats);
         stats.CarerUtility.Stddev = sqrt(boost::accumulators::variance(carer_work_stats));
@@ -894,8 +947,9 @@ namespace rows {
     SolverWrapper::CareContinuityMetrics::CareContinuityMetrics(const SolverWrapper &solver,
                                                                 const rows::Carer &carer)
             : values_() {
-        const auto nodes_count = solver.NodesCount();
-        for (operations_research::RoutingModel::NodeIndex visit_index{1}; visit_index < nodes_count; ++visit_index) {
+        const auto visit_it_end = std::cend(solver.visit_index_.left);
+        for (auto visit_it = std::cbegin(solver.visit_index_.left); visit_it != visit_it_end; ++visit_it) {
+            const auto &visit_index = visit_it->second;
             const auto &service_user = solver.ServiceUser(visit_index);
             if (service_user.IsPreferred(carer)) {
                 values_.insert(std::make_pair(visit_index, service_user.Preference(carer)));

@@ -10,7 +10,7 @@
 namespace rows {
 
     Problem::Problem(std::vector<CalendarVisit> visits,
-                     std::vector<std::pair<Carer, std::vector<Diary> > > carers,
+                     std::vector<std::pair<Carer, std::vector<Diary> > > carers ,
                      std::vector<ExtendedServiceUser> service_users)
             : visits_(std::move(visits)),
               carers_(std::move(carers)),

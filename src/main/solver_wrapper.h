@@ -125,8 +125,6 @@ namespace rows {
 
         const Problem &problem() const;
 
-        int NodesCount() const;
-
         int VehicleCount() const;
 
         void DisplayPlan(const operations_research::RoutingModel &routing,

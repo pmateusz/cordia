@@ -607,7 +607,7 @@ approached: (55893744, -4363840) [ 09:00:00,10:00:00 ] travelled: 00:00:00 arriv
               error_{std::move(error)} {}
 
     RouteValidator::ValidationResult::ValidationResult(RouteValidator::ValidationResult &&other) noexcept
-            : metrics_{},
+            : metrics_{std::move(other.metrics_)},
               error_{std::move(other.error_)} {}
 
     std::unique_ptr<RouteValidator::ValidationError> &RouteValidator::ValidationResult::error() {
