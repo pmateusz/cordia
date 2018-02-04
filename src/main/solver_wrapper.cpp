@@ -24,6 +24,12 @@
 #include <ortools/sat/integer_expr.h>
 #include <util/aplication_error.h>
 
+#include <osrm/coordinate.hpp>
+#include <osrm/engine_config.hpp>
+#include <osrm/json_container.hpp>
+#include <osrm/storage_config.hpp>
+#include <osrm/engine/api/route_parameters.hpp>
+
 
 #include "calendar_visit.h"
 #include "carer.h"
@@ -515,16 +521,6 @@ namespace rows {
             model.AddDisjunction(orders, kPenalty);
         }
 
-        VLOG(1) << "Finalizing definition of the routing model...";
-        const auto start_time_model_closing = std::chrono::high_resolution_clock::now();
-
-        model.CloseModelWithParameters(parameters_);
-
-        const auto end_time_model_closing = std::chrono::high_resolution_clock::now();
-        VLOG(1) << boost::format("Definition of the routing model finalized in %1% seconds")
-                   % std::chrono::duration_cast<std::chrono::seconds>(
-                end_time_model_closing - start_time_model_closing).count();
-
         VLOG(1) << "Computing missing entries of the distance matrix...";
         const auto start_time_distance_computation = std::chrono::high_resolution_clock::now();
 
@@ -535,6 +531,16 @@ namespace rows {
                    % distance_pairs
                    % std::chrono::duration_cast<std::chrono::seconds>(
                 end_time_distance_computation - start_time_distance_computation).count();
+
+        VLOG(1) << "Finalizing definition of the routing model...";
+        const auto start_time_model_closing = std::chrono::high_resolution_clock::now();
+
+        model.CloseModelWithParameters(parameters_);
+
+        const auto end_time_model_closing = std::chrono::high_resolution_clock::now();
+        VLOG(1) << boost::format("Definition of the routing model finalized in %1% seconds")
+                   % std::chrono::duration_cast<std::chrono::seconds>(
+                end_time_model_closing - start_time_model_closing).count();
     }
 
     const operations_research::RoutingSearchParameters &SolverWrapper::parameters() const {
@@ -831,6 +837,58 @@ namespace rows {
         if (total_errors > 0) {
             VLOG(2) << "Total validation errors: " << total_errors;
 
+            std::unordered_set<std::pair<osrm::util::FixedLongitude, osrm::util::FixedLatitude> > coordinates;
+            for (const auto &route_pair : route_pairs) {
+                if (!route_pair.second.error()) {
+                    continue;
+                }
+
+                for (const auto &visit : route_pair.first.visits()) {
+                    const auto &location = visit.location().get();
+                    coordinates.insert(std::make_pair(location.longitude(), location.latitude()));
+                }
+            }
+
+            osrm::EngineConfig config;
+            config.storage_config = osrm::StorageConfig("/home/pmateusz/dev/cordia/data/scotland-latest.osrm");
+            config.use_shared_memory = false;
+            config.algorithm = osrm::EngineConfig::Algorithm::MLD;
+
+            const osrm::OSRM engine{config};
+
+            const auto get_distance = [&engine](std::pair<osrm::util::FixedLongitude, osrm::util::FixedLatitude> source,
+                                                std::pair<osrm::util::FixedLongitude, osrm::util::FixedLatitude> destination) -> double {
+                osrm::RouteParameters params;
+                params.coordinates.emplace_back(source.first, source.second);
+                params.coordinates.emplace_back(destination.first, destination.second);
+
+                osrm::json::Object result;
+                engine.Route(params, result);
+                auto &routes = result.values["routes"].get<osrm::json::Array>();
+                auto &route = routes.values.at(0).get<osrm::json::Object>();
+                return route.values["duration"].get<osrm::json::Number>().value;
+            };
+
+            for (const auto &source: coordinates) {
+                std::vector<double> distances;
+                for (const auto &target: coordinates) {
+                    distances.push_back(get_distance(source, target));
+                }
+
+                std::vector<std::string> text_distances;
+                std::transform(std::cbegin(distances),
+                               std::cend(distances),
+                               std::back_inserter(text_distances),
+                               [](double value) -> std::string {
+                                   return std::to_string(static_cast<int>(std::ceil(value)));
+                               });
+
+                VLOG(1) << boost::format("(%1%,%2%) : %3%")
+                           % source.first
+                           % source.second
+                           % boost::algorithm::join(text_distances, ", ");
+            }
+
             auto vehicle = 0;
             for (const auto &route_pair : route_pairs) {
                 if (static_cast<bool>(route_pair.second.error())) {
@@ -840,7 +898,10 @@ namespace rows {
 
                     VLOG(1) << "Expected path: ";
                     for (const auto &visit : route_pair.first.visits()) {
-                        VLOG(1) << boost::format("[%1%, %2%] %3% %4%")
+                        const auto &location = visit.location().get();
+                        VLOG(1) << boost::format("(%1%,%2%) [%3%, %4%] %5% %6%")
+                                   % location.latitude()
+                                   % location.longitude()
                                    % boost::posix_time::seconds(GetBeginWindow(visit.datetime().time_of_day()))
                                    % boost::posix_time::seconds(GetEndWindow(visit.datetime().time_of_day()))
                                    % visit.duration()
@@ -862,8 +923,6 @@ namespace rows {
                             order = solution.Value(model.NextVar(order));
                         }
                     }
-
-                    // TODO: compare with results from the solution
                 }
 
                 ++vehicle;
@@ -918,8 +977,8 @@ namespace rows {
         return stats;
     }
 
-    operations_research::IntVar const *SolverWrapper::CareContinuityDimVar(
-            const rows::ExtendedServiceUser &service_user) const {
+    operations_research::IntVar const *
+    SolverWrapper::CareContinuityDimVar(const rows::ExtendedServiceUser &service_user) const {
         const auto service_user_it = care_continuity_.find(service_user);
         DCHECK(service_user_it != std::cend(care_continuity_));
         return service_user_it->second;
