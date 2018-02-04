@@ -76,8 +76,41 @@ namespace rows {
         return static_cast<std::int32_t>(value_part + decimal_coefficient * decimal_part);
     }
 
+
     std::ostream &operator<<(std::ostream &out, const Location &object) {
         out << boost::format("(%1%, %2%)") % object.latitude_ % object.longitude_;
         return out;
+    }
+
+    Location::CartesianCoordinates Location::ToCartesianCoordinates(const osrm::FixedLatitude &latitude,
+                                                                    const osrm::FixedLongitude &longitude) {
+        const auto latitude_to_use = (static_cast<double>(osrm::toFloating(latitude)) * M_PI) / 180.0;
+        const auto longitude_to_use = (static_cast<double>(osrm::toFloating(longitude)) * M_PI) / 180.0;
+
+        double x = cos(latitude_to_use) * cos(longitude_to_use);
+        double y = cos(latitude_to_use) * sin(longitude_to_use);
+        double z = sin(latitude_to_use);
+        return {x, y, z};
+    }
+
+    std::pair<osrm::FixedLatitude, osrm::FixedLongitude> Location::ToGeographicCoordinates(
+            const Location::CartesianCoordinates &coordinates) {
+        const auto longitude = (atan2(std::get<1>(coordinates), std::get<0>(coordinates)) * 180.0) / M_PI;
+        const auto hyperplane = sqrt(pow(std::get<0>(coordinates), 2.0) + pow(std::get<1>(coordinates), 2.0));
+        const auto latitude = (atan2(std::get<2>(coordinates), hyperplane) * 180.0) / M_PI;
+
+        return std::make_pair(osrm::toFixed(osrm::util::FloatLatitude{latitude}),
+                              osrm::toFixed(osrm::util::FloatLongitude{longitude}));
+    }
+
+    Location::CartesianCoordinates Location::GetCentralPoint(const std::vector<CartesianCoordinates> &points) {
+        double x = 0.0, y = 0.0, z = 0.0;
+        for (const auto &point : points) {
+            x += std::get<0>(point);
+            y += std::get<1>(point);
+            z += std::get<2>(point);
+        }
+        const double points_count = std::max(static_cast<double>(points.size()), 1.0);
+        return {x / points_count, y / points_count, z / points_count};
     }
 }

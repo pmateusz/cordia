@@ -171,7 +171,7 @@ namespace rows {
                     continue;
                 }
 
-                const auto index = solver.TryIndex(visit);
+                const auto index = solver.TryVisitToNode(visit);
                 if (!index.is_initialized()) {
                     validation_errors.emplace_back(
                             std::make_unique<ScheduledVisitError>(CreateOrphanedError(route, visit)));
@@ -242,7 +242,7 @@ namespace rows {
             const rows::Route &route,
             const ScheduledVisit &visit) const {
         return {ErrorCode::ABSENT_CARER,
-                (boost::format("Carer %1% is absent on the visit %2% day.")
+                (boost::format("NodeToCarer %1% is absent on the visit %2% day.")
                  % route.carer().sap_number()
                  % visit.service_user().get().id()).str(),
                 visit,
@@ -254,7 +254,7 @@ namespace rows {
             const rows::ScheduledVisit &visit,
             const boost::posix_time::ptime::time_duration_type delay) const {
         return {ErrorCode::LATE_ARRIVAL,
-                (boost::format("Carer %1% arrives with a delay of %2% to the visit %3%.")
+                (boost::format("NodeToCarer %1% arrives with a delay of %2% to the visit %3%.")
                  % visit.carer().get().sap_number()
                  % delay
                  % visit.service_user().get().id()).str(),
@@ -372,7 +372,7 @@ namespace rows {
             }
         }
 
-        const auto diary = solver.Diary(route.carer(), visits.front().datetime().date());
+        const auto diary = solver.problem().diary(route.carer(), visits.front().datetime().date());
         auto work_interval_it = std::begin(diary.get().events());
         const auto work_interval_end_it = std::end(diary.get().events());
 
@@ -404,7 +404,9 @@ namespace rows {
                            [](const rows::Event &event) -> std::string {
                                std::stringstream local_stream;
                                local_stream << event;
-                               return local_stream.str();
+                               return (boost::format("[%1%,%2%]")
+                                       % event.begin().time_of_day()
+                                       % event.end().time_of_day()).str();
                            });
 
             VLOG(2) << "Validating path: " << boost::algorithm::join(text_locations, ", ")
@@ -440,10 +442,11 @@ namespace rows {
         }
 
         auto last_time = work_interval_it->begin().time_of_day();
-        auto last_position = solver.depot();
+        auto last_node = solver.DEPOT;
 
         for (const auto &visit : visits) {
-            const auto travel_time = solver.TravelTime(last_position, visit.location().get());
+            const auto visit_node = solver.VisitToNode(visit);
+            const auto travel_time = boost::posix_time::seconds(solver.Distance(last_node, visit_node));
 
             total_travel_time += travel_time;
             total_service_time += visit.duration();
@@ -482,7 +485,7 @@ approached: (55891853, -4367650) [ 16:30:00,17:30:00 ] travelled: 00:00:00 arriv
 approached: (55891699, -4366908) [ 17:00:00,18:00:00 ] travelled: 00:00:36 arrived: 17:00:36 started_service: 17:00:36 completed_service: 17:30:36
 approached: (55890884, -4365373) [ 17:15:00,18:15:00 ] travelled: 00:03:13 arrived: 17:33:49 started_service: 17:33:49 completed_service: 18:03:49
 approached: (55891266, -4369857) [ 18:30:00,19:30:00 ] travelled: 00:03:41 arrived: 18:07:30 started_service: 18:30:00 completed_service: 19:00:00
-[TIME_CAPACITY_CONSTRAINT_VIOLATION] Carer does not have enough capacity to accommodate travel time 19:03:41 to reach next visit*/
+[TIME_CAPACITY_CONSTRAINT_VIOLATION] NodeToCarer does not have enough capacity to accommodate travel time 19:03:41 to reach next visit*/
 
                 if (work_interval_it == work_interval_end_it) {
                     VLOG(2) << "[TIME_CAPACITY_CONSTRAINT_VIOLATION] Carer does not have enough "
@@ -576,10 +579,10 @@ approached: (55893744, -4363840) [ 09:00:00,10:00:00 ] travelled: 00:00:00 arriv
                     << " completed_service: " << service_finish;
 
             last_time = service_finish;
-            last_position = visit.location().get();
+            last_node = visit_node;
         }
 
-        last_time += solver.TravelTime(last_position, solver.depot());
+        last_time += boost::posix_time::seconds(solver.Distance(last_node, SolverWrapper::DEPOT));
         if (last_time > work_interval_it->end().time_of_day()) {
             return RouteValidator::ValidationResult{
                     std::make_unique<ScheduledVisitError>(CreateContractualBreakViolationError(route, visits.back()))};

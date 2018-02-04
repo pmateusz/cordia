@@ -171,7 +171,7 @@ int main(int argc, char **argv) {
         rows::SolverWrapper wrapper(problem_to_use, engine_config);
 
         operations_research::RoutingModel model{static_cast<int>(wrapper.problem().visits().size() + 1),
-                                                wrapper.VehicleCount(),
+                                                static_cast<int>(wrapper.problem().carers().size()),
                                                 rows::SolverWrapper::DEPOT};
         wrapper.ConfigureModel(model);
         operations_research::Assignment const *assignment = nullptr;

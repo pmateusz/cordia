@@ -83,59 +83,33 @@ namespace rows {
         Statistics CalculateStats(const operations_research::RoutingModel &model,
                                   const operations_research::Assignment &solution);
 
-        boost::posix_time::ptime::time_duration_type TravelTime(const Location &from, const Location &to);
-
         int64 Distance(operations_research::RoutingModel::NodeIndex from,
                        operations_research::RoutingModel::NodeIndex to);
 
         int64 ServicePlusTravelTime(operations_research::RoutingModel::NodeIndex from,
                                     operations_research::RoutingModel::NodeIndex to);
 
-        int64 Preference(operations_research::RoutingModel::NodeIndex to, const rows::Carer &carer) const;
+        operations_research::RoutingModel::NodeIndex VisitToNode(const CalendarVisit &visit) const;
 
-        operations_research::RoutingModel::NodeIndex Index(const CalendarVisit &visit) const;
+        operations_research::RoutingModel::NodeIndex VisitToNode(const ScheduledVisit &visit) const;
 
-        operations_research::RoutingModel::NodeIndex Index(const ScheduledVisit &visit) const;
+        boost::optional<operations_research::RoutingModel::NodeIndex> TryVisitToNode(const CalendarVisit &visit) const;
 
-        boost::optional<operations_research::RoutingModel::NodeIndex> TryIndex(const CalendarVisit &visit) const;
+        boost::optional<operations_research::RoutingModel::NodeIndex> TryVisitToNode(const ScheduledVisit &visit) const;
 
-        boost::optional<operations_research::RoutingModel::NodeIndex> TryIndex(const ScheduledVisit &visit) const;
+        rows::CalendarVisit NodeToVisit(operations_research::RoutingModel::NodeIndex visit) const;
 
-        rows::CalendarVisit CalendarVisit(operations_research::RoutingModel::NodeIndex visit) const;
+        const LocalServiceUser &User(const rows::ServiceUser &service_user) const;
 
-        const LocalServiceUser &ServiceUser(const rows::ServiceUser &service_user) const;
+        const rows::Carer &Carer(int vehicle) const;
 
-        const LocalServiceUser &ServiceUser(operations_research::RoutingModel::NodeIndex visit) const;
+        operations_research::IntVar const *CareContinuityVar(const rows::ExtendedServiceUser &service_user) const;
 
-        operations_research::IntVar const *CareContinuityDimVar(const rows::ExtendedServiceUser &service_user) const;
+        std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
+                                                                             const rows::Carer &carer,
+                                                                             const rows::Diary &diary) const;
 
-        boost::optional<rows::Diary> Diary(operations_research::RoutingModel::NodeIndex carer,
-                                           boost::gregorian::date date) const;
-
-        boost::optional<rows::Diary> Diary(const rows::Carer &carer,
-                                           boost::gregorian::date date) const;
-
-        rows::Carer Carer(operations_research::RoutingModel::NodeIndex carer) const;
-
-        std::vector<operations_research::IntervalVar *> Breaks(operations_research::Solver *solver,
-                                                               const rows::Carer &carer,
-                                                               const rows::Diary &diary) const;
-
-        const Location &depot() const;
-
-        const Problem &problem() const;
-
-        int VehicleCount() const;
-
-        void DisplayPlan(const operations_research::RoutingModel &routing,
-                         const operations_research::Assignment &plan);
-
-        static std::vector<rows::Location> GetUniqueLocations(const rows::Problem &problem);
-
-        template<typename IteratorType>
-        Location GetCentralLocation(IteratorType begin_it, IteratorType end_it);
-
-        const operations_research::RoutingSearchParameters &parameters() const;
+        void DisplayPlan(const operations_research::RoutingModel &routing, const operations_research::Assignment &plan);
 
         Solution ResolveValidationErrors(const rows::Solution &solution,
                                          const rows::Problem &problem,
@@ -144,11 +118,17 @@ namespace rows {
         std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit> > >
         GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
 
-        bool HasTimeWindows() const;
-
         int64 GetBeginWindow(boost::posix_time::time_duration value) const;
 
         int64 GetEndWindow(boost::posix_time::time_duration value) const;
+
+        const Location &depot() const;
+
+        const Problem &problem() const;
+
+        const operations_research::RoutingSearchParameters &parameters() const;
+
+        bool HasTimeWindows() const;
 
     private:
         enum class BreakType {
@@ -166,16 +146,6 @@ namespace rows {
             std::unordered_map<operations_research::RoutingModel::NodeIndex, int64> values_;
         };
 
-        std::tuple<double, double, double>
-        ToCartesianCoordinates(const osrm::FixedLatitude &latitude, const osrm::FixedLongitude &longitude) const;
-
-        std::pair<osrm::FixedLatitude, osrm::FixedLongitude>
-        ToGeographicCoordinates(const std::tuple<double, double, double> &coordinates) const;
-
-
-        std::tuple<double, double, double>
-        GetAveragePoint(const std::vector<std::tuple<double, double, double> > &points) const;
-
         rows::Solution Resolve(const rows::Solution &solution,
                                const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const;
 
@@ -186,11 +156,6 @@ namespace rows {
         };
 
         operations_research::RoutingSearchParameters CreateSearchParameters() const;
-
-        operations_research::IntervalVar *CreateBreak(operations_research::Solver *solver,
-                                                      const boost::posix_time::time_duration &start_time,
-                                                      const boost::posix_time::time_duration &duration,
-                                                      const std::string &label) const;
 
         operations_research::IntervalVar *CreateBreakWithTimeWindows(operations_research::Solver *solver,
                                                                      const boost::posix_time::time_duration &start_time,

@@ -48,7 +48,20 @@ namespace rows {
 
         friend std::ostream &operator<<(std::ostream &out, const Location &object);
 
+        template<typename IteratorType>
+        static Location GetCentralLocation(IteratorType begin_it, IteratorType end_it);
+
     private:
+        typedef std::tuple<double, double, double> CartesianCoordinates;
+
+        static CartesianCoordinates ToCartesianCoordinates(const osrm::FixedLatitude &latitude,
+                                                           const osrm::FixedLongitude &longitude);
+
+        static std::pair<osrm::FixedLatitude, osrm::FixedLongitude> ToGeographicCoordinates(
+                const Location::CartesianCoordinates &coordinates);
+
+        static CartesianCoordinates GetCentralPoint(const std::vector<CartesianCoordinates> &points);
+
         osrm::util::FixedLatitude latitude_;
         osrm::util::FixedLongitude longitude_;
 
@@ -68,6 +81,20 @@ namespace rows {
         if (longitude_it == std::end(document)) { throw OnKeyNotFound("longitude"); }
         const auto longitude = longitude_it.value().template get<std::string>();
         return {latitude, longitude};
+    }
+
+    template<typename IteratorType>
+    Location Location::GetCentralLocation(IteratorType begin_it, IteratorType end_it) {
+        std::vector<CartesianCoordinates> points;
+
+        for (auto it = begin_it; it != end_it; ++it) {
+            points.push_back(ToCartesianCoordinates(it->latitude(), it->longitude()));
+        }
+
+        const auto average_point = GetCentralPoint(points);
+        std::pair<osrm::FixedLatitude, osrm::FixedLongitude> average_geo_point = ToGeographicCoordinates(
+                average_point);
+        return {average_geo_point.first, average_geo_point.second};
     }
 }
 

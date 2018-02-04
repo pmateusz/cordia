@@ -119,11 +119,11 @@ std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver,
     const auto routes = solver.GetRoutes(*this, model);
     DCHECK_EQ(routes.size(), model.vehicles());
 
-    for (operations_research::RoutingModel::NodeIndex carer_index{0}; carer_index < model.vehicles(); ++carer_index) {
-        const auto &node_route = routes[carer_index.value()];
-        const auto carer = solver.Carer(carer_index);
+    for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+        const auto &node_route = routes[vehicle];
+        const auto carer = solver.Carer(vehicle);
 
-        status_stream << "Route " << carer_index << " " << carer << ":" << std::endl;
+        status_stream << "Route " << vehicle << " " << carer << ":" << std::endl;
         if (node_route.empty()) {
             continue;
         }
