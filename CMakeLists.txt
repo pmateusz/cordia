@@ -93,6 +93,11 @@ target_include_directories(rows-main PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-main rows ${LIBRARY_DEP})
 set_property(TARGET rows-main PROPERTY CXX_STANDARD 14)
 
+add_executable(rows-fast "${CMAKE_SOURCE_DIR}/src/main/rows-fast.cpp")
+target_include_directories(rows-fast PUBLIC ${HEADERS} ${HEADER_DEP})
+target_link_libraries(rows-fast rows ${LIBRARY_DEP})
+set_property(TARGET rows-fast PROPERTY CXX_STANDARD 14)
+
 get_filename_component(TEST_HEADERS "${CMAKE_SOURCE_DIR}/src/test" REALPATH)
 
 file(GLOB_RECURSE TEST_SOURCES "${CMAKE_SOURCE_DIR}/src/test/*.cpp")

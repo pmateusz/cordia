@@ -38,6 +38,8 @@ namespace rows {
 
         const std::vector<rows::Event> &events() const;
 
+        std::vector<rows::Event> Breaks() const;
+
         friend std::ostream &operator<<(std::ostream &out, const Diary &object);
 
     private:

@@ -8,7 +8,6 @@
 #include "osrm/engine_config.hpp"
 #include "osrm/json_container.hpp"
 #include "osrm/storage_config.hpp"
-
 #include "osrm/osrm.hpp"
 
 #include <iostream>

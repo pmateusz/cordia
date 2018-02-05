@@ -49,6 +49,31 @@ namespace rows {
         return date_;
     }
 
+    std::vector<rows::Event> Diary::Breaks() const {
+        if (events_.empty()) {
+            return {rows::Event(boost::posix_time::time_period(boost::posix_time::ptime(date_),
+                                                               boost::posix_time::hours(24)))};
+        }
+
+        auto breaks = std::vector<Event>();
+        breaks.emplace_back(
+                boost::posix_time::time_period(boost::posix_time::ptime(date_), events_.front().begin().time_of_day()));
+
+        const auto events_size = events_.size();
+        for (int index = 1; index < events_size; ++index) {
+            const auto last_event_finish = events_[index - 1].end().time_of_day();
+            const auto current_event_start = events_[index].begin().time_of_day();
+            breaks.emplace_back(boost::posix_time::time_period(boost::posix_time::ptime(date_, last_event_finish),
+                                                               current_event_start - last_event_finish));
+        }
+
+        breaks.emplace_back(
+                boost::posix_time::time_period(boost::posix_time::ptime(date_, events_.back().end().time_of_day()),
+                                               boost::posix_time::hours(24) - events_.back().end().time_of_day()));
+
+        return breaks;
+    }
+
     const std::vector<rows::Event> &Diary::events() const {
         return events_;
     }
