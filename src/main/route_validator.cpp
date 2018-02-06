@@ -158,7 +158,7 @@ namespace rows {
         }
 
         for (const auto &visit_index_pair : visit_index) {
-            if (visit_index_pair.second.size() > 1) {
+            if (visit_index_pair.second.size() != visit_index_pair.first.carer_count()) {
                 validation_errors.emplace_back(
                         std::make_unique<RouteConflictError>(visit_index_pair.first, visit_index_pair.second));
             }
@@ -171,15 +171,15 @@ namespace rows {
                     continue;
                 }
 
-                const auto index = solver.TryVisitToNode(visit);
-                if (!index.is_initialized()) {
+                const auto &calendar_visit = visit.calendar_visit().get();
+                if (!solver.Contains(calendar_visit)) {
                     validation_errors.emplace_back(
                             std::make_unique<ScheduledVisitError>(CreateOrphanedError(route, visit)));
                     continue;
                 }
 
-                if (visit.datetime() != visit.calendar_visit().get().datetime()
-                    || visit.duration() != visit.calendar_visit().get().duration()) {
+                if (visit.datetime() != calendar_visit.datetime()
+                    || visit.duration() != calendar_visit.duration()) {
                     validation_errors.emplace_back(
                             std::make_unique<ScheduledVisitError>(CreateMovedError(route, visit)));
                     continue;
@@ -445,7 +445,7 @@ namespace rows {
         auto last_node = solver.DEPOT;
 
         for (const auto &visit : visits) {
-            const auto visit_node = solver.VisitToNode(visit);
+            const auto visit_node = *(solver.GetNodes(visit).begin());
             const auto travel_time = boost::posix_time::seconds(solver.Distance(last_node, visit_node));
 
             total_travel_time += travel_time;
@@ -466,26 +466,6 @@ namespace rows {
                            || work_interval_it->duration().total_seconds() < travel_time.total_seconds())) {
                     ++work_interval_it;
                 }
-/*
-[2017-Feb-01 19:30:00/2017-Feb-01 21:59:59.999999]
-[07:30:00, 08:30:00] 01:00:00
-[10:15:00, 11:15:00] 00:15:00
-[11:30:00, 12:30:00] 00:30:00
-[12:00:00, 13:00:00] 00:30:00
-[16:30:00, 17:30:00] 00:30:00
-[17:00:00, 18:00:00] 00:30:00
-[17:15:00, 18:15:00] 00:30:00
-[18:30:00, 19:30:00] 00:30:00
-[19:30:00, 20:30:00] 00:30:00
-approached: (55891853, -4367650) [ 07:30:00,08:30:00 ] travelled: 00:00:00 arrived: 08:00:00 started_service: 08:00:00 completed_service: 09:00:00
-approached: (55891699, -4366908) [ 10:15:00,11:15:00 ] travelled: 00:00:36 arrived: 09:00:36 started_service: 10:15:00 completed_service: 10:30:00
-approached: (55897958, -4357830) [ 11:30:00,12:30:00 ] travelled: 00:13:11 arrived: 10:43:11 started_service: 11:30:00 completed_service: 12:00:00
-approached: (55891853, -4367650) [ 12:00:00,13:00:00 ] travelled: 00:13:47 arrived: 12:13:47 started_service: 12:13:47 completed_service: 12:43:47
-approached: (55891853, -4367650) [ 16:30:00,17:30:00 ] travelled: 00:00:00 arrived: 12:43:47 started_service: 16:30:00 completed_service: 17:00:00
-approached: (55891699, -4366908) [ 17:00:00,18:00:00 ] travelled: 00:00:36 arrived: 17:00:36 started_service: 17:00:36 completed_service: 17:30:36
-approached: (55890884, -4365373) [ 17:15:00,18:15:00 ] travelled: 00:03:13 arrived: 17:33:49 started_service: 17:33:49 completed_service: 18:03:49
-approached: (55891266, -4369857) [ 18:30:00,19:30:00 ] travelled: 00:03:41 arrived: 18:07:30 started_service: 18:30:00 completed_service: 19:00:00
-[TIME_CAPACITY_CONSTRAINT_VIOLATION] NodeToCarer does not have enough capacity to accommodate travel time 19:03:41 to reach next visit*/
 
                 if (work_interval_it == work_interval_end_it) {
                     VLOG(2) << "[TIME_CAPACITY_CONSTRAINT_VIOLATION] Carer does not have enough "
@@ -498,16 +478,6 @@ approached: (55891266, -4369857) [ 18:30:00,19:30:00 ] travelled: 00:03:41 arriv
 
                 service_start = work_interval_it->begin().time_of_day() + travel_time;
             }
-/*
-Validating path: (55895552, -4380134), (55893744, -4363840), (55893744, -4363840) within work intervals:
-[2017-Feb-01 07:30:00/2017-Feb-01 10:29:59.999999], [2017-Feb-01 16:00:00/2017-Feb-01 19:29:59.999999], [2017-Feb-01 20:00:00/2017-Feb-01 21:59:59.999999]
-[08:00:00, 09:00:00] 00:30:00
-[09:00:00, 10:00:00] 01:00:00
-[09:00:00, 10:00:00] 00:45:00
-approached: (55895552, -4380134) [ 08:00:00,09:00:00 ] travelled: 00:00:00 arrived: 07:30:00 started_service: 08:00:00 completed_service: 08:30:00
-approached: (55893744, -4363840) [ 09:00:00,10:00:00 ] travelled: 00:14:15 arrived: 08:44:15 started_service: 09:00:00 completed_service: 10:00:00
-approached: (55893744, -4363840) [ 09:00:00,10:00:00 ] travelled: 00:00:00 arrived: 10:00:00 service_start: 16:00:00 latest_service_start: : 10:00:00
-* */
 
             service_start = std::max(service_start, earliest_service_start);
             if (util::COMP_GT(service_start, latest_service_start, MARGIN)) {
@@ -556,7 +526,6 @@ approached: (55893744, -4363840) [ 09:00:00,10:00:00 ] travelled: 00:00:00 arriv
                 service_finish = service_start + visit.duration();
             }
 
-            // TODO: second stage cannot happen
             if (util::COMP_GT(service_finish, work_interval_it->end().time_of_day(), MARGIN)) {
                 VLOG(2) << "[BREAK_CONSTRAINT_VIOLATION_SECOND_STAGE]"
                         << " approached: " << visit.location().get()

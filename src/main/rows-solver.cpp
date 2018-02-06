@@ -170,8 +170,8 @@ int main(int argc, char **argv) {
         auto engine_config = CreateEngineConfig(FLAGS_map_file);
         rows::SolverWrapper wrapper(problem_to_use, engine_config);
 
-        operations_research::RoutingModel model{static_cast<int>(wrapper.problem().visits().size() + 1),
-                                                static_cast<int>(wrapper.problem().carers().size()),
+        operations_research::RoutingModel model{wrapper.nodes(),
+                                                wrapper.vehicles(),
                                                 rows::SolverWrapper::DEPOT};
         wrapper.ConfigureModel(model);
         operations_research::Assignment const *assignment = nullptr;
@@ -190,16 +190,7 @@ int main(int argc, char **argv) {
             }
 
             const auto routes = wrapper.GetRoutes(solution_to_use, model);
-            std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > node_routes;
-            for (const auto &route : routes) {
-                std::vector<operations_research::RoutingModel::NodeIndex> node_route;
-                for (const auto &node_visit_pair : route) {
-                    node_route.emplace_back(node_visit_pair.first);
-                }
-                node_routes.emplace_back(std::move(node_route));
-            }
-
-            auto initial_assignment = model.ReadAssignmentFromRoutes(node_routes, false);
+            auto initial_assignment = model.ReadAssignmentFromRoutes(routes, false);
             if (!model.solver()->CheckAssignment(initial_assignment)) {
                 throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
             }

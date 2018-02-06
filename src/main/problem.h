@@ -72,6 +72,10 @@ namespace rows {
 
         void RemoveCancelled(const std::vector<rows::ScheduledVisit> &visits);
 
+        int nodes() const;
+
+        int vehicles() const;
+
     private:
         std::vector<CalendarVisit> visits_;
         std::vector<std::pair<Carer, std::vector<Diary> > > carers_;
@@ -152,8 +156,15 @@ namespace rows {
                 const auto duration_it = visit_json.find("duration");
                 if (duration_it == std::end(visit_json)) { throw OnKeyNotFound("duration"); }
                 auto duration = boost::posix_time::seconds(std::stol(duration_it.value().template get<std::string>()));
-
-                result.emplace_back(service_user, address, boost::make_optional(location), date_time, duration);
+                const auto carer_count_it = visit_json.find("carer_count");
+                if (duration_it == std::end(visit_json)) { throw OnKeyNotFound("carer_count"); }
+                auto carer_count = carer_count_it.value().template get<int>();
+                result.emplace_back(service_user,
+                                    address,
+                                    boost::make_optional(location),
+                                    date_time,
+                                    duration,
+                                    carer_count);
             }
         }
 

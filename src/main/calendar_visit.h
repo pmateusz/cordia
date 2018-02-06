@@ -9,6 +9,8 @@
 #include <boost/optional/optional_io.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
 
+#include <glog/logging.h>
+
 #include "location.h"
 #include "address.h"
 #include "service_user.h"
@@ -18,16 +20,20 @@ namespace rows {
 
     class CalendarVisit {
     public:
+        CalendarVisit();
+
         CalendarVisit(ServiceUser service_user,
                       Address address,
                       boost::optional<Location> location,
                       boost::posix_time::ptime date_time,
-                      boost::posix_time::time_duration duration);
+                      boost::posix_time::time_duration duration,
+                      int carer_count);
 
         CalendarVisit(ServiceUser service_user,
                       Address address,
                       boost::posix_time::ptime date_time,
-                      boost::posix_time::time_duration duration);
+                      boost::posix_time::time_duration duration,
+                      int carer_count);
 
         CalendarVisit(const CalendarVisit &other);
 
@@ -57,6 +63,8 @@ namespace rows {
 
         const boost::posix_time::ptime::time_duration_type duration() const;
 
+        int carer_count() const;
+
         class JsonLoader : protected rows::JsonLoader {
         public:
             template<typename JsonType>
@@ -69,6 +77,7 @@ namespace rows {
         boost::optional<Location> location_;
         boost::posix_time::ptime date_time_;
         boost::posix_time::ptime::time_duration_type duration_;
+        int carer_count_;
     };
 }
 
@@ -130,6 +139,7 @@ namespace std {
             boost::hash_combine(seed, hash_service_user(object.service_user_));
             boost::hash_combine(seed, hash_date_time(object.date_time_));
             boost::hash_combine(seed, hash_duration(object.duration_));
+            boost::hash_combine(seed, object.carer_count_);
 
             if (object.location_.is_initialized()) {
                 boost::hash_combine(seed, hash_location(object.location_.get()));
@@ -172,7 +182,13 @@ namespace rows {
             service_user = ServiceUser(service_user_it.value().template get<std::string>());
         }
 
-        CalendarVisit visit(service_user, address, datetime, duration);
+        int carer_count = 1;
+        const auto carer_count_it = document.find("carer_count");
+        if (carer_count_it != std::end(document)) {
+            carer_count = carer_count_it.value().template get<int>();
+        }
+
+        CalendarVisit visit(service_user, address, datetime, duration, carer_count);
         if (location) {
             visit.location(location.get());
         }

@@ -1,6 +1,7 @@
 #include "calendar_visit.h"
 
 #include <boost/optional/optional_io.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/optional.hpp>
 #include <boost/format.hpp>
 
@@ -8,40 +9,54 @@
 
 namespace rows {
 
+    CalendarVisit::CalendarVisit()
+            : CalendarVisit(ServiceUser(),
+                            Address(),
+                            boost::none,
+                            boost::posix_time::not_a_date_time,
+                            boost::posix_time::seconds(0),
+                            0) {}
+
     CalendarVisit::CalendarVisit(ServiceUser service_user,
                                  Address address,
                                  boost::optional<Location> location,
                                  boost::posix_time::ptime date_time,
-                                 boost::posix_time::ptime::time_duration_type duration)
+                                 boost::posix_time::ptime::time_duration_type duration,
+                                 int carer_count)
             : service_user_(std::move(service_user)),
               address_(std::move(address)),
               location_(std::move(location)),
               date_time_(date_time),
-              duration_(std::move(duration)) {}
+              duration_(std::move(duration)),
+              carer_count_(carer_count) {}
 
     CalendarVisit::CalendarVisit(ServiceUser service_user,
                                  Address address,
                                  boost::posix_time::ptime date_time,
-                                 boost::posix_time::time_duration duration)
+                                 boost::posix_time::time_duration duration,
+                                 int carer_count)
             : CalendarVisit(std::move(service_user),
                             std::move(address),
-                            boost::optional<Location>(),
+                            boost::none,
                             date_time,
-                            std::move(duration)) {}
+                            std::move(duration),
+                            carer_count) {}
 
     CalendarVisit::CalendarVisit(const CalendarVisit &other)
             : service_user_(other.service_user_),
               address_(other.address_),
               location_(other.location_),
               date_time_(other.date_time_),
-              duration_(other.duration_) {}
+              duration_(other.duration_),
+              carer_count_(other.carer_count_) {}
 
     CalendarVisit::CalendarVisit(CalendarVisit &&other)noexcept
             : service_user_(std::move(other.service_user_)),
               address_(std::move(other.address_)),
               location_(other.location_),
               date_time_(other.date_time_),
-              duration_(other.duration_) {}
+              duration_(other.duration_),
+              carer_count_(other.carer_count_) {}
 
     CalendarVisit &CalendarVisit::operator=(const CalendarVisit &other) {
         service_user_ = other.service_user_;
@@ -49,6 +64,7 @@ namespace rows {
         location_ = other.location_;
         date_time_ = other.date_time_;
         duration_ = other.duration_;
+        carer_count_ = other.carer_count_;
         return *this;
     }
 
@@ -58,16 +74,18 @@ namespace rows {
         location_ = other.location_;
         date_time_ = other.date_time_;
         duration_ = other.duration_;
+        carer_count_ = other.carer_count_;
         return *this;
     }
 
     std::ostream &operator<<(std::ostream &out, const CalendarVisit &object) {
-        out << boost::format("(%1%, %2%, %3%, %4%, %5%)")
+        out << boost::format("(%1%, %2%, %3%, %4%, %5%, %6%)")
                % object.service_user_
                % object.address_
                % object.location_
                % object.date_time_
-               % object.duration_;
+               % object.duration_
+               % object.carer_count_;
         return out;
     }
 
@@ -76,7 +94,8 @@ namespace rows {
                && address_ == other.address_
                && date_time_ == other.date_time_
                && duration_ == other.duration_
-               && location_ == other.location_;
+               && location_ == other.location_
+               && carer_count_ == other.carer_count_;
     }
 
     bool CalendarVisit::operator!=(const CalendarVisit &other) const {
@@ -105,5 +124,9 @@ namespace rows {
 
     const ServiceUser &CalendarVisit::service_user() const {
         return service_user_;
+    }
+
+    int CalendarVisit::carer_count() const {
+        return carer_count_;
     }
 }

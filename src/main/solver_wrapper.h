@@ -6,9 +6,10 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <boost/bimap.hpp>
-#include <boost/bimap/unordered_set_of.hpp>
+#include <boost/bimap/vector_of.hpp>
 #include <boost/date_time.hpp>
 #include <boost/optional.hpp>
 
@@ -89,15 +90,15 @@ namespace rows {
         int64 ServicePlusTravelTime(operations_research::RoutingModel::NodeIndex from,
                                     operations_research::RoutingModel::NodeIndex to);
 
-        operations_research::RoutingModel::NodeIndex VisitToNode(const CalendarVisit &visit) const;
+        bool Contains(const CalendarVisit &visit) const;
 
-        operations_research::RoutingModel::NodeIndex VisitToNode(const ScheduledVisit &visit) const;
+        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
+                const CalendarVisit &visit) const;
 
-        boost::optional<operations_research::RoutingModel::NodeIndex> TryVisitToNode(const CalendarVisit &visit) const;
+        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
+                const ScheduledVisit &visit) const;
 
-        boost::optional<operations_research::RoutingModel::NodeIndex> TryVisitToNode(const ScheduledVisit &visit) const;
-
-        rows::CalendarVisit NodeToVisit(operations_research::RoutingModel::NodeIndex visit) const;
+        const CalendarVisit &NodeToVisit(operations_research::RoutingModel::NodeIndex node) const;
 
         const LocalServiceUser &User(const rows::ServiceUser &service_user) const;
 
@@ -115,7 +116,7 @@ namespace rows {
                                          const rows::Problem &problem,
                                          const operations_research::RoutingModel &model);
 
-        std::vector<std::vector<std::pair<operations_research::RoutingModel::NodeIndex, rows::ScheduledVisit> > >
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
         GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
 
         int64 GetBeginWindow(boost::posix_time::time_duration value) const;
@@ -129,6 +130,10 @@ namespace rows {
         const operations_research::RoutingSearchParameters &parameters() const;
 
         bool HasTimeWindows() const;
+
+        int vehicles() const;
+
+        int nodes() const;
 
     private:
         enum class BreakType {
@@ -176,11 +181,14 @@ namespace rows {
 
         operations_research::RoutingSearchParameters parameters_;
 
-        std::unordered_map<rows::ServiceUser, rows::SolverWrapper::LocalServiceUser> service_users_;
+        std::unordered_map<rows::CalendarVisit,
+                std::unordered_set<operations_research::RoutingModel::NodeIndex>,
+                PartialVisitOperations,
+                PartialVisitOperations> visit_index_;
 
-        boost::bimaps::bimap<
-                boost::bimaps::unordered_set_of<rows::CalendarVisit, PartialVisitOperations, PartialVisitOperations>,
-                operations_research::RoutingModel::NodeIndex> visit_index_;
+        std::vector<rows::CalendarVisit> visit_by_node_;
+
+        std::unordered_map<rows::ServiceUser, rows::SolverWrapper::LocalServiceUser> service_users_;
 
         std::unordered_map<rows::ExtendedServiceUser, operations_research::IntVar *> care_continuity_;
 

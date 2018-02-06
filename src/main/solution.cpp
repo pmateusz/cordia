@@ -128,8 +128,8 @@ std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver,
             continue;
         }
 
-        for (const auto &node_visit_pair : node_route) {
-            status_stream << '\t' << '\t' << node_visit_pair.first << " - " << node_visit_pair.second << std::endl;
+        for (const auto &node : node_route) {
+            status_stream << node << std::endl;
         }
     }
 
