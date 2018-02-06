@@ -47,7 +47,10 @@ class Handler:
         address_by_service_user = {}
         location_by_service_user = {}
         for visit in self.__data_source.get_visits_for_area(area, begin, end):
-            local_visit = Problem.LocalVisit(date=visit.date, time=visit.time, duration=visit.duration)
+            local_visit = Problem.LocalVisit(date=visit.date,
+                                             time=visit.time,
+                                             duration=visit.duration,
+                                             carer_count=visit.carer_count)
             if visit.service_user in visits_by_service_user:
                 visits_by_service_user[visit.service_user].append(local_visit)
             else:

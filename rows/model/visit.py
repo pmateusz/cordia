@@ -14,6 +14,7 @@ class Visit(rows.model.object.DatabaseObject):
     DATE = 'date'
     TIME = 'time'
     DURATION = 'duration'
+    CARER_COUNT = 'carer_count'
 
     def __init__(self, **kwargs):  # pylint: disable=useless-super-delegation
         super(Visit, self).__init__()
@@ -22,15 +23,17 @@ class Visit(rows.model.object.DatabaseObject):
         self.__date = kwargs.get(Visit.DATE, None)
         self.__time = kwargs.get(Visit.TIME, None)
         self.__duration = kwargs.get(Visit.DURATION, None)
+        self.__carer_count = kwargs.get(Visit.CARER_COUNT, 1)
         self.__address = kwargs.get(Visit.ADDRESS, None)
 
     def as_dict(self):
         bundle = super(Visit, self).as_dict()
         bundle[Visit.SERVICE_USER] = self.__service_user
-        bundle[Visit.ADDRESS] = self.__address
         bundle[Visit.DATE] = self.__date
         bundle[Visit.TIME] = self.__time
         bundle[Visit.DURATION] = self.__duration
+        bundle[Visit.CARER_COUNT] = self.__carer_count
+        bundle[Visit.ADDRESS] = self.__address
         return bundle
 
     @staticmethod
@@ -56,6 +59,7 @@ class Visit(rows.model.object.DatabaseObject):
                         Visit.DATE: date,
                         Visit.TIME: time,
                         Visit.DURATION: duration,
+                        Visit.CARER_COUNT: 1,
                         Visit.ADDRESS: address})
 
     @property
@@ -63,6 +67,16 @@ class Visit(rows.model.object.DatabaseObject):
         """Return a property"""
 
         return self.__service_user
+
+    @property
+    def carer_count(self):
+        """Return a property"""
+
+        return self.__carer_count
+
+    @carer_count.setter
+    def carer_count(self, value):
+        self.__carer_count = value
 
     @property
     def date(self):

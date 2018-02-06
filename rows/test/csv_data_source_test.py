@@ -1,5 +1,6 @@
 """Test CSV data source"""
 
+import collections
 import datetime
 import unittest
 import os
@@ -81,6 +82,23 @@ class CSVDataSourceTest(unittest.TestCase):
         for visit in schedule.visits:
             self.assertLess(visit.date, self.example_end_date)
             self.assertLessEqual(self.example_begin_date, visit.date)
+
+        visit_attendance = collections.defaultdict(int)
+
+        def get_key(local_visit):
+            return local_visit.service_user, local_visit.date, local_visit.time, local_visit.duration
+
+        for visit in schedule.visits:
+            calendar_visit = visit.visit
+            if not calendar_visit:
+                continue
+            key = get_key(calendar_visit)
+            visit_attendance[key] += 1
+
+        for visit in self.data_source.get_visits():
+            key = get_key(visit)
+            if key in visit_attendance:
+                self.assertTrue(visit_attendance[key], visit.carer_count)
 
         # may be useful in the future
         # with open('past_solution.json', 'x') as file_stream:

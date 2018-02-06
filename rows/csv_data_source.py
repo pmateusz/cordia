@@ -169,6 +169,22 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
         self.__visits = load_visits(self.__visits_file)
         self.__carer_shift_patterns = load_shift_patters(self.__shift_patterns_file)
         self.__past_visits = load_past_visits(self.__past_visits_file, self.__visits, self.__carers)
+
+        visit_attendance = collections.defaultdict(int)
+        for service_user in self.__past_visits:
+            for past_visit in self.__past_visits[service_user]:
+                if not past_visit.cancelled:
+                    visit_attendance[past_visit.visit] += 1
+
+        for visit_group_key, carer_count in visit_attendance.items():
+            if not visit_group_key or carer_count <= 1:
+                continue
+            for calendar_visit in self.__visits[visit_group_key.service_user]:
+                if calendar_visit.date == visit_group_key.date \
+                        and calendar_visit.time == visit_group_key.time \
+                        and calendar_visit.duration == visit_group_key.duration:
+                    calendar_visit.carer_count = carer_count
+
         self.__loaded = True
 
     def get_carers(self):

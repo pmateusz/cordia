@@ -70,6 +70,7 @@ class Problem(rows.model.object.DataObject):
         DATE = 'date'
         TIME = 'time'
         DURATION = 'duration'
+        CARER_COUNT = 'carer_count'
 
         def __init__(self, **kwargs):  # pylint: disable=useless-super-delegation
             super(Problem.LocalVisit, self).__init__()
@@ -77,12 +78,14 @@ class Problem(rows.model.object.DataObject):
             self.__date = kwargs.get(Problem.LocalVisit.DATE, None)
             self.__time = kwargs.get(Problem.LocalVisit.TIME, None)
             self.__duration = kwargs.get(Problem.LocalVisit.DURATION, None)
+            self.__carer_count = kwargs.get(Problem.LocalVisit.CARER_COUNT, None)
 
         def as_dict(self):
             bundle = super(Problem.LocalVisit, self).as_dict()
             bundle[Problem.LocalVisit.DATE] = self.__date
             bundle[Problem.LocalVisit.TIME] = self.__time
             bundle[Problem.LocalVisit.DURATION] = self.__duration
+            bundle[Problem.LocalVisit.CARER_COUNT] = self.__carer_count
             return bundle
 
         @staticmethod
@@ -119,6 +122,12 @@ class Problem(rows.model.object.DataObject):
             """Return a property"""
 
             return self.__duration
+
+        @property
+        def carer_count(self):
+            """Return a property"""
+
+            return self.__carer_count
 
     class LocalVisits(rows.model.object.DataObject):
         """Groups visits to be performed at the same location"""
