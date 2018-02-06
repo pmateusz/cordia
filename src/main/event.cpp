@@ -45,4 +45,8 @@ namespace rows {
     boost::posix_time::time_duration Event::duration() const {
         return period_.length();
     }
+
+    const boost::posix_time::time_period &Event::period() const {
+        return period_;
+    }
 }

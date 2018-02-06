@@ -11,21 +11,22 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::ASSIGNED_CARER{"4", "assigned_carer", "long", "0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::DROPPED{"5", "dropped", "bool", "false"};
     const GexfWriter::GephiAttributeMeta GexfWriter::SATISFACTION{"6", "satisfaction", "double", "0.0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::USER{"7", "user", "string", "unknown"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"7", "start_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"8", "duration", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"8", "start_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"9", "duration", "string", "00:00:00"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"9", "travel_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"10", "travel_time", "string", "00:00:00"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::SAP_NUMBER{"10", "sap_number", "string", "unknown"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_RELATIVE{"11", "work_relative", "double", "0"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_ABSOLUTE_TIME{"12", "work_total_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_AVAILABLE_TIME{"13", "work_available_time", "string",
+    const GexfWriter::GephiAttributeMeta GexfWriter::SAP_NUMBER{"11", "sap_number", "string", "unknown"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_RELATIVE{"12", "work_relative", "double", "0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_ABSOLUTE_TIME{"13", "work_total_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_AVAILABLE_TIME{"14", "work_available_time", "string",
                                                                          "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_SERVICE_TIME{"14", "work_service_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_TRAVEL_TIME{"15", "work_travel_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_IDLE_TIME{"16", "work_idle_time", "string", "00:00:00"};
-    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_VISITS_COUNT{"17", "work_visits_count", "long", "0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_SERVICE_TIME{"15", "work_service_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_TRAVEL_TIME{"16", "work_travel_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_IDLE_TIME{"17", "work_idle_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_VISITS_COUNT{"18", "work_visits_count", "long", "0"};
 
     void GexfWriter::Write(const boost::filesystem::path &file_path,
                            SolverWrapper &solver,
@@ -61,7 +62,7 @@ namespace rows {
              visit_index < model.nodes();
              ++visit_index) {
             const auto visit_id = gexf.VisitId(visit_index);
-            const auto &visit = solver.CalendarVisit(visit_index);
+            const auto &visit = solver.NodeToVisit(visit_index);
 
             gexf.AddNode(visit_id, (boost::format("visit %1%") % visit_index.value()).str());
             gexf.SetNodeValue(visit_id, TYPE, VISIT_NODE);
@@ -75,14 +76,15 @@ namespace rows {
 
             gexf.SetNodeValue(visit_id, START_TIME, visit.datetime().time_of_day());
             gexf.SetNodeValue(visit_id, DURATION, visit.duration());
+            gexf.SetNodeValue(visit_id, USER, visit.service_user().id());
         }
 
 
         static const RouteValidator validator{};
 
         operations_research::RoutingModel::NodeIndex next_user_node{0};
-        std::unordered_map <rows::ServiceUser,
-        operations_research::RoutingModel::NodeIndex> user_ids;
+        std::unordered_map<rows::ServiceUser,
+                operations_research::RoutingModel::NodeIndex> user_ids;
         for (const auto &service_user : solver.problem().service_users()) {
             const auto user_node = next_user_node++;
             const auto inserted = user_ids.emplace(service_user, user_node);
@@ -98,13 +100,16 @@ namespace rows {
             gexf.SetNodeValue(user_id, LATITUDE, location.latitude());
             gexf.SetNodeValue(user_id,
                               SATISFACTION,
-                              std::to_string(solution.Min(solver.CareContinuityDimVar(service_user))));
+                              std::to_string(solution.Min(solver.CareContinuityVar(service_user))));
+            gexf.SetNodeValue(user_id,
+                              UTIL_VISITS_COUNT,
+                              std::to_string(solver.User(service_user).visit_count()));
 
             auto visit_counter = 1;
             for (operations_research::RoutingModel::NodeIndex visit_index{1};
                  visit_index < model.nodes();
                  ++visit_index) {
-                const auto &visit = solver.CalendarVisit(visit_index);
+                const auto &visit = solver.NodeToVisit(visit_index);
                 if (visit.service_user() != service_user) {
                     continue;
                 }
@@ -120,25 +125,23 @@ namespace rows {
             }
         }
 
-        for (operations_research::RoutingModel::NodeIndex carer_index{0};
-             carer_index < model.vehicles();
-             ++carer_index) {
-            const auto &carer = solver.Carer(carer_index);
-            const auto carer_id = gexf.CarerId(carer_index);
+        for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+            const auto &carer = solver.Carer(vehicle);
+            const auto carer_id = gexf.CarerId(operations_research::RoutingModel::NodeIndex{vehicle});
 
-            std::vector <rows::ScheduledVisit> route;
+            std::vector<rows::ScheduledVisit> route;
 
-            gexf.AddNode(carer_id, (boost::format("carer %1%") % carer_index.value()).str());
+            gexf.AddNode(carer_id, (boost::format("carer %1%") % vehicle).str());
             gexf.SetNodeValue(carer_id, ID, carer.sap_number());
             gexf.SetNodeValue(carer_id, TYPE, CARER_NODE);
             gexf.SetNodeValue(carer_id, SAP_NUMBER, carer.sap_number());
 
-            if (!model.IsVehicleUsed(solution, carer_index.value())) {
+            if (!model.IsVehicleUsed(solution, vehicle)) {
                 gexf.SetNodeValue(carer_id, DROPPED, TRUE_VALUE);
                 continue;
             }
 
-            auto start_visit_index = model.Start(carer_index.value());
+            auto start_visit_index = model.Start(vehicle);
             DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit_index))));
 
             while (true) {
@@ -150,18 +153,18 @@ namespace rows {
                 } else {
                     start_visit_id = gexf.VisitId(start_visit_node);
 
-                    const auto &calendar_visit = solver.CalendarVisit(start_visit_node);
+                    const auto &calendar_visit = solver.NodeToVisit(start_visit_node);
                     route.emplace_back(ScheduledVisit::VisitType::UNKNOWN, carer, calendar_visit);
 
                     const auto carer_visit_edge_id = gexf.EdgeId(carer_id, start_visit_id, "c_");
                     gexf.AddEdge(carer_visit_edge_id,
                                  carer_id,
                                  start_visit_id,
-                                 (boost::format("Carer %1% does visit %2%")
-                                  % carer_index
+                                 (boost::format("NodeToCarer %1% does visit %2%")
+                                  % vehicle
                                   % start_visit_node).str());
 
-                    const auto &service_user = solver.ServiceUser(start_visit_node);
+                    const auto &service_user = solver.User(solver.NodeToVisit(start_visit_node).service_user());
                     gexf.SetNodeValue(start_visit_id,
                                       SATISFACTION,
                                       std::to_string(service_user.Preference(carer)));
@@ -236,7 +239,8 @@ namespace rows {
 
     void GexfWriter::GexfEnvironmentWrapper::SetDefaultValues(const rows::Location &location) {
         auto &data = env_ptr_->getData();
-        for (const auto &attr : {ID, TYPE, DROPPED, START_TIME, DURATION, ASSIGNED_CARER,
+        for (const auto &attr : {ID, TYPE, DROPPED, START_TIME, DURATION, ASSIGNED_CARER, USER,
+                                 SATISFACTION,
                                  SAP_NUMBER,
                                  UTIL_RELATIVE,
                                  UTIL_ABSOLUTE_TIME,

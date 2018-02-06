@@ -46,6 +46,7 @@ namespace rows {
         static const GephiAttributeMeta ASSIGNED_CARER;
         static const GephiAttributeMeta TYPE;
         static const GephiAttributeMeta SATISFACTION;
+        static const GephiAttributeMeta USER;
 
         static const GephiAttributeMeta TRAVEL_TIME;
 

@@ -1,6 +1,7 @@
 #include <string>
 #include <iostream>
 #include <algorithm>
+#include <unordered_set>
 
 #include <osrm/match_parameters.hpp>
 #include <osrm/nearest_parameters.hpp>
@@ -63,7 +64,13 @@ TEST(TestLocationContainer, CanCalculateTravelTimes) {
     config.algorithm = osrm::EngineConfig::Algorithm::MLD;
     ASSERT_TRUE(config.IsValid());
 
-    const auto locations = rows::SolverWrapper::GetUniqueLocations(problem);
+    std::unordered_set<rows::Location> locations;
+    for (const auto &visit : problem.visits()) {
+        const auto &location = visit.location();
+        if (location) {
+            locations.insert(location.get());
+        }
+    }
 
     std::unordered_map<rows::Location, std::size_t> location_index;
     std::size_t index = 0;

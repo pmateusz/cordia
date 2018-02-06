@@ -8,7 +8,6 @@
 #include "osrm/engine_config.hpp"
 #include "osrm/json_container.hpp"
 #include "osrm/storage_config.hpp"
-
 #include "osrm/osrm.hpp"
 
 #include <iostream>
@@ -16,6 +15,7 @@
 
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+#include <boost/algorithm/string/join.hpp>
 
 #include "util/logging.h"
 
@@ -56,6 +56,63 @@ TEST(TestOSRM, CanCalculateTravelTime) {
 
     EXPECT_GT(distance, 0.0);
     EXPECT_GT(duration, 0.0);
+}
+
+TEST(TestOSRM, CanCalculateDistanceMatrix) {
+    // given
+    std::vector<std::pair<osrm::util::FloatLongitude, osrm::util::FloatLatitude> > coordinates{
+            {osrm::util::FloatLongitude{-4.0}, osrm::util::FloatLatitude{55.0}},
+            {osrm::util::FloatLongitude{-4.0}, osrm::util::FloatLatitude{55.0}},
+            {osrm::util::FloatLongitude{-4.0}, osrm::util::FloatLatitude{55.0}},
+            {osrm::util::FloatLongitude{-4.0}, osrm::util::FloatLatitude{55.0}},
+            {osrm::util::FloatLongitude{-4.0}, osrm::util::FloatLatitude{55.0}},
+            {osrm::util::FloatLongitude{-4.0}, osrm::util::FloatLatitude{55.0}},
+            {osrm::util::FloatLongitude{-4.0}, osrm::util::FloatLatitude{55.0}},
+            {osrm::util::FloatLongitude{-4.0}, osrm::util::FloatLatitude{55.0}},
+            {osrm::util::FloatLongitude{-4.0}, osrm::util::FloatLatitude{55.0}}
+    };
+
+    // when
+    osrm::EngineConfig config;
+    config.storage_config = osrm::StorageConfig("../data/scotland-latest.osrm");
+    config.use_shared_memory = false;
+    config.algorithm = osrm::EngineConfig::Algorithm::MLD;
+
+    const osrm::OSRM engine{config};
+
+    const auto get_distance = [&engine](std::pair<osrm::util::FloatLongitude, osrm::util::FloatLatitude> source,
+                                        std::pair<osrm::util::FloatLongitude, osrm::util::FloatLatitude> destination) -> double {
+        osrm::RouteParameters params;
+        params.coordinates.emplace_back(source.first, source.second);
+        params.coordinates.emplace_back(destination.first, destination.second);
+
+        osrm::json::Object result;
+        engine.Route(params, result);
+        auto &routes = result.values["routes"].get<osrm::json::Array>();
+        auto &route = routes.values.at(0).get<osrm::json::Object>();
+        return route.values["duration"].get<osrm::json::Number>().value;
+    };
+
+    // then
+    for (const auto &source: coordinates) {
+        std::vector<double> distances;
+        for (const auto &target: coordinates) {
+            distances.push_back(get_distance(source, target));
+        }
+
+        std::vector<std::string> text_distances;
+        std::transform(std::cbegin(distances),
+                       std::cend(distances),
+                       std::back_inserter(text_distances),
+                       [](double value) -> std::string {
+                           return std::to_string(static_cast<int>(std::ceil(value)));
+                       });
+
+        LOG(INFO) << boost::format("(%1%,%2%) : %3%")
+                     % source.first
+                     % source.second
+                     % boost::algorithm::join(text_distances, ", ");
+    }
 }
 
 int main(int argc, char **argv) {

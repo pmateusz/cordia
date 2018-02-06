@@ -4,26 +4,28 @@
 #include <string>
 #include <exception>
 
+#include "error_code.h"
+
 namespace util {
 
     class ApplicationError : public std::exception {
     public:
-        ApplicationError(std::string msg, std::string diagnostic_info, int exit_code);
+        ApplicationError(std::string msg, std::string diagnostic_info, ErrorCode error_code);
 
-        ApplicationError(std::string msg, int exit_code);
+        ApplicationError(std::string msg, ErrorCode exit_code);
 
-        const char * what () const throw ();
+        const char *what() const throw();
 
         inline std::string msg() const { return msg_; }
 
         inline std::string diagnostic_info() const { return diagnostic_info_; }
 
-        inline int exit_code() const { return exit_code_; }
+        inline ErrorCode error_code() const { return error_code_; }
 
     private:
         std::string msg_;
         std::string diagnostic_info_;
-        int exit_code_;
+        ErrorCode error_code_;
     };
 }
 
