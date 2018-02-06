@@ -726,117 +726,18 @@ namespace rows {
 
         if (total_errors > 0) {
             VLOG(2) << "Total validation errors: " << total_errors;
-
-            std::unordered_set<std::pair<osrm::util::FixedLongitude, osrm::util::FixedLatitude> > coordinates;
+            int vehicle = 0;
             for (const auto &route_pair : route_pairs) {
-                if (!route_pair.second.error()) {
-                    continue;
+                if (route_pair.second.error()) {
+                    VLOG(2) << "Route " << vehicle << " error: " << *route_pair.second.error();
                 }
-
-                for (const auto &visit : route_pair.first.visits()) {
-                    const auto &location = visit.location().get();
-                    coordinates.insert(std::make_pair(location.longitude(), location.latitude()));
-                }
-            }
-
-            osrm::EngineConfig config;
-            config.storage_config = osrm::StorageConfig("/home/pmateusz/dev/cordia/data/scotland-latest.osrm");
-            config.use_shared_memory = false;
-            config.algorithm = osrm::EngineConfig::Algorithm::MLD;
-
-            const osrm::OSRM engine{config};
-
-            const auto get_distance = [&engine](std::pair<osrm::util::FixedLongitude, osrm::util::FixedLatitude> source,
-                                                std::pair<osrm::util::FixedLongitude, osrm::util::FixedLatitude> destination) -> double {
-                osrm::RouteParameters params;
-                params.coordinates.emplace_back(source.first, source.second);
-                params.coordinates.emplace_back(destination.first, destination.second);
-
-                osrm::json::Object result;
-                engine.Route(params, result);
-                auto &routes = result.values["routes"].get<osrm::json::Array>();
-                auto &route = routes.values.at(0).get<osrm::json::Object>();
-                return route.values["duration"].get<osrm::json::Number>().value;
-            };
-
-            for (const auto &source: coordinates) {
-                std::vector<double> distances;
-                for (const auto &target: coordinates) {
-                    distances.push_back(get_distance(source, target));
-                }
-
-                std::vector<std::string> text_distances;
-                std::transform(std::cbegin(distances),
-                               std::cend(distances),
-                               std::back_inserter(text_distances),
-                               [](double value) -> std::string {
-                                   return std::to_string(static_cast<int>(std::ceil(value)));
-                               });
-
-                VLOG(1) << boost::format("(%1%,%2%) : %3%")
-                           % source.first
-                           % source.second
-                           % boost::algorithm::join(text_distances, ", ");
-            }
-
-            auto vehicle = 0;
-            for (const auto &route_pair : route_pairs) {
-                if (static_cast<bool>(route_pair.second.error())) {
-                    VLOG(1) << boost::format("Route %1%: %2%")
-                               % vehicle
-                               % *route_pair.second.error();
-
-                    VLOG(1) << "Expected path: ";
-                    for (const auto &visit : route_pair.first.visits()) {
-                        const auto &location = visit.location().get();
-                        VLOG(1) << boost::format("(%1%,%2%) [%3%, %4%] %5% %6%")
-                                   % location.latitude()
-                                   % location.longitude()
-                                   % boost::posix_time::seconds(GetBeginWindow(visit.datetime().time_of_day()))
-                                   % boost::posix_time::seconds(GetEndWindow(visit.datetime().time_of_day()))
-                                   % visit.duration()
-                                   % visit.service_user();
-                    }
-
-                    VLOG(1) << "Solved path: ";
-                    auto order = model.Start(vehicle);
-                    if (!model.IsEnd(solution.Value(model.NextVar(order)))) {
-                        while (!model.IsEnd(order)) {
-                            const auto visit_index = model.IndexToNode(order);
-                            if (visit_index != DEPOT) {
-                                const auto time_var = time_dimension->CumulVar(order);
-                                VLOG(1) << boost::format("[%1%, %2%]")
-                                           % boost::posix_time::seconds(solution.Min(time_var))
-                                           % boost::posix_time::seconds(solution.Max(time_var));
-                            }
-
-                            order = solution.Value(model.NextVar(order));
-                        }
-                    }
-                }
-
                 ++vehicle;
             }
-
-            for (const auto &break_interval : solution.IntervalVarContainer().elements()) {
-                const auto start = boost::posix_time::seconds(break_interval.StartValue());
-                const auto finish = start + boost::posix_time::seconds(break_interval.DurationValue());
-
-                if (break_interval.PerformedValue() == 1) {
-                    VLOG(1) << boost::format("%1% [%2%,%3%] %4%")
-                               % break_interval.Var()->name()
-                               % start
-                               % finish
-                               % break_interval.DebugString();
-                } else {
-                    VLOG(1) << break_interval.Var()->name() << " unperformed";
-                }
-            }
+        } else {
+            VLOG(2) << "No validation errors";
         }
 
         VLOG(1) << model.DebugOutputAssignment(solution, "");
-
-        DCHECK_EQ(total_errors, 0);
 
         stats.CarerUtility.Mean = boost::accumulators::mean(carer_work_stats);
         stats.CarerUtility.Median = boost::accumulators::median(carer_work_stats);

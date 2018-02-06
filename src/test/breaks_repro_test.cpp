@@ -8,7 +8,6 @@
 
 #include <boost/date_time.hpp>
 #include <boost/format.hpp>
-#include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
 
 #include <gtest/gtest.h>
