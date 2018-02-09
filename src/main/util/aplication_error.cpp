@@ -6,7 +6,7 @@ util::ApplicationError::ApplicationError(std::string msg, std::string diagnostic
           error_code_(error_code) {}
 
 util::ApplicationError::ApplicationError(std::string msg, ErrorCode error_code)
-        : ApplicationError(std::move(msg), nullptr, error_code) {}
+        : ApplicationError(std::move(msg), "", error_code) {}
 
 const char *util::ApplicationError::what() const throw() {
     return msg_.c_str();

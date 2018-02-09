@@ -11,14 +11,14 @@ set(_ORTOOLS_INCLUDE_LOCATIONS "")
 set(_ORTOOLS_LIB_LOCATIONS "")
 
 if (ORTOOLS_ROOT_DIR)
-    set(_ORTOOLS_INCLUDE_LOCATIONS "${ORTOOLS_ROOT_DIR}/src")
-    set(_ORTOOLS_INCLUDE_GEN_LOCATIONS "${_ORTOOLS_INCLUDE_LOCATIONS}/gen")
+    set(_ORTOOLS_INCLUDE_LOCATIONS "${ORTOOLS_ROOT_DIR}/ortools")
+    set(_ORTOOLS_INCLUDE_GEN_LOCATIONS "${_ORTOOLS_INCLUDE_LOCATIONS}/gen/ortools")
     set(_ORTOOLS_LIB_LOCATIONS "${ORTOOLS_ROOT_DIR}/lib")
 
     set(CBC_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
     set(GFLAGS_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
     set(SPARSEHASH_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
-    set(Protobuf_SRC_ROOT_FOLDER "${ORTOOLS_ROOT_DIR}/dependencies/sources/protobuf-3.0.0/src")
+    set(Protobuf_SRC_ROOT_FOLDER "${ORTOOLS_ROOT_DIR}/dependencies/sources/protobuf-3.5.0/src")
 endif ()
 
 find_path(ORTOOLS_INCLUDE_DIR
@@ -55,7 +55,7 @@ if (ORTOOLS_FOUND)
     find_package(GFlags REQUIRED)
     # find sparsehash 2.0.3 header files
     find_package(Sparsehash REQUIRED)
-    find_package(Protobuf 3.0.0 REQUIRED)
+    find_package(Protobuf REQUIRED)
     find_package(Cbc REQUIRED)
 
     get_filename_component(UNIX_GFLAGS_DIR ${GFLAGS_INCLUDE_DIR} DIRECTORY)

@@ -160,11 +160,15 @@ namespace rows {
         for (const auto &visit_index_pair : visit_index) {
             if (visit_index_pair.second.size() != visit_index_pair.first.carer_count()) {
                 validation_errors.emplace_back(
-                        std::make_unique<RouteConflictError>(visit_index_pair.first, visit_index_pair.second));
+                        std::make_unique<RouteConflictError>(visit_index_pair.first,
+                                                             visit_index_pair.second));
             }
         }
 
+        int route_number = 0;
         for (const auto &route : routes) {
+            ++route_number;
+
             std::vector<ScheduledVisit> visits_to_use;
             for (const auto &visit : route.visits()) {
                 if (!IsAssignedAndActive(visit)) {

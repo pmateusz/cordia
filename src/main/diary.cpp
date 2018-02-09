@@ -13,7 +13,7 @@ namespace rows {
             : date_(boost::date_time::not_a_date_time) {}
 
     Diary::Diary(boost::gregorian::date date, std::vector<rows::Event> events)
-            : date_(date),
+            : date_(std::move(date)),
               events_(std::move(events)) {}
 
     Diary::Diary(const Diary &other)
@@ -45,7 +45,7 @@ namespace rows {
         return !operator==(other);
     }
 
-    boost::posix_time::ptime::date_type Diary::date() const {
+    const boost::gregorian::date &Diary::date() const {
         return date_;
     }
 

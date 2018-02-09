@@ -55,6 +55,21 @@ DEFINE_validator(solution_file, &util::TryValidateFilePath);
 DEFINE_string(map_file, "../data/scotland-latest.osrm", "a file path to the map");
 DEFINE_validator(map_file, &util::ValidateFilePath);
 
+std::string GetModelStatus(int status) {
+    switch (status) {
+        case operations_research::RoutingModel::Status::ROUTING_FAIL:
+            return "ROUTING_FAIL";
+        case operations_research::RoutingModel::Status::ROUTING_FAIL_TIMEOUT:
+            return "ROUTING_FAIL_TIMEOUT";
+        case operations_research::RoutingModel::Status::ROUTING_INVALID:
+            return "ROUTING_INVALID";
+        case operations_research::RoutingModel::Status::ROUTING_NOT_SOLVED:
+            return "ROUTING_NOT_SOLVED";
+        case operations_research::RoutingModel::Status::ROUTING_SUCCESS:
+            return "ROUTING_SUCCESS";
+    }
+}
+
 rows::Problem LoadReducedProblem(const std::string &problem_path) {
     boost::filesystem::path problem_file(boost::filesystem::canonical(FLAGS_problem_file));
     std::ifstream problem_stream;
@@ -139,6 +154,10 @@ osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
     return config;
 }
 
+void failure_interceptor() {
+    LOG(INFO) << "Failure intercepted";
+}
+
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
 
@@ -173,7 +192,17 @@ int main(int argc, char **argv) {
         operations_research::RoutingModel model{wrapper.nodes(),
                                                 wrapper.vehicles(),
                                                 rows::SolverWrapper::DEPOT};
+        model.solver()->parameters().set_print_added_constraints(true);
+        model.solver()->parameters().set_print_model(true);
+        model.solver()->parameters().set_print_model_stats(true);
+//        model.solver()->parameters().disable_solve();
+
         wrapper.ConfigureModel(model);
+
+        LOG(INFO) << model.status();
+
+//        model.solver()->Accept(model.solver()->MakePrintModelVisitor());
+//        model.solver()->set_fail_intercept(failure_interceptor);
         operations_research::Assignment const *assignment = nullptr;
         if (solution) {
             VLOG(1) << "Starting with a solution.";
@@ -181,10 +210,10 @@ int main(int argc, char **argv) {
             const auto solution_to_use = wrapper.ResolveValidationErrors(solution.get(), problem_to_use, model);
             VLOG(1) << solution_to_use.DebugStatus(wrapper, model);
 
-            if (VLOG_IS_ON(1)) {
+            if (VLOG_IS_ON(2)) {
                 for (const auto &visit : solution_to_use.visits()) {
                     if (visit.carer().is_initialized()) {
-                        VLOG(1) << visit;
+                        VLOG(2) << visit;
                     }
                 }
             }
@@ -202,6 +231,7 @@ int main(int argc, char **argv) {
 
         VLOG(1) << model.solver()->LocalSearchProfile();
         VLOG(1) << model.solver()->DebugString();
+        VLOG(1) << model.status();
 
         if (assignment == nullptr) {
             throw util::ApplicationError("No solution found.", util::ErrorCode::ERROR);

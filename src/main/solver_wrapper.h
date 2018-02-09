@@ -98,7 +98,7 @@ namespace rows {
         const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
                 const ScheduledVisit &visit) const;
 
-        const CalendarVisit &NodeToVisit(operations_research::RoutingModel::NodeIndex node) const;
+        const CalendarVisit &NodeToVisit(const operations_research::RoutingModel::NodeIndex &node) const;
 
         const LocalServiceUser &User(const rows::ServiceUser &service_user) const;
 

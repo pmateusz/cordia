@@ -108,6 +108,18 @@ namespace rows {
         type_ = type;
     }
 
+    int ScheduledVisit::carer_count() const {
+        DCHECK(calendar_visit_);
+
+        return calendar_visit_.get().carer_count();
+    }
+
+    void ScheduledVisit::carer_count(int value) {
+        DCHECK(calendar_visit_);
+
+        calendar_visit_.get().carer_count(value);
+    }
+
     const boost::optional<CalendarVisit> &ScheduledVisit::calendar_visit() const {
         return calendar_visit_;
     }
@@ -118,7 +130,7 @@ namespace rows {
 
     const boost::optional<Location> ScheduledVisit::location() const {
         if (!calendar_visit_.is_initialized()) {
-            return boost::optional<Location>();
+            return boost::none;
         }
 
         return calendar_visit_.get().location();

@@ -65,6 +65,8 @@ namespace rows {
 
         int carer_count() const;
 
+        void carer_count(int value);
+
         class JsonLoader : protected rows::JsonLoader {
         public:
             template<typename JsonType>

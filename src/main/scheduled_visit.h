@@ -54,6 +54,10 @@ namespace rows {
 
         const boost::posix_time::ptime &datetime() const;
 
+        int carer_count() const;
+
+        void carer_count(int value);
+
         const boost::optional<boost::posix_time::ptime> &check_in() const;
 
         const boost::optional<boost::posix_time::ptime> &check_out() const;

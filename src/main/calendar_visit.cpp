@@ -129,4 +129,8 @@ namespace rows {
     int CalendarVisit::carer_count() const {
         return carer_count_;
     }
+
+    void CalendarVisit::carer_count(int value) {
+        carer_count_ = value;
+    }
 }
