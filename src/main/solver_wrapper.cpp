@@ -410,7 +410,8 @@ namespace rows {
 
             const auto breaks = CreateBreakIntervals(model.solver(), carer, diary.get());
             auto solver_ptr = model.solver();
-            solver_ptr->AddConstraint(solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks)));
+            solver_ptr->AddConstraint(
+                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
 //            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle);
         }
 
