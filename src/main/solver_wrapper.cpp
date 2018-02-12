@@ -37,6 +37,7 @@
 #include "scheduled_visit.h"
 #include "solution.h"
 #include "solver_wrapper.h"
+#include "break_constraint.h"
 
 
 namespace rows {
@@ -306,8 +307,8 @@ namespace rows {
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-//        parameters.set_solution_limit(32);
-//        parameters.set_time_limit_ms(boost::posix_time::minutes(3).total_milliseconds());
+        parameters.set_solution_limit(256);
+        parameters.set_time_limit_ms(boost::posix_time::minutes(3).total_milliseconds());
 
         static const auto USE_ADVANCED_SEARCH = true;
         parameters.set_use_light_propagation(USE_ADVANCED_SEARCH);
@@ -364,8 +365,8 @@ namespace rows {
             const auto visit_start = visit_index_pair.first.datetime().time_of_day();
             LOG(INFO) << visit_start;
 
-//            std::vector<operations_research::IntVar *> start_visit_vars;
-//            std::vector<operations_research::IntVar *> active_visit_vars;
+            std::vector<operations_research::IntVar *> start_visit_vars;
+            std::vector<operations_research::IntVar *> active_visit_vars;
             for (const auto &visit_node : visit_index_pair.second) {
                 covered_nodes.insert(visit_node);
                 const auto visit_index = model.NodeToIndex(visit_node);
@@ -382,12 +383,12 @@ namespace rows {
                 }
                 model.AddToAssignment(time_dimension->SlackVar(visit_index));
 
-//                start_visit_vars.push_back(time_dimension->CumulVar(visit_index));
-//                active_visit_vars.push_back(model.ActiveVar(visit_index));
+                start_visit_vars.push_back(time_dimension->CumulVar(visit_index));
+                active_visit_vars.push_back(model.ActiveVar(visit_index));
             }
 
-//            const auto visit_index_size = start_visit_vars.size();
-//            if (visit_index_size > 1) {
+            const auto visit_index_size = start_visit_vars.size();
+            if (visit_index_size > 1) {
 //                for (auto visit_index = 1; visit_index < visit_index_size; ++visit_index) {
 //                    const auto start_time_constraint = model.solver()->MakeEquality(start_visit_vars[0],
 //                                                                                    start_visit_vars[visit_index]);
@@ -397,8 +398,10 @@ namespace rows {
 //                                                                                active_visit_vars[visit_index]);
 //                    solver->AddConstraint(active_constraint);
 //                }
-//                ++total_multiple_carer_visits;
-//            }
+
+                // TODO: create and add constraint
+                ++total_multiple_carer_visits;
+            }
         }
 
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
@@ -406,7 +409,9 @@ namespace rows {
             const auto &diary = problem_.diary(carer, schedule_day);
 
             const auto breaks = CreateBreakIntervals(model.solver(), carer, diary.get());
-            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle);
+            auto solver_ptr = model.solver();
+            solver_ptr->AddConstraint(solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks)));
+//            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle);
         }
 
         LOG(INFO) << "Total multiple carer visits: " << total_multiple_carer_visits;
@@ -455,7 +460,8 @@ namespace rows {
                 const auto visit_it = visit_index_.find(visit);
                 DCHECK(visit_it != std::end(visit_index_));
                 for (const auto &visit_node : visit_it->second) {
-                    service_user_visits.push_back(care_continuity_dimension->TransitVar(model.NodeToIndex(visit_node)));
+                    service_user_visits.push_back(
+                            care_continuity_dimension->TransitVar(model.NodeToIndex(visit_node)));
                 }
             }
 
@@ -626,8 +632,9 @@ namespace rows {
                 case RouteValidator::ErrorCode::TOO_MANY_CARERS:
                     continue; // is handled separately after all other problems are treated
                 default:
-                    throw util::ApplicationError((boost::format("Error code %1% ignored") % error->error_code()).str(),
-                                                 util::ErrorCode::ERROR);
+                    throw util::ApplicationError(
+                            (boost::format("Error code %1% ignored") % error->error_code()).str(),
+                            util::ErrorCode::ERROR);
             }
         }
         for (const auto &error : validation_errors) {
@@ -835,13 +842,15 @@ namespace rows {
         return GetNodes(calendar_visit);
     }
 
-    const CalendarVisit &SolverWrapper::NodeToVisit(const operations_research::RoutingModel::NodeIndex &node) const {
+    const CalendarVisit &
+    SolverWrapper::NodeToVisit(const operations_research::RoutingModel::NodeIndex &node) const {
         DCHECK_NE(DEPOT, node);
 
         return visit_by_node_.at(static_cast<std::size_t>(node.value()));
     }
 
-    std::size_t SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {
+    std::size_t
+    SolverWrapper::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {
         static const std::hash<rows::ServiceUser> hash_service_user{};
         static const std::hash<boost::posix_time::ptime> hash_date_time{};
         static const std::hash<boost::posix_time::ptime::time_duration_type> hash_duration{};
