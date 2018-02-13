@@ -152,7 +152,7 @@ namespace rows {
         };
 
         rows::Solution Resolve(const rows::Solution &solution,
-                               const std::vector<std::unique_ptr<rows::RouteValidator::ValidationError> > &validation_errors) const;
+                               const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > &validation_errors) const;
 
         struct PartialVisitOperations {
             std::size_t operator()(const rows::CalendarVisit &object) const noexcept;

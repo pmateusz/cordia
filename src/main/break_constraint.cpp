@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include <ortools/base/integral_types.h>
+#include <ortools/base/join.h>
 
 #include <glog/logging.h>
 
@@ -45,99 +46,44 @@ namespace rows {
               dimension_(dimension),
               vehicle_(vehicle),
               break_intervals_(std::move(break_intervals)),
-              status_(solver()->MakeBoolVar(StrCat("status", vehicle))),
+              status_(solver()->MakeBoolVar((boost::format("status %1%") % vehicle).str())),
               solver_(solver_wrapper) {}
 
     void BreakConstraint::Post() {
         operations_research::RoutingModel *const model = dimension_->model();
-        solver()->AddConstraint(
-                solver()->MakePathConnected(model->Nexts(), {model->Start(vehicle_)},
-                                            {model->End(vehicle_)}, {status_}));
-        status_->WhenBound(MakeDelayedConstraintDemon0(
-                solver(), this, &BreakConstraint::PathClosed, "PathClosed"));
+        operations_research::Constraint *const path_connected_const
+                = solver()->MakePathConnected(model->Nexts(),
+                                              {model->Start(vehicle_)},
+                                              {model->End(vehicle_)},
+                                              {status_});
+
+        solver()->AddConstraint(path_connected_const);
+        operations_research::Demon *const demon
+                = MakeConstraintDemon0(solver(),
+                                       this,
+                                       &BreakConstraint::OnPathClosed,
+                                       (boost::format("Path Closed %1%") % std::to_string(vehicle_)).str());
+        status_->WhenBound(demon);
     }
 
     void BreakConstraint::InitialPropagate() {
         if (status_->Bound()) {
-            PathClosed();
+            OnPathClosed();
         }
     }
 
-    void BreakConstraint::PathClosed() {
+    void BreakConstraint::OnPathClosed() {
+        using boost::posix_time::time_duration;
+        using boost::posix_time::seconds;
+
         if (status_->Max() == 0) {
             for (operations_research::IntervalVar *const break_interval : break_intervals_) {
                 break_interval->SetPerformed(false);
             }
         } else {
+            // TODO: put breaks on the road - you are allowed to move values
+
             LOG(ERROR) << "Before vehicle: " << vehicle_;
-
-            operations_research::RoutingModel *const model = dimension_->model();
-
-            std::vector<operations_research::IntervalVar *> all_intervals{std::begin(break_intervals_),
-                                                                          std::end(break_intervals_)};
-
-            std::vector<int64> nodes;
-            std::vector<int64> travel_times;
-
-            int64 current = model->Start(vehicle_);
-            nodes.push_back(current);
-            int64 prev = current;
-            operations_research::IntervalVar *last = nullptr;
-
-            const auto carer = solver_.Carer(vehicle_);
-            std::vector<rows::ScheduledVisit> visits;
-
-            while (!model->IsEnd(prev)) {
-                current = model->NextVar(current)->Value();
-
-                if (!model->IsStart(prev) || !model->IsEnd(current)) {
-                    if (!model->IsStart(prev)) {
-                        visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
-                                            carer,
-                                            solver_.NodeToVisit(model->IndexToNode(prev)));
-                    }
-
-                    operations_research::IntervalVar *const interval = solver()->MakeIntervalVar(
-                            dimension_->CumulVar(prev)->Min(), dimension_->CumulVar(prev)->Max(),
-                            dimension_->FixedTransitVar(prev)->Value(), dimension_->FixedTransitVar(prev)->Value(),
-                            dimension_->CumulVar(prev)->Min(), dimension_->CumulVar(current)->Max(),
-                            false, StrCat(prev, "-", current));
-                    all_intervals.push_back(interval);
-
-                    if (last != nullptr) {
-                        solver()->AddConstraint(solver()->MakeIntervalVarRelation(
-                                interval, operations_research::Solver::STARTS_AFTER_END, last));
-                    }
-
-                    if (model->IsStart(prev)) {
-                        solver()->AddConstraint(solver()->MakeEquality(interval->StartExpr(),
-                                                                       dimension_->CumulVar(prev)));
-                    } else {
-                        solver()->AddConstraint(
-                                solver()->MakeGreaterOrEqual(interval->StartExpr(),
-                                                             dimension_->CumulVar(prev)));
-                    }
-
-                    if (model->IsEnd(current)) {
-                        solver()->AddConstraint(solver()->MakeEquality(
-                                dimension_->CumulVar(current), interval->EndExpr()));
-                    } else {
-                        solver()->AddConstraint(
-                                solver()->MakeGreaterOrEqual(dimension_->CumulVar(current), interval->EndExpr()));
-                    }
-
-                    last = interval;
-                }
-
-                nodes.push_back(current);
-                prev = current;
-            }
-
-            Route route{carer, visits};
-            RouteValidator validator;
-            const auto validation_result = validator.Validate(route, solver_);
-            DCHECK(!validation_result.error());
-
             LOG(ERROR) << "Breaks: ";
             for (const auto &local_break : break_intervals_) {
                 LOG(ERROR) << boost::format("[%1%,%2%] [%3%,%4%] [%5%,%6%]")
@@ -149,6 +95,49 @@ namespace rows {
                               % boost::posix_time::seconds(local_break->EndMax());
             }
 
+            operations_research::RoutingModel *const model = dimension_->model();
+
+            std::vector<operations_research::IntervalVar *> all_intervals;
+
+            std::vector<int64> travel_times;
+
+            int64 current = model->Start(vehicle_);
+
+            const auto carer = solver_.Carer(vehicle_);
+            std::vector<rows::ScheduledVisit> visits;
+
+            operations_research::IntervalVar *last = nullptr;
+            while (!model->IsEnd(current)) {
+                int64 prev = current;
+                current = model->NextVar(current)->Value();
+
+                if (!model->IsEnd(current)) {
+                    visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
+                                        carer,
+                                        solver_.NodeToVisit(model->IndexToNode(current)));
+                }
+
+                if (!model->IsStart(prev)) {
+                    operations_research::IntervalVar *const interval = solver()->MakeFixedDurationIntervalVar(
+                            dimension_->CumulVar(prev),
+                            dimension_->FixedTransitVar(prev)->Value(),
+                            (boost::format("%1%-%2%") % prev % current).str());
+                    all_intervals.push_back(interval);
+
+                    if (last != nullptr) {
+                        solver()->AddConstraint(solver()->MakeIntervalVarRelation(
+                                interval, operations_research::Solver::STARTS_AFTER_END, last));
+                    }
+//
+//                    solver()->AddConstraint(
+//                            solver()->MakeGreaterOrEqual(interval->StartExpr(), dimension_->CumulVar(prev)));
+//                    solver()->AddConstraint(
+//                            solver()->MakeLessOrEqual(interval->EndExpr(), dimension_->CumulVar(current)));
+
+                    last = interval;
+                }
+            }
+
             LOG(ERROR) << "Visits: ";
             for (const auto &visit : visits) {
                 LOG(ERROR) << boost::format("[%1%,%2%] %3%")
@@ -157,14 +146,24 @@ namespace rows {
                               % visit.duration();
             }
 
+            Route route{carer, visits};
+            SimpleRouteValidator validator;
+            const auto validation_result = validator.Validate(route, solver_);
+            DCHECK(!validation_result.error());
+
+            for (const auto &interval : break_intervals_) {
+                all_intervals.push_back(interval);
+            }
+
             std::sort(std::begin(all_intervals), std::end(all_intervals),
                       [](const operations_research::IntervalVar *left,
                          operations_research::IntervalVar *right) -> bool {
-                          return left->StartMin() <= right->StartMin()
-                                 && left->EndMin() <= right->EndMin();
+                          return left->EndMax() <= right->EndMax();
                       });
 
-            LOG(ERROR) << "After vehicle: " << vehicle_;
+            LOG(ERROR) << "After vehicle: " << vehicle_
+                       << " " << seconds(dimension_->CumulVar(dimension_->model()->Start(vehicle_))->Min())
+                       << " " << seconds(dimension_->CumulVar(dimension_->model()->Start(vehicle_))->Max());
             for (auto &interval : all_intervals) {
                 LOG(ERROR) << boost::format("[%1%,%2%] [%3%,%4%] [%5%,%6%]")
                               % boost::posix_time::seconds(interval->StartMin())
@@ -175,8 +174,17 @@ namespace rows {
                               % boost::posix_time::seconds(interval->EndMax());
             }
 
-            solver()->AddConstraint(solver()->MakeDisjunctiveConstraint(all_intervals,
-                                                                        StrCat("Vehicle breaks ", vehicle_)));
+            const auto &failure_interceptor = []() -> void {
+                LOG(INFO) << "HERE";
+            };
+
+            solver()->set_fail_intercept(failure_interceptor);
+
+            solver()->AddConstraint(solver()->MakeStrictDisjunctiveConstraint(all_intervals,
+                                                                              (boost::format("Vehicle breaks %1%")
+                                                                               % vehicle_).str()));
+
+            solver()->clear_fail_intercept();
         }
     }
 }

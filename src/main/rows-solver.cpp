@@ -47,17 +47,17 @@
 static const int STATUS_OK = 1;
 
 DEFINE_string(problem_file,
-"../problem.json", "a file path to the problem instance");
+              "../problem.json", "a file path to the problem instance");
 DEFINE_validator(problem_file, &util::ValidateFilePath
 );
 
 DEFINE_string(solution_file,
-"", "a file path to the solution file");
+              "", "a file path to the solution file");
 DEFINE_validator(solution_file, &util::TryValidateFilePath
 );
 
 DEFINE_string(map_file,
-"../data/scotland-latest.osrm", "a file path to the map");
+              "../data/scotland-latest.osrm", "a file path to the map");
 DEFINE_validator(map_file, &util::ValidateFilePath
 );
 
@@ -160,9 +160,9 @@ osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
     return config;
 }
 
-void failure_interceptor() {
-    LOG(INFO) << "Failure intercepted";
-}
+//void failure_interceptor() {
+//    LOG(INFO) << "Failure intercepted";
+//}
 
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
         model.solver()->parameters().set_print_added_constraints(true);
         model.solver()->parameters().set_print_model(true);
         model.solver()->parameters().set_print_model_stats(true);
-//        model.solver()->parameters().disable_solve();
+        model.solver()->parameters().disable_solve();
 
         wrapper.ConfigureModel(model);
 

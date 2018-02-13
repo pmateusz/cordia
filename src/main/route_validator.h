@@ -28,8 +28,10 @@ namespace rows {
 
     class Event;
 
-    class RouteValidator {
+    class RouteValidatorBase {
     public:
+
+        virtual ~RouteValidatorBase() = default;
 
         enum class ErrorCode {
             UNKNOWN,
@@ -44,20 +46,20 @@ namespace rows {
 
         class ValidationError {
         public:
-            explicit ValidationError(RouteValidator::ErrorCode error_code);
+            explicit ValidationError(RouteValidatorBase::ErrorCode error_code);
 
-            ValidationError(RouteValidator::ErrorCode error_code, std::string error_message);
+            ValidationError(RouteValidatorBase::ErrorCode error_code, std::string error_message);
 
             friend std::ostream &operator<<(std::ostream &out, const ValidationError &error);
 
             const std::string &error_message() const;
 
-            RouteValidator::ErrorCode error_code() const;
+            RouteValidatorBase::ErrorCode error_code() const;
 
         protected:
             virtual void Print(std::ostream &out) const;
 
-            RouteValidator::ErrorCode error_code_;
+            RouteValidatorBase::ErrorCode error_code_;
             std::string error_message_;
         };
 
@@ -151,13 +153,13 @@ namespace rows {
             std::unique_ptr<ValidationError> error_;
         };
 
-        std::vector<std::unique_ptr<ValidationError> > Validate(const std::vector<rows::Route> &routes,
+        std::vector<std::unique_ptr<ValidationError> > ValidateAll(const std::vector<rows::Route> &routes,
                                                                 const rows::Problem &problem,
                                                                 rows::SolverWrapper &solver) const;
 
-        ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const;
+        virtual ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const = 0;
 
-    private:
+    protected:
         static bool IsAssignedAndActive(const rows::ScheduledVisit &visit);
 
         ScheduledVisitError CreateMissingInformationError(const rows::Route &route,
@@ -171,7 +173,7 @@ namespace rows {
 
         ScheduledVisitError CreateLateArrivalError(const rows::Route &route,
                                                    const rows::ScheduledVisit &visit,
-                                                   const boost::posix_time::ptime::time_duration_type duration) const;
+                                                   boost::posix_time::ptime::time_duration_type duration) const;
 
         ScheduledVisitError CreateContractualBreakViolationError(const rows::Route &route,
                                                                  const rows::ScheduledVisit &visit) const;
@@ -187,7 +189,21 @@ namespace rows {
                                              const ScheduledVisit &visit) const;
     };
 
-    std::ostream &operator<<(std::ostream &out, RouteValidator::ErrorCode error_code);
+    class RouteValidator : public RouteValidatorBase {
+    public:
+        virtual ~RouteValidator() = default;
+
+        ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const override;
+    };
+
+    class SimpleRouteValidator : public RouteValidatorBase {
+    public:
+        virtual ~SimpleRouteValidator() = default;
+
+        ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const override;
+    };
+
+    std::ostream &operator<<(std::ostream &out, RouteValidatorBase::ErrorCode error_code);
 }
 
 

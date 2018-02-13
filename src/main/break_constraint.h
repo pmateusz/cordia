@@ -24,7 +24,7 @@ namespace rows {
         void InitialPropagate() override;
 
     private:
-        void PathClosed();
+        void OnPathClosed();
 
         const operations_research::RoutingDimension *dimension_;
         const int vehicle_;
