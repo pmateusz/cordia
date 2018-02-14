@@ -76,20 +76,18 @@ namespace rows {
 
             std::vector<operations_research::IntervalVar *> all_intervals;
 
-            std::vector<int64> nodes;
+            std::vector<int64> node_indices;
             std::vector<int64> travel_times;
 
             const auto carer = solver_.Carer(vehicle_);
-//
-//
 
             int64 current = model->Start(vehicle_);
             std::vector<rows::ScheduledVisit> visits;
-            nodes.push_back(current);
+            node_indices.push_back(current);
 
             while (!model->IsEnd(current)) {
                 current = model->NextVar(current)->Value();
-                nodes.push_back(current);
+                node_indices.push_back(current);
 
 //                int64 prev = current;
 //                current = model->NextVar(current)->Value();
@@ -121,12 +119,12 @@ namespace rows {
 //                    last = interval;
 //                }
             }
-            const auto visit_count = nodes.size() - 1;
+            const auto visit_count = node_indices.size() - 1;
             for (auto node_pos = 1; node_pos < visit_count; ++node_pos) {
-                const auto node = nodes[node_pos];
+                const auto node = model->IndexToNode(node_indices[node_pos]);
                 visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
                                     carer,
-                                    solver_.NodeToVisit(model->IndexToNode(node)));
+                                    solver_.NodeToVisit(node));
             }
 
             LOG(ERROR) << "Visits: ";
@@ -137,31 +135,55 @@ namespace rows {
                               % visit.duration();
             }
 
-            for (auto node_pos = 0; node_pos < nodes.size(); ++node_pos) {
-                const auto node = nodes[node_pos];
-                if (model->IsEnd(node)) {
+            const auto &get_duration = [this, &model](int64 from, int64 to) -> int64 {
+                auto distance = solver_.Distance(model->IndexToNode(from),
+                                                 model->IndexToNode(to));
+                auto duration = distance;
+                if (!model->IsStart(from)) {
+                    duration += solver_.NodeToVisit(model->IndexToNode(from)).duration().total_seconds();
+                }
+                return duration;
+            };
+
+            Route route{carer, visits};
+            SimpleRouteValidator validator;
+            const auto validation_result = validator.Validate(route, solver_);
+            DCHECK(!validation_result.error());
+
+            for (auto node_pos = 0; node_pos < node_indices.size(); ++node_pos) {
+                const auto node_index = node_indices[node_pos];
+                if (model->IsEnd(node_index)) {
                     LOG(INFO) << boost::format("%|5| [%s,%s]")
-                                 % node
-                                 % seconds(dimension_->CumulVar(node)->Min())
-                                 % seconds(dimension_->CumulVar(node)->Max());
+                                 % node_index
+                                 % seconds(dimension_->CumulVar(node_index)->Min())
+                                 % seconds(dimension_->CumulVar(node_index)->Max());
                 } else {
+                    const auto duration = get_duration(node_index, node_indices[node_pos + 1]);
+
                     LOG(INFO) << boost::format("%|5| [%s,%s] %s")
-                                 % node
-                                 % seconds(dimension_->CumulVar(node)->Min())
-                                 % seconds(dimension_->CumulVar(node)->Max())
-                                 % seconds(dimension_->GetTransitValue(nodes[node_pos], nodes[node_pos + 1], vehicle_));
+                                 % node_index
+                                 % seconds(dimension_->CumulVar(node_index)->Min())
+                                 % seconds(dimension_->CumulVar(node_index)->Max())
+                                 % seconds(duration);
+                    //seconds(dimension_->GetTransitValue(node_index, node_indices[node_pos + 1], vehicle_));
                 }
             }
 
             operations_research::IntervalVar *last = nullptr;
-            for (auto node_pos = 1; node_pos < nodes.size() - 1; ++node_pos) {
-                const auto from_node = nodes[node_pos];
-                const auto to_node = nodes[node_pos];
-
+            for (auto node_pos = 1; node_pos < node_indices.size() - 1; ++node_pos) {
+                const auto from_node = node_indices[node_pos];
+                const auto to_node = node_indices[node_pos + 1];
+                const auto duration = get_duration(from_node, to_node);
                 operations_research::IntervalVar *const interval = solver()->MakeFixedDurationIntervalVar(
                         dimension_->CumulVar(from_node),
-                        dimension_->GetTransitValue(from_node, to_node, vehicle_),
+                        duration, //dimension_->GetTransitValue(from_node, to_node, vehicle_),
                         (boost::format("%1%-%2%") % from_node % to_node).str());
+
+//                solver()->AddConstraint(
+//                        solver()->MakeGreaterOrEqual(interval->StartExpr(), dimension_->CumulVar(from_node)));
+//                solver()->AddConstraint(
+//                        solver()->MakeLessOrEqual(interval->EndExpr(), dimension_->CumulVar(to_node)));
+
                 all_intervals.push_back(interval);
 
                 if (last != nullptr) {
@@ -173,16 +195,11 @@ namespace rows {
             }
 
             std::vector<std::string> text_nodes;
-            for (const auto &node : nodes) {
+            for (const auto &node : node_indices) {
                 text_nodes.push_back(std::to_string(node));
             }
 
             LOG(ERROR) << boost::join(text_nodes, ", ");
-
-            Route route{carer, visits};
-            SimpleRouteValidator validator;
-            const auto validation_result = validator.Validate(route, solver_);
-            DCHECK(!validation_result.error());
 
             for (const auto &interval : break_intervals_) {
                 all_intervals.push_back(interval);
@@ -207,17 +224,15 @@ namespace rows {
                               % boost::posix_time::seconds(interval->EndMax());
             }
 
-//            const auto &failure_interceptor = []() -> void {
-//                LOG(INFO) << "HERE";
-//            };
-//
-//            solver()->set_fail_intercept(failure_interceptor);
+            const auto &failure_interceptor = []() -> void {
+                LOG(INFO) << "HERE";
+            };
 
             solver()->AddConstraint(solver()->MakeStrictDisjunctiveConstraint(all_intervals,
                                                                               (boost::format("Vehicle breaks %1%")
                                                                                % vehicle_).str()));
 
-//            solver()->clear_fail_intercept();
+            solver()->clear_fail_intercept();
         }
     }
 }

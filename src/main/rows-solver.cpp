@@ -208,7 +208,7 @@ int main(int argc, char **argv) {
         LOG(INFO) << GetModelStatus(model.status());
 
 //        model.solver()->Accept(model.solver()->MakePrintModelVisitor());
-        model.solver()->set_fail_intercept(failure_interceptor);
+//        model.solver()->set_fail_intercept(failure_interceptor);
         operations_research::Assignment const *assignment = nullptr;
         if (solution) {
             VLOG(1) << "Starting with a solution.";

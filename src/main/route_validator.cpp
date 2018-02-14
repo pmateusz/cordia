@@ -674,20 +674,15 @@ namespace rows {
         nodes.push_back(solver.DEPOT);
 
         auto last_time = work_interval_it->begin().time_of_day();
-        auto prev_node = solver.DEPOT;
-        auto current_node = solver.DEPOT;
-        auto next_node = nodes[0];
-        time_duration current_travel_time;
-        auto next_travel_time = seconds(solver.Distance(current_node, next_node));
-
+        auto next_travel_time = seconds(solver.Distance(solver.DEPOT, nodes[1]));
         last_time += next_travel_time;
 
         const auto visit_count = visits.size();
         for (auto visit_pos = 0; visit_pos < visit_count; ++visit_pos) {
-            prev_node = current_node;
-            current_node = next_node;
-            next_node = nodes[visit_pos + 1];
-            current_travel_time = next_travel_time;
+            auto prev_node = nodes[visit_pos];
+            auto current_node = nodes[visit_pos + 1];
+            auto next_node = nodes[visit_pos + 2];
+            auto current_travel_time = next_travel_time;
             next_travel_time = seconds(solver.Distance(current_node, next_node));
 
             total_travel_time += current_travel_time;

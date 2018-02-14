@@ -352,10 +352,7 @@ namespace rows {
         auto total_multiple_carer_visits = 0;
 
         operations_research::Solver *const solver = model.solver();
-        solver->AddConstraint(
-                solver->MakeGreaterOrEqual(time_dimension->CumulVar(model.NodeToIndex(DEPOT)), 0));
-        solver->AddConstraint(
-                solver->MakeLessOrEqual(time_dimension->CumulVar(model.NodeToIndex(DEPOT)), SECONDS_IN_DAY));
+        time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DAY);
 
         std::set<operations_research::RoutingModel::NodeIndex> covered_nodes;
         covered_nodes.insert(DEPOT);
@@ -600,8 +597,8 @@ namespace rows {
                                                     std::cend(solution_to_use.visits()),
                                                     is_assigned);
             VLOG_IF(1, initial_size != reduced_size)
-                    << boost::format("Removed %1% visit assignments due to constrain violations.")
-                       % (initial_size - reduced_size);
+            << boost::format("Removed %1% visit assignments due to constrain violations.")
+               % (initial_size - reduced_size);
         }
         VLOG(1) << boost::format("Validation of the solution for warm start completed in %1% seconds")
                    % std::chrono::duration_cast<std::chrono::seconds>(
