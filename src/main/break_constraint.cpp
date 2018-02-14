@@ -71,6 +71,7 @@ namespace rows {
             }
 
             std::copy(std::begin(break_intervals_), std::end(break_intervals_), std::back_inserter(all_intervals));
+
             solver()->AddConstraint(solver()->MakeStrictDisjunctiveConstraint(all_intervals,
                                                                               (boost::format("Vehicle breaks %1%")
                                                                                % vehicle_).str()));

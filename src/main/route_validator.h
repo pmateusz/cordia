@@ -237,8 +237,6 @@ namespace rows {
 
             boost::posix_time::time_duration GetExpectedFinish(const ScheduledVisit &visit) const;
 
-            boost::posix_time::time_duration GetTravelTime(const ScheduledVisit &visit) const;
-
             bool StartsAfter(boost::posix_time::time_duration time_of_day, const ScheduledVisit &visit) const;
 
             bool CanPerformAfter(boost::posix_time::time_duration time_of_day, const Event &break_interval) const;
@@ -256,6 +254,9 @@ namespace rows {
         private:
             operations_research::RoutingModel::NodeIndex GetNode(const ScheduledVisit &visit) const;
 
+            boost::posix_time::time_duration GetTravelTime(operations_research::RoutingModel::NodeIndex from_node,
+                                                           operations_research::RoutingModel::NodeIndex to_node) const;
+
             const Route &route_;
             SolverWrapper &solver_;
             const RouteValidatorBase &validator_;
@@ -267,7 +268,10 @@ namespace rows {
 
             std::vector<ScheduledVisit> visits_;
             operations_research::RoutingModel::NodeIndex last_node_;
+            operations_research::RoutingModel::NodeIndex current_node_;
+            operations_research::RoutingModel::NodeIndex next_node_;
             std::size_t current_visit_;
+
             std::vector<rows::Event> breaks_;
             std::size_t current_break_;
             boost::posix_time::time_duration current_time_;
