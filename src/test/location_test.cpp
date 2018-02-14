@@ -60,7 +60,8 @@ TEST(TestScheduledVisit, CanExecuteContainerOperations) {
                     boost::make_optional(rows::Location{"55.8886", "-4.34296"}),
                     boost::posix_time::ptime(boost::gregorian::date(2017, 2, 1),
                                              boost::posix_time::time_duration(8, 15, 0)),
-                    boost::posix_time::minutes(45)
+                    boost::posix_time::minutes(45),
+                    1
             })};
 
     // when

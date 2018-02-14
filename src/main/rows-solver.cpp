@@ -46,14 +46,20 @@
 
 static const int STATUS_OK = 1;
 
-DEFINE_string(problem_file, "../problem.json", "a file path to the problem instance");
-DEFINE_validator(problem_file, &util::ValidateFilePath);
+DEFINE_string(problem_file,
+              "../problem.json", "a file path to the problem instance");
+DEFINE_validator(problem_file, &util::ValidateFilePath
+);
 
-DEFINE_string(solution_file, "", "a file path to the solution file");
-DEFINE_validator(solution_file, &util::TryValidateFilePath);
+DEFINE_string(solution_file,
+              "", "a file path to the solution file");
+DEFINE_validator(solution_file, &util::TryValidateFilePath
+);
 
-DEFINE_string(map_file, "../data/scotland-latest.osrm", "a file path to the map");
-DEFINE_validator(map_file, &util::ValidateFilePath);
+DEFINE_string(map_file,
+              "../data/scotland-latest.osrm", "a file path to the map");
+DEFINE_validator(map_file, &util::ValidateFilePath
+);
 
 std::string GetModelStatus(int status) {
     switch (status) {
@@ -195,11 +201,11 @@ int main(int argc, char **argv) {
         model.solver()->parameters().set_print_added_constraints(true);
         model.solver()->parameters().set_print_model(true);
         model.solver()->parameters().set_print_model_stats(true);
-//        model.solver()->parameters().disable_solve();
+        model.solver()->parameters().disable_solve();
 
         wrapper.ConfigureModel(model);
 
-        LOG(INFO) << model.status();
+        LOG(INFO) << GetModelStatus(model.status());
 
 //        model.solver()->Accept(model.solver()->MakePrintModelVisitor());
 //        model.solver()->set_fail_intercept(failure_interceptor);

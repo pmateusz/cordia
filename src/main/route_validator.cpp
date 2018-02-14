@@ -14,75 +14,76 @@
 
 namespace rows {
 
-    std::ostream &operator<<(std::ostream &out, const rows::RouteValidator::ValidationError &error) {
+    std::ostream &operator<<(std::ostream &out, const rows::RouteValidatorBase::ValidationError &error) {
         error.Print(out);
         return out;
     }
 
-    std::ostream &operator<<(std::ostream &out, RouteValidator::ErrorCode error_code) {
+    std::ostream &operator<<(std::ostream &out, RouteValidatorBase::ErrorCode error_code) {
         switch (error_code) {
-            case RouteValidator::ErrorCode::MISSING_INFO:
+            case RouteValidatorBase::ErrorCode::MISSING_INFO:
                 out << "MISSING_INFO";
                 break;
-            case RouteValidator::ErrorCode::TOO_MANY_CARERS:
+            case RouteValidatorBase::ErrorCode::TOO_MANY_CARERS:
                 out << "TOO_MANY_CARERS";
                 break;
-            case RouteValidator::ErrorCode::LATE_ARRIVAL:
+            case RouteValidatorBase::ErrorCode::LATE_ARRIVAL:
                 out << "LATE_ARRIVAL";
                 break;
-            case RouteValidator::ErrorCode::BREAK_VIOLATION:
+            case RouteValidatorBase::ErrorCode::BREAK_VIOLATION:
                 out << "BREAK_VIOLATION";
                 break;
-            case RouteValidator::ErrorCode::ABSENT_CARER:
+            case RouteValidatorBase::ErrorCode::ABSENT_CARER:
                 out << "ABSENT_CARER";
                 break;
-            case RouteValidator::ErrorCode::UNKNOWN:
+            case RouteValidatorBase::ErrorCode::UNKNOWN:
                 out << "UNKNOWN";
                 break;
-            case RouteValidator::ErrorCode::MOVED:
+            case RouteValidatorBase::ErrorCode::MOVED:
                 out << "MOVED";
                 break;
-            case RouteValidator::ErrorCode::ORPHANED:
+            case RouteValidatorBase::ErrorCode::ORPHANED:
                 out << "ORPHANED";
                 break;
         }
         return out;
     }
 
-    RouteValidator::ValidationError::ValidationError(RouteValidator::ErrorCode error_code)
+    RouteValidatorBase::ValidationError::ValidationError(RouteValidatorBase::ErrorCode error_code)
             : ValidationError(error_code, {}) {}
 
-    RouteValidator::ValidationError::ValidationError(RouteValidator::ErrorCode error_code, std::string error_message)
+    RouteValidatorBase::ValidationError::ValidationError(RouteValidatorBase::ErrorCode error_code,
+                                                         std::string error_message)
             : error_message_(std::move(error_message)),
               error_code_(error_code) {}
 
-    RouteValidator::ErrorCode RouteValidator::ValidationError::error_code() const {
+    RouteValidatorBase::ErrorCode RouteValidatorBase::ValidationError::error_code() const {
         return error_code_;
     }
 
-    const std::string &RouteValidator::ValidationError::error_message() const {
+    const std::string &RouteValidatorBase::ValidationError::error_message() const {
         return error_message_;
     }
 
-    void RouteValidator::ValidationError::Print(std::ostream &out) const {
+    void RouteValidatorBase::ValidationError::Print(std::ostream &out) const {
         out << boost::format("RouteValidationError: %1%") % error_message_;
     }
 
-    RouteValidator::RouteConflictError::RouteConflictError(const CalendarVisit &visit,
-                                                           std::vector<rows::Route> routes)
-            : ValidationError(RouteValidator::ErrorCode::TOO_MANY_CARERS),
+    RouteValidatorBase::RouteConflictError::RouteConflictError(const CalendarVisit &visit,
+                                                               std::vector<rows::Route> routes)
+            : ValidationError(RouteValidatorBase::ErrorCode::TOO_MANY_CARERS),
               visit_(visit),
               routes_(std::move(routes)) {}
 
-    RouteValidator::ScheduledVisitError::ScheduledVisitError(ErrorCode error_code,
-                                                             std::string error_message,
-                                                             const ScheduledVisit &visit,
-                                                             const rows::Route &route)
+    RouteValidatorBase::ScheduledVisitError::ScheduledVisitError(ErrorCode error_code,
+                                                                 std::string error_message,
+                                                                 const ScheduledVisit &visit,
+                                                                 const rows::Route &route)
             : ValidationError(error_code, std::move(error_message)),
               visit_(visit),
               route_(route) {}
 
-    void RouteValidator::RouteConflictError::Print(std::ostream &out) const {
+    void RouteValidatorBase::RouteConflictError::Print(std::ostream &out) const {
         std::vector<std::string> carers_text;
         for (const auto &route : routes_) {
             std::stringstream stream;
@@ -95,27 +96,27 @@ namespace rows {
                 % boost::algorithm::join(carers_text, ", ")).str();
     }
 
-    const rows::CalendarVisit &RouteValidator::RouteConflictError::visit() const {
+    const rows::CalendarVisit &RouteValidatorBase::RouteConflictError::visit() const {
         return visit_;
     }
 
-    const std::vector<rows::Route> &RouteValidator::RouteConflictError::routes() const {
+    const std::vector<rows::Route> &RouteValidatorBase::RouteConflictError::routes() const {
         return routes_;
     }
 
-    void RouteValidator::ScheduledVisitError::Print(std::ostream &out) const {
+    void RouteValidatorBase::ScheduledVisitError::Print(std::ostream &out) const {
         out << (boost::format("ScheduledVisitError: %1%") % error_message_).str();
     }
 
-    const rows::ScheduledVisit &RouteValidator::ScheduledVisitError::visit() const {
+    const rows::ScheduledVisit &RouteValidatorBase::ScheduledVisitError::visit() const {
         return visit_;
     }
 
-    std::vector<std::unique_ptr<rows::RouteValidator::ValidationError>>
-    RouteValidator::Validate(const std::vector<rows::Route> &routes,
-                             const rows::Problem &problem,
-                             SolverWrapper &solver) const {
-        std::vector<std::unique_ptr<rows::RouteValidator::ValidationError>> validation_errors;
+    std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>>
+    RouteValidatorBase::ValidateAll(const std::vector<rows::Route> &routes,
+                                    const rows::Problem &problem,
+                                    SolverWrapper &solver) const {
+        std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>> validation_errors;
 
         // find visits with incomplete information
         for (const auto &route: routes) {
@@ -236,13 +237,13 @@ namespace rows {
         return validation_errors;
     }
 
-    bool rows::RouteValidator::IsAssignedAndActive(const rows::ScheduledVisit &visit) {
+    bool rows::RouteValidatorBase::IsAssignedAndActive(const rows::ScheduledVisit &visit) {
         return visit.calendar_visit().is_initialized()
                && visit.carer().is_initialized()
                && visit.type() == ScheduledVisit::VisitType::UNKNOWN;
     }
 
-    RouteValidator::ScheduledVisitError RouteValidator::CreateAbsentCarerError(
+    RouteValidatorBase::ScheduledVisitError RouteValidatorBase::CreateAbsentCarerError(
             const rows::Route &route,
             const ScheduledVisit &visit) const {
         return {ErrorCode::ABSENT_CARER,
@@ -253,7 +254,7 @@ namespace rows {
                 route};
     }
 
-    RouteValidator::ScheduledVisitError RouteValidator::CreateLateArrivalError(
+    RouteValidatorBase::ScheduledVisitError RouteValidatorBase::CreateLateArrivalError(
             const rows::Route &route,
             const rows::ScheduledVisit &visit,
             const boost::posix_time::ptime::time_duration_type delay) const {
@@ -266,7 +267,7 @@ namespace rows {
                 route};
     }
 
-    RouteValidator::ScheduledVisitError RouteValidator::CreateContractualBreakViolationError(
+    RouteValidatorBase::ScheduledVisitError RouteValidatorBase::CreateContractualBreakViolationError(
             const rows::Route &route,
             const rows::ScheduledVisit &visit) const {
         return {ErrorCode::BREAK_VIOLATION,
@@ -277,7 +278,7 @@ namespace rows {
                 route};
     }
 
-    RouteValidator::ScheduledVisitError RouteValidator::CreateContractualBreakViolationError(
+    RouteValidatorBase::ScheduledVisitError RouteValidatorBase::CreateContractualBreakViolationError(
             const rows::Route &route,
             const rows::ScheduledVisit &visit,
             std::vector<rows::Event> overlapping_slots) const {
@@ -313,15 +314,15 @@ namespace rows {
         }
     }
 
-    RouteValidator::ScheduledVisitError RouteValidator::CreateMissingInformationError(
+    RouteValidatorBase::ScheduledVisitError RouteValidatorBase::CreateMissingInformationError(
             const rows::Route &route,
             const rows::ScheduledVisit &visit,
             std::string error_msg) const {
         return {ErrorCode::MISSING_INFO, std::move(error_msg), visit, route};
     }
 
-    RouteValidator::ScheduledVisitError
-    RouteValidator::CreateOrphanedError(const Route &route, const ScheduledVisit &visit) const {
+    RouteValidatorBase::ScheduledVisitError
+    RouteValidatorBase::CreateOrphanedError(const Route &route, const ScheduledVisit &visit) const {
         return {ErrorCode::ORPHANED,
                 (boost::format("The visit %1% is not present in the problem definition.")
                  % visit).str(),
@@ -329,7 +330,7 @@ namespace rows {
                 route};
     }
 
-    RouteValidator::ScheduledVisitError RouteValidator::CreateMovedError(
+    RouteValidatorBase::ScheduledVisitError RouteValidatorBase::CreateMovedError(
             const Route &route,
             const ScheduledVisit &visit) const {
         std::string error_msg;
@@ -352,8 +353,8 @@ namespace rows {
         return {ErrorCode::MOVED, error_msg, visit, route};
     }
 
-    RouteValidator::ValidationResult RouteValidator::Validate(const Route &route,
-                                                              SolverWrapper &solver) const {
+    RouteValidatorBase::ValidationResult RouteValidator::Validate(const Route &route,
+                                                                  SolverWrapper &solver) const {
         static const boost::posix_time::time_duration MARGIN{boost::posix_time::seconds(1)};
 
         boost::posix_time::time_duration total_available_time{boost::posix_time::seconds(0)};
@@ -362,15 +363,15 @@ namespace rows {
 
         const auto &visits = route.visits();
         if (visits.empty()) {
-            return RouteValidator::ValidationResult{
-                    RouteValidator::Metrics{total_available_time, total_service_time, total_travel_time}};
+            return RouteValidatorBase::ValidationResult{
+                    RouteValidatorBase::Metrics{total_available_time, total_service_time, total_travel_time}};
         }
 
         const auto first_visit_date = visits.front().datetime().date();
         const auto route_size = route.visits().size();
         for (auto visit_pos = 1u; visit_pos < route_size; ++visit_pos) {
             if (visits[visit_pos].datetime().date() != first_visit_date) {
-                return RouteValidator::ValidationResult{
+                return RouteValidatorBase::ValidationResult{
                         std::make_unique<ValidationError>(
                                 CreateValidationError("Route contains visits that span across multiple days"))};
             }
@@ -381,7 +382,7 @@ namespace rows {
         const auto work_interval_end_it = std::end(diary.get().events());
 
         if (work_interval_it == work_interval_end_it) {
-            return RouteValidator::ValidationResult{
+            return RouteValidatorBase::ValidationResult{
                     std::make_unique<ScheduledVisitError>(CreateContractualBreakViolationError(route, visits.back()))};
         }
 
@@ -439,7 +440,7 @@ namespace rows {
 
             if (work_interval_it == work_interval_end_it) {
                 VLOG(2) << "Cannot perform visit " << first_visit << " within assumed working hours of the carer";
-                return RouteValidator::ValidationResult{
+                return RouteValidatorBase::ValidationResult{
                         std::make_unique<ScheduledVisitError>(
                                 CreateContractualBreakViolationError(route, visits.front()))};
             }
@@ -476,7 +477,7 @@ namespace rows {
                             << "capacity to accommodate travel time "
                             << arrival_time
                             << " to reach next visit";
-                    return RouteValidator::ValidationResult{std::make_unique<ScheduledVisitError>(
+                    return RouteValidatorBase::ValidationResult{std::make_unique<ScheduledVisitError>(
                             CreateContractualBreakViolationError(route, visits.back()))};
                 }
 
@@ -492,7 +493,7 @@ namespace rows {
                         << " arrived: " << arrival_time
                         << " service_start: " << service_start
                         << " latest_service_start: : " << latest_service_start;
-                return RouteValidator::ValidationResult{std::make_unique<ScheduledVisitError>(
+                return RouteValidatorBase::ValidationResult{std::make_unique<ScheduledVisitError>(
                         CreateLateArrivalError(route, visit, service_start - latest_service_start))};
             }
 
@@ -510,7 +511,7 @@ namespace rows {
                             << " completed_service: " << service_finish
                             << " planned_break: " << work_interval_it->end().time_of_day();
 
-                    return RouteValidator::ValidationResult{std::make_unique<ScheduledVisitError>(
+                    return RouteValidatorBase::ValidationResult{std::make_unique<ScheduledVisitError>(
                             CreateContractualBreakViolationError(route, visits.back()))};
                 }
 
@@ -523,7 +524,7 @@ namespace rows {
                             << " arrived: " << arrival_time
                             << " service_start: " << service_start
                             << " latest_service_start: : " << latest_service_start;
-                    return RouteValidator::ValidationResult{std::make_unique<ScheduledVisitError>(
+                    return RouteValidatorBase::ValidationResult{std::make_unique<ScheduledVisitError>(
                             CreateLateArrivalError(route, visit, service_start - latest_service_start))};
                 }
 
@@ -540,7 +541,7 @@ namespace rows {
                         << " completed_service: " << service_finish
                         << " planned_break: " << work_interval_it->end().time_of_day();
 
-                return RouteValidator::ValidationResult{std::make_unique<ScheduledVisitError>(
+                return RouteValidatorBase::ValidationResult{std::make_unique<ScheduledVisitError>(
                         CreateContractualBreakViolationError(route, visits.back()))};
             }
 
@@ -557,103 +558,308 @@ namespace rows {
 
         last_time += boost::posix_time::seconds(solver.Distance(last_node, SolverWrapper::DEPOT));
         if (last_time > work_interval_it->end().time_of_day()) {
-            return RouteValidator::ValidationResult{
+            return RouteValidatorBase::ValidationResult{
                     std::make_unique<ScheduledVisitError>(CreateContractualBreakViolationError(route, visits.back()))};
         }
 
-        return RouteValidator::ValidationResult{
-                RouteValidator::Metrics{total_available_time, total_service_time, total_travel_time}};
+        return RouteValidatorBase::ValidationResult{
+                RouteValidatorBase::Metrics{total_available_time, total_service_time, total_travel_time}};
     }
 
-    RouteValidator::ValidationError RouteValidator::CreateValidationError(std::string error_msg) const {
-        return RouteValidator::ValidationError{ErrorCode::UNKNOWN, std::move(error_msg)};
+    RouteValidatorBase::ValidationResult
+    SimpleRouteValidator::Validate(const rows::Route &route, rows::SolverWrapper &solver) const {
+        using boost::posix_time::time_duration;
+        using boost::posix_time::seconds;
+
+        static const time_duration MARGIN{seconds(1)};
+
+        time_duration total_available_time{seconds(0)};
+        time_duration total_service_time{seconds(0)};
+        time_duration total_travel_time{seconds(0)};
+
+        const auto &visits = route.visits();
+        if (visits.empty()) {
+            return RouteValidatorBase::ValidationResult{
+                    RouteValidatorBase::Metrics{total_available_time, total_service_time, total_travel_time}};
+        }
+
+        const auto first_visit_date = visits.front().datetime().date();
+        const auto route_size = route.visits().size();
+        for (auto visit_pos = 1u; visit_pos < route_size; ++visit_pos) {
+            if (visits[visit_pos].datetime().date() != first_visit_date) {
+                return RouteValidatorBase::ValidationResult{
+                        std::make_unique<ValidationError>(
+                                CreateValidationError("Route contains visits that span across multiple days"))};
+            }
+        }
+
+        const auto diary = solver.problem().diary(route.carer(), visits.front().datetime().date());
+        auto work_interval_it = std::begin(diary.get().events());
+        const auto work_interval_end_it = std::end(diary.get().events());
+
+        if (work_interval_it == work_interval_end_it) {
+            return RouteValidatorBase::ValidationResult{
+                    std::make_unique<ScheduledVisitError>(CreateContractualBreakViolationError(route, visits.back()))};
+        }
+
+        for (auto interval_it = work_interval_it; interval_it != work_interval_end_it; ++interval_it) {
+            total_available_time += interval_it->duration();
+        }
+
+        if (VLOG_IS_ON(2)) {
+            std::vector<std::string> text_locations;
+            std::transform(std::cbegin(visits),
+                           std::cend(visits),
+                           std::back_inserter(text_locations),
+                           [](const rows::ScheduledVisit &visit) -> std::string {
+                               std::stringstream local_stream;
+                               local_stream << visit.location().get();
+                               return local_stream.str();
+                           });
+
+            std::vector<std::string> text_intervals;
+            auto local_work_interval_it = work_interval_it;
+            std::transform(local_work_interval_it,
+                           work_interval_end_it,
+                           std::back_inserter(text_intervals),
+                           [](const rows::Event &event) -> std::string {
+                               std::stringstream local_stream;
+                               local_stream << event;
+                               return (boost::format("[%1%,%2%]")
+                                       % event.begin().time_of_day()
+                                       % event.end().time_of_day()).str();
+                           });
+
+            VLOG(2) << "Validating path: " << boost::algorithm::join(text_locations, ", ")
+                    << " within work intervals: " << boost::algorithm::join(text_intervals, ", ");
+            for (const auto &visit  : visits) {
+                const auto start_time = visit.datetime().time_of_day();
+                VLOG(2) << boost::format("[%1%, %2%] %3%")
+                           % seconds(solver.GetBeginWindow(start_time))
+                           % seconds(solver.GetEndWindow(start_time))
+                           % visit.duration();
+            }
+        }
+
+        {
+            const auto &first_visit = visits.front();
+            const auto first_visit_fixed_begin = first_visit.datetime().time_of_day();
+            const time_duration first_visit_earliest_begin{seconds(solver.GetBeginWindow(first_visit_fixed_begin))};
+            const time_duration first_visit_latest_begin{seconds(solver.GetEndWindow(first_visit_fixed_begin))};
+
+            while (work_interval_it != work_interval_end_it
+                   && util::COMP_LT(first_visit_latest_begin, work_interval_it->begin().time_of_day(), MARGIN)) {
+                ++work_interval_it;
+            }
+
+            if (work_interval_it == work_interval_end_it) {
+                VLOG(2) << "Cannot perform visit " << first_visit << " within assumed working hours of the carer";
+                return RouteValidatorBase::ValidationResult{
+                        std::make_unique<ScheduledVisitError>(
+                                CreateContractualBreakViolationError(route, visits.front()))};
+            }
+        }
+
+        // find a slot that would let me complete a visit and move to the next place
+        // if that is not possible fail
+
+        // find intervals that suits service time and is wide enough to accommodate service and transfer to the subsequent visit
+        // if no such interval is available fail
+
+        std::vector<operations_research::RoutingModel::NodeIndex> nodes{};
+        nodes.push_back(solver.DEPOT);
+        for (const auto &visit:  visits) {
+            nodes.push_back(*(solver.GetNodes(visit).begin()));
+        }
+        nodes.push_back(solver.DEPOT);
+
+        auto last_time = work_interval_it->begin().time_of_day();
+        auto next_travel_time = seconds(solver.Distance(solver.DEPOT, nodes[1]));
+        last_time += next_travel_time;
+
+        const auto visit_count = visits.size();
+        for (auto visit_pos = 0; visit_pos < visit_count; ++visit_pos) {
+            auto prev_node = nodes[visit_pos];
+            auto current_node = nodes[visit_pos + 1];
+            auto next_node = nodes[visit_pos + 2];
+            auto current_travel_time = next_travel_time;
+            next_travel_time = seconds(solver.Distance(current_node, next_node));
+
+            total_travel_time += current_travel_time;
+
+            const auto &visit = visits[visit_pos];
+
+            const time_duration earliest_service_start{seconds(solver.GetBeginWindow(visit.datetime().time_of_day()))};
+            const time_duration latest_service_start{seconds(solver.GetEndWindow(visit.datetime().time_of_day()))};
+
+            auto service_start = std::min(std::max(last_time, earliest_service_start), latest_service_start);
+            if (util::COMP_GT(last_time, latest_service_start, MARGIN)) {
+                VLOG(2) << "[LATEST_ARRIVAL_CONSTRAINT_VIOLATION_FIRST_STAGE] "
+                        << " approached: " << visit.location().get()
+                        << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+                        << " travelled: " << current_travel_time
+                        << " arrived: " << last_time
+                        << " service_start: " << service_start
+                        << " latest_service_start: : " << latest_service_start;
+                return RouteValidatorBase::ValidationResult{std::make_unique<ScheduledVisitError>(
+                        CreateLateArrivalError(route, visit, service_start - latest_service_start))};
+            }
+
+            // find a slot that:
+            time_duration completed_service_and_travel_to_next = service_start + visit.duration() + next_travel_time;
+            while (util::COMP_GT(completed_service_and_travel_to_next, work_interval_it->end().time_of_day(), MARGIN)) {
+                ++work_interval_it;
+                if (work_interval_it == work_interval_end_it) {
+                    VLOG(2) << "[BREAK_CONSTRAINT_VIOLATION_FIRST_STAGE]"
+                            << " approached: " << visit.location().get()
+                            << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+                            << " travelled: " << current_travel_time
+                            << " arrived: " << last_time
+                            << " service_start: " << service_start
+                            << " completed_service_and_travel_to_next: " << completed_service_and_travel_to_next
+                            << " planned_break: " << work_interval_it->end().time_of_day();
+
+                    return RouteValidatorBase::ValidationResult{std::make_unique<ScheduledVisitError>(
+                            CreateContractualBreakViolationError(route, visits.back()))};
+                }
+
+                service_start = work_interval_it->begin().time_of_day();
+                if (util::COMP_GT(service_start, latest_service_start, MARGIN)) {
+                    VLOG(2) << "[LATEST_ARRIVAL_CONSTRAINT_VIOLATION_SECOND_STAGE] "
+                            << " approached: " << visit.location().get()
+                            << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+                            << " travelled: " << current_travel_time
+                            << " arrived: " << last_time
+                            << " completed_service_and_travel_to_next: " << service_start
+                            << " latest_service_start: : " << latest_service_start;
+                    return RouteValidatorBase::ValidationResult{std::make_unique<ScheduledVisitError>(
+                            CreateLateArrivalError(route, visit, service_start - latest_service_start))};
+                }
+
+                completed_service_and_travel_to_next = service_start + visit.duration() + next_travel_time;
+            }
+
+            if (util::COMP_GT(completed_service_and_travel_to_next, work_interval_it->end().time_of_day(), MARGIN)) {
+                VLOG(2) << "[BREAK_CONSTRAINT_VIOLATION_SECOND_STAGE]"
+                        << " approached: " << visit.location().get()
+                        << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+                        << " travelled: " << current_travel_time
+                        << " arrived: " << last_time
+                        << " service_start: " << service_start
+                        << " completed_service_and_travel_to_next: " << completed_service_and_travel_to_next
+                        << " planned_break: " << work_interval_it->end().time_of_day();
+
+                return RouteValidatorBase::ValidationResult{std::make_unique<ScheduledVisitError>(
+                        CreateContractualBreakViolationError(route, visits.back()))};
+            }
+
+            VLOG(2) << "approached: " << visit.location().get()
+                    << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+                    << " travelled: " << current_travel_time
+                    << " arrived: " << last_time
+                    << " started_service: " << service_start
+                    << " completed_service_and_travel_to_next: " << completed_service_and_travel_to_next;
+
+            last_time = completed_service_and_travel_to_next;
+        }
+
+        if (last_time > work_interval_it->end().time_of_day()) {
+            return RouteValidatorBase::ValidationResult{
+                    std::make_unique<ScheduledVisitError>(CreateContractualBreakViolationError(route, visits.back()))};
+        }
+
+        return RouteValidatorBase::ValidationResult{
+                RouteValidatorBase::Metrics{total_available_time, total_service_time, total_travel_time}};
     }
 
-    RouteValidator::ValidationResult::ValidationResult()
+    RouteValidatorBase::ValidationError RouteValidatorBase::CreateValidationError(std::string error_msg) const {
+        return RouteValidatorBase::ValidationError{ErrorCode::UNKNOWN, std::move(error_msg)};
+    }
+
+    RouteValidatorBase::ValidationResult::ValidationResult()
             : metrics_{},
               error_{nullptr} {}
 
-    RouteValidator::ValidationResult::ValidationResult(RouteValidator::Metrics metrics)
+    RouteValidatorBase::ValidationResult::ValidationResult(RouteValidatorBase::Metrics metrics)
             : metrics_{std::move(metrics)},
               error_{nullptr} {}
 
-    RouteValidator::ValidationResult::ValidationResult(
-            std::unique_ptr<RouteValidator::ValidationError> &&error) noexcept
+    RouteValidatorBase::ValidationResult::ValidationResult(
+            std::unique_ptr<RouteValidatorBase::ValidationError> &&error) noexcept
             : metrics_{},
               error_{std::move(error)} {}
 
-    RouteValidator::ValidationResult::ValidationResult(RouteValidator::ValidationResult &&other) noexcept
+    RouteValidatorBase::ValidationResult::ValidationResult(RouteValidatorBase::ValidationResult &&other) noexcept
             : metrics_{std::move(other.metrics_)},
               error_{std::move(other.error_)} {}
 
-    std::unique_ptr<RouteValidator::ValidationError> &RouteValidator::ValidationResult::error() {
+    std::unique_ptr<RouteValidatorBase::ValidationError> &RouteValidatorBase::ValidationResult::error() {
         return error_;
     }
 
-    const std::unique_ptr<RouteValidator::ValidationError> &RouteValidator::ValidationResult::error() const {
+    const std::unique_ptr<RouteValidatorBase::ValidationError> &RouteValidatorBase::ValidationResult::error() const {
         return error_;
     }
 
-    RouteValidator::ValidationResult &RouteValidator::ValidationResult::operator=(
-            RouteValidator::ValidationResult &&other) noexcept {
+    RouteValidatorBase::ValidationResult &RouteValidatorBase::ValidationResult::operator=(
+            RouteValidatorBase::ValidationResult &&other) noexcept {
         metrics_ = std::move(other.metrics_);
         error_ = std::move(other.error_);
         return *this;
     }
 
-    const RouteValidator::Metrics &RouteValidator::ValidationResult::metrics() const {
+    const RouteValidatorBase::Metrics &RouteValidatorBase::ValidationResult::metrics() const {
         return metrics_;
     }
 
-    RouteValidator::Metrics::Metrics()
+    RouteValidatorBase::Metrics::Metrics()
             : Metrics({}, {}, {}) {}
 
-    RouteValidator::Metrics::Metrics(boost::posix_time::time_duration available_time,
-                                     boost::posix_time::time_duration service_time,
-                                     boost::posix_time::time_duration travel_time)
+    RouteValidatorBase::Metrics::Metrics(boost::posix_time::time_duration available_time,
+                                         boost::posix_time::time_duration service_time,
+                                         boost::posix_time::time_duration travel_time)
             : available_time_(std::move(available_time)),
               service_time_(std::move(service_time)),
               travel_time_(std::move(travel_time)) {}
 
-    RouteValidator::Metrics::Metrics(const RouteValidator::Metrics &metrics)
+    RouteValidatorBase::Metrics::Metrics(const RouteValidatorBase::Metrics &metrics)
             : available_time_(metrics.available_time_),
               service_time_(metrics.service_time_),
               travel_time_(metrics.travel_time_) {}
 
-    RouteValidator::Metrics::Metrics(RouteValidator::Metrics &&metrics) noexcept
+    RouteValidatorBase::Metrics::Metrics(RouteValidatorBase::Metrics &&metrics) noexcept
             : available_time_(std::move(metrics.available_time_)),
               service_time_(std::move(metrics.service_time_)),
               travel_time_(std::move(metrics.travel_time_)) {}
 
-    RouteValidator::Metrics &RouteValidator::Metrics::operator=(const RouteValidator::Metrics &metrics) {
+    RouteValidatorBase::Metrics &RouteValidatorBase::Metrics::operator=(const RouteValidatorBase::Metrics &metrics) {
         available_time_ = metrics.available_time_;
         service_time_ = metrics.service_time_;
         travel_time_ = metrics.travel_time_;
         return *this;
     }
 
-    RouteValidator::Metrics &RouteValidator::Metrics::operator=(RouteValidator::Metrics &&metrics) noexcept {
+    RouteValidatorBase::Metrics &
+    RouteValidatorBase::Metrics::operator=(RouteValidatorBase::Metrics &&metrics) noexcept {
         available_time_ = std::move(metrics.available_time_);
         service_time_ = std::move(metrics.service_time_);
         travel_time_ = std::move(metrics.travel_time_);
         return *this;
     }
 
-    boost::posix_time::time_duration RouteValidator::Metrics::available_time() const {
+    boost::posix_time::time_duration RouteValidatorBase::Metrics::available_time() const {
         return available_time_;
     }
 
-    boost::posix_time::time_duration RouteValidator::Metrics::service_time() const {
+    boost::posix_time::time_duration RouteValidatorBase::Metrics::service_time() const {
         return service_time_;
     }
 
-    boost::posix_time::time_duration RouteValidator::Metrics::travel_time() const {
+    boost::posix_time::time_duration RouteValidatorBase::Metrics::travel_time() const {
         return travel_time_;
     }
 
-    boost::posix_time::time_duration RouteValidator::Metrics::idle_time() const {
+    boost::posix_time::time_duration RouteValidatorBase::Metrics::idle_time() const {
         return available_time_ - service_time_ - travel_time_;
     }
-
-
 }
