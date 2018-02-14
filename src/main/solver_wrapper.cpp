@@ -181,9 +181,15 @@ namespace rows {
 
             auto prev_event_it = event_it++;
             while (event_it != event_it_end) {
-                result.push_back(solver->MakeFixedInterval(
-                        prev_event_it->end().time_of_day().total_seconds(),
-                        (event_it->begin() - prev_event_it->end()).total_seconds(),
+                const auto start_time = prev_event_it->end().time_of_day();
+                const auto duration = (event_it->begin() - prev_event_it->end());
+                const auto raw_duration = duration.total_seconds();
+                result.push_back(solver->MakeIntervalVar(
+                        GetBeginWindow(start_time), GetEndWindow(start_time),
+                        raw_duration, raw_duration,
+                        GetBeginWindow(start_time) + raw_duration,
+                        GetEndWindow(start_time) + raw_duration,
+                        /*optional*/false,
                         GetBreakLabel(carer, BreakType::BREAK)));
 
                 prev_event_it = event_it++;
@@ -557,7 +563,7 @@ namespace rows {
     rows::Solution SolverWrapper::ResolveValidationErrors(const rows::Solution &solution,
                                                           const rows::Problem &problem,
                                                           const operations_research::RoutingModel &model) {
-        static const rows::SimpleRouteValidator validator{};
+        static const rows::SimpleRouteValidatorWithTimeWindows validator{};
 
         VLOG(1) << "Starting validation of the solution for warm start...";
 

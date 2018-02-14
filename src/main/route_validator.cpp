@@ -772,6 +772,43 @@ namespace rows {
                 RouteValidatorBase::Metrics{total_available_time, total_service_time, total_travel_time}};
     }
 
+    const boost::posix_time::time_duration SimpleRouteValidatorWithTimeWindows::MARGIN
+            = static_cast<boost::posix_time::time_duration>(boost::posix_time::seconds(1));
+
+    RouteValidatorBase::ValidationResult
+    SimpleRouteValidatorWithTimeWindows::Validate(const rows::Route &route, rows::SolverWrapper &solver) const {
+        using boost::posix_time::time_duration;
+        using boost::posix_time::seconds;
+
+        Session session{route, solver, *this};
+        session.Initialize();
+
+        while (session.HasMoreVisits()) {
+            const auto &visit = session.GetCurrentVisit();
+
+            if (session.HasMoreBreaks()) {
+                const auto &break_interval = session.GetCurrentBreak();
+                const auto fastest_break_finish = session.GetExpectedFinish(session.GetCurrentBreak());
+                const auto fastest_visit_finish = session.GetExpectedFinish(visit);
+
+                if (session.StartsAfter(fastest_break_finish, visit)
+                    || !session.CanPerformAfter(fastest_visit_finish, break_interval)
+                    || session.CanPerformAfter(fastest_break_finish, visit)) {
+                    session.Perform(break_interval);
+                    continue;
+                }
+            }
+
+            session.Perform(session.GetCurrentVisit());
+        }
+
+        while (session.HasMoreBreaks()) {
+            session.Perform(session.GetCurrentBreak());
+        }
+
+        return session.ToValidationResult();
+    }
+
     RouteValidatorBase::ValidationError RouteValidatorBase::CreateValidationError(std::string error_msg) const {
         return RouteValidatorBase::ValidationError{ErrorCode::UNKNOWN, std::move(error_msg)};
     }
@@ -861,5 +898,424 @@ namespace rows {
 
     boost::posix_time::time_duration RouteValidatorBase::Metrics::idle_time() const {
         return available_time_ - service_time_ - travel_time_;
+    }
+
+    bool SimpleRouteValidatorWithTimeWindows::Session::HasMoreVisits() const {
+        if (error_) {
+            return false;
+        }
+        return current_visit_ < visits_.size();
+    }
+
+    bool SimpleRouteValidatorWithTimeWindows::Session::HasMoreBreaks() const {
+        if (error_) {
+            return false;
+        }
+        return current_break_ < breaks_.size();
+    }
+
+    const ScheduledVisit &SimpleRouteValidatorWithTimeWindows::Session::GetCurrentVisit() const {
+        return visits_[current_visit_];
+    }
+
+    const Event &SimpleRouteValidatorWithTimeWindows::Session::GetCurrentBreak() const {
+        return breaks_[current_break_];
+    }
+
+    boost::posix_time::time_duration SimpleRouteValidatorWithTimeWindows::Session::GetBeginWindow(
+            const Event &interval) const {
+        if (!breaks_.empty() && breaks_.front() != interval && breaks_.back() != interval) {
+            return boost::posix_time::seconds(solver_.GetBeginWindow(interval.begin().time_of_day()));
+        }
+
+        return interval.begin().time_of_day();
+    }
+
+    boost::posix_time::time_duration SimpleRouteValidatorWithTimeWindows::Session::GetEndWindow(
+            const Event &interval) const {
+        if (!breaks_.empty() && breaks_.front() != interval && breaks_.back() != interval) {
+            return boost::posix_time::seconds(solver_.GetEndWindow(interval.begin().time_of_day()));
+        }
+
+        return interval.begin().time_of_day();
+    }
+
+    boost::posix_time::time_duration
+    SimpleRouteValidatorWithTimeWindows::Session::GetBeginWindow(const ScheduledVisit &visit) const {
+        return boost::posix_time::seconds(solver_.GetBeginWindow(visit.datetime().time_of_day()));
+    }
+
+    boost::posix_time::time_duration
+    SimpleRouteValidatorWithTimeWindows::Session::GetEndWindow(const ScheduledVisit &visit) const {
+        return boost::posix_time::seconds(solver_.GetEndWindow(visit.datetime().time_of_day()));
+    }
+
+    SimpleRouteValidatorWithTimeWindows::Session::Session(const Route &route,
+                                                          SolverWrapper &solver,
+                                                          const RouteValidatorBase &validator)
+            : route_(route),
+              solver_(solver),
+              validator_(validator),
+              total_available_time_(),
+              total_service_time_(),
+              total_travel_time_(),
+              error_(nullptr),
+              visits_(),
+              breaks_(),
+              current_time_() {}
+
+    void SimpleRouteValidatorWithTimeWindows::Session::Initialize() {
+        using boost::posix_time::seconds;
+        using boost::posix_time::time_duration;
+
+        const auto &visits = route_.visits();
+        if (visits.empty()) {
+            return;
+        }
+
+        const auto first_visit_date = visits.front().datetime().date();
+        const auto route_size = visits.size();
+        for (auto visit_pos = 1u; visit_pos < route_size; ++visit_pos) {
+            if (visits[visit_pos].datetime().date() != first_visit_date) {
+                error_ = std::make_unique<ValidationError>(
+                        validator_.CreateValidationError("Route contains visits that span across multiple days"));
+                return;
+            }
+        }
+
+        const auto diary = solver_.problem().diary(route_.carer(), first_visit_date);
+        if (!diary.is_initialized()) {
+            error_ = std::make_unique<ValidationError>(
+                    validator_.CreateValidationError((boost::format("Carer %1% is absent on %2%")
+                                                      % route_.carer()
+                                                      % first_visit_date).str()));
+            return;
+        }
+
+        for (const auto &event : diary.get().events()) {
+            total_available_time_ += event.duration();
+        }
+
+        auto work_interval_it = std::begin(diary.get().events());
+        const auto work_interval_end_it = std::end(diary.get().events());
+        if (work_interval_it == work_interval_end_it) {
+            error_ = std::make_unique<ScheduledVisitError>(
+                    validator_.CreateContractualBreakViolationError(route_, visits.back()));
+            return;
+        }
+
+        visits_ = route_.visits();
+        current_visit_ = 0;
+        last_node_ = solver_.DEPOT;
+
+        breaks_ = diary.get().Breaks();
+        current_break_ = 0;
+
+        if (VLOG_IS_ON(2)) {
+            std::vector<std::string> text_locations;
+            std::transform(std::cbegin(visits),
+                           std::cend(visits),
+                           std::back_inserter(text_locations),
+                           [](const rows::ScheduledVisit &visit) -> std::string {
+                               std::stringstream local_stream;
+                               local_stream << visit.location().get();
+                               return local_stream.str();
+                           });
+
+            std::vector<std::string> text_intervals;
+            std::transform(work_interval_it,
+                           work_interval_end_it,
+                           std::back_inserter(text_intervals),
+                           [this](const rows::Event &event) -> std::string {
+                               return (boost::format("[%1%,%2%]")
+                                       % GetBeginWindow(event)
+                                       % GetEndWindow(event)).str();
+                           });
+
+            VLOG(2) << "Validating path: " << boost::algorithm::join(text_locations, ", ")
+                    << " within work intervals: " << boost::algorithm::join(text_intervals, ", ");
+            for (const auto &visit  : visits) {
+                VLOG(2) << boost::format("[%1%, %2%] %3%")
+                           % GetBeginWindow(visit)
+                           % GetEndWindow(visit)
+                           % visit.duration();
+            }
+        }
+
+        current_time_ = boost::posix_time::hours(24);
+        if (!breaks_.empty()) {
+            current_time_ = GetBeginWindow(breaks_.front());
+        }
+
+        if (!visits_.empty()) {
+            current_time_ = std::min(current_time_, GetBeginWindow(visits_.front()));
+        }
+
+//        // TODO: can finish initialization at this point
+//        {
+//            const auto &first_visit = visits.front();
+//            const auto first_visit_fixed_begin = first_visit.datetime().time_of_day();
+//            const boost::posix_time::time_duration first_visit_earliest_begin{boost::posix_time::seconds(
+//                    solver_.GetBeginWindow(first_visit_fixed_begin))};
+//            const boost::posix_time::time_duration first_visit_latest_begin{boost::posix_time::seconds(
+//                    solver_.GetEndWindow(first_visit_fixed_begin))};
+//
+//            while (work_interval_it != work_interval_end_it
+//                   && util::COMP_LT(first_visit_latest_begin, work_interval_it->begin().time_of_day(), MARGIN)) {
+//                ++work_interval_it;
+//            }
+//
+//            if (work_interval_it == work_interval_end_it) {
+//                VLOG(2) << "Cannot perform visit " << first_visit << " within assumed working hours of the carer";
+//                error_ = std::make_unique<ScheduledVisitError>(
+//                        validator_.CreateContractualBreakViolationError(route_, visits.front()));
+//                return;
+//            }
+//        }
+//
+//        auto last_time = work_interval_it->begin().time_of_day();
+//        auto last_node = solver_.DEPOT;
+//
+//        for (const auto &visit : visits) {
+//            const auto visit_node = *(solver_.GetNodes(visit).begin());
+//            const auto travel_time = boost::posix_time::seconds(solver_.Distance(last_node, visit_node));
+//
+//            total_travel_time_ += travel_time;
+//            total_service_time_ += visit.duration();
+//
+//            const boost::posix_time::time_duration earliest_service_start{
+//                    boost::posix_time::seconds(solver_.GetBeginWindow(visit.datetime().time_of_day()))};
+//            const boost::posix_time::time_duration latest_service_start{
+//                    boost::posix_time::seconds(solver_.GetEndWindow(visit.datetime().time_of_day()))};
+//
+//            const boost::posix_time::time_duration arrival_time = last_time + travel_time;
+//            boost::posix_time::time_duration service_start = arrival_time;
+//            // direct travel from to the next visit would violate a break
+//            if (util::COMP_GT(arrival_time, work_interval_it->end().time_of_day(), MARGIN)) {
+//                while (work_interval_it != work_interval_end_it
+//                       && (util::COMP_GT(arrival_time, work_interval_it->end().time_of_day(), MARGIN)
+//                           //|| util::COMP_LT(arrival_time, work_interval_it->begin().time_of_day(), MARGIN) // this is wrong
+//                           || work_interval_it->duration().total_seconds() < travel_time.total_seconds())) {
+//                    ++work_interval_it;
+//                }
+//
+//                if (work_interval_it == work_interval_end_it) {
+//                    VLOG(2) << "[TIME_CAPACITY_CONSTRAINT_VIOLATION] Carer does not have enough "
+//                            << "capacity to accommodate travel time "
+//                            << arrival_time
+//                            << " to reach next visit";
+//                    error_ = std::make_unique<ScheduledVisitError>(
+//                            validator_.CreateContractualBreakViolationError(route_, visits.back()));
+//                    return;
+//                }
+//
+//                service_start = work_interval_it->begin().time_of_day() + travel_time;
+//            }
+//
+//            service_start = std::max(service_start, earliest_service_start);
+//            if (util::COMP_GT(service_start, latest_service_start, MARGIN)) {
+//                VLOG(2) << "[LATEST_ARRIVAL_CONSTRAINT_VIOLATION_FIRST_STAGE] "
+//                        << " approached: " << visit.location().get()
+//                        << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+//                        << " travelled: " << travel_time
+//                        << " arrived: " << arrival_time
+//                        << " service_start: " << service_start
+//                        << " latest_service_start: : " << latest_service_start;
+//                error_ = std::make_unique<ScheduledVisitError>(
+//                        validator_.CreateLateArrivalError(route_, visit, service_start - latest_service_start));
+//                return;
+//            }
+//
+//            // find a slot that:
+//            boost::posix_time::time_duration service_finish = service_start + visit.duration();
+//            while (util::COMP_GT(service_finish, work_interval_it->end().time_of_day(), MARGIN)) {
+//                ++work_interval_it;
+//                if (work_interval_it == work_interval_end_it) {
+//                    VLOG(2) << "[BREAK_CONSTRAINT_VIOLATION_FIRST_STAGE]"
+//                            << " approached: " << visit.location().get()
+//                            << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+//                            << " travelled: " << travel_time
+//                            << " arrived: " << arrival_time
+//                            << " service_start: " << service_start
+//                            << " completed_service: " << service_finish
+//                            << " planned_break: " << work_interval_it->end().time_of_day();
+//
+//                    error_ = std::make_unique<ScheduledVisitError>(
+//                            validator_.CreateContractualBreakViolationError(route_, visits.back()));
+//                    return;
+//                }
+//
+//                service_start = work_interval_it->begin().time_of_day();
+//                if (util::COMP_GT(service_start, latest_service_start, MARGIN)) {
+//                    VLOG(2) << "[LATEST_ARRIVAL_CONSTRAINT_VIOLATION_SECOND_STAGE] "
+//                            << " approached: " << visit.location().get()
+//                            << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+//                            << " travelled: " << travel_time
+//                            << " arrived: " << arrival_time
+//                            << " service_start: " << service_start
+//                            << " latest_service_start: : " << latest_service_start;
+//                    error_ = std::make_unique<ScheduledVisitError>(
+//                            validator_.CreateLateArrivalError(route_, visit, service_start - latest_service_start));
+//                    return;
+//                }
+//
+//                service_finish = service_start + visit.duration();
+//            }
+//
+//            if (util::COMP_GT(service_finish, work_interval_it->end().time_of_day(), MARGIN)) {
+//                VLOG(2) << "[BREAK_CONSTRAINT_VIOLATION_SECOND_STAGE]"
+//                        << " approached: " << visit.location().get()
+//                        << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+//                        << " travelled: " << travel_time
+//                        << " arrived: " << arrival_time
+//                        << " service_start: " << service_start
+//                        << " completed_service: " << service_finish
+//                        << " planned_break: " << work_interval_it->end().time_of_day();
+//
+//                error_ = std::make_unique<ScheduledVisitError>(
+//                        validator_.CreateContractualBreakViolationError(route_, visits.back()));
+//                return;
+//            }
+//
+//            VLOG(2) << "approached: " << visit.location().get()
+//                    << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+//                    << " travelled: " << travel_time
+//                    << " arrived: " << arrival_time
+//                    << " started_service: " << service_start
+//                    << " completed_service: " << service_finish;
+//
+//            last_time = service_finish;
+//            last_node = visit_node;
+//        }
+//
+//        last_time += boost::posix_time::seconds(solver_.Distance(last_node, SolverWrapper::DEPOT));
+//        if (last_time > work_interval_it->end().time_of_day()) {
+//            error_ = std::make_unique<ScheduledVisitError>(
+//                    validator_.CreateContractualBreakViolationError(route_, visits.back()));
+//        }
+    }
+
+    bool SimpleRouteValidatorWithTimeWindows::Session::GreaterThan(const boost::posix_time::time_duration &left,
+                                                                   const boost::posix_time::time_duration &right) const {
+        return util::COMP_GT(left, right, MARGIN);
+    }
+
+    bool SimpleRouteValidatorWithTimeWindows::Session::GreaterEqual(const boost::posix_time::time_duration &left,
+                                                                    const boost::posix_time::time_duration &right) const {
+        return util::COMP_GT(left, right, MARGIN)
+               || (abs(left.total_seconds() - right.total_seconds()) <= MARGIN.total_seconds());
+    }
+
+    void SimpleRouteValidatorWithTimeWindows::Session::Perform(const ScheduledVisit &visit) {
+        using boost::posix_time::time_duration;
+
+        const time_duration earliest_service_start{GetBeginWindow(visit)};
+        const time_duration latest_service_start{GetEndWindow(visit)};
+
+        const auto travel_time = GetTravelTime(visit);
+        const auto arrival_time = current_time_ + travel_time;
+        const auto &service_start = std::max(arrival_time, earliest_service_start);
+        if (GreaterThan(service_start, latest_service_start)) {
+            VLOG(2) << "[LATEST_ARRIVAL_CONSTRAINT_VIOLATION_SECOND_STAGE] "
+                    << " approached: " << visit.location().get()
+                    << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+                    << " travelled: " << travel_time
+                    << " arrived: " << arrival_time
+                    << " service_start: " << service_start
+                    << " latest_service_start: : " << latest_service_start;
+            error_ = std::make_unique<ScheduledVisitError>(
+                    validator_.CreateLateArrivalError(route_, visit, service_start - latest_service_start));
+            return;
+        }
+
+        VLOG(2) << "approached: " << visit.location().get()
+                << " [ " << earliest_service_start << "," << latest_service_start << " ]"
+                << " travelled: " << travel_time
+                << " arrived: " << arrival_time
+                << " service_start: " << service_start
+                << " latest_service_start: : " << latest_service_start;
+
+        current_time_ = service_start + visit.duration();
+        last_node_ = GetNode(visit);
+        ++current_visit_;
+
+        total_travel_time_ += travel_time;
+        total_service_time_ += visit.duration();
+    }
+
+    boost::posix_time::time_duration
+    SimpleRouteValidatorWithTimeWindows::Session::GetExpectedFinish(const ScheduledVisit &visit) const {
+        const auto arrival_time = current_time_ + GetTravelTime(visit);
+        const auto &service_start = std::max(arrival_time, GetBeginWindow(visit));
+        return service_start + visit.duration();
+    }
+
+    void SimpleRouteValidatorWithTimeWindows::Session::Perform(const Event &interval) {
+        using boost::posix_time::time_duration;
+
+        const time_duration earliest_break_start{GetBeginWindow(interval)};
+        const time_duration latest_break_start{GetEndWindow(interval)};
+
+        const auto &break_start = std::max(earliest_break_start, current_time_);
+        if (GreaterThan(break_start, latest_break_start)) {
+            std::stringstream stream_msg;
+            stream_msg << "[BREAK_CONSTRAINT_VIOLATION]"
+                       << " [ " << earliest_break_start << "," << latest_break_start << " ]"
+                       << " break_start: " << break_start;
+
+            VLOG(2) << stream_msg.rdbuf();
+
+            error_ = std::make_unique<ScheduledVisitError>(
+                    validator_.CreateContractualBreakViolationError(route_, visits_.front()));
+            return;
+        }
+
+        VLOG(2) << "[ " << earliest_break_start << "," << latest_break_start << " ]"
+                << " break_start: " << break_start;
+
+        current_time_ = break_start + interval.duration();
+        ++current_break_;
+    }
+
+    boost::posix_time::time_duration
+    SimpleRouteValidatorWithTimeWindows::Session::GetExpectedFinish(const Event &interval) const {
+        const auto &break_start = std::max(GetBeginWindow(interval), current_time_);
+        return break_start + interval.duration();
+    }
+
+    bool SimpleRouteValidatorWithTimeWindows::Session::StartsAfter(boost::posix_time::time_duration time_of_day,
+                                                                   const ScheduledVisit &visit) const {
+        return GreaterEqual(GetBeginWindow(visit), time_of_day + GetTravelTime(visit));
+    }
+
+    bool SimpleRouteValidatorWithTimeWindows::Session::CanPerformAfter(boost::posix_time::time_duration time_of_day,
+                                                                       const Event &break_interval) const {
+        return GreaterEqual(GetEndWindow(break_interval), time_of_day);
+    }
+
+    bool SimpleRouteValidatorWithTimeWindows::Session::CanPerformAfter(boost::posix_time::time_duration time_of_day,
+                                                                       const ScheduledVisit &visit) const {
+        return GreaterEqual(GetEndWindow(visit), time_of_day + GetTravelTime(visit));
+    }
+
+    RouteValidatorBase::ValidationResult SimpleRouteValidatorWithTimeWindows::Session::ToValidationResult() {
+        if (error_) {
+            return ValidationResult(std::move(error_));
+        }
+
+        return RouteValidatorBase::ValidationResult{
+                RouteValidatorBase::Metrics{total_available_time_,
+                                            total_service_time_,
+                                            total_travel_time_}};
+    }
+
+    boost::posix_time::time_duration
+    SimpleRouteValidatorWithTimeWindows::Session::GetTravelTime(const ScheduledVisit &visit) const {
+        return boost::posix_time::seconds(solver_.Distance(last_node_, GetNode(visit)));
+    }
+
+    operations_research::RoutingModel::NodeIndex
+    SimpleRouteValidatorWithTimeWindows::Session::GetNode(const ScheduledVisit &visit) const {
+        return *std::cbegin(solver_.GetNodes(visit));
     }
 }
