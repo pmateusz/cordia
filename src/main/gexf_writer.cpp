@@ -80,7 +80,7 @@ namespace rows {
         }
 
 
-        static const RouteValidator validator{};
+        static const SolutionValidator validator{};
 
         operations_research::RoutingModel::NodeIndex next_user_node{0};
         std::unordered_map<rows::ServiceUser,
@@ -207,7 +207,7 @@ namespace rows {
             }
 
             gexf.SetNodeValue(carer_id, UTIL_VISITS_COUNT, std::to_string(route.size()));
-            const auto validation_result = validator.Validate(rows::Route(carer, route), solver);
+            const auto validation_result = validator.Validate(vehicle, solution, model, solver);
 
             if (validation_result.error()) {
                 LOG(ERROR) << (boost::format("Route %1% is invalid %2%")
@@ -348,12 +348,13 @@ namespace rows {
 
     void GexfWriter::GexfEnvironmentWrapper::SetStats(const rows::SolverWrapper::Statistics &stats) {
         env_ptr_->getMetaData().setDescription(
-                (boost::format("Cost: %1%\nErrors: %2%\nDropped visits: %3%\n"
-                                       "Care continuity: mean: %4% median: %5% stddev: %6%\n"
-                                       "Carer utility: mean: %7% median: %8% stddev: %9% total ration: %10%\n")
+                (boost::format("Cost: %1%\nErrors: %2%\nDropped visits: %3%\nTotal visits: %4%"
+                                       "Care continuity: mean: %5% median: %6% stddev: %7%\n"
+                                       "Carer utility: mean: %8% median: %9% stddev: %10% total ration: %11%\n")
                  % stats.Cost
                  % stats.Errors
                  % stats.DroppedVisits
+                 % stats.TotalVisits
                  % stats.CareContinuity.Mean
                  % stats.CareContinuity.Median
                  % stats.CareContinuity.Stddev

@@ -159,32 +159,6 @@ namespace rows {
 
         virtual ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const = 0;
 
-        ScheduledVisitError CreateMissingInformationError(const rows::Route &route,
-                                                          const rows::ScheduledVisit &visit,
-                                                          std::string error_msg) const;
-
-        ValidationError CreateValidationError(std::string error_msg) const;
-
-        ScheduledVisitError CreateAbsentCarerError(const rows::Route &route,
-                                                   const rows::ScheduledVisit &visit) const;
-
-        ScheduledVisitError CreateLateArrivalError(const rows::Route &route,
-                                                   const rows::ScheduledVisit &visit,
-                                                   boost::posix_time::ptime::time_duration_type duration) const;
-
-        ScheduledVisitError CreateContractualBreakViolationError(const rows::Route &route,
-                                                                 const rows::ScheduledVisit &visit) const;
-
-        ScheduledVisitError CreateContractualBreakViolationError(const rows::Route &route,
-                                                                 const rows::ScheduledVisit &visit,
-                                                                 std::vector<rows::Event> overlapping_slots) const;
-
-        ScheduledVisitError CreateOrphanedError(const Route &route,
-                                                const ScheduledVisit &visit) const;
-
-        ScheduledVisitError CreateMovedError(const Route &route,
-                                             const ScheduledVisit &visit) const;
-
     protected:
         static bool IsAssignedAndActive(const rows::ScheduledVisit &visit);
     };
@@ -203,86 +177,121 @@ namespace rows {
         ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const override;
     };
 
+    class ValidationSession {
+    public:
+        static const boost::posix_time::time_duration ERROR_MARGIN;
+
+        ValidationSession(const Route &route, SolverWrapper &solver);
+
+        void Initialize();
+
+        bool HasMoreVisits() const;
+
+        bool HasMoreBreaks() const;
+
+        const ScheduledVisit &GetCurrentVisit() const;
+
+        const Event &GetCurrentBreak() const;
+
+        void Perform(const ScheduledVisit &visit);
+
+        void Perform(const Event &interval);
+
+        boost::posix_time::time_duration GetBeginWindow(const Event &interval) const;
+
+        boost::posix_time::time_duration GetBeginWindow(const ScheduledVisit &visit) const;
+
+        boost::posix_time::time_duration GetEndWindow(const Event &interval) const;
+
+        boost::posix_time::time_duration GetEndWindow(const ScheduledVisit &visit) const;
+
+        boost::posix_time::time_duration GetExpectedFinish(const Event &interval) const;
+
+        boost::posix_time::time_duration GetExpectedFinish(const ScheduledVisit &visit) const;
+
+        boost::posix_time::time_duration GetTravelTime(operations_research::RoutingModel::NodeIndex from_node,
+                                                       operations_research::RoutingModel::NodeIndex to_node) const;
+
+        bool StartsAfter(boost::posix_time::time_duration time_of_day, const ScheduledVisit &visit) const;
+
+        bool CanPerformAfter(boost::posix_time::time_duration time_of_day, const Event &break_interval) const;
+
+        bool CanPerformAfter(boost::posix_time::time_duration time_of_day, const ScheduledVisit &visit) const;
+
+        bool error() const;
+
+        RouteValidatorBase::ValidationResult ToValidationResult();
+
+        static bool GreaterThan(const boost::posix_time::time_duration &left,
+                                const boost::posix_time::time_duration &right);
+
+        static bool GreaterEqual(const boost::posix_time::time_duration &left,
+                                 const boost::posix_time::time_duration &right);
+
+        static RouteValidatorBase::ScheduledVisitError CreateMissingInformationError(const rows::Route &route,
+                                                                                     const rows::ScheduledVisit &visit,
+                                                                                     std::string error_msg);
+
+        static RouteValidatorBase::ValidationError CreateValidationError(std::string error_msg);
+
+        static RouteValidatorBase::ScheduledVisitError CreateAbsentCarerError(const rows::Route &route,
+                                                                              const rows::ScheduledVisit &visit);
+
+        static RouteValidatorBase::ScheduledVisitError CreateLateArrivalError(const rows::Route &route,
+                                                                              const rows::ScheduledVisit &visit,
+                                                                              boost::posix_time::ptime::time_duration_type duration);
+
+        static RouteValidatorBase::ScheduledVisitError CreateContractualBreakViolationError(const rows::Route &route,
+                                                                                            const rows::ScheduledVisit &visit);
+
+        static RouteValidatorBase::ScheduledVisitError CreateContractualBreakViolationError(const rows::Route &route,
+                                                                                            const rows::ScheduledVisit &visit,
+                                                                                            std::vector<rows::Event> overlapping_slots);
+
+        static RouteValidatorBase::ScheduledVisitError CreateOrphanedError(const Route &route,
+                                                                           const ScheduledVisit &visit);
+
+        static RouteValidatorBase::ScheduledVisitError CreateMovedError(const Route &route,
+                                                                        const ScheduledVisit &visit);
+
+    private:
+        operations_research::RoutingModel::NodeIndex GetNode(const ScheduledVisit &visit) const;
+
+        const Route &route_;
+        SolverWrapper &solver_;
+
+        boost::posix_time::time_duration total_available_time_;
+        boost::posix_time::time_duration total_service_time_;
+        boost::posix_time::time_duration total_travel_time_;
+        std::unique_ptr<RouteValidatorBase::ValidationError> error_;
+
+        std::vector<ScheduledVisit> visits_;
+        std::vector<operations_research::RoutingModel::NodeIndex> nodes_;
+        operations_research::RoutingModel::NodeIndex last_node_;
+        operations_research::RoutingModel::NodeIndex current_node_;
+        operations_research::RoutingModel::NodeIndex next_node_;
+        std::size_t current_visit_;
+
+        std::vector<rows::Event> breaks_;
+        std::size_t current_break_;
+        boost::posix_time::time_duration current_time_;
+    };
+
+    class SolutionValidator {
+    public:
+        RouteValidatorBase::ValidationResult Validate(int vehicle,
+                                                      const operations_research::Assignment &solution,
+                                                      const operations_research::RoutingModel &model,
+                                                      rows::SolverWrapper &solver) const;
+    };
+
     class SimpleRouteValidatorWithTimeWindows : public RouteValidatorBase {
     public:
         friend class Session;
 
-        class Session {
-        public:
-            Session(const Route &route, SolverWrapper &solver, const RouteValidatorBase &validator);
-
-            void Initialize();
-
-            bool HasMoreVisits() const;
-
-            bool HasMoreBreaks() const;
-
-            const ScheduledVisit &GetCurrentVisit() const;
-
-            const Event &GetCurrentBreak() const;
-
-            void Perform(const ScheduledVisit &visit);
-
-            void Perform(const Event &interval);
-
-            boost::posix_time::time_duration GetBeginWindow(const Event &interval) const;
-
-            boost::posix_time::time_duration GetBeginWindow(const ScheduledVisit &visit) const;
-
-            boost::posix_time::time_duration GetEndWindow(const Event &interval) const;
-
-            boost::posix_time::time_duration GetEndWindow(const ScheduledVisit &visit) const;
-
-            boost::posix_time::time_duration GetExpectedFinish(const Event &interval) const;
-
-            boost::posix_time::time_duration GetExpectedFinish(const ScheduledVisit &visit) const;
-
-            bool StartsAfter(boost::posix_time::time_duration time_of_day, const ScheduledVisit &visit) const;
-
-            bool CanPerformAfter(boost::posix_time::time_duration time_of_day, const Event &break_interval) const;
-
-            bool CanPerformAfter(boost::posix_time::time_duration time_of_day, const ScheduledVisit &visit) const;
-
-            RouteValidatorBase::ValidationResult ToValidationResult();
-
-            bool GreaterThan(const boost::posix_time::time_duration &left,
-                             const boost::posix_time::time_duration &right) const;
-
-            bool GreaterEqual(const boost::posix_time::time_duration &left,
-                              const boost::posix_time::time_duration &right) const;
-
-        private:
-            operations_research::RoutingModel::NodeIndex GetNode(const ScheduledVisit &visit) const;
-
-            boost::posix_time::time_duration GetTravelTime(operations_research::RoutingModel::NodeIndex from_node,
-                                                           operations_research::RoutingModel::NodeIndex to_node) const;
-
-            const Route &route_;
-            SolverWrapper &solver_;
-            const RouteValidatorBase &validator_;
-
-            boost::posix_time::time_duration total_available_time_;
-            boost::posix_time::time_duration total_service_time_;
-            boost::posix_time::time_duration total_travel_time_;
-            std::unique_ptr<RouteValidatorBase::ValidationError> error_;
-
-            std::vector<ScheduledVisit> visits_;
-            operations_research::RoutingModel::NodeIndex last_node_;
-            operations_research::RoutingModel::NodeIndex current_node_;
-            operations_research::RoutingModel::NodeIndex next_node_;
-            std::size_t current_visit_;
-
-            std::vector<rows::Event> breaks_;
-            std::size_t current_break_;
-            boost::posix_time::time_duration current_time_;
-        };
-
         virtual ~SimpleRouteValidatorWithTimeWindows() = default;
 
         ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const override;
-
-    private:
-        static const boost::posix_time::time_duration MARGIN;
     };
 
     std::ostream &operator<<(std::ostream &out, RouteValidatorBase::ErrorCode error_code);

@@ -201,16 +201,6 @@ namespace rows {
                                                        GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
         }
 
-        // TODO: investigation
-        for (const auto &interval : result) {
-            LOG(INFO) << boost::format("%1% [%2%,%3%], [%4%,%5%]")
-                         % interval->name()
-                         % interval->StartMin()
-                         % interval->StartMax()
-                         % interval->EndMin()
-                         % interval->EndMax();
-        }
-
         return result;
     }
 
@@ -252,8 +242,9 @@ namespace rows {
         if (stats.DroppedVisits == 0) {
             out << "No dropped visits";
         } else {
-            out << boost::format("Dropped visits: %1%")
-                   % stats.DroppedVisits;
+            out << boost::format("Dropped visits: %1% out of %2%")
+                   % stats.DroppedVisits
+                   % stats.TotalVisits;
         }
         out << std::endl;
 
@@ -314,7 +305,7 @@ namespace rows {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
         parameters.set_solution_limit(256);
-        parameters.set_time_limit_ms(boost::posix_time::minutes(3).total_milliseconds());
+        parameters.set_time_limit_ms(boost::posix_time::minutes(5).total_milliseconds());
 
         static const auto USE_ADVANCED_SEARCH = true;
         static const auto USE_LIGHT_PROPAGATION = false; // breaks contractual breaks
@@ -383,7 +374,6 @@ namespace rows {
         // all such nodes must be either performed or unperformed
         for (const auto &visit_index_pair : visit_index_) {
             const auto visit_start = visit_index_pair.first.datetime().time_of_day();
-            LOG(INFO) << visit_start;
 
             std::vector<operations_research::IntVar *> start_visit_vars;
             std::vector<operations_research::IntVar *> active_visit_vars;
@@ -425,8 +415,10 @@ namespace rows {
             }
         }
 
-        LOG(INFO) << "Total multiple carer visits: " << total_multiple_carer_visits;
-        LOG(INFO) << covered_nodes.size();
+        LOG(INFO) << boost::format("Total multiple carer visits: %1%\n"
+                                           "Total covered visits: %2%")
+                     % total_multiple_carer_visits
+                     % covered_nodes.size();
 
         for (const auto &carer_pair :problem_.carers()) {
             care_continuity_metrics_.emplace_back(*this, carer_pair.first);
@@ -714,7 +706,7 @@ namespace rows {
 
     SolverWrapper::Statistics SolverWrapper::CalculateStats(const operations_research::RoutingModel &model,
                                                             const operations_research::Assignment &solution) {
-        static const rows::SimpleRouteValidator route_validator{};
+        static const SolutionValidator route_validator{};
 
         SolverWrapper::Statistics stats;
 
@@ -738,22 +730,24 @@ namespace rows {
             std::vector<rows::ScheduledVisit> carer_visits;
 
             auto order = model.Start(vehicle);
-            if (!model.IsEnd(solution.Value(model.NextVar(order)))) {
-                while (!model.IsEnd(order)) {
+            while (!model.IsEnd(order)) {
+                if (!model.IsStart(order)) {
                     const auto visit_index = model.IndexToNode(order);
-                    if (visit_index != DEPOT) {
-                        carer_visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
-                                                  carer,
-                                                  NodeToVisit(visit_index));
-                    }
-
-                    order = solution.Value(model.NextVar(order));
+                    DCHECK_NE (visit_index, DEPOT);
+                    carer_visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN, carer, NodeToVisit(visit_index));
                 }
+
+                LOG(INFO) << order;
+
+                order = solution.Value(model.NextVar(order));
             }
 
             rows::Route route{carer, carer_visits};
             VLOG(2) << "Route: " << vehicle;
-            RouteValidatorBase::ValidationResult validation_result = route_validator.Validate(route, *this);
+            RouteValidatorBase::ValidationResult validation_result = route_validator.Validate(vehicle,
+                                                                                              solution,
+                                                                                              model,
+                                                                                              *this);
 
             if (validation_result.error()) {
                 ++total_errors;
@@ -785,11 +779,13 @@ namespace rows {
                 }
                 ++vehicle;
             }
+
+            LOG(FATAL) << "Total validation errors: " << total_errors;
         } else {
             VLOG(2) << "No validation errors";
         }
 
-        VLOG(1) << model.DebugOutputAssignment(solution, "");
+//        VLOG(1) << model.DebugOutputAssignment(solution, "");
 
         stats.CarerUtility.Mean = boost::accumulators::mean(carer_work_stats);
         stats.CarerUtility.Median = boost::accumulators::median(carer_work_stats);
@@ -803,6 +799,7 @@ namespace rows {
                 ++stats.DroppedVisits;
             }
         }
+        stats.TotalVisits = model.nodes() - 1; // remove depot
 
         boost::accumulators::accumulator_set<double,
                 boost::accumulators::stats<
