@@ -80,7 +80,7 @@ namespace rows {
         }
 
 
-        static const SimpleRouteValidatorWithTimeWindows validator{};
+        static const SolutionValidator validator{};
 
         operations_research::RoutingModel::NodeIndex next_user_node{0};
         std::unordered_map<rows::ServiceUser,
@@ -207,7 +207,7 @@ namespace rows {
             }
 
             gexf.SetNodeValue(carer_id, UTIL_VISITS_COUNT, std::to_string(route.size()));
-            const auto validation_result = validator.Validate(rows::Route(carer, route), solver);
+            const auto validation_result = validator.Validate(vehicle, solution, model, solver);
 
             if (validation_result.error()) {
                 LOG(ERROR) << (boost::format("Route %1% is invalid %2%")

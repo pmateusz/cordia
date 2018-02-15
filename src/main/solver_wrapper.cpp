@@ -242,8 +242,9 @@ namespace rows {
         if (stats.DroppedVisits == 0) {
             out << "No dropped visits";
         } else {
-            out << boost::format("Dropped visits: %1%")
-                   % stats.DroppedVisits;
+            out << boost::format("Dropped visits: %1% out of %2%")
+                   % stats.DroppedVisits
+                   % stats.TotalVisits;
         }
         out << std::endl;
 
@@ -303,7 +304,7 @@ namespace rows {
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-//        parameters.set_solution_limit(256);
+        parameters.set_solution_limit(256);
         parameters.set_time_limit_ms(boost::posix_time::minutes(5).total_milliseconds());
 
         static const auto USE_ADVANCED_SEARCH = true;
@@ -705,7 +706,7 @@ namespace rows {
 
     SolverWrapper::Statistics SolverWrapper::CalculateStats(const operations_research::RoutingModel &model,
                                                             const operations_research::Assignment &solution) {
-        static const rows::SimpleRouteValidatorWithTimeWindows route_validator{};
+        static const SolutionValidator route_validator{};
 
         SolverWrapper::Statistics stats;
 
@@ -729,22 +730,24 @@ namespace rows {
             std::vector<rows::ScheduledVisit> carer_visits;
 
             auto order = model.Start(vehicle);
-            if (!model.IsEnd(solution.Value(model.NextVar(order)))) {
-                while (!model.IsEnd(order)) {
+            while (!model.IsEnd(order)) {
+                if (!model.IsStart(order)) {
                     const auto visit_index = model.IndexToNode(order);
-                    if (visit_index != DEPOT) {
-                        carer_visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
-                                                  carer,
-                                                  NodeToVisit(visit_index));
-                    }
-
-                    order = solution.Value(model.NextVar(order));
+                    DCHECK_NE (visit_index, DEPOT);
+                    carer_visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN, carer, NodeToVisit(visit_index));
                 }
+
+                LOG(INFO) << order;
+
+                order = solution.Value(model.NextVar(order));
             }
 
             rows::Route route{carer, carer_visits};
             VLOG(2) << "Route: " << vehicle;
-            RouteValidatorBase::ValidationResult validation_result = route_validator.Validate(route, *this);
+            RouteValidatorBase::ValidationResult validation_result = route_validator.Validate(vehicle,
+                                                                                              solution,
+                                                                                              model,
+                                                                                              *this);
 
             if (validation_result.error()) {
                 ++total_errors;
@@ -776,6 +779,8 @@ namespace rows {
                 }
                 ++vehicle;
             }
+
+            LOG(FATAL) << "Total validation errors: " << total_errors;
         } else {
             VLOG(2) << "No validation errors";
         }
