@@ -791,6 +791,10 @@ namespace rows {
                 const auto fastest_break_finish = session.GetExpectedFinish(session.GetCurrentBreak());
                 const auto fastest_visit_finish = session.GetExpectedFinish(visit);
 
+                VLOG(2) << boost::format("Expected finish break: %1% Expected finish visit: %2%")
+                           % fastest_break_finish
+                           % fastest_visit_finish;
+
                 if (session.StartsAfter(fastest_break_finish, visit)
                     || !session.CanPerformAfter(fastest_visit_finish, break_interval)
                     || session.CanPerformAfter(fastest_break_finish, visit)) {
@@ -1112,7 +1116,8 @@ namespace rows {
         // takes place before before a break
 
         const auto arrival_time = current_time_ + GetTravelTime(last_node_, current_node_);
-        const auto &service_start = std::max(arrival_time, GetBeginWindow(visit));
+        const auto visit_begin_window = GetBeginWindow(visit);
+        const auto &service_start = std::max(arrival_time, visit_begin_window);
         return service_start + visit.duration() + GetTravelTime(current_node_, next_node_);
     }
 
@@ -1148,7 +1153,12 @@ namespace rows {
 
     boost::posix_time::time_duration
     SimpleRouteValidatorWithTimeWindows::Session::GetExpectedFinish(const Event &interval) const {
-        const auto &break_start = std::max(GetBeginWindow(interval), current_time_);
+        const auto begin_window = GetBeginWindow(interval);
+        const auto &break_start = std::max(begin_window, current_time_);
+        VLOG(2) << boost::format("Expected break finish estimation: %1% from begin window: %2% and current time: %3%")
+                   % break_start
+                   % GetBeginWindow(interval)
+                   % current_time_;
         return break_start + interval.duration();
     }
 
