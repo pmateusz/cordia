@@ -7,13 +7,13 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-but-set-variable -Wno-unused-variable -Wall -Werror -Wl,-z,relro,-z,now")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -ggdb -pg")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -march=native")
-set(ORTOOLS_ROOT_DIR "/home/pmateusz/dev/or-tools/")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -ggdb -pg")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -march=native")
+#set(ORTOOLS_ROOT_DIR "/home/pmateusz/dev/or-tools/")
 
 set(CMAKE_VERBOSE_MAKEFILE FALSE)
-set(CMAKE_BUILD_TYPE Debug)
-#set(CMAKE_BUILD_TYPE Release)
+#set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_BUILD_TYPE Release)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/dependencies/cmake/modules/")
 
@@ -51,6 +51,8 @@ find_package(ORtools REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(EXPAT REQUIRED)
+find_package(GFlags REQUIRED)
+find_package(Glog REQUIRED)
 find_package(Json)
 find_package(Gexf)
 
@@ -69,6 +71,7 @@ set(HEADER_DEP ${OSRM_INCLUDE_DIR}
         ${JSON_INCLUDE_DIR}
         ${GEXF_INCLUDE_DIR}
         ${LIBXML2_INCLUDE_DIR}
+        ${GFLAGS_INCLUDE_DIR}
         ${GLOG_INCLUDE_DIR})
 
 set(LIBRARY_DEP ${ORTOOLS_LIBRARY}

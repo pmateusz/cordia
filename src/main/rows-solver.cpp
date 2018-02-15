@@ -160,10 +160,6 @@ osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
     return config;
 }
 
-void failure_interceptor() {
-    LOG(INFO) << "Failure intercepted";
-}
-
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
 
@@ -207,8 +203,6 @@ int main(int argc, char **argv) {
 
         LOG(INFO) << GetModelStatus(model.status());
 
-//        model.solver()->Accept(model.solver()->MakePrintModelVisitor());
-//        model.solver()->set_fail_intercept(failure_interceptor);
         operations_research::Assignment const *assignment = nullptr;
         if (solution) {
             VLOG(1) << "Starting with a solution.";
@@ -237,7 +231,7 @@ int main(int argc, char **argv) {
 
         VLOG(1) << model.solver()->LocalSearchProfile();
         VLOG(1) << model.solver()->DebugString();
-        VLOG(1) << model.status();
+        VLOG(1) << GetModelStatus(model.status());
 
         if (assignment == nullptr) {
             throw util::ApplicationError("No solution found.", util::ErrorCode::ERROR);

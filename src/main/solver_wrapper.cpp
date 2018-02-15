@@ -201,16 +201,6 @@ namespace rows {
                                                        GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
         }
 
-        // TODO: investigation
-        for (const auto &interval : result) {
-            LOG(INFO) << boost::format("%1% [%2%,%3%], [%4%,%5%]")
-                         % interval->name()
-                         % interval->StartMin()
-                         % interval->StartMax()
-                         % interval->EndMin()
-                         % interval->EndMax();
-        }
-
         return result;
     }
 
@@ -313,8 +303,8 @@ namespace rows {
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-        parameters.set_solution_limit(256);
-        parameters.set_time_limit_ms(boost::posix_time::minutes(3).total_milliseconds());
+//        parameters.set_solution_limit(256);
+        parameters.set_time_limit_ms(boost::posix_time::minutes(5).total_milliseconds());
 
         static const auto USE_ADVANCED_SEARCH = true;
         static const auto USE_LIGHT_PROPAGATION = false; // breaks contractual breaks
@@ -383,7 +373,6 @@ namespace rows {
         // all such nodes must be either performed or unperformed
         for (const auto &visit_index_pair : visit_index_) {
             const auto visit_start = visit_index_pair.first.datetime().time_of_day();
-            LOG(INFO) << visit_start;
 
             std::vector<operations_research::IntVar *> start_visit_vars;
             std::vector<operations_research::IntVar *> active_visit_vars;
@@ -425,8 +414,10 @@ namespace rows {
             }
         }
 
-        LOG(INFO) << "Total multiple carer visits: " << total_multiple_carer_visits;
-        LOG(INFO) << covered_nodes.size();
+        LOG(INFO) << boost::format("Total multiple carer visits: %1%\n"
+                                           "Total covered visits: %2%")
+                     % total_multiple_carer_visits
+                     % covered_nodes.size();
 
         for (const auto &carer_pair :problem_.carers()) {
             care_continuity_metrics_.emplace_back(*this, carer_pair.first);
@@ -714,7 +705,7 @@ namespace rows {
 
     SolverWrapper::Statistics SolverWrapper::CalculateStats(const operations_research::RoutingModel &model,
                                                             const operations_research::Assignment &solution) {
-        static const rows::SimpleRouteValidator route_validator{};
+        static const rows::SimpleRouteValidatorWithTimeWindows route_validator{};
 
         SolverWrapper::Statistics stats;
 
@@ -789,7 +780,7 @@ namespace rows {
             VLOG(2) << "No validation errors";
         }
 
-        VLOG(1) << model.DebugOutputAssignment(solution, "");
+//        VLOG(1) << model.DebugOutputAssignment(solution, "");
 
         stats.CarerUtility.Mean = boost::accumulators::mean(carer_work_stats);
         stats.CarerUtility.Median = boost::accumulators::median(carer_work_stats);
@@ -803,6 +794,7 @@ namespace rows {
                 ++stats.DroppedVisits;
             }
         }
+        stats.TotalVisits = model.nodes() - 1; // remove depot
 
         boost::accumulators::accumulator_set<double,
                 boost::accumulators::stats<

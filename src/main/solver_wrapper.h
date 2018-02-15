@@ -55,6 +55,7 @@ namespace rows {
         struct Statistics {
             double Cost{0.0};
             std::size_t DroppedVisits{0};
+            std::size_t TotalVisits{0};
             std::size_t Errors{0};
 
             struct {

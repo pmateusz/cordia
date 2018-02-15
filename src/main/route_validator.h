@@ -203,6 +203,8 @@ namespace rows {
         ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const override;
     };
 
+    // TODO: develop validator that will accept assignment
+
     class SimpleRouteValidatorWithTimeWindows : public RouteValidatorBase {
     public:
         friend class Session;
