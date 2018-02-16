@@ -141,9 +141,9 @@ namespace rows {
             }
         }
 
-        // find visit assignment conflicts
-        std::unordered_map<rows::CalendarVisit, std::vector<std::pair<rows::ScheduledVisit, rows::Route> > > visit_index;
-
+        // find visits with assignment conflicts
+        std::unordered_map<rows::CalendarVisit, std::vector<std::pair<rows::ScheduledVisit, rows::Route> > >
+                visit_index;
         for (const auto &route: routes) {
             for (const auto &visit : route.visits()) {
                 if (!IsAssignedAndActive(visit)) {
@@ -156,7 +156,7 @@ namespace rows {
                     visit_index_it->second.emplace_back(visit, route);
                 } else {
                     visit_index.insert({calendar_visit.get(),
-                                        std::vector<std::pair<rows::ScheduledVisit, rows::Route>> {
+                                        std::vector<std::pair<rows::ScheduledVisit, rows::Route >> {
                                                 std::make_pair(visit, route)}
                                        });
                 }
@@ -173,10 +173,8 @@ namespace rows {
             }
         }
 
-        int route_number = 0;
+        std::unordered_map<rows::Carer, rows::RouteValidatorBase::ValidationResult> carer_validation;
         for (const auto &route : routes) {
-            ++route_number;
-
             std::vector<ScheduledVisit> visits_to_use;
             for (const auto &visit : route.visits()) {
                 if (!IsAssignedAndActive(visit)) {
@@ -229,36 +227,141 @@ namespace rows {
                 continue;
             }
 
-            const auto visit_it_end = std::end(visits_to_use);
             Route partial_route{carer};
-            for (auto visit_it = std::begin(visits_to_use); visit_it != visit_it_end; ++visit_it) {
+            const auto visits_size = visits_to_use.size();
+            for (auto visit_pos = 0; visit_pos < visits_size; ++visit_pos) {
                 Route route_candidate{partial_route};
-                route_candidate.visits().push_back(*visit_it);
+                route_candidate.visits().push_back(visits_to_use[visit_pos]);
 
                 auto validation_result = Validate(route_candidate, solver);
                 if (static_cast<bool>(validation_result.error())) {
                     validation_errors.emplace_back(std::move(validation_result.error()));
+                    validation_result = RouteValidatorBase::ValidationResult(std::make_unique<ScheduledVisitError>(
+                            ValidationSession::CreateMissingInformationError(
+                                    route,
+                                    visits_to_use[visit_pos],
+                                    "validation error reported already")));
                 } else {
                     partial_route = std::move(route_candidate);
                 }
+
+                carer_validation[route.carer()] = std::move(validation_result);
             }
         }
+
+        const auto &has_errors_or_unassigned_visits = [&carer_validation](
+                const std::pair<rows::CalendarVisit, std::vector<std::pair<rows::ScheduledVisit, rows::Route>>>
+                &bundle) -> bool {
+            for (const auto &visit_route_pair : bundle.second) {
+                const auto &visit = visit_route_pair.first;
+                if (!visit.carer().is_initialized()) {
+                    return true;
+                }
+
+                const auto validation_it = carer_validation.find(visit.carer().get());
+                if (validation_it != std::end(carer_validation) &&
+                    static_cast<bool>(validation_it->second.error())) {
+                    return true;
+                }
+            }
+            return false;
+        };
 
         for (const auto &visit_bundle : visit_index) {
             if (visit_bundle.second.size() <= 1) {
                 continue;
             }
 
-            // FIXME: validation that the latest arrival is suitable for all visits seems too expensive
-//            auto contains_unassigned_visit = false;
-//            for (const auto &visit_route_pair : visit_bundle.second) {
-//                if (!visit_route_pair.first.carer()) {
-//                    contains_unassigned_visit = true;
-//                    break;
+            if (has_errors_or_unassigned_visits(visit_bundle)) {
+                // do not look for assignment errors if it is known that at least one route is invalid
+                continue;
+            }
+
+            // TODO:
+            // find routes of all carers who do multiple carer visits
+            // collect latest arrival times of all visits on these routes
+            // and use them consistently for validation
+
+            auto all_pass_validation = true;
+            std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> latest_arrivals;
+            std::vector<boost::posix_time::ptime> arrival_times;
+            for (const auto &visit_route_pair : visit_bundle.second) {
+                const auto &schedule = carer_validation.find(visit_route_pair.first.carer().get())->second.schedule();
+                for (const auto &record : schedule.records()) {
+                    const auto &calendar_visit = record.Visit.calendar_visit().get();
+                    auto find_it = latest_arrivals.find(calendar_visit);
+                    if (find_it == std::end(latest_arrivals)) {
+                        latest_arrivals.emplace(calendar_visit, record.ArrivalInterval.begin());
+                    } else {
+                        find_it->second = std::max(find_it->second, record.ArrivalInterval.begin());
+                    }
+                }
+            }
+
+            for (const auto &visit_route_pair : visit_bundle.second) {
+                auto validation_result = Validate(visit_route_pair.second, solver, latest_arrivals);
+                if (validation_result.error()) {
+                    all_pass_validation = false;
+                    break;
+                }
+            }
+
+            if (!all_pass_validation) {
+                for (const auto &visit_route_pair : visit_bundle.second) {
+                    if (visit_route_pair.first.carer()) {
+                        validation_errors.emplace_back(
+                                std::make_unique<ScheduledVisitError>(
+                                        ValidationSession::NotEnoughCarersAvailable(visit_route_pair.second,
+                                                                                    visit_route_pair.first)));
+                    }
+                }
+
+                continue;
+            }
+
+//            boost::posix_time::ptime last_time(boost::posix_time::not_a_date_time);
+//            auto current_time = *std::max_element(arrival_times.begin(), arrival_times.end());
+//            while (current_time != last_time && all_pass_validation) {
+//                last_time = current_time;
+//                current_time = *std::max_element(arrival_times.begin(), arrival_times.end());
+//                arrival_times.clear();
+//
+//                std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> override_arrival_time;
+//                override_arrival_time.emplace(visit_bundle.first, current_time);
+//
+//                for (const auto &visit_route_pair : visit_bundle.second) {
+//                    auto validation_result = Validate(visit_route_pair.second, solver, override_arrival_time);
+//                    if (validation_result.error()) {
+//                        carer_validation[visit_route_pair.second.carer()] = std::move(validation_result);
+//                        validation_errors.emplace_back(
+//                                std::make_unique<ScheduledVisitError>(
+//                                        ValidationSession::NotEnoughCarersAvailable(visit_route_pair.second,
+//                                                                                    visit_route_pair.first)));
+//
+//                        all_pass_validation = false;
+//                        break;
+//                    }
+//
+//                    const auto record = validation_result.schedule().Find(visit_route_pair.first);
+//                    if (!record.is_initialized()) {
+//                        carer_validation[visit_route_pair.second.carer()] = std::move(validation_result);
+//                        validation_errors.emplace_back(
+//                                std::make_unique<ScheduledVisitError>(
+//                                        ValidationSession::NotEnoughCarersAvailable(visit_route_pair.second,
+//                                                                                    visit_route_pair.first)));
+//
+//                        all_pass_validation = false;
+//                        break;
+//                    }
+//
+//                    arrival_times.push_back(record.get().ArrivalInterval.begin());
 //                }
 //            }
 
-//            if (contains_unassigned_visit) {
+            if (all_pass_validation) {
+                continue;
+            }
+
             for (const auto &visit_route_pair : visit_bundle.second) {
                 if (visit_route_pair.first.carer()) {
                     validation_errors.emplace_back(
@@ -267,7 +370,34 @@ namespace rows {
                                                                                 visit_route_pair.first)));
                 }
             }
-//            }
+        }
+
+        LOG(INFO) << "Valid multiple carer visits";
+        for (const auto &visit_bundle : visit_index) {
+            if (visit_bundle.second.size() > 1 && !has_errors_or_unassigned_visits(visit_bundle)) {
+                continue;
+            }
+
+            for (const auto &visit_pair : visit_bundle.second) {
+                const auto &carer = visit_pair.first.carer().get();
+                LOG(INFO) << "Visit: " << visit_pair.first.carer().get();
+
+                const auto diary = solver.problem().diary(carer, visit_pair.first.datetime().date()).get();
+                for (const auto &break_interval : diary.Breaks()) {
+                    LOG(INFO) << boost::format("break [%1%,%2%] %3%")
+                                 % break_interval.begin().time_of_day()
+                                 % break_interval.end().time_of_day()
+                                 % break_interval.duration();
+                }
+
+                const auto schedule = carer_validation.find(carer)->second.schedule();
+                for (const auto &record : schedule.records()) {
+                    LOG(INFO) << boost::format("visit %1% %2% %3%")
+                                 % record.ArrivalInterval.begin().time_of_day()
+                                 % record.Visit.duration()
+                                 % record.Visit.service_user().get().id();
+                }
+            }
         }
 
         return validation_errors;
@@ -277,6 +407,12 @@ namespace rows {
         return visit.calendar_visit().is_initialized()
                && visit.carer().is_initialized()
                && visit.type() == ScheduledVisit::VisitType::UNKNOWN;
+    }
+
+    RouteValidatorBase::ValidationResult RouteValidatorBase::Validate(const rows::Route &route,
+                                                                      rows::SolverWrapper &solver) const {
+        static const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> empty_map{};
+        return Validate(route, solver, empty_map);
     }
 
     RouteValidatorBase::ScheduledVisitError ValidationSession::CreateAbsentCarerError(
@@ -399,13 +535,14 @@ namespace rows {
     const boost::posix_time::time_duration ValidationSession::ERROR_MARGIN
             = static_cast<boost::posix_time::time_duration>(boost::posix_time::seconds(1));
 
-    RouteValidatorBase::ValidationResult
-    SimpleRouteValidatorWithTimeWindows::Validate(const rows::Route &route, rows::SolverWrapper &solver) const {
+    RouteValidatorBase::ValidationResult SimpleRouteValidatorWithTimeWindows::Validate(const rows::Route &route,
+                                                                                       rows::SolverWrapper &solver,
+                                                                                       const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> &earliest_arrival_times) const {
         using boost::posix_time::time_duration;
         using boost::posix_time::seconds;
 
         ValidationSession session{route, solver};
-        session.Initialize();
+        session.Initialize(earliest_arrival_times);
 
         while (session.HasMoreVisits()) {
             const auto &visit = session.GetCurrentVisit();
@@ -445,8 +582,9 @@ namespace rows {
             : metrics_{},
               error_{nullptr} {}
 
-    RouteValidatorBase::ValidationResult::ValidationResult(RouteValidatorBase::Metrics metrics)
+    RouteValidatorBase::ValidationResult::ValidationResult(RouteValidatorBase::Metrics metrics, Schedule schedule)
             : metrics_{std::move(metrics)},
+              schedule_{std::move(schedule)},
               error_{nullptr} {}
 
     RouteValidatorBase::ValidationResult::ValidationResult(
@@ -456,6 +594,7 @@ namespace rows {
 
     RouteValidatorBase::ValidationResult::ValidationResult(RouteValidatorBase::ValidationResult &&other) noexcept
             : metrics_{std::move(other.metrics_)},
+              schedule_{std::move(other.schedule_)},
               error_{std::move(other.error_)} {}
 
     std::unique_ptr<RouteValidatorBase::ValidationError> &RouteValidatorBase::ValidationResult::error() {
@@ -469,12 +608,17 @@ namespace rows {
     RouteValidatorBase::ValidationResult &RouteValidatorBase::ValidationResult::operator=(
             RouteValidatorBase::ValidationResult &&other) noexcept {
         metrics_ = std::move(other.metrics_);
+        schedule_ = std::move(other.schedule_);
         error_ = std::move(other.error_);
         return *this;
     }
 
     const RouteValidatorBase::Metrics &RouteValidatorBase::ValidationResult::metrics() const {
         return metrics_;
+    }
+
+    const Schedule &RouteValidatorBase::ValidationResult::schedule() const {
+        return schedule_;
     }
 
     RouteValidatorBase::Metrics::Metrics()
@@ -569,7 +713,13 @@ namespace rows {
     }
 
     boost::posix_time::time_duration ValidationSession::GetBeginWindow(const ScheduledVisit &visit) const {
-        return boost::posix_time::seconds(solver_.GetBeginWindow(visit.datetime().time_of_day()));
+        const auto earliest_arrival = static_cast<boost::posix_time::time_duration>(
+                boost::posix_time::seconds(solver_.GetBeginWindow(visit.datetime().time_of_day())));
+        const auto find_it = earliest_arrival_times_.find(visit.calendar_visit().get());
+        if (find_it != std::cend(earliest_arrival_times_)) {
+            return std::max(earliest_arrival, find_it->second.time_of_day());
+        }
+        return earliest_arrival;
     }
 
     boost::posix_time::time_duration ValidationSession::GetEndWindow(const ScheduledVisit &visit) const {
@@ -586,33 +736,38 @@ namespace rows {
               visits_(),
               nodes_(),
               breaks_(),
-              current_time_() {}
+              current_time_(),
+              date_(boost::gregorian::not_a_date_time),
+              earliest_arrival_times_() {}
 
-    void ValidationSession::Initialize() {
+    void ValidationSession::Initialize(
+            const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> &earliest_arrival_times) {
         using boost::posix_time::seconds;
         using boost::posix_time::time_duration;
+
+        earliest_arrival_times_ = earliest_arrival_times;
 
         visits_ = route_.visits();
         if (visits_.empty()) {
             return;
         }
 
-        const auto first_visit_date = visits_.front().datetime().date();
+        date_ = visits_.front().datetime().date();
         const auto route_size = visits_.size();
         for (auto visit_pos = 1u; visit_pos < route_size; ++visit_pos) {
-            if (visits_[visit_pos].datetime().date() != first_visit_date) {
+            if (visits_[visit_pos].datetime().date() != date_) {
                 error_ = std::make_unique<RouteValidatorBase::ValidationError>(
                         CreateValidationError("Route contains visits that span across multiple days"));
                 return;
             }
         }
 
-        const auto diary = solver_.problem().diary(route_.carer(), first_visit_date);
+        const auto diary = solver_.problem().diary(route_.carer(), date_);
         if (!diary.is_initialized()) {
             error_ = std::make_unique<RouteValidatorBase::ValidationError>(
                     CreateValidationError((boost::format("Carer %1% is absent on %2%")
                                            % route_.carer()
-                                           % first_visit_date).str()));
+                                           % date_).str()));
             return;
         }
 
@@ -726,6 +881,8 @@ namespace rows {
                    % arrival_time
                    % service_start;
 
+        schedule_.Add(boost::posix_time::ptime(date_, service_start), travel_time, visit);
+
         last_node_ = current_node_;
         current_node_ = next_node_;
 
@@ -812,7 +969,8 @@ namespace rows {
         return RouteValidatorBase::ValidationResult{
                 RouteValidatorBase::Metrics{total_available_time_,
                                             total_service_time_,
-                                            total_travel_time_}};
+                                            total_travel_time_},
+                schedule_};
     }
 
     boost::posix_time::time_duration ValidationSession::GetTravelTime(
@@ -833,6 +991,8 @@ namespace rows {
                                                                      const operations_research::Assignment &solution,
                                                                      const operations_research::RoutingModel &model,
                                                                      SolverWrapper &solver) const {
+        static const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> NO_OVERRIDE_ARRIVAL;
+
         using boost::posix_time::seconds;
         using boost::posix_time::ptime;
         using boost::posix_time::time_period;
@@ -857,7 +1017,7 @@ namespace rows {
 
         Route route{carer, visits};
         ValidationSession session{route, solver};
-        session.Initialize();
+        session.Initialize(NO_OVERRIDE_ARRIVAL);
 
         if (session.error()) {
             return session.ToValidationResult();
@@ -931,5 +1091,63 @@ namespace rows {
         }
 
         return session.ToValidationResult();
+    }
+
+    Schedule::Record::Record()
+            : ArrivalInterval(boost::posix_time::ptime(), boost::posix_time::seconds(0)),
+              TravelTime(boost::posix_time::not_a_date_time),
+              Visit{} {}
+
+    Schedule::Record::Record(boost::posix_time::time_period arrival_interval,
+                             boost::posix_time::time_duration travel_time,
+                             ScheduledVisit visit)
+            : ArrivalInterval(std::move(arrival_interval)),
+              TravelTime(std::move(travel_time)),
+              Visit(std::move(visit)) {}
+
+    Schedule::Record::Record(const Schedule::Record &other)
+            : ArrivalInterval(other.ArrivalInterval),
+              TravelTime(other.TravelTime),
+              Visit(other.Visit) {}
+
+    Schedule::Record &Schedule::Record::operator=(const Schedule::Record &other) {
+        ArrivalInterval = other.ArrivalInterval;
+        TravelTime = other.TravelTime;
+        Visit = other.Visit;
+        return *this;
+    }
+
+    void Schedule::Add(boost::posix_time::ptime arrival,
+                       boost::posix_time::time_duration travel_time,
+                       const ScheduledVisit &visit) {
+        records_.emplace_back(
+                boost::posix_time::time_period(arrival, arrival),
+                std::move(travel_time),
+                visit
+        );
+    }
+
+    boost::optional<Schedule::Record> Schedule::Find(const ScheduledVisit &visit) const {
+        for (const auto &record : records_) {
+            if (record.Visit == visit) {
+                return boost::make_optional(record);
+            }
+        }
+        return boost::none;
+    }
+
+    Schedule::Schedule()
+            : records_() {}
+
+    Schedule::Schedule(const Schedule &other)
+            : records_(other.records_) {}
+
+    Schedule &Schedule::operator=(const Schedule &other) {
+        records_ = other.records_;
+        return *this;
+    }
+
+    const std::vector<Schedule::Record> &Schedule::records() const {
+        return records_;
     }
 }

@@ -28,6 +28,42 @@ namespace rows {
 
     class Event;
 
+    class Schedule {
+    public:
+        Schedule();
+
+        Schedule(const Schedule &other);
+
+        Schedule &operator=(const Schedule &other);
+
+        struct Record {
+            Record();
+
+            Record(boost::posix_time::time_period arrival_interval,
+                   boost::posix_time::time_duration travel_time,
+                   ScheduledVisit visit);
+
+            Record(const Record &other);
+
+            Record &operator=(const Record &other);
+
+            boost::posix_time::time_period ArrivalInterval;
+            boost::posix_time::time_duration TravelTime;
+            ScheduledVisit Visit;
+        };
+
+        boost::optional<Record> Find(const ScheduledVisit &visit) const;
+
+        void Add(boost::posix_time::ptime arrival,
+                 boost::posix_time::time_duration travel_time,
+                 const ScheduledVisit &visit);
+
+        const std::vector<Record> &records() const;
+
+    private:
+        std::vector<Record> records_;
+    };
+
     class RouteValidatorBase {
     public:
 
@@ -131,7 +167,7 @@ namespace rows {
         public:
             ValidationResult();
 
-            explicit ValidationResult(Metrics metrics);
+            ValidationResult(Metrics metrics, Schedule schedule);
 
             explicit ValidationResult(std::unique_ptr<ValidationError> &&error) noexcept;
 
@@ -145,12 +181,15 @@ namespace rows {
 
             const Metrics &metrics() const;
 
+            const Schedule &schedule() const;
+
             const std::unique_ptr<ValidationError> &error() const;
 
             std::unique_ptr<ValidationError> &error();
 
         private:
             Metrics metrics_;
+            Schedule schedule_;
             std::unique_ptr<ValidationError> error_;
         };
 
@@ -158,7 +197,11 @@ namespace rows {
                                                                    const rows::Problem &problem,
                                                                    rows::SolverWrapper &solver) const;
 
-        virtual ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const = 0;
+        ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const;
+
+        virtual ValidationResult Validate(const rows::Route &route,
+                                          rows::SolverWrapper &solver,
+                                          const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> &earliest_arrival_times) const = 0;
 
     protected:
         static bool IsAssignedAndActive(const rows::ScheduledVisit &visit);
@@ -170,7 +213,8 @@ namespace rows {
 
         ValidationSession(const Route &route, SolverWrapper &solver);
 
-        void Initialize();
+        void
+        Initialize(const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> &earliest_arrival_times);
 
         bool HasMoreVisits() const;
 
@@ -250,6 +294,7 @@ namespace rows {
         const Route &route_;
         SolverWrapper &solver_;
 
+        boost::gregorian::date date_;
         boost::posix_time::time_duration total_available_time_;
         boost::posix_time::time_duration total_service_time_;
         boost::posix_time::time_duration total_travel_time_;
@@ -265,6 +310,9 @@ namespace rows {
         std::vector<rows::Event> breaks_;
         std::size_t current_break_;
         boost::posix_time::time_duration current_time_;
+
+        Schedule schedule_;
+        std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> earliest_arrival_times_;
     };
 
     class SolutionValidator {
@@ -281,7 +329,9 @@ namespace rows {
 
         virtual ~SimpleRouteValidatorWithTimeWindows() = default;
 
-        ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const override;
+        ValidationResult Validate(const rows::Route &route,
+                                  rows::SolverWrapper &solver,
+                                  const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> &earliest_arrival_times) const override;
     };
 
     std::ostream &operator<<(std::ostream &out, RouteValidatorBase::ErrorCode error_code);
