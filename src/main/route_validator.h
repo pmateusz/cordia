@@ -201,7 +201,7 @@ namespace rows {
 
         virtual ValidationResult Validate(const rows::Route &route,
                                           rows::SolverWrapper &solver,
-                                          const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> &earliest_arrival_times) const = 0;
+                                          const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> &earliest_arrival_times) const = 0;
 
     protected:
         static bool IsAssignedAndActive(const rows::ScheduledVisit &visit);
@@ -213,8 +213,8 @@ namespace rows {
 
         ValidationSession(const Route &route, SolverWrapper &solver);
 
-        void
-        Initialize(const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> &earliest_arrival_times);
+        void Initialize(
+                const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> &earliest_arrival_times);
 
         bool HasMoreVisits() const;
 
@@ -312,7 +312,7 @@ namespace rows {
         boost::posix_time::time_duration current_time_;
 
         Schedule schedule_;
-        std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> earliest_arrival_times_;
+        std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> latest_arrival_times_;
     };
 
     class SolutionValidator {
@@ -331,7 +331,7 @@ namespace rows {
 
         ValidationResult Validate(const rows::Route &route,
                                   rows::SolverWrapper &solver,
-                                  const std::unordered_map<rows::CalendarVisit, boost::posix_time::ptime> &earliest_arrival_times) const override;
+                                  const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> &latest_arrival_times) const override;
     };
 
     std::ostream &operator<<(std::ostream &out, RouteValidatorBase::ErrorCode error_code);
