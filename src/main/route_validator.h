@@ -41,7 +41,8 @@ namespace rows {
             LATE_ARRIVAL,
             MISSING_INFO,
             ORPHANED, // information about the visit is not available in the problem definition
-            MOVED // either start time or duration or both do not match the calendar visit
+            MOVED, // either start time or duration or both do not match the calendar visit
+            NOT_ENOUGH_CARERS
         };
 
         class ValidationError {
@@ -250,6 +251,9 @@ namespace rows {
 
         static RouteValidatorBase::ScheduledVisitError CreateOrphanedError(const Route &route,
                                                                            const ScheduledVisit &visit);
+
+        static RouteValidatorBase::ScheduledVisitError NotEnoughCarersAvailable(const Route &route,
+                                                                                const ScheduledVisit &visit);
 
         static RouteValidatorBase::ScheduledVisitError CreateMovedError(const Route &route,
                                                                         const ScheduledVisit &visit);

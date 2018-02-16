@@ -142,7 +142,8 @@ namespace rows {
         }
 
         // find visit assignment conflicts
-        std::unordered_map<rows::CalendarVisit, std::vector<rows::Route>> visit_index;
+        std::unordered_map<rows::CalendarVisit, std::vector<std::pair<rows::ScheduledVisit, rows::Route> > > visit_index;
+
         for (const auto &route: routes) {
             for (const auto &visit : route.visits()) {
                 if (!IsAssignedAndActive(visit)) {
@@ -152,18 +153,23 @@ namespace rows {
                 const auto &calendar_visit = visit.calendar_visit();
                 const auto visit_index_it = visit_index.find(calendar_visit.get());
                 if (visit_index_it != std::end(visit_index)) {
-                    visit_index_it->second.push_back(route);
+                    visit_index_it->second.emplace_back(visit, route);
                 } else {
-                    visit_index.insert({calendar_visit.get(), std::vector<rows::Route> {route}});
+                    visit_index.insert({calendar_visit.get(),
+                                        std::vector<std::pair<rows::ScheduledVisit, rows::Route>> {
+                                                std::make_pair(visit, route)}
+                                       });
                 }
             }
         }
 
         for (const auto &visit_index_pair : visit_index) {
             if (visit_index_pair.second.size() != visit_index_pair.first.carer_count()) {
+                DCHECK(!visit_index_pair.second.empty());
+
+                std::vector<rows::Route> conflict_routes{visit_index_pair.second.front().second};
                 validation_errors.emplace_back(
-                        std::make_unique<RouteConflictError>(visit_index_pair.first,
-                                                             visit_index_pair.second));
+                        std::make_unique<RouteConflictError>(visit_index_pair.first, std::move(conflict_routes)));
             }
         }
 
@@ -236,6 +242,32 @@ namespace rows {
                     partial_route = std::move(route_candidate);
                 }
             }
+        }
+
+        for (const auto &visit_bundle : visit_index) {
+            if (visit_bundle.second.size() <= 1) {
+                continue;
+            }
+
+            // FIXME: validation that the latest arrival is suitable for all visits seems too expensive
+//            auto contains_unassigned_visit = false;
+//            for (const auto &visit_route_pair : visit_bundle.second) {
+//                if (!visit_route_pair.first.carer()) {
+//                    contains_unassigned_visit = true;
+//                    break;
+//                }
+//            }
+
+//            if (contains_unassigned_visit) {
+            for (const auto &visit_route_pair : visit_bundle.second) {
+                if (visit_route_pair.first.carer()) {
+                    validation_errors.emplace_back(
+                            std::make_unique<ScheduledVisitError>(
+                                    ValidationSession::NotEnoughCarersAvailable(visit_route_pair.second,
+                                                                                visit_route_pair.first)));
+                }
+            }
+//            }
         }
 
         return validation_errors;
@@ -355,6 +387,13 @@ namespace rows {
         }
 
         return {RouteValidatorBase::ErrorCode::MOVED, error_msg, visit, route};
+    }
+
+    RouteValidatorBase::ScheduledVisitError ValidationSession::NotEnoughCarersAvailable(const Route &route,
+                                                                                        const ScheduledVisit &visit) {
+        std::string error_msg = (boost::format("Not enough carers booked for the visit %1%")
+                                 % visit).str();
+        return {RouteValidatorBase::ErrorCode::NOT_ENOUGH_CARERS, std::move(error_msg), visit, route};
     }
 
     RouteValidatorBase::ValidationResult RouteValidator::Validate(const Route &route,
@@ -1270,10 +1309,10 @@ namespace rows {
             const ptime arrival{date, seconds(solution.Value(time_dim.CumulVar(visit_index)))};
 
             VLOG(2) << boost::format("Visit [%1%,%2%] arrival: %3% busy until %4%")
-                         % fastest_arrival
-                         % latest_arrival
-                         % arrival
-                         % (arrival + visit.duration());
+                       % fastest_arrival
+                       % latest_arrival
+                       % arrival
+                       % (arrival + visit.duration());
 
             const time_period arrival_period{fastest_arrival, latest_arrival};
             if (ValidationSession::GreaterThan(arrival.time_of_day(), arrival_period.end().time_of_day())) {

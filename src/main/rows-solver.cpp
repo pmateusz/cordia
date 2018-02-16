@@ -61,6 +61,10 @@ DEFINE_string(map_file,
 DEFINE_validator(map_file, &util::ValidateFilePath
 );
 
+void failure_interceptor() {
+    LOG(ERROR) << "Failure intercepted";
+}
+
 std::string GetModelStatus(int status) {
     switch (status) {
         case operations_research::RoutingModel::Status::ROUTING_FAIL:
