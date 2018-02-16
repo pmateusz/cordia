@@ -1059,10 +1059,6 @@ namespace rows {
         }
 
         for (const auto &event : diary.get().events()) {
-            LOG(INFO) << boost::format("Event [%1%, %2%] %3%")
-                         % event.begin().time_of_day()
-                         % event.end().time_of_day()
-                         % event.duration();
             total_available_time_ += event.duration();
         }
 
@@ -1074,8 +1070,6 @@ namespace rows {
         }
 
         for (const auto &visit : visits_) {
-            LOG(INFO) << boost::format("Visit %1%") % visit.duration();
-
             total_service_time_ += visit.duration();
         }
     }
@@ -1223,8 +1217,6 @@ namespace rows {
         return bool(error_);
     }
 
-    // TODO: cleanup and test
-    // TODO: contractual break violation
     RouteValidatorBase::ValidationResult SolutionValidator::Validate(int vehicle,
                                                                      const operations_research::Assignment &solution,
                                                                      const operations_research::RoutingModel &model,
@@ -1277,7 +1269,7 @@ namespace rows {
             const ptime latest_arrival{date, seconds(solver.GetEndWindow(visit.datetime().time_of_day()))};
             const ptime arrival{date, seconds(solution.Value(time_dim.CumulVar(visit_index)))};
 
-            LOG(INFO) << boost::format("Visit [%1%,%2%] arrival: %3% busy until %4%")
+            VLOG(2) << boost::format("Visit [%1%,%2%] arrival: %3% busy until %4%")
                          % fastest_arrival
                          % latest_arrival
                          % arrival
