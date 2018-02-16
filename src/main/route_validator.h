@@ -164,20 +164,6 @@ namespace rows {
         static bool IsAssignedAndActive(const rows::ScheduledVisit &visit);
     };
 
-    class RouteValidator : public RouteValidatorBase {
-    public:
-        virtual ~RouteValidator() = default;
-
-        ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const override;
-    };
-
-    class SimpleRouteValidator : public RouteValidatorBase {
-    public:
-        virtual ~SimpleRouteValidator() = default;
-
-        ValidationResult Validate(const rows::Route &route, rows::SolverWrapper &solver) const override;
-    };
-
     class ValidationSession {
     public:
         static const boost::posix_time::time_duration ERROR_MARGIN;
