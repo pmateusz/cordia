@@ -39,7 +39,6 @@
 #include "solver_wrapper.h"
 #include "break_constraint.h"
 
-
 namespace rows {
 
     const operations_research::RoutingModel::NodeIndex SolverWrapper::DEPOT{0};
@@ -304,7 +303,7 @@ namespace rows {
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-        parameters.set_solution_limit(256);
+//        parameters.set_solution_limit(256);
         parameters.set_time_limit_ms(boost::posix_time::minutes(5).total_milliseconds());
 
         static const auto USE_ADVANCED_SEARCH = true;
@@ -354,22 +353,6 @@ namespace rows {
         std::set<operations_research::RoutingModel::NodeIndex> covered_nodes;
         covered_nodes.insert(DEPOT);
 
-        for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
-            const auto &carer = Carer(vehicle);
-            const auto &diary = problem_.diary(carer, schedule_day);
-
-            time_dimension->CumulVar(model.Start(vehicle))
-                    ->SetRange(diary.get().begin_time().total_seconds(), diary.get().end_time().total_seconds());
-
-            time_dimension->CumulVar(model.End(vehicle))
-                    ->SetRange(diary.get().begin_time().total_seconds(), diary.get().end_time().total_seconds());
-
-            const auto breaks = CreateBreakIntervals(model.solver(), carer, diary.get());
-            auto solver_ptr = model.solver();
-            solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
-        }
-
         // visit that needs multiple carers is referenced by multiple nodes
         // all such nodes must be either performed or unperformed
         for (const auto &visit_index_pair : visit_index_) {
@@ -400,19 +383,37 @@ namespace rows {
 
             const auto visit_index_size = start_visit_vars.size();
             if (visit_index_size > 1) {
-//                for (auto visit_index = 1; visit_index < visit_index_size; ++visit_index) {
-//                    const auto start_time_constraint = model.solver()->MakeEquality(start_visit_vars[0],
-//                                                                                    start_visit_vars[visit_index]);
-//                    solver->AddConstraint(start_time_constraint);
+                const auto latest_arrival = model.solver()->MakeMax(start_visit_vars);
+                const auto all_active = model.solver()->MakeMin(active_visit_vars);
 
-//                    const auto active_constraint = model.solver()->MakeEquality(active_visit_vars[0],
-//                                                                                active_visit_vars[visit_index]);
-//                    solver->AddConstraint(active_constraint);
-//                }
+                for (auto visit_index = 0; visit_index < visit_index_size; ++visit_index) {
+                    const auto start_time_constraint
+                            = model.solver()->MakeEquality(start_visit_vars[visit_index], latest_arrival);
+                    solver->AddConstraint(start_time_constraint);
 
-                // TODO: create and add constraint
+                    const auto active_constraint
+                            = model.solver()->MakeEquality(active_visit_vars[visit_index], all_active);
+                    solver->AddConstraint(active_constraint);
+                }
+
                 ++total_multiple_carer_visits;
             }
+        }
+
+        for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+            const auto &carer = Carer(vehicle);
+            const auto &diary = problem_.diary(carer, schedule_day);
+
+            time_dimension->CumulVar(model.Start(vehicle))
+                    ->SetRange(diary.get().begin_time().total_seconds(), diary.get().end_time().total_seconds());
+
+            time_dimension->CumulVar(model.End(vehicle))
+                    ->SetRange(diary.get().begin_time().total_seconds(), diary.get().end_time().total_seconds());
+
+            const auto breaks = CreateBreakIntervals(model.solver(), carer, diary.get());
+            auto solver_ptr = model.solver();
+            solver_ptr->AddConstraint(
+                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
         }
 
         LOG(INFO) << boost::format("Total multiple carer visits: %1%\n"
@@ -441,9 +442,9 @@ namespace rows {
                 rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
 
         // minimize time variables
-//        for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
-//            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
-//        }
+        for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
+        }
 
         // minimize route duration
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
@@ -480,11 +481,10 @@ namespace rows {
 
         // Adding penalty costs to allow skipping orders.
         const int64 kPenalty = 10000000;
-        const operations_research::RoutingModel::NodeIndex kFirstNodeAfterDepot(1);
-        for (operations_research::RoutingModel::NodeIndex order = kFirstNodeAfterDepot;
-             order < model.nodes(); ++order) {
-            std::vector<operations_research::RoutingModel::NodeIndex> orders(1, order);
-            model.AddDisjunction(orders, kPenalty);
+        for (const auto &visit_bundle : visit_index_) {
+            std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
+                                                                                  std::cend(visit_bundle.second)};
+            model.AddDisjunction(std::move(visit_nodes), kPenalty, static_cast<int64>(visit_nodes.size()));
         }
 
         VLOG(1) << "Computing missing entries of the distance matrix...";
@@ -607,7 +607,6 @@ namespace rows {
 
     rows::Solution SolverWrapper::Resolve(const rows::Solution &solution,
                                           const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>> &validation_errors) const {
-        // TODO: Update resolution logic to reset all visits that have multiple carers in outer routes as well
         std::unordered_set<ScheduledVisit> visits_to_ignore;
         std::unordered_set<ScheduledVisit> visits_to_release;
         std::unordered_set<ScheduledVisit> visits_to_move;
@@ -627,6 +626,7 @@ namespace rows {
                 }
                 case RouteValidatorBase::ErrorCode::ABSENT_CARER:
                 case RouteValidatorBase::ErrorCode::BREAK_VIOLATION:
+                case RouteValidatorBase::ErrorCode::NOT_ENOUGH_CARERS:
                 case RouteValidatorBase::ErrorCode::LATE_ARRIVAL: {
                     const auto &error_to_use = dynamic_cast<const rows::RouteValidatorBase::ScheduledVisitError &>(*error);
                     visits_to_release.insert(error_to_use.visit());
@@ -737,8 +737,6 @@ namespace rows {
                     carer_visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN, carer, NodeToVisit(visit_index));
                 }
 
-                LOG(INFO) << order;
-
                 order = solution.Value(model.NextVar(order));
             }
 
@@ -786,7 +784,6 @@ namespace rows {
         }
 
 //        VLOG(1) << model.DebugOutputAssignment(solution, "");
-
         stats.CarerUtility.Mean = boost::accumulators::mean(carer_work_stats);
         stats.CarerUtility.Median = boost::accumulators::median(carer_work_stats);
         stats.CarerUtility.Stddev = sqrt(boost::accumulators::variance(carer_work_stats));
