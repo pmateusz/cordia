@@ -352,38 +352,6 @@ namespace rows {
             }
         }
 
-        std::unordered_set<rows::Carer> carers{
-//                rows::Carer("108391"),
-//                rows::Carer("111510"),
-//                rows::Carer("111192"),
-//                rows::Carer("110207"),
-//                rows::Carer("107808"),
-//                rows::Carer("110017"),
-//                rows::Carer("112174"),
-//                rows::Carer("162821"),
-//                rows::Carer("108002"),
-//                rows::Carer("111393"),
-// they are correctly validated by manual inspection
-                rows::Carer("108019"),
-                rows::Carer("107942")
-        };
-
-        for (const auto &visit_bundle : visit_index) {
-            if (visit_bundle.second.size() <= 1) {
-                continue;
-            }
-
-            for (const auto &visit_route_pair : visit_bundle.second) {
-                if (carers.find(visit_route_pair.second.carer()) != std::end(carers)) {
-                    continue;
-                }
-
-                const auto &route = visit_route_pair.second;
-                validation_errors.emplace_back(std::make_unique<RouteValidatorBase::ScheduledVisitError>(
-                        ValidationSession::CreateContractualBreakViolationError(route, visit_route_pair.first)));
-            }
-        }
-
         return validation_errors;
     }
 

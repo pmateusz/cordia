@@ -484,7 +484,7 @@ namespace rows {
         for (const auto &visit_bundle : visit_index_) {
             std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
                                                                                   std::cend(visit_bundle.second)};
-            model.AddDisjunction(std::move(visit_nodes), kPenalty);
+            model.AddDisjunction(std::move(visit_nodes), kPenalty, static_cast<int64>(visit_nodes.size()));
         }
 
         VLOG(1) << "Computing missing entries of the distance matrix...";
@@ -607,7 +607,6 @@ namespace rows {
 
     rows::Solution SolverWrapper::Resolve(const rows::Solution &solution,
                                           const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>> &validation_errors) const {
-        // TODO: Update resolution logic to reset all visits that have multiple carers in outer routes as well
         std::unordered_set<ScheduledVisit> visits_to_ignore;
         std::unordered_set<ScheduledVisit> visits_to_release;
         std::unordered_set<ScheduledVisit> visits_to_move;
@@ -785,7 +784,6 @@ namespace rows {
         }
 
 //        VLOG(1) << model.DebugOutputAssignment(solution, "");
-
         stats.CarerUtility.Mean = boost::accumulators::mean(carer_work_stats);
         stats.CarerUtility.Median = boost::accumulators::median(carer_work_stats);
         stats.CarerUtility.Stddev = sqrt(boost::accumulators::variance(carer_work_stats));

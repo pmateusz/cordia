@@ -61,10 +61,6 @@ DEFINE_string(map_file,
 DEFINE_validator(map_file, &util::ValidateFilePath
 );
 
-void failure_interceptor() {
-    LOG(ERROR) << "Failure intercepted";
-}
-
 std::string GetModelStatus(int status) {
     switch (status) {
         case operations_research::RoutingModel::Status::ROUTING_FAIL:
@@ -198,10 +194,10 @@ int main(int argc, char **argv) {
         operations_research::RoutingModel model{wrapper.nodes(),
                                                 wrapper.vehicles(),
                                                 rows::SolverWrapper::DEPOT};
-        model.solver()->parameters().set_print_added_constraints(true);
-        model.solver()->parameters().set_print_model(true);
-        model.solver()->parameters().set_print_model_stats(true);
-        model.solver()->parameters().disable_solve();
+//        model.solver()->parameters().set_print_added_constraints(true);
+//        model.solver()->parameters().set_print_model(true);
+//        model.solver()->parameters().set_print_model_stats(true);
+//        model.solver()->parameters().disable_solve();
 
         wrapper.ConfigureModel(model);
 
