@@ -9,3 +9,4 @@ data/
 *problem.json
 *past_solution.json
 *.gexf
+.dev

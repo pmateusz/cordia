@@ -13,12 +13,22 @@ libbz2-dev libxml2-dev libzip-dev libboost-all-dev \
 lua5.2 liblua5.2-dev libtbb-dev
 ```
 
-Compile the C++ components.
+Install Microsoft ODBC Driver for SQL Server
 ```shell
-mkdir -p build
-cd build
-cmake ..
-cmake --build .
+echo  'deb [arch=amd64] https://packages.microsoft.com/debian/8/prod jessie main' > /etc/apt/sources.list.d/mssql-release.list
+curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+sudo apt update
+sudo apt install msodbcsql mssql-tools
+wget "http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.0.0_1.0.1t-1+deb8u7_amd64.deb"
+sudo apt install ./libssl1.0.0_1.0.1t-1+deb8u7_amd64.deb
+```
+
+Change the system locale to en-US.
+
+Test the connection using the `sqlcmd` utility.
+
+```shell
+sqlcmd -S 192.168.56.1 -U dev -N -C -l 5
 ```
 
 Run tests of the Python components.

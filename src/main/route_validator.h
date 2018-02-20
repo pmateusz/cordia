@@ -329,6 +329,8 @@ namespace rows {
 
         virtual ~SimpleRouteValidatorWithTimeWindows() = default;
 
+        using RouteValidatorBase::Validate;
+
         ValidationResult Validate(const rows::Route &route,
                                   rows::SolverWrapper &solver,
                                   const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> &latest_arrival_times) const override;

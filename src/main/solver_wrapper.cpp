@@ -304,7 +304,7 @@ namespace rows {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
 //        parameters.set_solution_limit(256);
-        parameters.set_time_limit_ms(boost::posix_time::minutes(5).total_milliseconds());
+        parameters.set_time_limit_ms(boost::posix_time::hours(3).total_milliseconds());
 
         static const auto USE_ADVANCED_SEARCH = true;
         static const auto USE_LIGHT_PROPAGATION = false; // breaks contractual breaks

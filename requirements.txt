@@ -1,4 +1,5 @@
 pylint
+pyodbc
 pytest
 requests
 setuptools
