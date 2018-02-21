@@ -6,6 +6,7 @@ import rows.parser
 import rows.console
 import rows.location_finder
 import rows.csv_data_source
+import rows.sql_data_source
 import rows.pull_command
 import rows.version
 from rows.util.file_system import real_path
@@ -22,13 +23,7 @@ class Application:
         self.__location_cache = rows.location_finder.FileSystemCache(
             real_path('~/dev/cordia/data/cordia/location_cache.json'))
         self.__location_finder = rows.location_finder.RobustLocationFinder(self.__location_cache, timeout=5.0)
-        self.__data_source = rows.csv_data_source.CSVDataSource(
-            self.__location_finder,
-            real_path('~/dev/cordia/data/cordia/home_carer_position.csv'),
-            real_path('~/dev/cordia/data/cordia/home_carer_shift_pattern.csv'),
-            real_path('~/dev/cordia/data/cordia/service_user_visit.csv'),
-            real_path('~/dev/cordia/data/cordia/past_visits.csv'))
-
+        self.__data_source = rows.sql_data_source.SqlDataSource(self.__location_finder)
         self.__handlers = {rows.parser.Parser.PULL_COMMAND: rows.pull_command.Handler(self)}
         self.__output_file_mode = output_file_mode
 

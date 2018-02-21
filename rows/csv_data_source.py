@@ -9,6 +9,7 @@ import itertools
 import dateutil.parser
 
 import rows.model.day
+from rows.model.area import Area
 
 from rows.model.service_user import ServiceUser
 from rows.model.diary import Diary
@@ -25,6 +26,8 @@ from rows.model.past_visit import PastVisit
 
 class CSVDataSource:
     """Loads test data from CSV"""
+
+    DEFAULT_AREA = Area(key=0, code='Default area')
 
     def __init__(self,
                  location_finder,
@@ -196,6 +199,9 @@ class CSVDataSource:
                     calendar_visit.carer_count = carer_count
 
         self.__loaded = True
+
+    def get_areas(self):
+        return [CSVDataSource.DEFAULT_AREA]
 
     def get_carers(self, area, begin_date, end_date):
         """Return all carers"""
