@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import json
+import os
 import unittest
 import tempfile
 
@@ -13,6 +14,8 @@ from rows.parser import ValueHolder
 from rows.pull_command import Handler
 
 
+@unittest.skipIf(os.getenv('TRAVIS', 'false') == 'true',
+                 'Resource files required to run the test are not available in CI')
 class HandlerTestCase(unittest.TestCase):
     """Test pull command handler"""
 
