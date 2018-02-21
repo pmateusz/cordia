@@ -35,12 +35,13 @@ class TestVisit(unittest.TestCase):
         self.assertEqual(self.example_visit.duration, TestVisit.EXAMPLE_DURATION)
         self.assertEqual(self.example_visit.as_dict(),
                          collections.OrderedDict(
-                             [('key', None),
-                              ('service_user', TestVisit.EXAMPLE_SERVICE_USER),
-                              ('address', TestVisit.EXAMPLE_ADDRESS),
-                              ('date', TestVisit.EXAMPLE_DATE),
-                              ('time', TestVisit.EXAMPLE_TIME),
-                              ('duration', TestVisit.EXAMPLE_DURATION)]))
+                             [(Visit.KEY, None),
+                              (Visit.SERVICE_USER, TestVisit.EXAMPLE_SERVICE_USER),
+                              (Visit.DATE, TestVisit.EXAMPLE_DATE),
+                              (Visit.TIME, TestVisit.EXAMPLE_TIME),
+                              (Visit.DURATION, TestVisit.EXAMPLE_DURATION),
+                              (Visit.CARER_COUNT, 1),
+                              (Visit.ADDRESS, TestVisit.EXAMPLE_ADDRESS)]))
 
     def test_dictionary_serialization(self):
         """Can deserialize from a dictionary"""

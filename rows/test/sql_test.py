@@ -37,7 +37,6 @@ class TestSqlIntegration(unittest.TestCase):
 
     def test_connection(self):
         try:
-            connection_string = build_connection_string()
             connection = pyodbc.connect(build_connection_string())
             cursor = connection.cursor()
             cursor.execute('SELECT aom.aom_id, aom.area_code '

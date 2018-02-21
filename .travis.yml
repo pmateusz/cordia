@@ -6,7 +6,7 @@ matrix:
         - pip install -r requirements.txt
       script:
         - find . -iname "*.py" | xargs python3 -m pytest
-        - find rows* -iname "*.py" | xargs python3 -m pylint
+#        - find rows* -iname "*.py" | xargs python3 -m pylint
     - language: cpp
       dist: trusty
       sudo: required

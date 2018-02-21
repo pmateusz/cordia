@@ -9,7 +9,11 @@ import itertools
 import dateutil.parser
 
 import rows.model.day
+
+from rows.model.service_user import ServiceUser
+from rows.model.diary import Diary
 from rows.model.address import Address
+from rows.model.problem import Problem
 from rows.model.carer import Carer
 from rows.model.event import RelativeEvent
 from rows.model.metadata import Metadata
@@ -19,10 +23,16 @@ from rows.model.visit import Visit
 from rows.model.past_visit import PastVisit
 
 
-class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-from-loop,too-many-locals,invalid-name
+class CSVDataSource:
     """Loads test data from CSV"""
 
-    def __init__(self, carers_file, shift_patterns_file, visits_file, past_visits_file):
+    def __init__(self,
+                 location_finder,
+                 carers_file,
+                 shift_patterns_file,
+                 visits_file,
+                 past_visits_file):
+        self.__location_finder = location_finder
         self.__carers_file = carers_file
         self.__shift_patterns_file = shift_patterns_file
         self.__visits_file = visits_file
@@ -187,13 +197,105 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
 
         self.__loaded = True
 
-    def get_carers(self):
+    def get_carers(self, area, begin_date, end_date):
         """Return all carers"""
 
         self.__reload_if()
-        return list(itertools.chain(self.__carers.values()))
 
-    def get_past_visits(self, area, begin_date, end_date):
+        logging.warning("Area '%s' is ignored by the data source", area)
+
+        carers = []
+        for carer in self.__carers.values():
+            if not self.__carer_shift_patterns[carer].is_available_partially(begin_date, end_date):
+                continue
+            shift_pattern = self.__carer_shift_patterns[carer]
+            absolute_events = shift_pattern.interval(begin_date, end_date)
+            diaries = [Diary(**{Diary.DATE: date, Diary.EVENTS: list(events), Diary.SCHEDULE_PATTERN_KEY: None})
+                       for date, events in itertools.groupby(absolute_events, key=lambda event: event.begin.date())]
+            carers.append(Problem.CarerShift(**{Problem.CarerShift.CARER: carer, Problem.CarerShift.DIARIES: diaries}))
+
+        return carers
+
+    def get_visits(self, area, begin_date, end_date):
+        """Return visits within the area"""
+
+        self.__reload_if()
+
+        logging.warning("Area '%s' is ignored by the data source", area)
+
+        visits_by_service_user = collections.OrderedDict()
+        address_by_service_user = {}
+        location_by_service_user = {}
+
+        for visit in self.__get_visits_between(area, begin_date, end_date):
+            local_visit = Problem.LocalVisit(date=visit.date,
+                                             time=visit.time,
+                                             duration=visit.duration,
+                                             carer_count=visit.carer_count)
+            if visit.service_user in visits_by_service_user:
+                visits_by_service_user[visit.service_user].append(local_visit)
+            else:
+                visits_by_service_user[visit.service_user] = [local_visit]
+                location = self.__location_finder.find(visit.address)
+                if location is None:
+                    logging.error("Failed to find location of the address '%s'", location)
+                location_by_service_user[visit.service_user] = location
+                address_by_service_user[visit.service_user] = visit.address
+
+        return [Problem.LocalVisits(service_user=service_user, visits=visits)
+                for service_user, visits in visits_by_service_user.items()]
+
+    def get_service_users(self, area, begin_date, end_date):
+
+        self.__reload_if()
+
+        logging.warning("Area '%s' is ignored by the data source", area)
+
+        address_by_service_user = {}
+        location_by_service_user = {}
+
+        for visit in self.__get_visits_between(area, begin_date, end_date):
+            if visit.service_user in address_by_service_user:
+                continue
+            else:
+                location = self.__location_finder.find(visit.address)
+                if location is None:
+                    logging.error("Failed to find location of the address '%s'", location)
+                location_by_service_user[visit.service_user] = location
+                address_by_service_user[visit.service_user] = visit.address
+
+        service_users = []
+        for service_user_id in address_by_service_user.keys():
+            carers_frequency = collections.Counter()
+            all_visits = 0
+            for visit in self.__get_past_visits_for_service_user(service_user_id):
+                carers_frequency[visit.carer.sap_number] += 1
+                all_visits += 1
+
+            carer_pref_to_use = [(carer, float(count) / all_visits) for carer, count in carers_frequency.most_common(8)]
+            carer_pref_to_use.sort(key=lambda element: element[1], reverse=True)
+
+            service_users.append(ServiceUser(key=service_user_id,
+                                             address=address_by_service_user[service_user_id],
+                                             location=location_by_service_user[service_user_id],
+                                             carer_preference=carer_pref_to_use))
+
+    def get_past_schedule(self, area, begin_date, end_date):
+        """Return a schedule for a given duration"""
+
+        metadata = Metadata(area=area, begin=begin_date, end=end_date)
+        visits = self.__get_past_visits(area, begin_date, end_date)
+        return Schedule(visits=visits, metadata=metadata)
+
+    def __get_visits_between(self, area, begin_date, end_date):
+
+        logging.warning("Area '%s' is ignored by the data source", area)
+
+        for visit in itertools.chain(*self.__visits.values()):
+            if begin_date <= visit.date < end_date:
+                yield visit
+
+    def __get_past_visits(self, area, begin_date, end_date):
         """Return all past visits"""
 
         logging.warning("Area '%s' is ignored by the data source", area)
@@ -201,66 +303,11 @@ class CSVDataSource:  # pylint: disable=too-many-instance-attributes,cell-var-fr
         self.__reload_if()
         return [visit for visit in itertools.chain(*self.__past_visits.values()) if begin_date <= visit.date < end_date]
 
-    def get_past_visits_for_service_user(self, service_user):
+    def __get_past_visits_for_service_user(self, service_user):
         """Return visits of the service user"""
 
         return [past_visit for past_visit in itertools.chain(*self.__past_visits.values())
                 if past_visit.visit and past_visit.visit.service_user == service_user]
-
-    def get_past_schedule(self, area, begin_date, end_date):
-        """Return a schedule for a given duration"""
-
-        metadata = Metadata(area=area, begin=begin_date, end=end_date)
-        visits = self.get_past_visits(area, begin_date, end_date)
-        return Schedule(visits=visits, metadata=metadata)
-
-    def get_carers_for_visit(self, visit):
-        """Return carers available for the visit"""
-
-        self.__reload_if()
-        available_carers = set()
-        for carer, shift_pattern in self.__carer_shift_patterns.items():
-            if shift_pattern.is_available_fully(visit.date, visit.time, visit.duration):
-                available_carers.add(carer)
-
-        return list(available_carers)
-
-    def get_interval_for_carer(self, carer, begin_date, end_date):
-        """Returns events from the carers' diary between dates"""
-
-        self.__reload_if()
-        shift_pattern = self.__carer_shift_patterns[carer]
-        return shift_pattern.interval(begin_date, end_date)
-
-    def get_carers_for_area(self, area, begin_date, end_date):
-        """Return carers within the area"""
-
-        self.__reload_if()
-
-        logging.warning("Area '%s' is ignored by the data source", area)
-
-        available_carers = set()
-        for carer in self.__carers.values():
-            shift_pattern = self.__carer_shift_patterns[carer]
-            if shift_pattern.is_available_partially(begin_date, end_date):
-                available_carers.add(carer)
-
-        return list(available_carers)
-
-    def get_visits(self):
-        """Return all visits"""
-
-        self.__reload_if()
-        return list(itertools.chain(*self.__visits.values()))
-
-    def get_visits_for_area(self, area, begin, end):
-        """Return visits within the area"""
-
-        self.__reload_if()
-
-        logging.warning("Area '%s' is ignored by the data source", area)
-
-        return [visit for visit in self.get_visits() if begin <= visit.date < end]
 
     def __reload_if(self):
         if not self.__loaded:

@@ -18,7 +18,11 @@ class TestArea(unittest.TestCase):
         """Can access properties and serialize to dictionary"""
 
         self.assertEqual(self.example_area.key, TestArea.EXAMPLE_KEY)
-        self.assertEqual(self.example_area.as_dict(), collections.OrderedDict(key=TestArea.EXAMPLE_KEY))
+
+        expected_example = collections.OrderedDict()
+        expected_example[Area.KEY] = TestArea.EXAMPLE_KEY
+        expected_example[Area.CODE] = None
+        self.assertEqual(self.example_area.as_dict(), expected_example)
 
     def test_dictionary_serialization(self):
         """Can deserialize from a dictionary"""
