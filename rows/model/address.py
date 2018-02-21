@@ -1,6 +1,8 @@
 """Postal address of a certain location"""
-
+import logging
 import re
+
+import itertools
 
 import rows.model.object
 
@@ -145,11 +147,7 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
         return self.__suburb
 
     @staticmethod
-    def parse(text):
-        """Parses input text in natural language to an address"""
-
-        text_to_use = text.strip()
-
+    def __parse_from_csv(text):
         address_default_matcher = re.compile(
             r'^(?P<house_number>\d+?)\s*,\s*(?P<road>(?:\w+\s+)*\w+)\s*,\s*(?P<city>(?:\w+\s+)*\w+)$')
         address_backup_matcher = re.compile(
@@ -182,3 +180,48 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
             city = city.capitalize()
 
             return Address(house_number=house_number, road=road, city=city)
+
+    @staticmethod
+    def parse(text):
+        """Parses input text in natural language to an address"""
+
+        ROAD_WITH_NUMBER_PATTERN = re.compile('^(?P<house_number>\d+)\s+(?P<road>.*)$')
+        ALPHA_NUM_PATTERN = re.compile('\w')
+
+        text_to_use = text.strip()
+        parts = [part.strip() for part in text_to_use.split(',') if ALPHA_NUM_PATTERN.search(part)]
+
+        if len(parts) < 3:
+            raise ValueError(text_to_use)
+
+        post_code = parts[-1]
+        city = parts[-2]
+        road = parts[-3]
+        house_number = ''
+
+        digit_pattern = re.compile('\d+')
+        # how many of them are plain numbers >= 1 select is as the house number
+        # none => extract all numbers and select last one as household
+        house_number_parts = parts[0: len(parts) - 3]
+
+        if house_number_parts:
+            plain_numbers = [part for part in house_number_parts if part.isdigit()]
+            if plain_numbers:
+                house_number = plain_numbers[-1]
+            else:
+                matcher = ROAD_WITH_NUMBER_PATTERN.match(road)
+                if matcher:
+                    road = matcher.group('road')
+                    house_number = matcher.group('house_number')
+                else:
+                    numbers = list(itertools.chain((digit_pattern.findall(part) for part in house_number_parts)))
+                    if numbers:
+                        house_number = numbers[-1]
+        else:
+            # house number is most probably appended to the road
+            matcher = ROAD_WITH_NUMBER_PATTERN.match(road)
+            if matcher:
+                road = matcher.group('road')
+                house_number = matcher.group('house_number')
+
+        return Address(post_code=post_code, city=city, road=road, house_number=house_number)

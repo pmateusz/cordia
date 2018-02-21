@@ -151,8 +151,9 @@ class FileSystemCache:
                 with open(self.__file_path, 'r') as file_stream:
                     try:
                         pairs = json.load(file_stream)
-                        for raw_address, raw_location in pairs:
-                            candidate[Address(**raw_address)] = Location(**raw_location)
+                        if pairs:
+                            for raw_address, raw_location in pairs:
+                                candidate[Address(**raw_address)] = Location(**raw_location)
                     except (RuntimeError, json.decoder.JSONDecodeError) as ex:
                         logging.error('Failed to load cache due to unknown format: %s', ex)
                         return False
@@ -198,7 +199,8 @@ class RobustLocationFinder:
         location = self.__cache.find(address)
         if not location:
             location = self.__find(address)
-            self.__cache.insert_or_update(address, location)
+            if location:
+                self.__cache.insert_or_update(address, location)
         return location
 
     def __find(self, address):
