@@ -1,5 +1,6 @@
 import logging
 import pathlib
+import collections
 
 import pyodbc
 
@@ -26,6 +27,21 @@ FROM dbo.ListCarerVisits visits
 WHERE visits.PlannedStartDateTime BETWEEN '{0}' AND '{1}'
 GROUP BY visits.PlannedStartDateTime, visits.VisitID
 HAVING COUNT(visits.VisitID) > 1"""
+
+    CARER_FREQUENCY_QUERY = """SELECT user_visit.service_user_id as 'user', carer_visit.PlannedCarerID as 'carer', COUNT(user_visit.visit_id) AS visits_count, MIN(total_visits.total_visits) AS total_visits, ROUND(CONVERT(float, COUNT(user_visit.visit_id)) / MIN(total_visits.total_visits), 4) as care_continuity
+FROM dbo.ListCarerVisits carer_visit
+INNER JOIN (SELECT DISTINCT service_user_id, visit_id 
+			FROM dbo.ListVisitsWithinWindow
+			WHERE aom_code = {0}) user_visit 
+ON carer_visit.VisitID = user_visit.visit_id
+INNER JOIN (SELECT service_user_id as service_user_id, COUNT(visit_id) as total_visits
+			FROM (SELECT DISTINCT service_user_id, visit_id 
+			FROM dbo.ListVisitsWithinWindow
+			WHERE aom_code = {0}) local_visit
+			GROUP BY service_user_id) total_visits
+ON total_visits.service_user_id = user_visit.service_user_id
+GROUP BY user_visit.service_user_id, carer_visit.PlannedCarerID, total_visits.service_user_id
+ORDER BY user_visit.service_user_id, care_continuity DESC"""
 
     def __init__(self, location_finder):
         self.__location_finder = location_finder
@@ -66,14 +82,24 @@ HAVING COUNT(visits.VisitID) > 1"""
                 visits_by_service_user[service_user].append(local_visit)
             else:
                 visits_by_service_user[service_user] = [local_visit]
-                print(address)
                 location = self.__location_finder.find(address)
                 if location is None:
                     logging.error("Failed to find location of the address '%s'", location)
                 location_by_service_user[service_user] = location
                 address_by_service_user[service_user] = address
 
-        return [Problem.LocalVisits(service_user=ServiceUser(key=service_user), visits=visits)
+        preference_by_service_user = collections.defaultdict(dict)
+        for row in self.__get_connection().cursor().execute(
+                SqlDataSource.CARER_FREQUENCY_QUERY.format(area.key)).fetchall():
+            service_user, carer, _carer_visit_count, _total_visit_count, frequency = row
+            preference_by_service_user[service_user][carer] = frequency
+
+        # extract service user preference
+        return [Problem.LocalVisits(service_user=ServiceUser(key=service_user,
+                                                             location=location_by_service_user[service_user],
+                                                             address=address_by_service_user[service_user],
+                                                             carer_preference=preference_by_service_user[service_user]),
+                                    visits=visits)
                 for service_user, visits in visits_by_service_user.items()]
 
     def get_carers(self, area, begin_date, end_date):

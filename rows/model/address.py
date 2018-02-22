@@ -1,14 +1,15 @@
 """Postal address of a certain location"""
-import logging
-import re
-
 import itertools
+import re
 
 import rows.model.object
 
 
 class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instance-attributes
     """Postal address of a certain location"""
+
+    ROAD_WITH_NUMBER_PATTERN = re.compile('^(?P<house_number>\d+)\s+(?P<road>.*)$')
+    ALPHA_NUM_PATTERN = re.compile('\w')
 
     ROAD = 'road'
     HOUSE_NUMBER = 'house_number'
@@ -185,11 +186,8 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
     def parse(text):
         """Parses input text in natural language to an address"""
 
-        ROAD_WITH_NUMBER_PATTERN = re.compile('^(?P<house_number>\d+)\s+(?P<road>.*)$')
-        ALPHA_NUM_PATTERN = re.compile('\w')
-
         text_to_use = text.strip()
-        parts = [part.strip() for part in text_to_use.split(',') if ALPHA_NUM_PATTERN.search(part)]
+        parts = [part.strip() for part in text_to_use.split(',') if Address.ALPHA_NUM_PATTERN.search(part)]
 
         if len(parts) < 3:
             raise ValueError(text_to_use)
@@ -209,7 +207,7 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
             if plain_numbers:
                 house_number = plain_numbers[-1]
             else:
-                matcher = ROAD_WITH_NUMBER_PATTERN.match(road)
+                matcher = Address.ROAD_WITH_NUMBER_PATTERN.match(road)
                 if matcher:
                     road = matcher.group('road')
                     house_number = matcher.group('house_number')
@@ -219,7 +217,7 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
                         house_number = numbers[-1]
         else:
             # house number is most probably appended to the road
-            matcher = ROAD_WITH_NUMBER_PATTERN.match(road)
+            matcher = Address.ROAD_WITH_NUMBER_PATTERN.match(road)
             if matcher:
                 road = matcher.group('road')
                 house_number = matcher.group('house_number')
