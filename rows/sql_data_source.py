@@ -81,7 +81,7 @@ WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
         visits_by_service_user = {}
         for row in self.__get_connection().cursor().execute(
                 SqlDataSource.LIST_VISITS_QUERY.format(begin_date, end_date, area.key)).fetchall():
-            visit_key, service_user, visit_date, visit_time, visit_duration = row
+            visit_key, service_user_id, visit_date, visit_time, visit_duration = row
 
             carer_count = 1
             if visit_key in carer_counts:
@@ -90,15 +90,15 @@ WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
             local_visit = Problem.LocalVisit(key=visit_key,
                                              date=visit_date,
                                              time=visit_time,
-                                             duration=visit_duration,
+                                             duration=str(visit_duration * 60),  # convert minutes to seconds
                                              carer_count=carer_count)
-            if service_user in visits_by_service_user:
-                visits_by_service_user[service_user].append(local_visit)
+            if service_user_id in visits_by_service_user:
+                visits_by_service_user[service_user_id].append(local_visit)
             else:
-                visits_by_service_user[service_user] = [local_visit]
+                visits_by_service_user[service_user_id] = [local_visit]
 
-        return [Problem.LocalVisits(service_user=service_user, visits=visits)
-                for service_user, visits in visits_by_service_user.items()]
+        return [Problem.LocalVisits(service_user=str(service_user_id), visits=visits)
+                for service_user_id, visits in visits_by_service_user.items()]
 
     def get_carers(self, area, begin_date, end_date):
         events_by_carer = collections.defaultdict(list)
@@ -107,11 +107,11 @@ WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
             carer_id, begin_time, end_time = row
             events_by_carer[carer_id].append(AbsoluteEvent(begin=begin_time, end=end_time))
         carer_shifts = []
-        for carer in events_by_carer.keys():
+        for carer_id in events_by_carer.keys():
             diaries = [Diary(date=date, events=list(events), schedule_pattern=None)
                        for date, events
-                       in itertools.groupby(events_by_carer[carer], key=lambda event: event.begin.date())]
-            carer_shift = Problem.CarerShift(carer=Carer(sap_number=carer), diaries=diaries)
+                       in itertools.groupby(events_by_carer[carer_id], key=lambda event: event.begin.date())]
+            carer_shift = Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries)
             carer_shifts.append(carer_shift)
         return carer_shifts
 
@@ -136,11 +136,17 @@ WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
             service_user, carer, _carer_visit_count, _total_visit_count, frequency = row
             preference_by_service_user[service_user][carer] = frequency
 
-        return [ServiceUser(key=service_user,
-                            location=location,
-                            address=address_by_service_user[service_user],
-                            carer_preference=preference_by_service_user[service_user])
-                for service_user, location in location_by_service_user.items()]
+        service_users = []
+        for service_user_id, location in location_by_service_user.items():
+            carer_preference = []
+            for carer_id, preference in preference_by_service_user[service_user_id].items():
+                carer_preference.append((str(carer_id), preference))
+
+            service_users.append(ServiceUser(key=str(service_user_id),
+                                             location=location,
+                                             address=address_by_service_user[service_user_id],
+                                             carer_preference=carer_preference))
+        return service_users
 
     def reload(self):
         self.__get_connection_string()
