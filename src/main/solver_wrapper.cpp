@@ -51,7 +51,9 @@ namespace rows {
 
     const std::string SolverWrapper::CARE_CONTINUITY_DIMENSION{"CareContinuity"};
 
-    SolverWrapper::SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config)
+    SolverWrapper::SolverWrapper(const rows::Problem &problem,
+                                 osrm::EngineConfig &config,
+                                 const operations_research::RoutingSearchParameters &search_parameters)
             : SolverWrapper(problem, [](const rows::Problem &problem) -> std::vector<Location> {
         std::unordered_set<Location> locations;
         for (const auto &visit : problem.visits()) {
@@ -62,17 +64,18 @@ namespace rows {
         }
 
         return {std::cbegin(locations), std::cend(locations)};
-    }(problem), config) {}
+    }(problem), config, search_parameters) {}
 
     SolverWrapper::SolverWrapper(const rows::Problem &problem,
                                  const std::vector<rows::Location> &locations,
-                                 osrm::EngineConfig &config)
+                                 osrm::EngineConfig &config,
+                                 const operations_research::RoutingSearchParameters &search_parameters)
             : problem_(problem),
               depot_(Location::GetCentralLocation(std::cbegin(locations), std::cend(locations))),
               depot_service_user_(),
               visit_time_window_(boost::posix_time::minutes(30)),
               location_container_(std::cbegin(locations), std::cend(locations), config),
-              parameters_(CreateSearchParameters()),
+              parameters_(search_parameters),
               visit_index_(),
               visit_by_node_(),
               service_users_(),
@@ -300,11 +303,9 @@ namespace rows {
                 label);
     }
 
-    operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() const {
+    operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-//        parameters.set_solution_limit(256);
-        parameters.set_time_limit_ms(boost::posix_time::hours(3).total_milliseconds());
 
         static const auto USE_ADVANCED_SEARCH = true;
         static const auto USE_LIGHT_PROPAGATION = false; // breaks contractual breaks
@@ -402,18 +403,24 @@ namespace rows {
 
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto &carer = Carer(vehicle);
-            const auto &diary = problem_.diary(carer, schedule_day);
+            const auto &diary_opt = problem_.diary(carer, schedule_day);
 
-            time_dimension->CumulVar(model.Start(vehicle))
-                    ->SetRange(diary.get().begin_time().total_seconds(), diary.get().end_time().total_seconds());
+            int begin_time = 0;
+            int end_time = 0;
+            if (diary_opt.is_initialized()) {
+                const auto &diary = diary_opt.get();
 
-            time_dimension->CumulVar(model.End(vehicle))
-                    ->SetRange(diary.get().begin_time().total_seconds(), diary.get().end_time().total_seconds());
+                begin_time = diary.begin_time().total_seconds();
+                end_time = diary.end_time().total_seconds();
 
-            const auto breaks = CreateBreakIntervals(model.solver(), carer, diary.get());
-            auto solver_ptr = model.solver();
-            solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+                auto solver_ptr = model.solver();
+                const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
+                solver_ptr->AddConstraint(
+                        solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+            }
+
+            time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
+            time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
         }
 
         LOG(INFO) << boost::format("Total multiple carer visits: %1%\n"

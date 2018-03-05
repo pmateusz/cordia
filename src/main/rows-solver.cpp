@@ -46,20 +46,26 @@
 
 static const int STATUS_OK = 1;
 
-DEFINE_string(problem_file,
-              "../problem.json", "a file path to the problem instance");
-DEFINE_validator(problem_file, &util::ValidateFilePath
-);
+DEFINE_string(problem, "../problem.json", "a file path to the problem instance");
+DEFINE_validator(problem, &util::file::Exists);
 
-DEFINE_string(solution_file,
-              "", "a file path to the solution file");
-DEFINE_validator(solution_file, &util::TryValidateFilePath
-);
+DEFINE_string(solution, "", "a file path to the solution file for warm start");
+DEFINE_validator(solution, &util::file::IsNullOrExists);
 
-DEFINE_string(map_file,
-              "../data/scotland-latest.osrm", "a file path to the map");
-DEFINE_validator(map_file, &util::ValidateFilePath
-);
+DEFINE_string(map, "../data/scotland-latest.osrm", "a file path to the map");
+DEFINE_validator(map, &util::file::Exists);
+
+DEFINE_string(output, "solution.gexf", "a file path to save the solution");
+DEFINE_validator(output, &util::file::IsNullOrNotExists);
+
+DEFINE_string(time_limit, "", "total time dedicated for computation");
+DEFINE_validator(time_limit, &util::date_time::IsNullOrPositive);
+
+static const auto DEFAULT_SOLUTION_LIMIT = std::numeric_limits<int64>::max();
+DEFINE_int64(solution_limit,
+             DEFAULT_SOLUTION_LIMIT,
+             "total number of solutions considered in the computation");
+DEFINE_validator(solution_limit, &util::numeric::IsPositive);
 
 std::string GetModelStatus(int status) {
     switch (status) {
@@ -77,7 +83,7 @@ std::string GetModelStatus(int status) {
 }
 
 rows::Problem LoadReducedProblem(const std::string &problem_path) {
-    boost::filesystem::path problem_file(boost::filesystem::canonical(FLAGS_problem_file));
+    boost::filesystem::path problem_file(boost::filesystem::canonical(FLAGS_problem));
     std::ifstream problem_stream;
     problem_stream.open(problem_file.c_str());
     if (!problem_stream.is_open()) {
@@ -100,13 +106,13 @@ rows::Problem LoadReducedProblem(const std::string &problem_path) {
         problem = json_loader.Load(problem_json);
     } catch (const std::domain_error &ex) {
         throw util::ApplicationError(
-                (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % problem_file % ex.what()).str(),
+                (boost::format("Failed to parse the file %1% due to error: '%2%'") % problem_file % ex.what()).str(),
                 util::ErrorCode::ERROR);
     }
 
     const auto timespan_pair = problem.Timespan();
     if (timespan_pair.first.date() < timespan_pair.second.date()) {
-        LOG(WARNING) << boost::format("Problem '%1%' contains records from several days. " \
+        LOG(WARNING) << boost::format("Problem %1% contains records from several days. " \
                                               "The computed solution will be reduced to a single day: '%2%'")
                         % problem_file
                         % timespan_pair.first.date();
@@ -118,7 +124,7 @@ rows::Problem LoadReducedProblem(const std::string &problem_path) {
 }
 
 rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem) {
-    boost::filesystem::path solution_file(boost::filesystem::canonical(FLAGS_solution_file));
+    boost::filesystem::path solution_file(boost::filesystem::canonical(FLAGS_solution));
     std::ifstream solution_stream;
     solution_stream.open(solution_file.c_str());
     if (!solution_stream.is_open()) {
@@ -162,34 +168,56 @@ osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
 
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
-
     gflags::SetVersionString("0.0.1");
     gflags::SetUsageMessage("Robust Optimization for Workforce Scheduling\n"
                                     "Example: rows-main"
-                                    " --problem_file=problem.json"
-                                    " --map_file=./data/scotland-latest.osrm"
-                                    " --solution_file=past_solution.json");
+                                    " --problem=problem.json"
+                                    " --map=./data/scotland-latest.osrm"
+                                    " --solution=past_solution.json"
+                                    " --output=solution.gexf"
+                                    " --time-limit=00:30:00"
+                                    " --solution-limit=1024");
+
+    FLAGS_output = util::file::GenerateNewFilePath("solution.gexf");
+
     static const bool REMOVE_FLAGS = false;
     gflags::ParseCommandLineFlags(&argc, &argv, REMOVE_FLAGS);
 
-    VLOG(1) << boost::format("Launched with the arguments:\nproblem_file: %1%\nsolution_file: %2%\nmap_file: %3%")
-               % FLAGS_problem_file
-               % FLAGS_solution_file
-               % FLAGS_map_file;
+    VLOG(1) << boost::format("Launched with the arguments:\n"
+                                     "problem: %1%\n"
+                                     "solution: %2%\n"
+                                     "map: %3%\n"
+                                     "output: %4%")
+               % FLAGS_problem
+               % FLAGS_solution
+               % FLAGS_map
+               % FLAGS_output;
 
     try {
+        auto problem_to_use = LoadReducedProblem(FLAGS_problem);
+
         boost::optional<rows::Solution> solution;
-
-        auto problem_to_use = LoadReducedProblem(FLAGS_problem_file);
-
-        if (!FLAGS_solution_file.empty()) {
-            solution = LoadSolution(FLAGS_solution_file, problem_to_use);
+        if (!FLAGS_solution.empty()) {
+            solution = LoadSolution(FLAGS_solution, problem_to_use);
             solution.get().UpdateVisitLocations(problem_to_use.visits());
             problem_to_use.RemoveCancelled(solution.get().visits());
         }
 
-        auto engine_config = CreateEngineConfig(FLAGS_map_file);
-        rows::SolverWrapper wrapper(problem_to_use, engine_config);
+        auto engine_config = CreateEngineConfig(FLAGS_map);
+
+        auto search_parameters = rows::SolverWrapper::CreateSearchParameters();
+
+        if (FLAGS_solution_limit != DEFAULT_SOLUTION_LIMIT) {
+            search_parameters.set_solution_limit(FLAGS_solution_limit);
+        }
+
+        if (!FLAGS_time_limit.empty()) {
+            const auto duration_limit = boost::posix_time::duration_from_string(FLAGS_time_limit);
+            search_parameters.set_time_limit_ms(duration_limit.total_milliseconds());
+        }
+
+
+        rows::SolverWrapper wrapper(problem_to_use, engine_config, search_parameters);
 
         operations_research::RoutingModel model{wrapper.nodes(),
                                                 wrapper.vehicles(),
@@ -242,7 +270,7 @@ int main(int argc, char **argv) {
         DCHECK(is_solution_correct);
 
         rows::GexfWriter solution_writer;
-        solution_writer.Write("../solution.gexf", wrapper, model, *assignment);
+        solution_writer.Write(FLAGS_output, wrapper, model, *assignment);
 
         wrapper.DisplayPlan(model, *assignment);
 

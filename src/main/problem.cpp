@@ -74,10 +74,15 @@ namespace rows {
 
         std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > carers_to_use;
         for (const auto &carer_diaries : carers_) {
+            std::vector<rows::Diary> diaries_to_use;
             for (const auto &diary : carer_diaries.second) {
-                if (begin.date() <= diary.date() && diary.date() <= end.date()) {
-                    carers_to_use.emplace_back(carer_diaries.first, std::vector<rows::Diary>{diary});
+                if (begin.date() <= diary.date() && diary.date() < end.date()) {
+                    diaries_to_use.emplace_back(diary);
                 }
+            }
+
+            if (!diaries_to_use.empty()) {
+                carers_to_use.emplace_back(carer_diaries.first, diaries_to_use);
             }
         }
 

@@ -78,7 +78,17 @@ namespace rows {
         static const int64 CARE_CONTINUITY_MAX;
         static const std::string CARE_CONTINUITY_DIMENSION;
 
-        explicit SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config);
+
+        static operations_research::RoutingSearchParameters CreateSearchParameters();
+
+        SolverWrapper(const rows::Problem &problem,
+                      osrm::EngineConfig &config,
+                      const operations_research::RoutingSearchParameters &search_parameters);
+
+        SolverWrapper(const rows::Problem &problem,
+                      const std::vector<rows::Location> &locations,
+                      osrm::EngineConfig &config,
+                      const operations_research::RoutingSearchParameters &search_parameters);
 
         void ConfigureModel(operations_research::RoutingModel &model);
 
@@ -161,18 +171,12 @@ namespace rows {
             bool operator()(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const noexcept;
         };
 
-        operations_research::RoutingSearchParameters CreateSearchParameters() const;
-
         operations_research::IntervalVar *CreateBreakWithTimeWindows(operations_research::Solver *solver,
                                                                      const boost::posix_time::time_duration &start_time,
                                                                      const boost::posix_time::time_duration &duration,
                                                                      const std::string &label) const;
 
         static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
-
-        SolverWrapper(const rows::Problem &problem,
-                      const std::vector<rows::Location> &locations,
-                      osrm::EngineConfig &config);
 
         const rows::Problem &problem_;
         const Location depot_;
