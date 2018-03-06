@@ -1,6 +1,7 @@
 #ifndef ROWS_SOLVER_WRAPPER_H
 #define ROWS_SOLVER_WRAPPER_H
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -78,7 +79,6 @@ namespace rows {
         static const int64 CARE_CONTINUITY_MAX;
         static const std::string CARE_CONTINUITY_DIMENSION;
 
-
         static operations_research::RoutingSearchParameters CreateSearchParameters();
 
         SolverWrapper(const rows::Problem &problem,
@@ -90,7 +90,7 @@ namespace rows {
                       osrm::EngineConfig &config,
                       const operations_research::RoutingSearchParameters &search_parameters);
 
-        void ConfigureModel(operations_research::RoutingModel &model);
+        void ConfigureModel(operations_research::RoutingModel &model, const std::atomic<bool> &cancel_token);
 
         Statistics CalculateStats(const operations_research::RoutingModel &model,
                                   const operations_research::Assignment &solution);
@@ -124,7 +124,6 @@ namespace rows {
         void DisplayPlan(const operations_research::RoutingModel &routing, const operations_research::Assignment &plan);
 
         Solution ResolveValidationErrors(const rows::Solution &solution,
-                                         const rows::Problem &problem,
                                          const operations_research::RoutingModel &model);
 
         std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
@@ -178,7 +177,7 @@ namespace rows {
 
         static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
 
-        const rows::Problem &problem_;
+        const rows::Problem problem_;
         const Location depot_;
         const LocalServiceUser depot_service_user_;
         boost::posix_time::time_duration visit_time_window_;

@@ -21,10 +21,11 @@ static std::string HumanReadableSize(long bytes) {
 namespace rows {
 
     SearchMonitor::SearchMonitor(operations_research::Solver *const solver,
-                                 operations_research::RoutingModel *const model)
+                                 operations_research::RoutingModel *const model,
+                                 const std::atomic<bool> &cancel_token)
             : operations_research::SearchMonitor(solver),
-              model_{model} {
-    }
+              model_{model},
+              cancel_token_{cancel_token} {}
 
     bool SearchMonitor::AtSolution() {
         const auto wall_time = WallTime();
@@ -69,5 +70,28 @@ namespace rows {
 
     boost::posix_time::time_duration SearchMonitor::WallTime() const {
         return boost::posix_time::milliseconds(static_cast<int64_t>(solver()->wall_time()));
+    }
+
+    void SearchMonitor::BeginNextDecision(operations_research::DecisionBuilder *const b) {
+        PeriodicCheck();
+        TopPeriodicCheck();
+    }
+
+    void SearchMonitor::RefuteDecision(operations_research::Decision *const d) {
+        PeriodicCheck();
+        TopPeriodicCheck();
+    }
+
+    void SearchMonitor::PeriodicCheck() {
+        if (crossed_ || cancel_token_) {
+            crossed_ = true;
+            solver()->Fail();
+        }
+    }
+
+    void SearchMonitor::TopPeriodicCheck() {
+        if (solver()->SolveDepth() > 0) {
+            solver()->TopPeriodicCheck();
+        }
     }
 }

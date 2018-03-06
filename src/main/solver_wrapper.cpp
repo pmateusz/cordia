@@ -316,7 +316,8 @@ namespace rows {
         return parameters;
     }
 
-    void SolverWrapper::ConfigureModel(operations_research::RoutingModel &model) {
+    void SolverWrapper::ConfigureModel(operations_research::RoutingModel &model,
+                                       const std::atomic<bool> &cancel_token) {
         static const auto START_FROM_ZERO_TIME = false;
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
 
@@ -515,7 +516,7 @@ namespace rows {
                    % std::chrono::duration_cast<std::chrono::seconds>(end_time_model_closing
                                                                       - start_time_model_closing).count();
 
-        model.AddSearchMonitor(solver_ptr->RevAlloc(new SearchMonitor(solver_ptr, &model)));
+        model.AddSearchMonitor(solver_ptr->RevAlloc(new SearchMonitor(solver_ptr, &model, cancel_token)));
     }
 
     const operations_research::RoutingSearchParameters &SolverWrapper::parameters() const {
@@ -563,7 +564,6 @@ namespace rows {
     }
 
     rows::Solution SolverWrapper::ResolveValidationErrors(const rows::Solution &solution,
-                                                          const rows::Problem &problem,
                                                           const operations_research::RoutingModel &model) {
         static const rows::SimpleRouteValidatorWithTimeWindows validator{};
 
@@ -579,7 +579,7 @@ namespace rows {
                 routes.push_back(solution_to_use.GetRoute(carer));
             }
 
-            validation_errors = validator.ValidateAll(routes, problem, *this);
+            validation_errors = validator.ValidateAll(routes, problem_, *this);
             if (VLOG_IS_ON(2)) {
                 for (const auto &error_ptr : validation_errors) {
                     VLOG(2) << *error_ptr;
