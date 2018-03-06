@@ -67,6 +67,37 @@ DEFINE_int64(solution_limit,
              "total number of solutions considered in the computation");
 DEFINE_validator(solution_limit, &util::numeric::IsPositive);
 
+void ParseArgs(int argc, char **argv) {
+    gflags::SetVersionString("0.0.1");
+    gflags::SetUsageMessage("Robust Optimization for Workforce Scheduling\n"
+                                    "Example: rows-main"
+                                    " --problem=problem.json"
+                                    " --map=./data/scotland-latest.osrm"
+                                    " --solution=past_solution.json"
+                                    " --output=solution.gexf"
+                                    " --time-limit=00:30:00"
+                                    " --solution-limit=1024");
+
+    FLAGS_output = util::file::GenerateNewFilePath("solution.gexf");
+
+    static const auto REMOVE_FLAGS = false;
+    gflags::ParseCommandLineFlags(&argc, &argv, REMOVE_FLAGS);
+
+    VLOG(1) << boost::format("Launched with the arguments:\n"
+                                     "problem: %1%\n"
+                                     "map: %2%\n"
+                                     "solution: %3%\n"
+                                     "output: %4%\n"
+                                     "time-limit: %5%\n"
+                                     "solution-limit: %6%")
+               % FLAGS_problem
+               % FLAGS_map
+               % FLAGS_solution
+               % FLAGS_output
+               % FLAGS_time_limit
+               % FLAGS_solution_limit;
+}
+
 std::string GetModelStatus(int status) {
     switch (status) {
         case operations_research::RoutingModel::Status::ROUTING_FAIL:
@@ -166,32 +197,10 @@ osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
     return config;
 }
 
+// TODO: support termination of calculations
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
-    gflags::SetVersionString("0.0.1");
-    gflags::SetUsageMessage("Robust Optimization for Workforce Scheduling\n"
-                                    "Example: rows-main"
-                                    " --problem=problem.json"
-                                    " --map=./data/scotland-latest.osrm"
-                                    " --solution=past_solution.json"
-                                    " --output=solution.gexf"
-                                    " --time-limit=00:30:00"
-                                    " --solution-limit=1024");
-
-    FLAGS_output = util::file::GenerateNewFilePath("solution.gexf");
-
-    static const bool REMOVE_FLAGS = false;
-    gflags::ParseCommandLineFlags(&argc, &argv, REMOVE_FLAGS);
-
-    VLOG(1) << boost::format("Launched with the arguments:\n"
-                                     "problem: %1%\n"
-                                     "solution: %2%\n"
-                                     "map: %3%\n"
-                                     "output: %4%")
-               % FLAGS_problem
-               % FLAGS_solution
-               % FLAGS_map
-               % FLAGS_output;
+    ParseArgs(argc, argv);
 
     try {
         auto problem_to_use = LoadReducedProblem(FLAGS_problem);

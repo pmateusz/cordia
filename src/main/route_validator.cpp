@@ -979,7 +979,7 @@ namespace rows {
         ValidationSession session{route, solver};
         session.Initialize(NO_OVERRIDE_ARRIVAL);
 
-        if (session.error()) {
+        if (session.error() || visits.empty()) {
             return session.ToValidationResult();
         }
 
@@ -990,7 +990,6 @@ namespace rows {
         std::vector<boost::posix_time::time_period> idle_periods;
 
         const auto &time_dim = model.GetDimensionOrDie(SolverWrapper::TIME_DIMENSION);
-
         auto last_node = solver.DEPOT;
         ptime last_time = ptime(date, seconds(0));
         for (auto node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {

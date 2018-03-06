@@ -38,6 +38,7 @@
 #include "solution.h"
 #include "solver_wrapper.h"
 #include "break_constraint.h"
+#include "search_monitor.h"
 
 namespace rows {
 
@@ -401,6 +402,7 @@ namespace rows {
             }
         }
 
+        auto solver_ptr = model.solver();
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto &carer = Carer(vehicle);
             const auto &diary_opt = problem_.diary(carer, schedule_day);
@@ -413,7 +415,6 @@ namespace rows {
                 begin_time = diary.begin_time().total_seconds();
                 end_time = diary.end_time().total_seconds();
 
-                auto solver_ptr = model.solver();
                 const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
                 solver_ptr->AddConstraint(
                         solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
@@ -513,6 +514,8 @@ namespace rows {
         VLOG(1) << boost::format("Definition of the routing model finalized in %1% seconds")
                    % std::chrono::duration_cast<std::chrono::seconds>(end_time_model_closing
                                                                       - start_time_model_closing).count();
+
+        model.AddSearchMonitor(solver_ptr->RevAlloc(new SearchMonitor(solver_ptr, &model)));
     }
 
     const operations_research::RoutingSearchParameters &SolverWrapper::parameters() const {
