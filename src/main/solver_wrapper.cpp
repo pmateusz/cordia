@@ -317,14 +317,13 @@ namespace rows {
     }
 
     void SolverWrapper::ConfigureModel(operations_research::RoutingModel &model,
+                                       const std::shared_ptr<Printer> &printer,
                                        const std::atomic<bool> &cancel_token) {
         static const auto START_FROM_ZERO_TIME = false;
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
-
-        VLOG(1) << "Time window width: " << visit_time_window_;
-
+        
+        printer->operator<<("Loading the model");
         model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
-
         model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
                            SECONDS_IN_DAY,
                            SECONDS_IN_DAY,
@@ -348,8 +347,6 @@ namespace rows {
             }
         }
 
-        auto total_multiple_carer_visits = 0;
-
         operations_research::Solver *const solver = model.solver();
         time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DAY);
 
@@ -358,6 +355,7 @@ namespace rows {
 
         // visit that needs multiple carers is referenced by multiple nodes
         // all such nodes must be either performed or unperformed
+        auto total_multiple_carer_visits = 0;
         for (const auto &visit_index_pair : visit_index_) {
             const auto visit_start = visit_index_pair.first.datetime().time_of_day();
 
@@ -425,10 +423,10 @@ namespace rows {
             time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
         }
 
-        LOG(INFO) << boost::format("Total multiple carer visits: %1%\n"
-                                           "Total covered visits: %2%")
-                     % total_multiple_carer_visits
-                     % covered_nodes.size();
+        printer->operator<<(ProblemDefinition(model.vehicles(),
+                                              model.nodes() - 1,
+                                              visit_time_window_,
+                                              0));
 
         for (const auto &carer_pair :problem_.carers()) {
             care_continuity_metrics_.emplace_back(*this, carer_pair.first);
@@ -516,7 +514,7 @@ namespace rows {
                    % std::chrono::duration_cast<std::chrono::seconds>(end_time_model_closing
                                                                       - start_time_model_closing).count();
 
-        model.AddSearchMonitor(solver_ptr->RevAlloc(new SearchMonitor(solver_ptr, &model, cancel_token)));
+        model.AddSearchMonitor(solver_ptr->RevAlloc(new SearchMonitor(solver_ptr, &model, printer, cancel_token)));
     }
 
     const operations_research::RoutingSearchParameters &SolverWrapper::parameters() const {

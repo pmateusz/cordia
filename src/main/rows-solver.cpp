@@ -8,7 +8,6 @@
 #include <future>
 #include <iostream>
 #include <regex>
-#include <locale>
 
 #include <boost/exception/diagnostic_information.hpp>
 #include <boost/date_time.hpp>
@@ -45,6 +44,7 @@
 #include "calendar_visit.h"
 #include "solution.h"
 #include "problem.h"
+#include "printer.h"
 #include "solver_wrapper.h"
 #include "gexf_writer.h"
 
@@ -106,8 +106,9 @@ void ParseArgs(int argc, char **argv) {
 
 class SchedulingWorker {
 public:
-    SchedulingWorker()
-            : initial_assignment_{nullptr},
+    SchedulingWorker(std::shared_ptr<rows::Printer> printer)
+            : printer_{std::move(printer)},
+              initial_assignment_{nullptr},
               return_code_{NOT_STARTED},
               cancel_token_{false},
               worker_{} {}
@@ -160,9 +161,8 @@ public:
 //        model.solver()->parameters().set_print_model_stats(true);
 //        model.solver()->parameters().disable_solve();
 
-            wrapper_->ConfigureModel(*model_, cancel_token_);
-
-            LOG(INFO) << GetModelStatus(model_->status());
+            wrapper_->ConfigureModel(*model_, printer_, cancel_token_);
+            VLOG(1) << "Completed routing model configuration with status: " << GetModelStatus(model_->status());
             if (solution) {
                 VLOG(1) << "Starting with a solution.";
                 VLOG(1) << solution.get().DebugStatus(*wrapper_, *model_);
@@ -199,7 +199,7 @@ public:
     }
 
     void Cancel() {
-        LOG(INFO) << "Cancellation requested";
+        VLOG(1) << "Cancellation requested";
         cancel_token_ = true;
     }
 
@@ -254,10 +254,10 @@ private:
 
         const auto timespan_pair = problem.Timespan();
         if (timespan_pair.first.date() < timespan_pair.second.date()) {
-            LOG(WARNING) << boost::format("Problem %1% contains records from several days. " \
-                                              "The computed solution will be reduced to a single day: '%2%'")
-                            % problem_file
-                            % timespan_pair.first.date();
+            printer_->operator<<(
+                    (boost::format("Problem contains records from several days."
+                                           " The computed solution will be reduced to a single day: '%1%'")
+                     % timespan_pair.first.date()).str());
         }
 
         const auto problem_to_use = problem.Trim(timespan_pair.first, boost::posix_time::hours(24));
@@ -311,19 +311,19 @@ private:
 
     void SolveScheduling(const std::string &output_file) {
         try {
-            // thread should start here
             if (initial_assignment_ == nullptr) {
-                VLOG(1) << "Starting without solution.";
+                VLOG(1) << "Search started without a solution";
             } else {
-                VLOG(1) << "Starting without solution.";
+                VLOG(1) << "Search started with a solution";
             }
+
             operations_research::Assignment const *assignment = model_->SolveFromAssignmentWithParameters(
                     initial_assignment_, wrapper_->parameters());
 
-            // model, wrapper, output file
-            VLOG(1) << model_->solver()->LocalSearchProfile();
-            VLOG(1) << model_->solver()->DebugString();
-            VLOG(1) << GetModelStatus(model_->status());
+            VLOG(1) << "Search completed"
+                    << "\nLocal search profile: " << model_->solver()->LocalSearchProfile()
+                    << "\nDebug string: " << model_->solver()->DebugString()
+                    << "\nModel status: " << GetModelStatus(model_->status());
 
             if (assignment == nullptr) {
                 throw util::ApplicationError("No solution found.", util::ErrorCode::ERROR);
@@ -340,8 +340,16 @@ private:
         } catch (util::ApplicationError &ex) {
             LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();
             return_code_ = util::to_exit_code(ex.error_code());
+        } catch (const std::exception &ex) {
+            LOG(ERROR) << ex.what() << std::endl;
+            return_code_ = 2;
+        } catch (...) {
+            LOG(ERROR) << "Unhandled exception";
+            return_code_ = 3;
         }
     }
+
+    std::shared_ptr<rows::Printer> printer_;
 
     std::unique_ptr<operations_research::RoutingModel> model_;
     operations_research::Assignment *initial_assignment_;
@@ -367,12 +375,11 @@ void ChatBot(SchedulingWorker &worker) {
 
     std::string line;
     while (true) {
-        std::cout << "prompt: ";
         std::getline(std::cin, line);
         auto command = std::regex_replace(line, non_printable_character_pattern, "");
         ToLower(command);
 
-        if (!command.empty() && command[0] == 's') {
+        if (!command.empty() && command == "stop") {
             worker.Cancel();
             break;
         }
@@ -381,14 +388,14 @@ void ChatBot(SchedulingWorker &worker) {
     }
 }
 
-// TODO: review and minimize information printed to the console
 // TODO: develop console loggers for progress and information
-
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
 
-    SchedulingWorker worker;
+    std::shared_ptr<rows::ConsolePrinter> printer = std::make_shared<rows::ConsolePrinter>();
+
+    SchedulingWorker worker{printer};
     if (worker.Init(FLAGS_problem,
                     FLAGS_map,
                     FLAGS_solution,

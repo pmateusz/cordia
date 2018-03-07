@@ -320,7 +320,6 @@ namespace rows {
             }
         }
 
-        LOG(INFO) << "Valid multiple carer visits";
         std::unordered_set<rows::Carer> processed_visits;
         for (const auto &visit_bundle : visit_index) {
             if (visit_bundle.second.size() <= 1) {

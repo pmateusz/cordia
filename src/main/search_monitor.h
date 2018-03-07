@@ -2,9 +2,12 @@
 #define ROWS_SEARCH_MONITOR_H
 
 #include <atomic>
+#include <memory>
 
 #include <ortools/constraint_solver/constraint_solver.h>
 #include <ortools/constraint_solver/routing.h>
+
+#include <printer.h>
 
 namespace rows {
 
@@ -12,13 +15,12 @@ namespace rows {
     public:
         SearchMonitor(operations_research::Solver *const solver,
                       operations_research::RoutingModel *const model,
+                      const std::shared_ptr<rows::Printer> &printer,
                       const std::atomic<bool> &cancel_token);
-
-        void EnterSearch() override;
 
         bool AtSolution() override;
 
-        ~SearchMonitor() override = default;
+        ~SearchMonitor() override;
 
         void BeginNextDecision(operations_research::DecisionBuilder *const builder) override;
 
@@ -33,7 +35,9 @@ namespace rows {
 
         boost::posix_time::time_duration WallTime() const;
 
-        int DroppedVisits() const;
+        std::size_t DroppedVisits() const;
+
+        std::shared_ptr<rows::Printer> printer_;
 
         operations_research::RoutingModel *const model_;
         const std::atomic<bool> &cancel_token_;

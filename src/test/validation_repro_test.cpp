@@ -111,12 +111,15 @@ TEST(RouteValidation, CanValidateRoute) {
     problem.RemoveCancelled(solution.visits());
 
     auto engine_config = CreateEngineConfig(maps_path);
-    rows::SolverWrapper wrapper(problem, engine_config);
+    rows::SolverWrapper wrapper(problem, engine_config, rows::SolverWrapper::CreateSearchParameters());
 
     operations_research::RoutingModel model{wrapper.nodes(),
                                             wrapper.vehicles(),
                                             rows::SolverWrapper::DEPOT};
-    wrapper.ConfigureModel(model);
+
+    std::atomic<bool> cancel_token{false};
+    std::shared_ptr<rows::Printer> console_printer = std::make_shared<rows::ConsolePrinter>();
+    wrapper.ConfigureModel(model, console_printer, cancel_token);
 
     const auto route = solution.GetRoute(wrapper.Carer(0));
 

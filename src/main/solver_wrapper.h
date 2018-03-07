@@ -24,6 +24,7 @@
 #include "problem.h"
 #include "route_validator.h"
 #include "service_user.h"
+#include "printer.h"
 
 namespace rows {
 
@@ -90,7 +91,9 @@ namespace rows {
                       osrm::EngineConfig &config,
                       const operations_research::RoutingSearchParameters &search_parameters);
 
-        void ConfigureModel(operations_research::RoutingModel &model, const std::atomic<bool> &cancel_token);
+        void ConfigureModel(operations_research::RoutingModel &model,
+                            const std::shared_ptr<Printer> &printer,
+                            const std::atomic<bool> &cancel_token);
 
         Statistics CalculateStats(const operations_research::RoutingModel &model,
                                   const operations_research::Assignment &solution);
