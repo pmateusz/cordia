@@ -61,6 +61,19 @@ DEFINE_validator(solution, &util::file::IsNullOrExists);
 DEFINE_string(map, "../data/scotland-latest.osrm", "a file path to the map");
 DEFINE_validator(map, &util::file::Exists);
 
+static const std::string JSON_FORMAT{"json"};
+static const std::string TEXT_FORMAT{"txt"};
+
+bool ValidateConsoleFormat(const char *flagname, const std::string &value) {
+    std::string value_to_use{value};
+    util::string::Strip(value_to_use);
+    util::string::ToLower(value_to_use);
+    return value_to_use == JSON_FORMAT || value_to_use == TEXT_FORMAT;
+}
+
+DEFINE_string(console_format, "txt", "output format. Available options: txt or json");
+DEFINE_validator(console_format, &ValidateConsoleFormat);
+
 DEFINE_string(output, "solution.gexf", "a file path to save the solution");
 DEFINE_validator(output, &util::file::IsNullOrNotExists);
 
@@ -361,25 +374,16 @@ private:
     std::thread worker_;
 };
 
-void ToLower(std::string input) {
-    static const std::locale CURRENT_LOCALE("");
-
-    std::transform(std::begin(input), std::end(input), std::begin(input),
-                   [](auto character) {
-                       return std::tolower(character, CURRENT_LOCALE);
-                   });
-}
-
 void ChatBot(SchedulingWorker &worker) {
     std::regex non_printable_character_pattern{"[\\W]"};
 
     std::string line;
     while (true) {
         std::getline(std::cin, line);
-        auto command = std::regex_replace(line, non_printable_character_pattern, "");
-        ToLower(command);
+        util::string::Strip(line);
+        util::string::ToLower(line);
 
-        if (!command.empty() && command == "stop") {
+        if (!line.empty() && line == "stop") {
             worker.Cancel();
             break;
         }
@@ -388,12 +392,26 @@ void ChatBot(SchedulingWorker &worker) {
     }
 }
 
-// TODO: develop console loggers for progress and information
+std::shared_ptr<rows::Printer> CreatePrinter() {
+    auto format_to_use = FLAGS_console_format;
+    util::string::Strip(format_to_use);
+    util::string::ToLower(format_to_use);
+    if (format_to_use == JSON_FORMAT) {
+        return std::make_shared<rows::JsonPrinter>();
+    }
+
+    if (format_to_use == TEXT_FORMAT) {
+        return std::make_shared<rows::ConsolePrinter>();
+    }
+
+    throw util::ApplicationError("Unknown console format.", util::ErrorCode::ERROR);
+}
+
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
 
-    std::shared_ptr<rows::ConsolePrinter> printer = std::make_shared<rows::ConsolePrinter>();
+    std::shared_ptr<rows::Printer> printer = CreatePrinter();
 
     SchedulingWorker worker{printer};
     if (worker.Init(FLAGS_problem,

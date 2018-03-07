@@ -18,6 +18,13 @@ namespace util {
         std::string GenerateNewFilePath(const std::string &pattern);
     }
 
+    namespace string {
+
+        void Strip(std::string &text);
+
+        void ToLower(std::string &text);
+    }
+
     namespace numeric {
 
         template<typename Number>

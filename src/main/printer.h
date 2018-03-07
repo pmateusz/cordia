@@ -40,7 +40,7 @@ namespace rows {
     public:
         virtual ~Printer() = default;
 
-        Printer &operator<<(const std::string &text);
+        virtual Printer &operator<<(const std::string &text);
 
         virtual Printer &operator<<(const ProblemDefinition &problem_definition) = 0;
 
@@ -56,12 +56,14 @@ namespace rows {
         Printer &operator<<(const ProgressStep &progress_step) override;
 
     private:
-        bool header_printed_;
+        bool header_printed_{false};
     };
 
     class JsonPrinter : public Printer {
     public:
         ~JsonPrinter() override = default;
+
+        Printer &operator<<(const std::string &text) override;
 
         Printer &operator<<(const ProblemDefinition &problem_definition) override;
 

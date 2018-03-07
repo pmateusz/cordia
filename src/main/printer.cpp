@@ -1,5 +1,7 @@
 #include <iostream>
 
+#include <nlohmann/json.hpp>
+
 #include <boost/format.hpp>
 
 #include "printer.h"
@@ -78,11 +80,44 @@ namespace rows {
         return this->operator<<(progress_step);
     }
 
+    Printer &JsonPrinter::operator<<(const std::string &text) {
+        using nlohmann::json;
+
+        Printer::operator<<(json{
+                {"type",    "message"},
+                {"content", text}}.dump());
+        return *this;
+    }
+
     Printer &JsonPrinter::operator<<(const ProblemDefinition &problem_definition) {
+        using nlohmann::json;
+
+        Printer::operator<<(json{
+                {"type",    "problem_definition"},
+                {"content", {
+                                    {"carers", problem_definition.Carers},
+                                    {"visits", problem_definition.Visits},
+                                    {"time_window", boost::posix_time::to_simple_string(problem_definition.TimeWindow)},
+                                    {"covered_visits", problem_definition.CoveredVisits}
+                            }}
+        }.dump());
         return *this;
     }
 
     Printer &JsonPrinter::operator<<(const ProgressStep &progress_step) {
+        using nlohmann::json;
+
+        Printer::operator<<(json{
+                {"type",    "progress_step"},
+                {"content", {
+                                    {"cost", progress_step.Cost},
+                                    {"dropped_visits", progress_step.DroppedVisits},
+                                    {"solutions", progress_step.Solutions},
+                                    {"branches", progress_step.Branches},
+                                    {"memory_usage", progress_step.MemoryUsage},
+                                    {"wall_time", boost::posix_time::to_simple_string(progress_step.WallTime)}
+                            }}
+        }.dump());
         return *this;
     }
 }
