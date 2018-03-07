@@ -8,10 +8,12 @@ import rows.location_finder
 import rows.csv_data_source
 import rows.sql_data_source
 import rows.pull_command
+import rows.solve_command
 import rows.version
 from rows.util.file_system import real_path
 
 
+# TODO define settings file with location of file system components, database server, database name
 class Application:
     """Execute the main program according to the input arguments"""
 
@@ -24,7 +26,8 @@ class Application:
             real_path('~/dev/cordia/data/cordia/location_cache.json'))
         self.__location_finder = rows.location_finder.RobustLocationFinder(self.__location_cache, timeout=5.0)
         self.__data_source = rows.sql_data_source.SqlDataSource(self.__location_finder)
-        self.__handlers = {rows.parser.Parser.PULL_COMMAND: rows.pull_command.Handler(self)}
+        self.__handlers = {rows.parser.Parser.PULL_COMMAND: rows.pull_command.Handler(self),
+                           rows.parser.Parser.SOLVE_COMMAND: rows.solve_command.Handler(self)}
         self.__output_file_mode = output_file_mode
 
     def load(self):
