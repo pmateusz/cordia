@@ -381,6 +381,9 @@ void ChatBot(SchedulingWorker &worker) {
     }
 }
 
+// TODO: review and minimize information printed to the console
+// TODO: develop console loggers for progress and information
+
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
@@ -391,6 +394,7 @@ int main(int argc, char **argv) {
                     FLAGS_solution,
                     FLAGS_time_limit,
                     FLAGS_solution_limit)) {
+
         worker.Start(FLAGS_output);
         std::thread chat_thread(ChatBot, std::ref(worker));
         chat_thread.detach();

@@ -53,30 +53,31 @@ std::string util::file::GenerateNewFilePath(const std::string &pattern) {
         return file_path.string();
     }
 
-    std::string core_name;
+    std::string stem;
+    auto current_version = 0ul;
     std::string extension = boost::filesystem::extension(file_path);
-    unsigned long current_version;
+    const auto root_dir = file_path.root_directory();
 
     std::cmatch version_match;
     if (std::regex_match(file_path.c_str(), version_match, FILE_BASE_NAME_VERSION_PATTERN)) {
-        core_name = version_match[0];
+        stem = version_match[0];
         current_version = std::stoul(version_match[1]);
     } else {
-        core_name = file_path.filename().string();
+        stem = file_path.stem().string();
         current_version = 0;
     }
 
-    do {
+    while (boost::filesystem::exists(file_path)) {
         ++current_version;
 
-        std::stringstream raw_file_path{core_name};
-        raw_file_path << "_version" << std::to_string(current_version);
+        std::stringstream raw_file_path;
+        raw_file_path << stem << "_version" << std::to_string(current_version);
         if (!extension.empty()) {
-            raw_file_path << '.' << extension;
+            raw_file_path << extension;
         }
 
-        file_path = boost::filesystem::path(raw_file_path.str());
-    } while (boost::filesystem::exists(file_path));
+        file_path = root_dir / raw_file_path.str();
+    }
 
     return file_path.string();
 }
