@@ -58,8 +58,8 @@ DEFINE_validator(problem, &util::file::Exists);
 DEFINE_string(solution, "", "a file path to the solution file for warm start");
 DEFINE_validator(solution, &util::file::IsNullOrExists);
 
-DEFINE_string(map, "../data/scotland-latest.osrm", "a file path to the map");
-DEFINE_validator(map, &util::file::Exists);
+DEFINE_string(maps, "../data/scotland-latest.osrm", "a file path to the map");
+DEFINE_validator(maps, &util::file::Exists);
 
 static const std::string JSON_FORMAT{"json"};
 static const std::string TEXT_FORMAT{"txt"};
@@ -81,10 +81,10 @@ DEFINE_string(time_limit, "", "total time dedicated for computation");
 DEFINE_validator(time_limit, &util::date_time::IsNullOrPositive);
 
 static const auto DEFAULT_SOLUTION_LIMIT = std::numeric_limits<int64>::max();
-DEFINE_int64(solution_limit,
+DEFINE_int64(solutions_limit,
              DEFAULT_SOLUTION_LIMIT,
              "total number of solutions considered in the computation");
-DEFINE_validator(solution_limit, &util::numeric::IsPositive);
+DEFINE_validator(solutions_limit, &util::numeric::IsPositive);
 
 void ParseArgs(int argc, char **argv) {
     gflags::SetVersionString("0.0.1");
@@ -110,11 +110,11 @@ void ParseArgs(int argc, char **argv) {
                                      "time-limit: %5%\n"
                                      "solution-limit: %6%")
                % FLAGS_problem
-               % FLAGS_map
+               % FLAGS_maps
                % FLAGS_solution
                % FLAGS_output
                % (FLAGS_time_limit.empty() ? "no" : FLAGS_time_limit)
-               % FLAGS_solution_limit;
+               % FLAGS_solutions_limit;
 }
 
 class SchedulingWorker {
@@ -415,10 +415,10 @@ int main(int argc, char **argv) {
 
     SchedulingWorker worker{printer};
     if (worker.Init(FLAGS_problem,
-                    FLAGS_map,
+                    FLAGS_maps,
                     FLAGS_solution,
                     FLAGS_time_limit,
-                    FLAGS_solution_limit)) {
+                    FLAGS_solutions_limit)) {
 
         worker.Start(FLAGS_output);
         std::thread chat_thread(ChatBot, std::ref(worker));

@@ -53,6 +53,10 @@ class Parser:
     EXPORT_OUTPUT_ARGUMENT = '--output'
 
     SOLVE_COMMAND = 'solve'
+    SOLVE_PROBLEM_ARG = 'problem'
+    SOLVE_START_ARG = '--start'
+    SOLVE_SOLUTIONS_LIMIT_ARG = '--solutions-limit'
+    SOLVE_TIME_LIMIT_ARG = '--time-limit'
 
     PULL_COMMAND = 'pull'
     PULL_AREA_ARG = 'area'
@@ -127,8 +131,24 @@ class Parser:
                                  type=str,
                                  default='problem.json')
 
-        subparsers.add_parser(name='solve',
-                              help='solve an instance of the scheduling problem')
+        solve_parser = subparsers.add_parser(name='solve',
+                                             help='solve an instance of the scheduling problem')
+
+        solve_parser.add_argument(Parser.SOLVE_PROBLEM_ARG,
+                                  help='the problem to solve',
+                                  type=str)
+        solve_parser.add_argument(Parser.SOLVE_START_ARG,
+                                  help='the initial solution to start from',
+                                  type=str,
+                                  default=None)
+        solve_parser.add_argument(Parser.SOLVE_SOLUTIONS_LIMIT_ARG,
+                                  help='set limit on the total number of valid solutions with decreasing cost',
+                                  type=int,
+                                  default=None)
+        solve_parser.add_argument(Parser.SOLVE_TIME_LIMIT_ARG,
+                                  help='set limit on the wall time',
+                                  type=str,
+                                  default=None)
 
         export_parser = subparsers.add_parser(name=Parser.EXPORT_COMMAND,
                                               help='export a schedule in the CSV format')
