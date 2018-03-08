@@ -32,8 +32,10 @@ if __name__ == '__main__':
         APPLICATION = rows.application.Application()
         APPLICATION.load()
         EXIT_CODE = APPLICATION.run(sys.argv[1:])
-    except RuntimeError:
-        print(sys.exc_info()[0], file=sys.stderr)
+    except RuntimeError as ex:
+        print(ex.args[0], file=sys.stderr)
+
+        logging.error(ex, exc_info=True)
         EXIT_CODE = 1
     finally:
         if APPLICATION:

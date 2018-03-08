@@ -5,33 +5,36 @@ import subprocess
 from rows.util.file_system import real_path
 
 
+# TODO: accept command line arguments and pass them
+# TODO: handle rejected input by the solver
+# TODO: pass request to terminate calculations
+
 class Handler:
     """Implements the solve command"""
 
     def __init__(self, application):
         self.__application = application
         self.__console = application.console
+        self.__settings = application.settings
 
     def __call__(self, command):
-        # ./rows-main --problem=../problem.json --map=../data/scotland-latest.osrm
-        # --solution=../past_solution.json --solution-limit=1024 --time-limit=00:30:00
-        executable = real_path('~/dev/cordia/build/rows-main')
+        # ./rows-main --problem=../problem.json --solution=../past_solution.json --solution-limit=1024 --time-limit=00:30:00
+        solver_path = real_path(self.__settings.solver_path)
+        maps_path = real_path(self.__settings.maps_path)
         problem = real_path('~/dev/cordia/problem.json')
-        map = real_path('~/dev/cordia/data/scotland-latest.osrm')
         with subprocess.Popen(
-                [executable,
+                [solver_path,
                  '--time-limit=00:30:00',
                  '--solution-limit=1024',
                  '--problem=' + problem,
-                 '--map=' + map], stdout=subprocess.PIPE, close_fds=True) as proc:
+                 '--map=' + maps_path], stdout=subprocess.PIPE, close_fds=True) as proc:
             while True:
                 try:
-                    proc.wait(1)
                     line = proc.stdout.readline()
                     if line:
-                        # TODO: use write from console
                         print(line)
-                    break
+                    else:
+                        proc.wait(1)
                 except subprocess.TimeoutExpired:
                     line = proc.stdout.readline()
                     if line:

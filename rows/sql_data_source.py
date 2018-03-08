@@ -6,6 +6,8 @@ import pyodbc
 
 import itertools
 
+from rows.util.file_system import real_path
+
 from rows.model.address import Address
 from rows.model.area import Area
 from rows.model.carer import Carer
@@ -61,7 +63,8 @@ FROM dbo.ListCarerIntervals
 WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
 """
 
-    def __init__(self, location_finder):
+    def __init__(self, settings, location_finder):
+        self.__settings = settings
         self.__location_finder = location_finder
         self.__connection_string = None
         self.__connection = None
@@ -173,7 +176,7 @@ WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
             self.__connection = None
 
     def __load_credentials(self):
-        path = pathlib.Path.home().joinpath(pathlib.PurePath('dev/cordia/.dev'))
+        path = pathlib.Path(real_path(self.__settings.database_credentials_path))
         if path.exists():
             with path.open() as file_stream:
                 return file_stream.read().strip()
@@ -181,10 +184,10 @@ WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
 
     def __build_connection_string(self):
         config = {'Driver': '{ODBC Driver 13 for SQL Server}',
-                  'Server': '192.168.56.1',
-                  'UID': 'dev',
+                  'Server': self.__settings.database_server,
+                  'Database': self.__settings.database_name,
+                  'UID': self.__settings.database_user,
+                  'PWD': self.__load_credentials(),
                   'Encrypt': 'yes',
-                  'Database': 'StrathClyde',
-                  'TrustServerCertificate': 'yes',
-                  'PWD': self.__load_credentials()}
+                  'TrustServerCertificate': 'yes'}
         return ';'.join(['{0}={1}'.format(key, value) for key, value in config.items()])

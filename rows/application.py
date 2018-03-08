@@ -4,13 +4,13 @@
 
 import rows.parser
 import rows.console
+import rows.settings
 import rows.location_finder
 import rows.csv_data_source
 import rows.sql_data_source
 import rows.pull_command
 import rows.solve_command
 import rows.version
-from rows.util.file_system import real_path
 
 
 # TODO define settings file with location of file system components, database server, database name
@@ -22,10 +22,10 @@ class Application:
 
     def __init__(self, output_file_mode='x'):
         self.__console = rows.console.Console()
-        self.__location_cache = rows.location_finder.FileSystemCache(
-            real_path('~/dev/cordia/data/cordia/location_cache.json'))
+        self.__settings = rows.settings.Settings()
+        self.__location_cache = rows.location_finder.FileSystemCache(self.__settings)
         self.__location_finder = rows.location_finder.RobustLocationFinder(self.__location_cache, timeout=5.0)
-        self.__data_source = rows.sql_data_source.SqlDataSource(self.__location_finder)
+        self.__data_source = rows.sql_data_source.SqlDataSource(self.settings, self.__location_finder)
         self.__handlers = {rows.parser.Parser.PULL_COMMAND: rows.pull_command.Handler(self),
                            rows.parser.Parser.SOLVE_COMMAND: rows.solve_command.Handler(self)}
         self.__output_file_mode = output_file_mode
@@ -33,6 +33,7 @@ class Application:
     def load(self):
         """Initialize application components"""
 
+        self.__settings.reload()
         self.__data_source.reload()
         self.__location_cache.reload()
 
@@ -82,3 +83,9 @@ class Application:
         """Returns a property"""
 
         return self.__console
+
+    @property
+    def settings(self):
+        """Returns a property"""
+
+        return self.__settings

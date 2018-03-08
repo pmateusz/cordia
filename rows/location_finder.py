@@ -15,6 +15,7 @@ import rows.model.json
 from rows.model.address import Address
 from rows.model.location import Location
 from rows.model.point_of_interest import PointOfInterest
+from rows.util.file_system import real_path
 
 
 class Result:
@@ -126,8 +127,8 @@ class WebLocationFinder:
 class FileSystemCache:
     """Caches address locations in a file"""
 
-    def __init__(self, file_path):
-        self.__file_path = file_path
+    def __init__(self, settings):
+        self.__settings = settings
         self.__cache = {}
 
     def find(self, address):
@@ -148,7 +149,7 @@ class FileSystemCache:
         try:
             candidate = FileSystemCache.__get_difficult_locations()
             try:
-                with open(self.__file_path, 'r') as file_stream:
+                with open(self.__location_cache_path(), 'r') as file_stream:
                     try:
                         pairs = json.load(file_stream)
                         if pairs:
@@ -158,7 +159,8 @@ class FileSystemCache:
                         logging.error('Failed to load cache due to unknown format: %s', ex)
                         return False
             except FileNotFoundError:
-                logging.info("Cache file '%s' does not exist", self.__file_path)
+                logging.info("Cache file '%s' does not exist",
+                             self.__settings.location_cache_path(resolve_env_vars=False))
             self.__cache = candidate
             return True
         except RuntimeError:
@@ -175,10 +177,14 @@ class FileSystemCache:
         """Saves a copy of cached entries in the file system"""
 
         try:
-            with open(self.__file_path, 'w') as stream:
+            with open(self.__location_cache_path(), 'w') as stream:
                 json.dump(list(self.__cache.items()), stream, indent=2, sort_keys=True, cls=rows.model.json.JSONEncoder)
         except RuntimeError:
             logging.error('Failed to save location cache due to error: %s', sys.exc_info()[0])
+
+    def __location_cache_path(self, resolve_env_vars=True):
+        file_path = self.__settings.location_cache_path
+        return real_path(file_path) if resolve_env_vars else file_path
 
     @staticmethod
     def __get_difficult_locations():
