@@ -149,6 +149,7 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
 
     @staticmethod
     def __parse_from_csv(text):
+        text_to_use = text
         address_default_matcher = re.compile(
             r'^(?P<house_number>\d+?)\s*,\s*(?P<road>(?:\w+\s+)*\w+)\s*,\s*(?P<city>(?:\w+\s+)*\w+)$')
         address_backup_matcher = re.compile(
