@@ -1,15 +1,20 @@
-#include <glog/logging.h>
-
 #include <algorithm>
 #include <unordered_set>
 #include <unordered_map>
 #include <sstream>
+#include <vector>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/date_time.hpp>
+
+#include <glog/logging.h>
 
 #include "solution.h"
 #include "route.h"
 #include "solver_wrapper.h"
+
+rows::Solution::Solution()
+        : Solution(std::vector<rows::ScheduledVisit>()) {}
 
 rows::Solution::Solution(std::vector<rows::ScheduledVisit> visits)
         : visits_(std::move(visits)) {}
@@ -166,4 +171,152 @@ std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver,
     }
 
     return status_stream.str();
+}
+
+std::string Get(const std::unordered_map<std::string, std::string> &properties, const std::string &key) {
+    const auto find_it = properties.find(key);
+    CHECK(find_it != std::cend(properties));
+    return find_it->second;
+}
+
+std::string GetCheckNotEmpty(const std::unordered_map<std::string, std::string> &properties, const std::string &key) {
+    const auto value = Get(properties, key);
+    CHECK(!value.empty());
+    return value;
+}
+
+rows::Solution::XmlLoader::XmlLoader() {
+    LIBXML_TEST_VERSION
+
+    xmlInitParser();
+}
+
+rows::Solution::XmlLoader::~XmlLoader() {
+    xmlCleanupParser();
+}
+
+rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
+#if !defined(LIBXML_XPATH_ENABLED) || !defined(LIBXML_SAX1_ENABLED)
+#error LIBXML library version referenced by this project does not support XPath
+#endif
+
+    std::unique_ptr<xmlDoc, XmlDeleters> document{xmlParseFile(path.c_str())};
+    auto xpath_context = CreateXPathContext(document.get());
+
+    AttributeIndex attributes;
+    attributes.Load(xpath_context.get());
+
+    auto visit_sets = EvalXPath("/local:gexf/local:graph/local:nodes/*", xpath_context.get());
+    if (visit_sets && !xmlXPathNodeSetIsEmpty(visit_sets->nodesetval)) {
+        std::vector<rows::ScheduledVisit> visits;
+        const auto node_set = visit_sets->nodesetval;
+        for (auto item = 0; item < node_set->nodeNr; ++item) {
+            const auto &node = node_set->nodeTab[item];
+            if (node->type != XML_ELEMENT_NODE || !NameEquals(node, "node")) {
+                continue;
+            }
+
+            xmlNodePtr attvalues_collection = nullptr;
+            for (auto child_cursor = node->children; child_cursor; child_cursor = child_cursor->next) {
+                if (child_cursor->type == XML_ELEMENT_NODE && NameEquals(child_cursor, "attvalues")) {
+                    attvalues_collection = child_cursor;
+                    break;
+                }
+            }
+
+            if (!attvalues_collection || GetAttribute(node, "label") == "depot") {
+                continue;
+            }
+
+            std::unordered_map<std::string, std::string> properties;
+            for (auto child_cursor = attvalues_collection->children; child_cursor; child_cursor = child_cursor->next) {
+                if (child_cursor->type == XML_ELEMENT_NODE && NameEquals(child_cursor, "attvalue")) {
+                    properties.emplace(GetAttribute(child_cursor, "for"), GetAttribute(child_cursor, "value"));
+                }
+            }
+
+            const auto type_property_it = properties.find(attributes.Type);
+            if (type_property_it == std::cend(properties) || type_property_it->second != "visit") {
+                continue;
+            }
+
+            boost::optional<rows::Carer> carer = boost::none;
+            const auto carer_find_it = properties.find(attributes.AssignedCarer);
+            if (carer_find_it != std::cend(properties)) {
+                CHECK(!carer_find_it->second.empty());
+                carer = rows::Carer(carer_find_it->second);
+            }
+
+            const auto duration = GetCheckNotEmpty(properties, attributes.Duration);
+            const auto start_time = GetCheckNotEmpty(properties, attributes.StartTime);
+            rows::ScheduledVisit visit(rows::ScheduledVisit::VisitType::OK,
+                                       std::move(carer),
+                                       boost::posix_time::not_a_date_time, // TODO: visits must happen on a specific day
+                                       boost::posix_time::duration_from_string(duration),
+                                       boost::none,
+                                       boost::none,
+                                       boost::none); // TODO: calendar visit must be present
+            visits.push_back(visit);
+        }
+
+        return rows::Solution(visits);
+    }
+
+    return {};
+}
+
+std::unique_ptr<xmlXPathObject, rows::Solution::XmlLoader::XmlDeleters>
+rows::Solution::XmlLoader::EvalXPath(const std::string &expression, xmlXPathContextPtr context) {
+    return std::unique_ptr<xmlXPathObject, rows::Solution::XmlLoader::XmlDeleters>{
+            xmlXPathEvalExpression(reinterpret_cast<xmlChar const *> (expression.c_str()), context)};
+}
+
+std::string rows::Solution::XmlLoader::GetAttribute(xmlNodePtr node, const std::string &name) {
+    std::unique_ptr<xmlChar, XmlDeleters> value{
+            xmlGetProp(node, reinterpret_cast<xmlChar const *>(name.c_str()))};
+
+    if (value) {
+        return {reinterpret_cast<char const *>(value.get())};
+    }
+    return {};
+}
+
+bool rows::Solution::XmlLoader::NameEquals(xmlNodePtr node, const std::string &name) {
+    return xmlStrEqual(node->name, reinterpret_cast<xmlChar const *>(name.c_str())) != 0;
+}
+
+std::unique_ptr<xmlXPathContext, rows::Solution::XmlLoader::XmlDeleters>
+rows::Solution::XmlLoader::CreateXPathContext(xmlDocPtr document) {
+    std::unique_ptr<xmlXPathContext, XmlDeleters> xpath_context{xmlXPathNewContext(document)};
+    DCHECK_EQ(xmlXPathRegisterNs(xpath_context.get(),
+                                 reinterpret_cast<xmlChar const *> ("local"),
+                                 reinterpret_cast<xmlChar const *> ("http://www.gexf.net/1.1draft")), 0);
+    DCHECK_EQ(xmlXPathRegisterNs(xpath_context.get(),
+                                 reinterpret_cast<xmlChar const *> ("xsi"),
+                                 reinterpret_cast<xmlChar const *> ("http://www.w3.org/2001/XMLSchema-instance")), 0);
+    return xpath_context;
+}
+
+void rows::Solution::XmlLoader::AttributeIndex::Load(xmlXPathContextPtr context) {
+    std::unordered_map<std::string, std::string> node_property_index;
+    auto attribute_set = EvalXPath("/local:gexf/local:graph/local:attributes[@class='node']/*", context);
+    if (attribute_set && !xmlXPathNodeSetIsEmpty(attribute_set->nodesetval)) {
+        const auto node_set = attribute_set->nodesetval;
+        for (auto item = 0; item < node_set->nodeNr; ++item) {
+            const auto id_value = GetAttribute(node_set->nodeTab[item], "id");
+            const auto title_value = GetAttribute(node_set->nodeTab[item], "title");
+
+            CHECK(!id_value.empty());
+            CHECK(!title_value.empty());
+            node_property_index.emplace(title_value, id_value);
+        }
+    }
+
+    Type = GetCheckNotEmpty(node_property_index, "type");
+    AssignedCarer = GetCheckNotEmpty(node_property_index, "assigned_carer");
+    User = GetCheckNotEmpty(node_property_index, "user");
+    Longitude = GetCheckNotEmpty(node_property_index, "longitude");
+    Latitude = GetCheckNotEmpty(node_property_index, "latitude");
+    StartTime = GetCheckNotEmpty(node_property_index, "start_time");
+    Duration = GetCheckNotEmpty(node_property_index, "duration");
 }

@@ -7,6 +7,10 @@
 #include <exception>
 #include <stdexcept>
 
+#include <libxml/xmlreader.h>
+#include <libxml/xpath.h>
+#include <libxml/xpathInternals.h>
+
 #include <glog/logging.h>
 
 #include <boost/optional.hpp>
@@ -26,6 +30,8 @@ namespace rows {
 
     class Solution {
     public:
+        Solution();
+
         explicit Solution(std::vector<ScheduledVisit> visits);
 
         Solution Trim(boost::posix_time::ptime begin, boost::posix_time::ptime::time_duration_type duration) const;
@@ -37,6 +43,62 @@ namespace rows {
              */
             template<typename JsonType>
             Solution Load(const JsonType &document);
+        };
+
+        class XmlLoader {
+        public:
+            struct XmlDeleters {
+                void operator()(xmlDocPtr doc_ptr) const {
+                    xmlFreeDoc(doc_ptr);
+                }
+
+                void operator()(xmlXPathObjectPtr object_ptr) const {
+                    xmlXPathFreeObject(object_ptr);
+                }
+
+                void operator()(xmlTextReaderPtr reader_ptr) const {
+                    xmlFreeTextReader(reader_ptr);
+                }
+
+                void operator()(xmlXPathContextPtr context_ptr) const {
+                    xmlXPathFreeContext(context_ptr);
+                }
+
+                void operator()(xmlChar *value) const {
+                    xmlFree(value);
+                }
+            };
+
+            XmlLoader();
+
+            ~XmlLoader();
+
+            Solution Load(const std::string &path);
+
+        private:
+            struct AttributeIndex {
+            public:
+                void Load(xmlXPathContextPtr context);
+
+                std::string Type;
+                std::string AssignedCarer;
+                std::string User;
+                std::string Longitude;
+                std::string Latitude;
+                std::string StartTime;
+                std::string Duration;
+            };
+
+            friend struct AttributeIndex;
+
+            static bool NameEquals(xmlNodePtr node, const std::string &name);
+
+            static std::string GetAttribute(xmlNodePtr node, const std::string &name);
+
+            static std::unique_ptr<xmlXPathObject, XmlDeleters> EvalXPath(const std::string &expression,
+                                                                          xmlXPathContextPtr context);
+
+            static std::unique_ptr<xmlXPathContext, XmlDeleters> CreateXPathContext(xmlDocPtr document);
         };
 
         const std::vector<Carer> Carers() const;

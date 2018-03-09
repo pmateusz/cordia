@@ -13,6 +13,7 @@
 #include <boost/date_time.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
+#include <boost/optional.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/algorithm/string/join.hpp>
 
@@ -287,26 +288,39 @@ private:
                                          util::ErrorCode::ERROR);
         }
 
-        nlohmann::json solution_json;
-        try {
-            solution_stream >> solution_json;
-        } catch (...) {
-            throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
-                                         boost::current_exception_diagnostic_information(),
-                                         util::ErrorCode::ERROR);
+        rows::Solution original_solution;
+        const std::string file_extension{solution_file.extension().string()};
+        if (file_extension == ".json") {
+            nlohmann::json solution_json;
+            try {
+                solution_stream >> solution_json;
+            } catch (...) {
+                throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
+                                             boost::current_exception_diagnostic_information(),
+                                             util::ErrorCode::ERROR);
+            }
+
+
+            try {
+                rows::Solution::JsonLoader json_loader;
+                original_solution = json_loader.Load(solution_json);
+            } catch (const std::domain_error &ex) {
+                throw util::ApplicationError(
+                        (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % solution_file %
+                         ex.what()).str(),
+                        util::ErrorCode::ERROR);
+            }
+        } else if (file_extension == ".gexf") {
+            rows::Solution::XmlLoader xml_loader;
+            original_solution = xml_loader.Load(solution_file.string());
+        } else {
+            throw util::ApplicationError(
+                    (boost::format("Unknown file format: '%1%'. Use 'json' or 'gexf' format instead.")
+                     % file_extension).str(), util::ErrorCode::ERROR);
         }
 
-        try {
-            rows::Solution::JsonLoader json_loader;
-            auto original_solution = json_loader.Load(solution_json);
-            const auto time_span = problem.Timespan();
-            return original_solution.Trim(time_span.first, time_span.second - time_span.first);
-        } catch (const std::domain_error &ex) {
-            throw util::ApplicationError(
-                    (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % solution_file %
-                     ex.what()).str(),
-                    util::ErrorCode::ERROR);
-        }
+        const auto time_span = problem.Timespan();
+        return original_solution.Trim(time_span.first, time_span.second - time_span.first);
     }
 
     osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
