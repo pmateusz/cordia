@@ -107,7 +107,7 @@ TEST(RouteValidation, CanValidateRoute) {
 
     auto problem = LoadReducedProblem(problem_path);
     auto solution = LoadSolution(solution_path, problem);
-    solution.UpdateVisitLocations(problem.visits());
+    solution.UpdateVisitProperties(problem.visits());
     problem.RemoveCancelled(solution.visits());
 
     auto engine_config = CreateEngineConfig(maps_path);

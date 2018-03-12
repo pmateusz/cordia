@@ -2,6 +2,8 @@
 
 namespace rows {
 
+    const Address Address::DEFAULT{};
+
     Address::Address()
             : Address("", "", "", "") {}
 

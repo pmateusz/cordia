@@ -150,7 +150,7 @@ public:
             boost::optional<rows::Solution> solution;
             if (!past_solution_file.empty()) {
                 solution = LoadSolution(past_solution_file, problem_to_use);
-                solution.get().UpdateVisitLocations(problem_to_use.visits());
+                solution.get().UpdateVisitProperties(problem_to_use.visits());
                 problem_to_use.RemoveCancelled(solution.get().visits());
             }
 
@@ -193,7 +193,7 @@ public:
 
                 const auto routes = wrapper_->GetRoutes(solution_to_use, *model_);
                 initial_assignment_ = model_->ReadAssignmentFromRoutes(routes, false);
-                if (!model_->solver()->CheckAssignment(initial_assignment_)) {
+                if (initial_assignment_ == nullptr || !model_->solver()->CheckAssignment(initial_assignment_)) {
                     throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
                 }
             }

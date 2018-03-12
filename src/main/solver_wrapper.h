@@ -144,6 +144,8 @@ namespace rows {
 
         bool HasTimeWindows() const;
 
+        boost::posix_time::time_duration TimeWindow() const;
+
         int vehicles() const;
 
         int nodes() const;

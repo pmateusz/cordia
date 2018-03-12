@@ -167,6 +167,10 @@ namespace rows {
         return find_it->second;
     }
 
+    boost::posix_time::time_duration SolverWrapper::TimeWindow() const {
+        return this->visit_time_window_;
+    }
+
     std::vector<operations_research::IntervalVar *> SolverWrapper::CreateBreakIntervals(
             operations_research::Solver *const solver,
             const rows::Carer &carer,
@@ -321,7 +325,7 @@ namespace rows {
                                        const std::atomic<bool> &cancel_token) {
         static const auto START_FROM_ZERO_TIME = false;
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
-        
+
         printer->operator<<("Loading the model");
         model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
         model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),

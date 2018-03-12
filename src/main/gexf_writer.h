@@ -95,6 +95,10 @@ namespace rows {
 
             void SetNodeValue(const std::string &node_id,
                               const GephiAttributeMeta &attribute,
+                              const boost::posix_time::ptime &value);
+
+            void SetNodeValue(const std::string &node_id,
+                              const GephiAttributeMeta &attribute,
                               const osrm::util::FixedLongitude &value);
 
             void SetNodeValue(const std::string &node_id,

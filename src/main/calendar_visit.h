@@ -55,13 +55,21 @@ namespace rows {
 
         const ServiceUser &service_user() const;
 
+        ServiceUser &service_user();
+
         const Address &address() const;
+
+        void address(Address adddress);
 
         const boost::optional<Location> &location() const;
 
         const boost::posix_time::ptime datetime() const;
 
+        void datetime(const boost::posix_time::ptime &date_time);
+
         const boost::posix_time::ptime::time_duration_type duration() const;
+
+        void duration(const boost::posix_time::ptime::time_duration_type &duration);
 
         int carer_count() const;
 

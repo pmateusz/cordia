@@ -8,6 +8,7 @@
 #include <boost/date_time.hpp>
 
 #include <glog/logging.h>
+#include <util/aplication_error.h>
 
 #include "solution.h"
 #include "route.h"
@@ -97,32 +98,43 @@ struct PartialVisitContainerContract {
     }
 };
 
-void rows::Solution::UpdateVisitLocations(const std::vector<rows::CalendarVisit> &visits) {
+void rows::Solution::UpdateVisitProperties(const std::vector<rows::CalendarVisit> &visits) {
     std::unordered_map<rows::ServiceUser, rows::Location> location_index;
+    std::unordered_map<rows::ServiceUser, rows::Address> address_index;
+    std::unordered_map<rows::ServiceUser, std::vector<rows::CalendarVisit> > visit_index;
     for (const auto &visit : visits) {
         const auto &location = visit.location();
-        if (!location.is_initialized()) {
-            continue;
+        if (location.is_initialized()) {
+            const auto find_it = location_index.find(visit.service_user());
+            if (find_it == std::end(location_index)) {
+                location_index.emplace(visit.service_user(), location.get());
+            }
         }
 
-        const auto find_it = location_index.find(visit.service_user());
-        if (find_it == std::end(location_index)) {
-            location_index.emplace(visit.service_user(), location.get());
+        if (visit.address() != Address::DEFAULT) {
+            const auto find_it = address_index.find(visit.service_user());
+            if (find_it == std::end(address_index)) {
+                address_index.emplace(visit.service_user(), visit.address());
+            }
         }
-    }
 
-    std::unordered_set<rows::CalendarVisit, PartialVisitContainerContract, PartialVisitContainerContract> visit_index;
-    for (const auto &visit : visits) {
-        visit_index.emplace(visit);
+        auto visit_it = visit_index.find(visit.service_user());
+        if (visit_it == std::end(visit_index)) {
+            auto insert_pair = visit_index.emplace(visit.service_user(), std::vector<rows::CalendarVisit>());
+            CHECK(insert_pair.second);
+            visit_it = insert_pair.first;
+        }
+
+        visit_it->second.push_back(visit);
     }
 
     for (auto &visit : visits_) {
-        const auto &calendar_visit = visit.calendar_visit();
+        auto &calendar_visit = visit.calendar_visit();
         if (!calendar_visit.is_initialized()) {
             continue;
         }
 
-        const auto location_index_it = location_index.find(calendar_visit.get().service_user());
+        const auto location_index_it = location_index.find(calendar_visit->service_user());
         if (location_index_it != std::end(location_index)) {
             if (visit.location().is_initialized()) {
                 DCHECK_EQ(visit.location().get(), location_index_it->second);
@@ -131,10 +143,37 @@ void rows::Solution::UpdateVisitLocations(const std::vector<rows::CalendarVisit>
             }
         }
 
-        const auto carer_count_it = visit_index.find(calendar_visit.get());
-        if (carer_count_it != std::cend(visit_index)) {
-            visit.carer_count(carer_count_it->carer_count());
+        const auto address_index_it = address_index.find(calendar_visit->service_user());
+        if (address_index_it != std::end(address_index)) {
+            if (visit.address().is_initialized()) {
+                DCHECK_EQ(visit.address().get(), address_index_it->second);
+            } else {
+                visit.address(address_index_it->second);
+            }
         }
+
+        const auto start_time_distance = [&visit](const rows::CalendarVisit &left,
+                                                  const rows::CalendarVisit &right) -> bool {
+            auto left_duration = (visit.datetime() - left.datetime());
+            if (left_duration.is_negative()) {
+                left_duration = left_duration.invert_sign();
+            }
+
+            auto right_duration = (visit.datetime() - right.datetime());
+            if (right_duration.is_negative()) {
+                right_duration = right_duration.invert_sign();
+            }
+
+            return left_duration.total_seconds() <= right_duration.total_seconds();
+        };
+
+        const auto calendar_visits_pair_it = visit_index.find(visit.service_user().get());
+        const auto closest_visit_it = std::min_element(std::cbegin(calendar_visits_pair_it->second),
+                                                       std::cend(calendar_visits_pair_it->second),
+                                                       start_time_distance);
+        CHECK(closest_visit_it != std::cend(calendar_visits_pair_it->second));
+        calendar_visit->datetime(closest_visit_it->datetime());
+        calendar_visit->duration(closest_visit_it->duration());
     }
 }
 
@@ -142,15 +181,15 @@ std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver,
                                         const operations_research::RoutingModel &model) const {
     std::stringstream status_stream;
 
-    const auto visits_with_no_calendar = std::count_if(std::cbegin(visits_),
-                                                       std::cend(visits_),
-                                                       [](const rows::ScheduledVisit &visit) -> bool {
-                                                           return visit.calendar_visit().is_initialized();
-                                                       });
+    const auto visits_with_calendar = std::count_if(std::cbegin(visits_),
+                                                    std::cend(visits_),
+                                                    [](const rows::ScheduledVisit &visit) -> bool {
+                                                        return visit.calendar_visit().is_initialized();
+                                                    });
 
-    status_stream << "Visits with no calendar event: " << visits_with_no_calendar
+    status_stream << "Visits with calendar event: " << visits_with_calendar
                   << " of " << visits_.size()
-                  << " total, ratio: " << static_cast<double>(visits_with_no_calendar) / visits_.size()
+                  << " total, ratio: " << static_cast<double>(visits_with_calendar) / visits_.size()
                   << std::endl;
 
     const auto routes = solver.GetRoutes(*this, model);
@@ -206,10 +245,13 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
     AttributeIndex attributes;
     attributes.Load(xpath_context.get());
 
-    auto visit_sets = EvalXPath("/local:gexf/local:graph/local:nodes/*", xpath_context.get());
-    if (visit_sets && !xmlXPathNodeSetIsEmpty(visit_sets->nodesetval)) {
-        std::vector<rows::ScheduledVisit> visits;
-        const auto node_set = visit_sets->nodesetval;
+    std::unordered_map<std::string, rows::Carer> carers;
+    std::unordered_map<std::string, rows::ScheduledVisit> visits;
+    std::unordered_map<std::string, rows::ServiceUser> users;
+
+    auto nodes_set = EvalXPath("/local:gexf/local:graph/local:nodes/*", xpath_context.get());
+    if (nodes_set && !xmlXPathNodeSetIsEmpty(nodes_set->nodesetval)) {
+        const auto node_set = nodes_set->nodesetval;
         for (auto item = 0; item < node_set->nodeNr; ++item) {
             const auto &node = node_set->nodeTab[item];
             if (node->type != XML_ELEMENT_NODE || !NameEquals(node, "node")) {
@@ -228,6 +270,9 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                 continue;
             }
 
+            const auto node_id = GetAttribute(node, "id");
+            CHECK(!node_id.empty());
+
             std::unordered_map<std::string, std::string> properties;
             for (auto child_cursor = attvalues_collection->children; child_cursor; child_cursor = child_cursor->next) {
                 if (child_cursor->type == XML_ELEMENT_NODE && NameEquals(child_cursor, "attvalue")) {
@@ -236,33 +281,100 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
             }
 
             const auto type_property_it = properties.find(attributes.Type);
-            if (type_property_it == std::cend(properties) || type_property_it->second != "visit") {
+            if (type_property_it == std::cend(properties)) {
                 continue;
             }
 
-            boost::optional<rows::Carer> carer = boost::none;
-            const auto carer_find_it = properties.find(attributes.AssignedCarer);
-            if (carer_find_it != std::cend(properties)) {
-                CHECK(!carer_find_it->second.empty());
-                carer = rows::Carer(carer_find_it->second);
+            if (type_property_it->second == "visit") {
+                boost::optional<rows::Carer> carer = boost::none;
+                const auto carer_find_it = properties.find(attributes.AssignedCarer);
+                if (carer_find_it != std::cend(properties)) {
+                    CHECK(!carer_find_it->second.empty());
+                    carer = rows::Carer(carer_find_it->second);
+                }
+
+                const auto duration = boost::posix_time::duration_from_string(
+                        GetCheckNotEmpty(properties, attributes.Duration));
+                const auto start_time = boost::posix_time::time_from_string(
+                        GetCheckNotEmpty(properties, attributes.StartTime));
+                visits.emplace(node_id, rows::ScheduledVisit{rows::ScheduledVisit::VisitType::OK,
+                                                             std::move(carer),
+                                                             start_time,
+                                                             duration,
+                                                             boost::none,
+                                                             boost::none,
+                                                             rows::CalendarVisit{
+                                                                     rows::ServiceUser::DEFAULT,
+                                                                     rows::Address::DEFAULT,
+                                                                     rows::Location(
+                                                                             GetCheckNotEmpty(properties,
+                                                                                              attributes.Latitude),
+                                                                             GetCheckNotEmpty(properties,
+                                                                                              attributes.Longitude)
+                                                                     ),
+                                                                     start_time,
+                                                                     duration,
+                                                                     0}});
+            } else if (type_property_it->second == "user") {
+                users.emplace(node_id,
+                              rows::ServiceUser{GetCheckNotEmpty(properties, attributes.Id)});
+            } else if (type_property_it->second == "carer") {
+                carers.emplace(node_id,
+                               rows::Carer{GetCheckNotEmpty(properties, attributes.SapNumber)});
+            } else {
+                throw util::ApplicationError(
+                        (boost::format("Unknown node type: %1%") % type_property_it->second).str(),
+                        util::ErrorCode::ERROR);
             }
-
-            const auto duration = GetCheckNotEmpty(properties, attributes.Duration);
-            const auto start_time = GetCheckNotEmpty(properties, attributes.StartTime);
-            rows::ScheduledVisit visit(rows::ScheduledVisit::VisitType::OK,
-                                       std::move(carer),
-                                       boost::posix_time::not_a_date_time, // TODO: visits must happen on a specific day
-                                       boost::posix_time::duration_from_string(duration),
-                                       boost::none,
-                                       boost::none,
-                                       boost::none); // TODO: calendar visit must be present
-            visits.push_back(visit);
         }
-
-        return rows::Solution(visits);
     }
 
-    return {};
+    auto edges_set = EvalXPath("/local:gexf/local:graph/local:edges/*", xpath_context.get());
+    if (edges_set && !xmlXPathNodeSetIsEmpty(edges_set->nodesetval)) {
+        const auto edge_set = edges_set->nodesetval;
+        for (auto item = 0; item < edge_set->nodeNr; ++item) {
+            const auto &edge = edge_set->nodeTab[item];
+            if (edge->type != XML_ELEMENT_NODE || !NameEquals(edge, "edge")) {
+                continue;
+            }
+
+            const auto source = GetAttribute(edge, "source");
+            const auto target = GetAttribute(edge, "target");
+            const auto visit_it = visits.find(target);
+            if (visit_it == std::cend(visits)) {
+                continue;
+            }
+
+            const auto carer_it = carers.find(source);
+            if (carer_it != std::cend(carers)) {
+                visit_it->second.carer() = carer_it->second;
+                visit_it->second.calendar_visit()->carer_count(1);
+            } else {
+                const auto user_it = users.find(source);
+                if (user_it != std::cend(users)) {
+                    visit_it->second.calendar_visit()->service_user() = user_it->second;
+                }
+            }
+        }
+    }
+
+    std::vector<rows::ScheduledVisit> assigned_visits;
+    for (const auto &visit_pair : visits) {
+        const auto &visit = visit_pair.second;
+
+        if (!visit.carer().is_initialized()) {
+            continue;
+        }
+
+        if (visit.type() != ScheduledVisit::VisitType::OK || !visit.service_user().is_initialized()) {
+            LOG(WARNING) << boost::format("Visit {0} is not fully initialized") % visit;
+            continue;
+        }
+
+        assigned_visits.push_back(visit);
+    }
+
+    return rows::Solution(assigned_visits);
 }
 
 std::unique_ptr<xmlXPathObject, rows::Solution::XmlLoader::XmlDeleters>
@@ -312,11 +424,13 @@ void rows::Solution::XmlLoader::AttributeIndex::Load(xmlXPathContextPtr context)
         }
     }
 
+    Id = GetCheckNotEmpty(node_property_index, "id");
     Type = GetCheckNotEmpty(node_property_index, "type");
-    AssignedCarer = GetCheckNotEmpty(node_property_index, "assigned_carer");
     User = GetCheckNotEmpty(node_property_index, "user");
+    SapNumber = GetCheckNotEmpty(node_property_index, "sap_number");
     Longitude = GetCheckNotEmpty(node_property_index, "longitude");
     Latitude = GetCheckNotEmpty(node_property_index, "latitude");
     StartTime = GetCheckNotEmpty(node_property_index, "start_time");
     Duration = GetCheckNotEmpty(node_property_index, "duration");
+    AssignedCarer = GetCheckNotEmpty(node_property_index, "assigned_carer");
 }

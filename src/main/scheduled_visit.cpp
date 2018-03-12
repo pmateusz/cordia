@@ -124,6 +124,10 @@ namespace rows {
         return calendar_visit_;
     }
 
+    boost::optional<CalendarVisit> &ScheduledVisit::calendar_visit() {
+        return calendar_visit_;
+    }
+
     const boost::posix_time::ptime::time_duration_type &ScheduledVisit::duration() const {
         return duration_;
     }
@@ -139,15 +143,29 @@ namespace rows {
     void ScheduledVisit::location(const rows::Location &location) {
         DCHECK(calendar_visit_);
 
-        calendar_visit_.get().location(location);
+        calendar_visit_->location(location);
     }
 
     boost::optional<ServiceUser> ScheduledVisit::service_user() const {
         if (!calendar_visit_.is_initialized()) {
-            return boost::optional<ServiceUser>();
+            return boost::none;
         }
 
         return boost::make_optional(calendar_visit_.get().service_user());
+    }
+
+    boost::optional<Address> ScheduledVisit::address() const {
+        if (!calendar_visit_.is_initialized() || calendar_visit_->address() == Address::DEFAULT) {
+            return boost::none;
+        }
+
+        return boost::make_optional(calendar_visit_->address());
+    }
+
+    void ScheduledVisit::address(const Address &address) {
+        DCHECK(calendar_visit_);
+
+        calendar_visit_->address(address);
     }
 
     bool ScheduledVisit::operator==(const ScheduledVisit &other) const {

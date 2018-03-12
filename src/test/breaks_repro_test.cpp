@@ -561,7 +561,7 @@ TEST(TestBreaksViolation, TestRealProblem) {
     auto problem = LoadReducedProblem("/home/pmateusz/dev/cordia/problem.json");
     auto solution = LoadSolution("/home/pmateusz/dev/cordia/past_solution.json", problem);
 
-    solution.UpdateVisitLocations(problem.visits());
+    solution.UpdateVisitProperties(problem.visits());
     problem.RemoveCancelled(solution.visits());
 
     auto current_index = 0;

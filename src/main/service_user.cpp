@@ -4,6 +4,8 @@
 
 namespace rows {
 
+    const ServiceUser ServiceUser::DEFAULT{};
+
     ServiceUser::ServiceUser()
             : ServiceUser("") {}
 

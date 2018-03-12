@@ -16,6 +16,8 @@ namespace rows {
 
     class ServiceUser {
     public:
+        static const ServiceUser DEFAULT;
+
         ServiceUser();
 
         explicit ServiceUser(std::string id);

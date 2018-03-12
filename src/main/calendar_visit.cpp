@@ -114,6 +114,10 @@ namespace rows {
         return address_;
     }
 
+    void CalendarVisit::address(Address address) {
+        address_ = address;
+    }
+
     const boost::posix_time::ptime CalendarVisit::datetime() const {
         return date_time_;
     }
@@ -126,11 +130,23 @@ namespace rows {
         return service_user_;
     }
 
+    ServiceUser &CalendarVisit::service_user() {
+        return service_user_;
+    }
+
     int CalendarVisit::carer_count() const {
         return carer_count_;
     }
 
     void CalendarVisit::carer_count(int value) {
         carer_count_ = value;
+    }
+
+    void CalendarVisit::datetime(const boost::posix_time::ptime &date_time) {
+        date_time_ = date_time;
+    }
+
+    void CalendarVisit::duration(const boost::posix_time::ptime::time_duration_type &duration) {
+        duration_ = duration;
     }
 }

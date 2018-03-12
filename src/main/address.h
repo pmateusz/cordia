@@ -11,6 +11,8 @@ namespace rows {
 
     class Address {
     public:
+        static const Address DEFAULT;
+
         Address();
 
         Address(std::string house_number, std::string street, std::string city, std::string post_code);

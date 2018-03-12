@@ -52,6 +52,10 @@ namespace rows {
 
         boost::optional<ServiceUser> service_user() const;
 
+        boost::optional<Address> address() const;
+
+        void address(const Address &address);
+
         const boost::posix_time::ptime &datetime() const;
 
         int carer_count() const;
@@ -73,6 +77,8 @@ namespace rows {
         void type(VisitType type);
 
         const boost::optional<CalendarVisit> &calendar_visit() const;
+
+        boost::optional<CalendarVisit> &calendar_visit();
 
         bool operator==(const ScheduledVisit &other) const;
 

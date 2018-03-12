@@ -80,13 +80,15 @@ namespace rows {
             public:
                 void Load(xmlXPathContextPtr context);
 
+                std::string Id;
                 std::string Type;
-                std::string AssignedCarer;
                 std::string User;
+                std::string SapNumber;
                 std::string Longitude;
                 std::string Latitude;
                 std::string StartTime;
                 std::string Duration;
+                std::string AssignedCarer;
             };
 
             friend struct AttributeIndex;
@@ -105,7 +107,10 @@ namespace rows {
 
         Route GetRoute(const Carer &carer) const;
 
-        void UpdateVisitLocations(const std::vector<CalendarVisit> &visits);
+        /**
+         * Updates properties of internal visits stored by the solution object based on \p visits
+         */
+        void UpdateVisitProperties(const std::vector<CalendarVisit> &visits);
 
         const std::vector<ScheduledVisit> &visits() const;
 

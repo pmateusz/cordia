@@ -13,7 +13,7 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::SATISFACTION{"6", "satisfaction", "double", "0.0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::USER{"7", "user", "string", "unknown"};
 
-    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"8", "start_time", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"8", "start_time", "string", "2000-Jan-01 00:00:00"};
     const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"9", "duration", "string", "00:00:00"};
 
     const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"10", "travel_time", "string", "00:00:00"};
@@ -74,7 +74,11 @@ namespace rows {
                 gexf.SetNodeValue(visit_id, DROPPED, TRUE_VALUE);
             }
 
-            gexf.SetNodeValue(visit_id, START_TIME, visit.datetime().time_of_day());
+            const auto start_time_sec = solution.Value(time_dim->CumulVar(model.NodeToIndex(visit_index)));
+            gexf.SetNodeValue(visit_id,
+                              START_TIME,
+                              boost::posix_time::ptime{visit.datetime().date(),
+                                                       boost::posix_time::seconds(start_time_sec)});
             gexf.SetNodeValue(visit_id, DURATION, visit.duration());
             gexf.SetNodeValue(visit_id, USER, visit.service_user().id());
         }
@@ -288,6 +292,12 @@ namespace rows {
                                                           const GexfWriter::GephiAttributeMeta &attribute,
                                                           const boost::posix_time::time_duration &value) {
         env_ptr_->getData().setEdgeValue(edge_id, attribute.Id, boost::posix_time::to_simple_string(value));
+    }
+
+    void GexfWriter::GexfEnvironmentWrapper::SetNodeValue(const std::string &node_id,
+                                                          const GexfWriter::GephiAttributeMeta &attribute,
+                                                          const boost::posix_time::ptime &value) {
+        SetNodeValue(node_id, attribute, boost::posix_time::to_simple_string(value));
     }
 
     void GexfWriter::GexfEnvironmentWrapper::SetNodeValue(const std::string &node_id,

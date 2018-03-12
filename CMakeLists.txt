@@ -7,18 +7,22 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-but-set-variable -Wno-unused-variable -Wall -Werror -Wl,-z,relro,-z,now")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -ggdb -pg")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -march=native")
+
 #set(ORTOOLS_ROOT_DIR "/home/pmateusz/dev/or-tools/")
 
 set(CMAKE_VERBOSE_MAKEFILE FALSE)
-set(CMAKE_BUILD_TYPE Debug)
-#set(CMAKE_BUILD_TYPE Release)
+
+if (CMAKE_COMPILER_IS_GNUCXX)
+    set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -pg")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -march=native")
+endif ()
+set(CMAKE_BUILD_TYPE DEBUG)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/dependencies/cmake/modules/")
 
 if (UNIX AND NOT APPLE)
+    # todo this hack - find the rt
     set(MAYBE_RT_LIBRARY -lrt)
 endif ()
 
