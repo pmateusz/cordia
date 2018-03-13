@@ -17,7 +17,19 @@ if (CMAKE_COMPILER_IS_GNUCXX)
     set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -pg")
     set(CMAKE_CXX_FLAGS_RELEASE "-O2 -march=native")
 endif ()
-set(CMAKE_BUILD_TYPE DEBUG)
+
+set(default_build_type "RELEASE")
+if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
+  set(default_build_type "DEBUG")
+endif()
+ 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  message(STATUS "Setting build type to '${default_build_type}' as none was specified.")
+  set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE
+      STRING "Choose the type of build." FORCE)
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+    "DEBUG" "RELEASE")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/dependencies/cmake/modules/")
 
