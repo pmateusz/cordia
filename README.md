@@ -2,6 +2,8 @@
 
 This is the source code repository for the Robust Optimization for Workforce Scheduling Project.
 
+## [Setup a Development Machine](DEVELOPMENT.md)
+
 ## Quick Start
 
 ### Building from Source
