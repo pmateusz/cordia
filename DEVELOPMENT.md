@@ -137,7 +137,7 @@ A DEB package of the [Google Operations Research Tools 6.6](https://github.com/g
     ```shell
     mkdir data && cd data
     wget http://download.geofabrik.de/europe/great-britain/scotland-latest.osm.pbf
-    ../build/external/osrm-install/bin/osrm-extract -p \     ../build/external/osrm-install/share/osrm/profiles/foot.lua scotland-latest.osm.pbf
+    ../build/external/osrm-install/bin/osrm-extract -p ../build/external/osrm-install/share/osrm/profiles/foot.lua scotland-latest.osm.pbf
     ../build/external/osrm-install/bin/osrm-partition scotland-latest.osrm
     ../build/external/osrm-install/bin/osrm-customize scotland-latest.osrm
     ```
