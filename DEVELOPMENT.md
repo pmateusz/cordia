@@ -30,7 +30,7 @@ A DEB package of the [Google Operations Research Tools 6.6](https://github.com/g
     For Ubuntu Trusty use the command variant below.
     ```shell
     wget -qO - https://pmateusz.github.io/ubuntu/archive.key | sudo apt-key add -
-    echo "deb https://pmateusz.github.io/ubuntu stretch main" | sudo tee -a /etc/apt/sources.list
+    echo "deb https://pmateusz.github.io/ubuntu trusty main" | sudo tee -a /etc/apt/sources.list
     ```
 
     If you are using a different operating system you may need to generate the unofficial packages yourself if reuse of Ubuntu Trusty or Debian Stretch packages is impossible.
