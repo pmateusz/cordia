@@ -1,6 +1,11 @@
 import logging
 import pathlib
+import datetime
+import statistics
 import collections
+import scipy.stats
+import math
+import itertools
 
 import pyodbc
 
@@ -61,6 +66,44 @@ ORDER BY user_visit.service_user_id, care_continuity DESC"""
     CARER_WORKING_HOURS = """SELECT CarerId, StartDateTime, EndDateTime
 FROM dbo.ListCarerIntervals
 WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
+"""
+
+    GLOBAL_VISIT_DURATION = """SELECT visit.visit_id,
+    STRING_AGG(task_id, ';') WITHIN GROUP (ORDER BY visit.task_id) as 'tasks',
+    MAX(visit.planned_duration) as 'planned_duration',
+    MAX(visit.real_duration) as 'real_duration'
+FROM (
+  SELECT visit.visit_id as visit_id,
+          visit.task_id as task_id,
+          MAX(visit.planned_duration) as planned_duration,
+          MAX(visit.real_duration) as real_duration
+  FROM
+  (
+      SELECT visit_id as 'visit_id',
+            CONVERT(int, task_no) as 'task_id',
+            requested_visit_duration * 60 as 'planned_duration',
+            -- date may not be valid (is a day before), so it is removed
+            -- time may span across multiple days, so need to split the difference into 2 parts
+            -- filter out cases where checking and checkout are the same
+            carer_visits.CheckInDateTime as 'checkin',
+            carer_visits.CheckOutDateTime as 'checkout',
+            (SELECT MIN(duration) FROM (
+            VALUES
+            (DATEDIFF(second, CONVERT(time, carer_visits.CheckInDateTime), CONVERT(time, carer_visits.CheckOutDateTime))),
+            (DATEDIFF(second, CONVERT(time, carer_visits.CheckOutDateTime), CONVERT(time, carer_visits.CheckInDateTime))),
+            (DATEDIFF(second, CONVERT(time, carer_visits.CheckInDateTime), CONVERT(time, '23:59:59')) + DATEDIFF(second, CONVERT(time, '00:00:00'), CONVERT(time, carer_visits.CheckOutDateTime)) + 1),
+            (DATEDIFF(second, CONVERT(time, carer_visits.CheckOutDateTime), CONVERT(time, '23:59:59')) + DATEDIFF(second, CONVERT(time, '00:00:00'), CONVERT(time, carer_visits.CheckInDateTime)) + 1)
+            ) as temp(duration)
+            WHERE duration >= 0) AS 'real_duration'
+        FROM dbo.ListVisitsWithinWindow task_visit
+        INNER JOIN dbo.ListCarerVisits carer_visits
+        ON carer_visits.VisitID = task_visit.visit_id
+        WHERE carer_visits.CheckInDateTime != carer_visits.CheckOutDateTime
+    ) visit
+    GROUP BY visit.visit_id, visit.planned_duration, visit.task_id
+) visit
+GROUP BY visit.visit_id
+ORDER BY tasks, visit_id
 """
 
     def __init__(self, settings, location_finder):
@@ -150,6 +193,54 @@ WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
                                              address=address_by_service_user[service_user_id],
                                              carer_preference=carer_preference))
         return service_users
+
+    def get_visit_duration(self):
+
+        def get_binominal_interval(n, p, confidence, max_error, max_size):
+            pmf = [scipy.stats.binom.pmf(index, n, p) for index in range(0, n)]
+            best_begin = None
+            best_interval = [0]
+            best_mean = 0.0
+            for begin in range(0, n):
+                interval = [pmf[begin]]
+                next_index = begin + 1
+                while len(interval) < max_size and next_index < n:
+                    if abs(sum(interval) - confidence) <= max_error:
+                        mean = statistics.mean(interval)
+                        if mean > best_mean:
+                            best_begin = begin
+                            best_mean = mean
+                            best_interval = list(interval)
+                    interval.append(pmf[next_index])
+                    next_index += 1
+            if best_begin:
+                return best_begin, best_begin + len(best_interval), sum(best_interval)
+            else:
+                return None, None, 0.0
+
+        def get_percentile(p, values):
+            pos = p * len(values)
+            left_pos = int(math.trunc(pos))
+            right_pos = left_pos + 1
+            fraction = round(pos - left_pos, 4)
+            if fraction == 0.0:
+                return values[left_pos]
+            else:
+                return (1.0 - fraction) * values[left_pos] + fraction * values[right_pos]
+
+        duration_by_tasks = {}
+        rows = []
+        for row in self.__get_connection().cursor().execute(SqlDataSource.GLOBAL_VISIT_DURATION).fetchall():
+            visit, raw_tasks, raw_planned_duration, raw_real_duration = row
+            rows.append((visit, raw_tasks, int(raw_planned_duration), int(raw_real_duration)))
+        for key, group in itertools.groupby(rows, key=lambda r: r[1]):
+            durations = [row[3] for row in group]
+            durations.sort()
+            _begin, end = get_binominal_interval(len(durations), 0.95, 0.95, 0.005, 40)
+            if end:
+                duration_by_tasks[key] = durations[end]
+
+        print(duration_by_tasks)
 
     def reload(self):
         self.__get_connection_string()

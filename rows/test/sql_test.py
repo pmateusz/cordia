@@ -5,6 +5,12 @@ import pyodbc
 import pathlib
 import collections
 import statistics
+import scipy.stats
+import math
+
+import rows.settings
+import rows.location_finder
+import rows.sql_data_source
 
 from rows.model.area import Area
 
@@ -97,6 +103,41 @@ ORDER BY user_visit.service_user_id, care_continuity DESC''').fetchall():
 
         except Exception as ex:
             print(ex)
+
+    def test_find_interval(self):
+        group_size = 420
+        percentile = 0.95
+
+        def get_binominal_interval(n, p, confidence, max_error, max_size):
+            pmf = [scipy.stats.binom.pmf(index, n, p) for index in range(0, n)]
+            best_begin = None
+            best_interval = [0]
+            best_mean = 0.0
+            for begin in range(0, group_size):
+                interval = [pmf[begin]]
+                next_index = begin + 1
+                while len(interval) < max_size and next_index < n:
+                    if abs(sum(interval) - confidence) <= max_error:
+                        mean = statistics.mean(interval)
+                        if mean > best_mean:
+                            best_begin = begin
+                            best_mean = mean
+                            best_interval = list(interval)
+                    interval.append(pmf[next_index])
+                    next_index += 1
+            if best_begin:
+                return best_begin, best_begin + len(best_interval), sum(best_interval)
+            else:
+                return None, None, 0.0
+
+        print(get_binominal_interval(420, 0.95, 0.95, 0.005, 40))
+
+    def test_global_visit_duration(self):
+        settings = rows.settings.Settings()
+        location_cache = rows.location_finder.FileSystemCache(settings)
+        location_finder = rows.location_finder.RobustLocationFinder(location_cache, timeout=5.0)
+        data_source = rows.sql_data_source.SqlDataSource(settings, location_finder)
+        data_source.get_visit_duration()
 
     if __name__ == '__main__':
         unittest.main()
