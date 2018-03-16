@@ -4,6 +4,7 @@ pytest
 requests
 scipy
 setuptools
+tqdm
 wheel
 twine
 python-dateutil

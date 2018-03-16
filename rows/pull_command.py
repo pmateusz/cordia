@@ -9,6 +9,7 @@ import rows.version
 from rows.model.json import JSONEncoder
 from rows.model.metadata import Metadata
 from rows.model.problem import Problem
+from rows.sql_data_source import SqlDataSource
 
 
 class Handler:
@@ -24,6 +25,7 @@ class Handler:
         begin_date = getattr(command, 'from').value
         end_date = getattr(command, 'to').value
         output_file = getattr(command, 'output')
+        duration_estimator = getattr(command, 'duration_estimator')
 
         areas = self.__data_source.get_areas()
         area_name_to_use = Handler.__normalize(area_name)
@@ -39,7 +41,7 @@ class Handler:
             self.__console.write_line(error_msg)
             return 1
 
-        problem = self.__create_problem(area_to_use, begin_date, end_date)
+        problem = self.__create_problem(area_to_use, begin_date, end_date, duration_estimator)
         try:
             with open(output_file, self.__application.output_file_mode) as file_stream:
                 json.dump(problem, file_stream, indent=2, sort_keys=False, cls=JSONEncoder)
@@ -52,8 +54,8 @@ class Handler:
             logging.error('Failed to save problem instance due to error: %s', ex)
             return 1
 
-    def __create_problem(self, area, begin_date, end_date):
-        visits = self.__data_source.get_visits(area, begin_date, end_date)
+    def __create_problem(self, area, begin_date, end_date, duration_estimator):
+        visits = self.__data_source.get_visits(area, begin_date, end_date, self.__create_estimator(duration_estimator))
         carers = self.__data_source.get_carers(area, begin_date, end_date)
         service_users = self.__data_source.get_service_users(area, begin_date, end_date)
 
@@ -61,6 +63,18 @@ class Handler:
                        carers=carers,
                        visits=visits,
                        service_users=service_users)
+
+    @staticmethod
+    def __create_estimator(name):
+        if not name:
+            return SqlDataSource.PlannedDurationEstimator()
+
+        name_to_use = name.strip().lower()
+        if name_to_use == SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME:
+            return SqlDataSource.GlobalTaskConfidenceIntervalEstimator()
+        elif name_to_use == SqlDataSource.GlobalPercentileEstimator.NAME:
+            return SqlDataSource.GlobalPercentileEstimator(0.75)
+        return SqlDataSource.PlannedDurationEstimator()
 
     @staticmethod
     def __normalize(text):

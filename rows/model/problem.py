@@ -69,6 +69,7 @@ class Problem(rows.model.object.DataObject):
 
         DATE = 'date'
         TIME = 'time'
+        TASKS = 'tasks'
         DURATION = 'duration'
         CARER_COUNT = 'carer_count'
 
@@ -78,6 +79,7 @@ class Problem(rows.model.object.DataObject):
             self.__date = kwargs.get(Problem.LocalVisit.DATE, None)
             self.__time = kwargs.get(Problem.LocalVisit.TIME, None)
             self.__duration = kwargs.get(Problem.LocalVisit.DURATION, None)
+            self.__tasks = kwargs.get(Problem.LocalVisit.TASKS, None)
             self.__carer_count = kwargs.get(Problem.LocalVisit.CARER_COUNT, None)
 
         def as_dict(self):
@@ -122,6 +124,18 @@ class Problem(rows.model.object.DataObject):
             """Return a property"""
 
             return self.__duration
+
+        @duration.setter
+        def duration(self, value):
+            """Set a property"""
+
+            self.__duration = value
+
+        @property
+        def tasks(self):
+            """Return a property"""
+
+            return self.__tasks
 
         @property
         def carer_count(self):

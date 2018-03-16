@@ -96,6 +96,12 @@ class Visit(rows.model.object.DatabaseObject):
 
         return self.__duration
 
+    @duration.setter
+    def duration(self, value):
+        """Set a property"""
+
+        self.__duration = value
+
     @property
     def address(self):
         """Return a property"""

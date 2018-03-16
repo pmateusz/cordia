@@ -2,6 +2,7 @@
 
 import sys
 import os
+import tqdm
 
 
 class Console:
@@ -27,3 +28,6 @@ class Console:
         """Output message and append a new line"""
 
         print(message, file=self.file, end=os.linesep)
+
+    def create_progress_bar(self, **kwargs):
+        return tqdm.tqdm(file=self.file, **kwargs)

@@ -1,15 +1,13 @@
 import logging
 import pathlib
-import datetime
 import statistics
 import collections
-import scipy.stats
 import math
 import itertools
+import datetime
 
 import pyodbc
-
-import itertools
+import scipy.stats
 
 from rows.util.file_system import real_path
 
@@ -22,17 +20,142 @@ from rows.model.problem import Problem
 from rows.model.service_user import ServiceUser
 
 
+def get_binominal_interval(n, p, confidence, max_error, max_size):
+    pmf = [scipy.stats.binom.pmf(index, n, p) for index in range(0, n)]
+    best_begin = None
+    best_interval = [0]
+    best_mean = 0.0
+    for begin in range(0, n):
+        interval = [pmf[begin]]
+        next_index = begin + 1
+        while len(interval) < max_size and next_index < n:
+            if abs(sum(interval) - confidence) <= max_error:
+                mean = statistics.mean(interval)
+                if mean > best_mean:
+                    best_begin = begin
+                    best_mean = mean
+                    best_interval = list(interval)
+            interval.append(pmf[next_index])
+            next_index += 1
+    if best_begin:
+        return best_begin, best_begin + len(best_interval), sum(best_interval)
+    else:
+        return None, None, 0.0
+
+
+def get_percentile(p, values):
+    pos = p * (len(values) - 1)
+    left_pos = int(math.trunc(pos))
+    right_pos = left_pos + 1
+    fraction = round(pos - left_pos, 4)
+    if fraction == 0.0:
+        return values[left_pos]
+    else:
+        return (1.0 - fraction) * values[left_pos] + fraction * values[right_pos]
+
+
+class IntervalSampler:
+
+    def __init__(self, p, confidence, error):
+        self.__p = p
+        self.__error = error
+        self.__confidence = confidence
+        self.__cache = {}
+
+        left = 40
+        while math.fsum([scipy.stats.binom.pmf(index, left, self.__p) for index in range(0, left)]) > confidence:
+            left = int(left / 2)
+
+        right = 80
+        while math.fsum([scipy.stats.binom.pmf(index, left, self.__p) for index in range(0, right)]) < confidence:
+            right = int(right * 2)
+
+        while left != right:
+            middle = int((left + right) / 2)
+            if math.fsum([scipy.stats.binom.pmf(index, left, self.__p) for index in range(0, left)]) >= confidence:
+                right = middle
+            else:
+                left = middle
+
+        self.__min_sample_size = left
+
+    def __call__(self, n):
+        if n <= self.__min_sample_size:
+            return None, None, 0.0
+
+        if n in self.__cache:
+            return self.__cache[n]
+
+        pmf = [scipy.stats.binom.pmf(index, n, self.__p) for index in range(0, n)]
+
+        # find left and right end of initial confidence interval around the p'th percentile
+        pos = self.__p * max(n - 1, 0)
+        left_pos = int(math.trunc(pos))
+        fraction = round(pos - left_pos, 4)
+        if fraction > 0.0001:
+            # percentile is a weighted average of two elements
+            left = left_pos
+            right = left_pos + 1
+            current_confidence = pmf[left] + pmf[right]
+        else:
+            # percentile is exactly one element
+            left = right = left_pos
+            current_confidence = pmf[left]
+
+        while abs(self.__confidence - current_confidence) >= self.__error and current_confidence < self.__confidence:
+            left_opt = left - 1
+            right_opt = right + 1
+
+            if left_opt >= 0:
+                if right_opt < n:
+                    if pmf[left_opt] > pmf[right_opt]:
+                        current_confidence += pmf[left_opt]
+                        left = left_opt
+                    else:
+                        current_confidence += pmf[right_opt]
+                        right = right_opt
+                else:
+                    current_confidence += pmf[left_opt]
+                    left = left_opt
+            elif right_opt < n:
+                current_confidence += pmf[right_opt]
+                right = right_opt
+            else:
+                self.__cache[n] = (None, None, 0.0)
+                break
+        self.__cache[n] = (left, right, current_confidence)
+        return self.__cache[n]
+
+
 class SqlDataSource:
     LIST_AREAS_QUERY = """SELECT aom.aom_id, aom.area_code
 FROM [StrathClyde].[dbo].[ListAom] aom
 ORDER BY aom.area_code"""
 
-    LIST_VISITS_QUERY = """SELECT MIN(visits.visit_id) as visit_id, visits.service_user_id, visits.visit_date,
-visits.requested_visit_time, visits.requested_visit_duration
-FROM dbo.ListVisitsWithinWindow visits
-WHERE visits.visit_date BETWEEN '{0}' AND '{1}' AND visits.aom_code = {2}
-GROUP BY visits.service_user_id, visits.visit_date, visits.requested_visit_duration,
-visits.display_address, visits.requested_visit_time"""
+    LIST_VISITS_QUERY = """SELECT visit_id,
+service_user_id,
+vdate,
+vtime,
+vduration,
+STRING_AGG(task_id, ';')  WITHIN GROUP (ORDER BY task_id) as 'tasks'
+FROM (
+  SELECT MIN(window_visits.visit_id) as visit_id,
+    window_visits.service_user_id as service_user_id,
+    window_visits.visit_date as vdate,
+    window_visits.requested_visit_time as vtime,
+    window_visits.requested_visit_duration as vduration,
+    CONVERT(int, task_no) as task_id
+  FROM dbo.ListVisitsWithinWindow window_visits
+  LEFT OUTER JOIN dbo.UserVisits user_visits
+  ON user_visits.visit_id = window_visits.visit_id
+  WHERE window_visits.visit_date BETWEEN '{0}' AND '{1}' AND window_visits.aom_code = {2}
+  GROUP BY window_visits.service_user_id,
+    window_visits.visit_date,
+    window_visits.requested_visit_duration,
+    window_visits.requested_visit_time,
+    task_no
+) visit
+GROUP BY visit.visit_id, visit.service_user_id, vdate, vtime, vduration"""
 
     LIST_SERVICE_USER_QUERY = """SELECT visits.service_user_id, visits.display_address
     FROM dbo.ListVisitsWithinWindow visits
@@ -106,8 +229,138 @@ GROUP BY visit.visit_id
 ORDER BY tasks, visit_id
 """
 
-    def __init__(self, settings, location_finder):
+    class IntervalEstimatorBase(object):
+
+        def __init__(self):
+            pass
+
+        def __call__(self, local_visit):
+            return local_visit.duration
+
+        def reload_if(self, console, connection_factory):
+            if self.should_reload:
+                self.reload(console, connection_factory)
+
+        def reload(self, console, connection_factory):
+            rows = []
+            groups = []
+
+            with console.create_progress_bar(leave=False, unit='') as bar:
+                bar.set_description_str('Connecting to the database...')
+                cursor = connection_factory().cursor()
+
+                bar.set_description_str('Pulling information on tasks...')
+                for row in cursor.execute(SqlDataSource.GLOBAL_VISIT_DURATION).fetchall():
+                    visit, raw_tasks, raw_planned_duration, raw_real_duration = row
+                    rows.append((visit, raw_tasks, int(raw_planned_duration), int(raw_real_duration)))
+                bar.set_description_str('Aggregating tasks...')
+                for key, group in itertools.groupby(rows, key=lambda r: r[1]):
+                    groups.append((key, list(group)))
+
+            with console.create_progress_bar(total=len(groups),
+                                             desc='Estimating confidence intervals',
+                                             unit='',
+                                             leave=False) as bar:
+
+                for key, group in groups:
+                    bar.update(1)
+                    self.process(key, group)
+
+        def process(self, key, group):
+            pass
+
+        @property
+        def should_reload(self):
+            return False
+
+    class GlobalTaskConfidenceIntervalEstimator(IntervalEstimatorBase):
+
+        NAME = 'global_confidence_interval_estimator'
+
+        def __init__(self, percentile, confidence, error):
+            super(SqlDataSource.GlobalTaskConfidenceIntervalEstimator, self).__init__()
+
+            self.__duration_by_task = {}
+            self.__percentile = percentile
+            self.__confidence = confidence
+            self.__error = error
+            self.__sampler = IntervalSampler(self.__percentile, self.__confidence, self.__error)
+
+        def reload(self, console, connection_factory):
+            self.__duration_by_task.clear()
+
+            super(SqlDataSource.GlobalTaskConfidenceIntervalEstimator, self).reload(console, connection_factory)
+
+        def process(self, key, group):
+            durations = [row[3] for row in group]
+
+            durations_len = len(durations)
+            _lower_limit, upper_limit, _confidence = self.__sampler(durations_len)
+            if upper_limit:
+                durations.sort()
+                self.__duration_by_task[key] = durations[upper_limit]
+
+        @property
+        def should_reload(self):
+            return bool(self.__duration_by_task)
+
+        def __call__(self, local_visit):
+            value = self.__duration_by_task.get(local_visit.tasks, None)
+            if value:
+                if isinstance(value, str):
+                    return value
+                return str(value)
+            return super(SqlDataSource.IntervalEstimatorBase, self).__call__(local_visit)
+
+    class GlobalPercentileEstimator(IntervalEstimatorBase):
+
+        NAME = 'global_percentile_estimator'
+
+        def __init__(self, percentile):
+            super(SqlDataSource.GlobalPercentileEstimator, self).__init__()
+
+            self.__duration_by_task = {}
+            self.__percentile = percentile
+
+        def reload(self, console, connection_factory):
+            self.__duration_by_task.clear()
+
+            super(SqlDataSource.GlobalPercentileEstimator, self).reload(console, connection_factory)
+
+        def process(self, key, group):
+            durations = [row[3] for row in group]
+            durations.sort()
+            self.__duration_by_task[key] = get_percentile(self.__percentile, durations)
+
+        @property
+        def should_reload(self):
+            return bool(self.__duration_by_task)
+
+        def __call__(self, local_visit):
+            value = self.__duration_by_task.get(local_visit.tasks, None)
+            if value:
+                if isinstance(value, str):
+                    return value
+                return str(value)
+            return super(SqlDataSource.GlobalPercentileEstimator, self).__call__(local_visit)
+
+    class PlannedDurationEstimator:
+
+        def __init__(self):
+            pass
+
+        def reload(self, console):
+            pass
+
+        def reload_if(self, console):
+            pass
+
+        def __call__(self, local_visit):
+            return local_visit.duration
+
+    def __init__(self, settings, console, location_finder):
         self.__settings = settings
+        self.__console = console
         self.__location_finder = location_finder
         self.__connection_string = None
         self.__connection = None
@@ -117,7 +370,9 @@ ORDER BY tasks, visit_id
         cursor.execute(SqlDataSource.LIST_AREAS_QUERY)
         return [Area(key=row[0], code=row[1]) for row in cursor.fetchall()]
 
-    def get_visits(self, area, begin_date, end_date):
+    def get_visits(self, area, begin_date, end_date, duration_estimator):
+        duration_estimator.reload(self.__console, self.__get_connection)
+
         carer_counts = {}
         for row in self.__get_connection().cursor() \
                 .execute(SqlDataSource.LIST_MULTIPLE_CARER_VISITS_QUERY.format(begin_date, end_date)).fetchall():
@@ -125,9 +380,10 @@ ORDER BY tasks, visit_id
             carer_counts[visit_id] = carer_count
 
         visits_by_service_user = {}
+        time_change = []
         for row in self.__get_connection().cursor().execute(
                 SqlDataSource.LIST_VISITS_QUERY.format(begin_date, end_date, area.key)).fetchall():
-            visit_key, service_user_id, visit_date, visit_time, visit_duration = row
+            visit_key, service_user_id, visit_date, visit_time, visit_duration, tasks = row
 
             carer_count = 1
             if visit_key in carer_counts:
@@ -137,11 +393,23 @@ ORDER BY tasks, visit_id
                                              date=visit_date,
                                              time=visit_time,
                                              duration=str(visit_duration * 60),  # convert minutes to seconds
+                                             tasks=tasks,
                                              carer_count=carer_count)
+
+            original_duration = int(float(local_visit.duration))
+            local_visit.duration = duration_estimator(local_visit)
+            duration_to_use = int(float(local_visit.duration))
+            time_change.append(duration_to_use - original_duration)
+
             if service_user_id in visits_by_service_user:
                 visits_by_service_user[service_user_id].append(local_visit)
             else:
                 visits_by_service_user[service_user_id] = [local_visit]
+
+        self.__console.write_line('Change in visit duration: mean {0}, median: {1}, stddev {2}'
+                                  .format(datetime.timedelta(seconds=int(statistics.mean(time_change))),
+                                          datetime.timedelta(seconds=int(statistics.median(time_change))),
+                                          datetime.timedelta(seconds=int(statistics.stdev(time_change)))))
 
         return [Problem.LocalVisits(service_user=str(service_user_id), visits=visits)
                 for service_user_id, visits in visits_by_service_user.items()]
@@ -193,54 +461,6 @@ ORDER BY tasks, visit_id
                                              address=address_by_service_user[service_user_id],
                                              carer_preference=carer_preference))
         return service_users
-
-    def get_visit_duration(self):
-
-        def get_binominal_interval(n, p, confidence, max_error, max_size):
-            pmf = [scipy.stats.binom.pmf(index, n, p) for index in range(0, n)]
-            best_begin = None
-            best_interval = [0]
-            best_mean = 0.0
-            for begin in range(0, n):
-                interval = [pmf[begin]]
-                next_index = begin + 1
-                while len(interval) < max_size and next_index < n:
-                    if abs(sum(interval) - confidence) <= max_error:
-                        mean = statistics.mean(interval)
-                        if mean > best_mean:
-                            best_begin = begin
-                            best_mean = mean
-                            best_interval = list(interval)
-                    interval.append(pmf[next_index])
-                    next_index += 1
-            if best_begin:
-                return best_begin, best_begin + len(best_interval), sum(best_interval)
-            else:
-                return None, None, 0.0
-
-        def get_percentile(p, values):
-            pos = p * len(values)
-            left_pos = int(math.trunc(pos))
-            right_pos = left_pos + 1
-            fraction = round(pos - left_pos, 4)
-            if fraction == 0.0:
-                return values[left_pos]
-            else:
-                return (1.0 - fraction) * values[left_pos] + fraction * values[right_pos]
-
-        duration_by_tasks = {}
-        rows = []
-        for row in self.__get_connection().cursor().execute(SqlDataSource.GLOBAL_VISIT_DURATION).fetchall():
-            visit, raw_tasks, raw_planned_duration, raw_real_duration = row
-            rows.append((visit, raw_tasks, int(raw_planned_duration), int(raw_real_duration)))
-        for key, group in itertools.groupby(rows, key=lambda r: r[1]):
-            durations = [row[3] for row in group]
-            durations.sort()
-            _begin, end = get_binominal_interval(len(durations), 0.95, 0.95, 0.005, 40)
-            if end:
-                duration_by_tasks[key] = durations[end]
-
-        print(duration_by_tasks)
 
     def reload(self):
         self.__get_connection_string()

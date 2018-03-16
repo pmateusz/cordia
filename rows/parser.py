@@ -5,6 +5,8 @@ import datetime
 import os
 import dateutil.parser
 
+import rows.sql_data_source
+
 
 class ValueHolder:
     """Container for a single parameter that has a default value."""
@@ -66,6 +68,7 @@ class Parser:
     PULL_TO_ARG = '--to'
     PULL_TO_DEFAULT_ARG = PULL_FROM_DEFAULT_ARG + PULL_WINDOW_WIDTH_DEFAULT
     PULL_OUTPUT_ARG = '--output'
+    PULL_DURATION_ESTIMATOR_ARG = '--duration-estimator'
 
     class PullFromArgAction(argparse.Action):
         """Validate the 'from' argument"""
@@ -107,6 +110,7 @@ class Parser:
 
         pull_parser = subparsers.add_parser(name=Parser.PULL_COMMAND,
                                             help='pull an instance of the scheduling problem from an external source')
+
         pull_parser.add_argument(Parser.PULL_AREA_ARG,
                                  help='an administration, operations and management area'
                                       ' where the requested visits are assigned to')
@@ -124,15 +128,17 @@ class Parser:
                                  default=ValueHolder(Parser.PULL_TO_DEFAULT_ARG),
                                  type=Parser.__parse_date,
                                  action=Parser.PullToArgAction)
-
         pull_parser.add_argument('-o',
                                  Parser.PULL_OUTPUT_ARG,
                                  help='Save output to the specified file',
                                  type=str,
                                  default='problem.json')
+        pull_parser.add_argument(Parser.PULL_DURATION_ESTIMATOR_ARG,
+                                 help='estimate duration based on historical records',
+                                 type=Parser.__parse_duration_estimator,
+                                 default=None)
 
-        solve_parser = subparsers.add_parser(name='solve',
-                                             help='solve an instance of the scheduling problem')
+        solve_parser = subparsers.add_parser(name='solve', help='solve an instance of the scheduling problem')
 
         solve_parser.add_argument(Parser.SOLVE_PROBLEM_ARG,
                                   help='the problem to solve',
@@ -203,6 +209,21 @@ class Parser:
             msg = "program does not have write permissions to directory {0}. Please try another path.".format(directory)
             raise argparse.ArgumentTypeError(msg)
         return text_value
+
+    @staticmethod
+    def __parse_duration_estimator(text_value):
+        if not text_value:
+            return None
+        value_to_use = text_value.strip().lower()
+        if value_to_use == rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME:
+            return value_to_use
+        elif value_to_use == rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME:
+            return value_to_use
+        msg = "Name '{0}' does not match any duration estimator. Please use a valid name, for example: {1}, {2}".format(
+            text_value,
+            rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME,
+            rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME)
+        raise argparse.ArgumentTypeError(msg)
 
     @staticmethod
     def __parse_date(text_value):

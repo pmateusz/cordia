@@ -25,7 +25,9 @@ class Application:
         self.__settings = rows.settings.Settings()
         self.__location_cache = rows.location_finder.FileSystemCache(self.__settings)
         self.__location_finder = rows.location_finder.RobustLocationFinder(self.__location_cache, timeout=5.0)
-        self.__data_source = rows.sql_data_source.SqlDataSource(self.settings, self.__location_finder)
+        self.__data_source = rows.sql_data_source.SqlDataSource(self.settings,
+                                                                self.console,
+                                                                self.__location_finder)
         self.__handlers = {rows.parser.Parser.PULL_COMMAND: rows.pull_command.Handler(self),
                            rows.parser.Parser.SOLVE_COMMAND: rows.solve_command.Handler(self)}
         self.__output_file_mode = output_file_mode
