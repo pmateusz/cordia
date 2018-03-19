@@ -11,7 +11,7 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
     ALPHA_NUM_PATTERN = re.compile('\w')
     DIGIT_PATTERN = re.compile('\d+')
     SINGLE_DIGIT_PATTERN = re.compile('\d')
-    POST_CODE_PATTERN = re.compile('[A-Z0-9]{2}[\s\-][A-Z0-9]{3}')
+    POST_CODE_PATTERN = re.compile('[A-Z0-9]{2,}[\s\-][A-Z0-9]{3,}')
     FLAT_NUMBER = re.compile('^(\d+\/)+(\d+)$')
 
     ROAD = 'road'
@@ -210,7 +210,9 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
             parts.remove(post_code)
 
         # find road
-        possible_roads = [part for part in parts if part and len(Address.DIGIT_PATTERN.findall(part)) < len(part)]
+        possible_roads = [part for part in parts if part
+                          and len(Address.DIGIT_PATTERN.findall(part)) < len(part)
+                          and not Address.FLAT_NUMBER.match(part)]
         if len(possible_roads) == 1:
             road = possible_roads[0]
             parts.remove(road)
