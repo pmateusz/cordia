@@ -6,11 +6,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-but-set-variable -Wno-unused-variable -Wall -Werror -Wl,-z,relro,-z,now")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
-
-#set(ORTOOLS_ROOT_DIR "/home/pmateusz/dev/or-tools/")
-
 set(CMAKE_VERBOSE_MAKEFILE FALSE)
 
 if (CMAKE_COMPILER_IS_GNUCXX)
@@ -34,8 +29,8 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/dependencies/cmake/modules/")
 
 if (UNIX AND NOT APPLE)
-    # todo this hack - find the rt
-    set(MAYBE_RT_LIBRARY -lrt)
+    find_package(Rt REQUIRED)
+    set(MAYBE_RT_LIBRARY ${RT_LIBRARY})
 endif ()
 
 get_filename_component(_GFLAGS_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/build/external/gflags-install" REALPATH)

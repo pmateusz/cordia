@@ -1,0 +1,4 @@
+find_path(RT_INCLUDE_DIR aio.h)
+find_library(RT_LIBRARY rt)
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(RT DEFAULT_MSG RT_LIBRARY RT_INCLUDE_DIR)
