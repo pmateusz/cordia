@@ -28,6 +28,10 @@ class Location(rows.model.object.DataObject):
         bundle[Location.LONGITUDE] = str(self.__longitude)
         return bundle
 
+    def distance(self, other):
+        return math.sqrt(math.pow(float(self.latitude) - float(other.latitude), 2.0)
+                         + math.pow(float(self.longitude) - float(other.longitude), 2.0))
+
     @staticmethod
     def from_json(json):
         """Creates object from dictionary"""

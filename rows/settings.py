@@ -14,6 +14,9 @@ class Settings:
     DEFAULT_LOCATION_CACHE_PATH = '~/dev/cordia/data/cordia/location_cache.json'
     DEFAULT_LOCATION_CACHE_PATH_KEY = 'location_cache_path'
 
+    DEFAULT_DIFFICULT_LOCATIONS_PATH = '~/dev/cordia/data/cordia/difficult_location_cache.json'
+    DEFAULT_DIFFICULT_LOCATIONS_PATH_KEY = 'difficult_location_cache_path'
+
     DEFAULT_SOLVER_PATH = '~/dev/cordia/build/rows-main'
     DEFAULT_SOLVER_PATH_KEY = 'solver_path'
 
@@ -32,6 +35,7 @@ class Settings:
     def __init__(self):
         self.__maps_path = None
         self.__location_cache_path = None
+        self.__difficult_locations_path = None
         self.__solver_path = None
         self.__database_credentials_path = None
         self.__database_server = None
@@ -48,6 +52,8 @@ class Settings:
                                                 Settings.DEFAULT_MAPS_PATH)
                 self.__location_cache_path = settings.get(Settings.DEFAULT_LOCATION_CACHE_PATH_KEY,
                                                           Settings.DEFAULT_LOCATION_CACHE_PATH)
+                self.__difficult_locations_path = settings.get(Settings.DEFAULT_DIFFICULT_LOCATIONS_PATH_KEY,
+                                                               Settings.DEFAULT_DIFFICULT_LOCATIONS_PATH)
                 self.__solver_path = settings.get(Settings.DEFAULT_SOLVER_PATH_KEY,
                                                   Settings.DEFAULT_SOLVER_PATH)
                 self.__database_credentials_path = settings.get(Settings.DEFAULT_CREDENTIALS_PATH_KEY,
@@ -72,6 +78,7 @@ class Settings:
     def __set_default_settings(self):
         self.__maps_path = Settings.DEFAULT_MAPS_PATH
         self.__location_cache_path = Settings.DEFAULT_LOCATION_CACHE_PATH
+        self.__difficult_locations_path = Settings.DEFAULT_DIFFICULT_LOCATIONS_PATH
         self.__solver_path = Settings.DEFAULT_SOLVER_PATH
         self.__database_credentials_path = Settings.DEFAULT_CREDENTIALS_PATH
         self.__database_server = Settings.DEFAULT_DATABASE_SERVER
@@ -85,6 +92,10 @@ class Settings:
     @property
     def location_cache_path(self):
         return self.__location_cache_path
+
+    @property
+    def difficult_locations_path(self):
+        return self.__difficult_locations_path
 
     @property
     def solver_path(self):

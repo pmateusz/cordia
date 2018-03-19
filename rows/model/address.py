@@ -11,7 +11,7 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
     ALPHA_NUM_PATTERN = re.compile('\w')
     DIGIT_PATTERN = re.compile('\d+')
     SINGLE_DIGIT_PATTERN = re.compile('\d')
-    POST_CODE_PATTERN = re.compile('[A-Z0-9]{2,}[\s\-][A-Z0-9]{3,}')
+    POST_CODE_PATTERN = re.compile('[A-Z]+?\d+[\s\-][A-Z0-9]{3,}')
     FLAT_NUMBER = re.compile('^(\d+\/)+(\d+)$')
 
     ROAD = 'road'
@@ -48,18 +48,15 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
                and self.suburb == other.suburb
 
     def __hash__(self):
-        try:
-            return hash((self.road,
-                         self.house_number,
-                         self.city,
-                         self.country_code,
-                         self.country,
-                         self.neighbourhood,
-                         self.post_code,
-                         self.state,
-                         self.suburb))
-        except TypeError as ex:
-            raise ex
+        return hash((self.road,
+                     self.house_number,
+                     self.city,
+                     self.country_code,
+                     self.country,
+                     self.neighbourhood,
+                     self.post_code,
+                     self.state,
+                     self.suburb))
 
     def as_dict(self):
         bundle = super(Address, self).as_dict()

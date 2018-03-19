@@ -72,6 +72,14 @@ class Result:
         return Result(result_set=result_set)
 
 
+GLASGOW_LOCATION = Location(latitude=55.858, longitude=-4.259)
+
+
+def is_within_range(location):
+    local_distance = GLASGOW_LOCATION.distance(location)
+    return local_distance <= 1.0
+
+
 class WebLocationFinder:
     """Finds longitude and latitude for an address"""
 
@@ -147,25 +155,19 @@ class FileSystemCache:
         """Tries to reload cache"""
 
         try:
-            candidate = FileSystemCache.__get_difficult_locations()
-            try:
-                with open(self.__location_cache_path(), 'r') as file_stream:
-                    try:
-                        pairs = json.load(file_stream)
-                        if pairs:
-                            for raw_address, raw_location in pairs:
-                                candidate[Address(**raw_address)] = Location(**raw_location)
-                    except (RuntimeError, json.decoder.JSONDecodeError) as ex:
-                        logging.error('Failed to load cache due to unknown format: %s', ex)
-                        return False
-            except FileNotFoundError:
-                logging.info("Cache file '%s' does not exist",
-                             self.__settings.location_cache_path(resolve_env_vars=False))
-            self.__cache = candidate
+            locations = {}
+            if not self.__load(self.__location_cache_path(True), locations):
+                logging.warning('Failed to load addresses already resolved by the web service from the file: {0}'
+                                .format(self.__location_cache_path(False)))
+
+            if not self.__load(self.__difficult_locations_path(True), locations):
+                logging.warning('Failed to load addresses that cannot be resolved by the web service from the file: {0}'
+                                .format(self.__difficult_locations_path(False)))
+            self.__cache = locations
             return True
         except RuntimeError:
             logging.error('Failed to reload location cache due to error: %s', sys.exc_info()[0])
-        return False
+            return False
 
     def reload(self):
         """Removes local cache entries and tries to reload cache"""
@@ -186,10 +188,26 @@ class FileSystemCache:
         file_path = self.__settings.location_cache_path
         return real_path(file_path) if resolve_env_vars else file_path
 
+    def __difficult_locations_path(self, resolve_env_vars=True):
+        file_path = self.__settings.difficult_locations_path
+        return real_path(file_path) if resolve_env_vars else file_path
+
     @staticmethod
-    def __get_difficult_locations():
-        return {Address(road='Brackla Avenue', house_number='32', city='Glasgow', post_code='G13 4HZ'):
-                    Location(latitude=55.8962479, longitude=-4.3835123)}
+    def __load(path, acc):
+        try:
+            with open(path, 'r') as file_stream:
+                try:
+                    pairs = json.load(file_stream)
+                    if pairs:
+                        for raw_address, raw_location in pairs:
+                            acc[Address(**raw_address)] = Location(**raw_location)
+                    return True
+                except (RuntimeError, json.decoder.JSONDecodeError) as ex:
+                    logging.error('Failed to load cache due to unknown format: %s', ex)
+                    return False
+        except FileNotFoundError:
+            logging.info("Cache file '%s' does not exist", path)
+            return False
 
 
 class RobustLocationFinder:
@@ -207,6 +225,11 @@ class RobustLocationFinder:
             location = self.__find(address)
             if location:
                 self.__cache.insert_or_update(address, location)
+
+        if location and not is_within_range(location):
+            logging.error('Location {0}:{1} is too far from Glasgow'.format(address, location))
+            return None
+
         return location
 
     def __find(self, address):
@@ -265,7 +288,7 @@ class RobustLocationFinder:
                 "Too many locations returned for an address '%s'."
                 " Selecting the first one to resolve conflict.",
                 address)
-            bundle = result.result_set[0]
+            bundle = next((location for location in result.result_set if is_within_range(location)), None)
         else:
             bundle = result.result_set
 
