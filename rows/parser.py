@@ -5,6 +5,7 @@ import datetime
 import os
 import dateutil.parser
 
+import rows.util
 import rows.sql_data_source
 
 
@@ -94,9 +95,10 @@ class Parser:
                                                  values, from_value.value))
             to_value.value = values
 
-    def __init__(self, program_name=None):
+    def __init__(self, data_source, program_name=None):
         """Register parsers for supported commands"""
 
+        self.__data_source = data_source
         self.__parser = argparse.ArgumentParser(prog=program_name,
                                                 description='Robust Optimization '
                                                             'for Workforce Scheduling command line utility')
@@ -113,7 +115,8 @@ class Parser:
 
         pull_parser.add_argument(Parser.PULL_AREA_ARG,
                                  help='an administration, operations and management area'
-                                      ' where the requested visits are assigned to')
+                                      ' where the requested visits are assigned to',
+                                 type=self.parse_area)
         pull_parser.add_argument('-f',
                                  Parser.PULL_FROM_ARG,
                                  help='limit considered visits to these that are requested'
@@ -198,6 +201,21 @@ class Parser:
         actual_command = getattr(namespace, Parser.COMMAND_PARSER)
         return actual_command == command
 
+    def parse_area(self, area_name):
+        areas = self.__data_source.get_areas()
+        area_name_to_use = self.normalize(area_name)
+        area_to_use = next((area for area in areas if self.normalize(area.code) == area_name_to_use), None)
+        if area_to_use:
+            return area_to_use
+        used_codes = set()
+        error_msg = 'Failed to find an area with the specified code. Please use one of the following codes instead:'
+        for area in areas:
+            if area.code in used_codes:
+                continue
+            used_codes.add(area.code)
+            error_msg += os.linesep + '\t' + area.code
+        raise RuntimeError(error_msg)
+
     @staticmethod
     def __parse_file_path(text_value):
         if os.path.exists(text_value):
@@ -240,3 +258,7 @@ class Parser:
             msg = "Value '{0}' was not recognized as a date. " \
                   "Please use a valid format, for example {1}.".format(text_value, datetime.date.today())
             raise argparse.ArgumentTypeError(msg)
+
+    @staticmethod
+    def normalize(text_value):
+        return text_value

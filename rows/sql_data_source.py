@@ -258,7 +258,7 @@ ORDER BY tasks, visit_id
                     groups.append((key, list(group)))
 
             with console.create_progress_bar(total=len(groups),
-                                             desc='Estimating confidence intervals',
+                                             desc='Estimating visit duration',
                                              unit='',
                                              leave=False) as bar:
 

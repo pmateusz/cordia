@@ -8,7 +8,6 @@ import unittest
 import tempfile
 
 from rows.application import Application
-from rows.model.area import Area
 from rows.model.problem import Problem
 from rows.parser import ValueHolder
 from rows.pull_command import Handler
@@ -22,11 +21,11 @@ class HandlerTestCase(unittest.TestCase):
     def setUp(self):
         """Initialise application"""
 
-        self.example_area = Area(key='test_key')
         self.example_begin_date = datetime.datetime(2017, 2, 1).date()
         self.example_end_date = datetime.datetime(2017, 2, 7).date()
         self.application = Application(output_file_mode='w')
         self.application.load()
+        self.example_area = self.application.create_parser().parse_area('C050')
 
     def tearDown(self):
         """Tear down application"""

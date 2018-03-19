@@ -47,7 +47,7 @@ class Application:
     def run(self, args):
         """The default entry point for the application."""
 
-        parser = rows.parser.Parser(program_name=Application.PROGRAM_NAME)
+        parser = self.create_parser()
         args = parser.parse_args(args)
         handler_name = getattr(args, rows.parser.Parser.COMMAND_PARSER)
         if handler_name:
@@ -61,6 +61,9 @@ class Application:
     def __handle_version(self, __namespace):
         message = '{0} version {1}'.format(Application.PROGRAM_NAME, rows.version.VERSION)
         self.__console.write_line(message)
+
+    def create_parser(self):
+        return rows.parser.Parser(self.data_source, program_name=Application.PROGRAM_NAME)
 
     @property
     def output_file_mode(self):

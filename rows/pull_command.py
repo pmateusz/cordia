@@ -21,27 +21,12 @@ class Handler:
         self.__console = application.console
 
     def __call__(self, command):
-        area_name = getattr(command, 'area')
+        area = getattr(command, 'area')
         begin_date = getattr(command, 'from').value
         end_date = getattr(command, 'to').value
         output_file = getattr(command, 'output')
-        duration_estimator = getattr(command, 'duration_estimator')
-
-        areas = self.__data_source.get_areas()
-        area_name_to_use = Handler.__normalize(area_name)
-        area_to_use = next((area for area in areas if Handler.__normalize(area.code) == area_name_to_use), None)
-        if not area_to_use:
-            used_codes = set()
-            error_msg = 'Failed to find an area with the specified code. Please use one of the following codes instead:'
-            for area in areas:
-                if area.code in used_codes:
-                    continue
-                used_codes.add(area.code)
-                error_msg += os.linesep + '\t' + area.code
-            self.__console.write_line(error_msg)
-            return 1
-
-        problem = self.__create_problem(area_to_use, begin_date, end_date, duration_estimator)
+        duration_estimator = getattr(command, 'duration_estimator', None)
+        problem = self.__create_problem(area, begin_date, end_date, duration_estimator)
         try:
             with open(output_file, self.__application.output_file_mode) as file_stream:
                 json.dump(problem, file_stream, indent=2, sort_keys=False, cls=JSONEncoder)

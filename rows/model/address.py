@@ -1,5 +1,4 @@
 """Postal address of a certain location"""
-import itertools
 import re
 
 import rows.model.object
@@ -10,6 +9,10 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
 
     ROAD_WITH_NUMBER_PATTERN = re.compile('^(?P<house_number>\d+)\s+(?P<road>.*)$')
     ALPHA_NUM_PATTERN = re.compile('\w')
+    DIGIT_PATTERN = re.compile('\d+')
+    SINGLE_DIGIT_PATTERN = re.compile('\d')
+    POST_CODE_PATTERN = re.compile('[A-Z0-9]{2}[\s\-][A-Z0-9]{3}')
+    FLAT_NUMBER = re.compile('^(\d+\/)+(\d+)$')
 
     ROAD = 'road'
     HOUSE_NUMBER = 'house_number'
@@ -45,15 +48,18 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
                and self.suburb == other.suburb
 
     def __hash__(self):
-        return hash((self.road,
-                     self.house_number,
-                     self.city,
-                     self.country_code,
-                     self.country,
-                     self.neighbourhood,
-                     self.post_code,
-                     self.state,
-                     self.suburb))
+        try:
+            return hash((self.road,
+                         self.house_number,
+                         self.city,
+                         self.country_code,
+                         self.country,
+                         self.neighbourhood,
+                         self.post_code,
+                         self.state,
+                         self.suburb))
+        except TypeError as ex:
+            raise ex
 
     def as_dict(self):
         bundle = super(Address, self).as_dict()
@@ -187,40 +193,81 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
     def parse(text):
         """Parses input text in natural language to an address"""
 
+        road = None
+        house_number = None
+
         text_to_use = text.strip()
         parts = [part.strip() for part in text_to_use.split(',') if Address.ALPHA_NUM_PATTERN.search(part)]
 
-        if len(parts) < 3:
-            raise ValueError(text_to_use)
+        # find city
+        city = next((part for part in parts if part and part.strip().lower() == 'glasgow'), None)
+        if city:
+            parts.remove(city)
 
-        post_code = parts[-1]
-        city = parts[-2]
-        road = parts[-3]
-        house_number = ''
+        # find post code
+        post_code = next((part for part in parts if Address.POST_CODE_PATTERN.match(part)), None)
+        if post_code:
+            parts.remove(post_code)
 
-        digit_pattern = re.compile('\d+')
-        # how many of them are plain numbers >= 1 select is as the house number
-        # none => extract all numbers and select last one as household
-        house_number_parts = parts[0: len(parts) - 3]
-
-        if house_number_parts:
-            plain_numbers = [part for part in house_number_parts if part.isdigit()]
-            if plain_numbers:
-                house_number = plain_numbers[-1]
-            else:
-                matcher = Address.ROAD_WITH_NUMBER_PATTERN.match(road)
-                if matcher:
-                    road = matcher.group('road')
-                    house_number = matcher.group('house_number')
-                else:
-                    numbers = list(itertools.chain((digit_pattern.findall(part) for part in house_number_parts)))
-                    if numbers:
-                        house_number = numbers[-1]
+        # find road
+        possible_roads = [part for part in parts if part and len(Address.DIGIT_PATTERN.findall(part)) < len(part)]
+        if len(possible_roads) == 1:
+            road = possible_roads[0]
+            parts.remove(road)
         else:
-            # house number is most probably appended to the road
-            matcher = Address.ROAD_WITH_NUMBER_PATTERN.match(road)
-            if matcher:
-                road = matcher.group('road')
-                house_number = matcher.group('house_number')
+            # there are more than one candidate for road
+            # find a segment that contains no numbers
+            # if that does not exist selected a segment that contains less numbers
+            possible_roads_2 = [part for part in possible_roads if len(Address.DIGIT_PATTERN.findall(part)) == 0]
+            if len(possible_roads_2) == 1:
+                road = possible_roads_2[0]
+            elif possible_roads_2:
+                road = possible_roads_2[-1]
+            else:
+                road = possible_roads[-1]
+            parts.remove(road)
+
+        # we have one or no parts and number starts with road
+        if len(parts) == 1 and Address.DIGIT_PATTERN.fullmatch(parts[0]):
+            house_number = parts[0]
+            return Address(house_number=house_number, road=road, city=city, post_code=post_code)
+        elif len(parts) == 0 or (len(parts) == 1 and Address.FLAT_NUMBER.fullmatch(parts[0])):
+            match = Address.ROAD_WITH_NUMBER_PATTERN.match(road)
+            if match:
+                house_number = match.group('house_number')
+                road = match.group('road')
+                return Address(house_number=house_number, road=road, city=city, post_code=post_code)
+
+        # find house number
+        possible_house_numbers = [part for part in parts
+                                  if len(Address.SINGLE_DIGIT_PATTERN.findall(part)) == len(part)]
+        if len(possible_house_numbers) == 1:
+            house_number = possible_house_numbers[0]
+            return Address(house_number=house_number, road=road, city=city, post_code=post_code)
+        elif len(possible_house_numbers) > 1:
+            house_number = possible_house_numbers[-1]
+            return Address(house_number=house_number, road=road, city=city, post_code=post_code)
+
+        # there is no segment that contains only digits, so find a segment that contains more digits than characters
+        possible_house_numbers_2 = [part for part in parts
+                                    if len(Address.SINGLE_DIGIT_PATTERN.findall(part)) >= float(len(part)) / 2.0]
+        if len(possible_house_numbers_2) == 1:
+            house_number = possible_house_numbers_2[0]
+        elif len(possible_house_numbers_2) > 1:
+            house_number = possible_house_numbers_2[-1]
+        elif parts:
+            # still no clue what the house number is
+            possible_road = next((part for part in parts if Address.ROAD_WITH_NUMBER_PATTERN.match(part)), None)
+            if possible_road:
+                match = Address.ROAD_WITH_NUMBER_PATTERN.match(possible_road)
+                house_number = match.group('house_number')
+                road = match.group('road')
+            else:
+                match = Address.ROAD_WITH_NUMBER_PATTERN.match(road)
+                if match:
+                    house_number = match.group('house_number')
+                    road = match.group('road')
+                else:
+                    house_number = parts[-1]
 
         return Address(post_code=post_code, city=city, road=road, house_number=house_number)
