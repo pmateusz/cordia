@@ -219,10 +219,13 @@ class Parser:
             return value_to_use
         elif value_to_use == rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME:
             return value_to_use
-        msg = "Name '{0}' does not match any duration estimator. Please use a valid name, for example: {1}, {2}".format(
-            text_value,
-            rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME,
-            rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME)
+        elif value_to_use == rows.sql_data_source.SqlDataSource.PlannedDurationEstimator.NAME:
+            return value_to_use
+        msg = "Name '{0}' does not match any duration estimator." \
+              " Please use a valid name, for example: {1}, {2} or {3}".format(text_value,
+                                                                              rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME,
+                                                                              rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME,
+                                                                              rows.sql_data_source.SqlDataSource.PlannedDurationEstimator.NAME)
         raise argparse.ArgumentTypeError(msg)
 
     @staticmethod

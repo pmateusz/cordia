@@ -231,8 +231,8 @@ ORDER BY tasks, visit_id
 
     class IntervalEstimatorBase(object):
 
-        def __init__(self):
-            pass
+        def __init__(self, min_duration=None):
+            self.__min_duration = self.__get_min_duration(min_duration)
 
         def __call__(self, local_visit):
             return local_visit.duration
@@ -273,32 +273,40 @@ ORDER BY tasks, visit_id
         def should_reload(self):
             return False
 
+        @property
+        def min_duration(self):
+            return self.__min_duration
+
+        @staticmethod
+        def __get_min_duration(min_duration):
+            if not min_duration:
+                return 0
+
+            date_time = datetime.datetime.strptime(min_duration, '%H:%M:%S')
+            time_delta = datetime.timedelta(hours=date_time.hour,
+                                            minutes=date_time.minute,
+                                            seconds=date_time.second)
+            return time_delta.total_seconds()
+
     class GlobalTaskConfidenceIntervalEstimator(IntervalEstimatorBase):
 
-        NAME = 'global_confidence_interval_estimator'
+        NAME = 'global_ci'
 
-        def __init__(self, percentile, confidence, error):
-            super(SqlDataSource.GlobalTaskConfidenceIntervalEstimator, self).__init__()
-
+        def __init__(self, percentile, confidence, error, min_duration=None):
+            super(SqlDataSource.GlobalTaskConfidenceIntervalEstimator, self).__init__(min_duration=min_duration)
+            self.__sampler = IntervalSampler(percentile, confidence, error)
             self.__duration_by_task = {}
-            self.__percentile = percentile
-            self.__confidence = confidence
-            self.__error = error
-            self.__sampler = IntervalSampler(self.__percentile, self.__confidence, self.__error)
 
         def reload(self, console, connection_factory):
             self.__duration_by_task.clear()
-
             super(SqlDataSource.GlobalTaskConfidenceIntervalEstimator, self).reload(console, connection_factory)
 
         def process(self, key, group):
             durations = [row[3] for row in group]
-
-            durations_len = len(durations)
-            _lower_limit, upper_limit, _confidence = self.__sampler(durations_len)
-            if upper_limit:
+            _lower_limit, upper_limit, _confidence = self.__sampler(len(durations))
+            if upper_limit and self.min_duration < upper_limit:
                 durations.sort()
-                self.__duration_by_task[key] = durations[upper_limit]
+                self.__duration_by_task[key] = str(durations[upper_limit])
 
         @property
         def should_reload(self):
@@ -307,20 +315,21 @@ ORDER BY tasks, visit_id
         def __call__(self, local_visit):
             value = self.__duration_by_task.get(local_visit.tasks, None)
             if value:
-                if isinstance(value, str):
-                    return value
-                return str(value)
+                return value
             return super(SqlDataSource.IntervalEstimatorBase, self).__call__(local_visit)
 
     class GlobalPercentileEstimator(IntervalEstimatorBase):
 
-        NAME = 'global_percentile_estimator'
+        NAME = 'global_percentile'
 
-        def __init__(self, percentile):
-            super(SqlDataSource.GlobalPercentileEstimator, self).__init__()
-
+        def __init__(self, percentile, min_duration=None):
+            super(SqlDataSource.GlobalPercentileEstimator, self).__init__(min_duration=min_duration)
             self.__duration_by_task = {}
             self.__percentile = percentile
+
+        @property
+        def should_reload(self):
+            return bool(self.__duration_by_task)
 
         def reload(self, console, connection_factory):
             self.__duration_by_task.clear()
@@ -330,29 +339,26 @@ ORDER BY tasks, visit_id
         def process(self, key, group):
             durations = [row[3] for row in group]
             durations.sort()
-            self.__duration_by_task[key] = get_percentile(self.__percentile, durations)
 
-        @property
-        def should_reload(self):
-            return bool(self.__duration_by_task)
+            percentile_duration = get_percentile(self.__percentile, durations)
+            if percentile_duration and self.min_duration < percentile_duration:
+                self.__duration_by_task[key] = str(percentile_duration)
 
         def __call__(self, local_visit):
             value = self.__duration_by_task.get(local_visit.tasks, None)
-            if value:
-                if isinstance(value, str):
-                    return value
-                return str(value)
-            return super(SqlDataSource.GlobalPercentileEstimator, self).__call__(local_visit)
+            return value if value else super(SqlDataSource.GlobalPercentileEstimator, self).__call__(local_visit)
 
     class PlannedDurationEstimator:
+
+        NAME = 'fixed'
 
         def __init__(self):
             pass
 
-        def reload(self, console):
+        def reload(self, console, connection_factory):
             pass
 
-        def reload_if(self, console):
+        def reload_if(self, console, connection_factory):
             pass
 
         def __call__(self, local_visit):

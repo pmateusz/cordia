@@ -66,14 +66,24 @@ class Handler:
 
     @staticmethod
     def __create_estimator(name):
+        percentile = 0.75
+        confidence = 0.90
+        error = 0.005
+        min_duration = '00:05:00'
+
         if not name:
             return SqlDataSource.PlannedDurationEstimator()
 
-        name_to_use = name.strip().lower()
+        name_to_use = Handler.__normalize(name)
         if name_to_use == SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME:
-            return SqlDataSource.GlobalTaskConfidenceIntervalEstimator()
+            return SqlDataSource.GlobalTaskConfidenceIntervalEstimator(percentile,
+                                                                       confidence,
+                                                                       error,
+                                                                       min_duration=min_duration)
         elif name_to_use == SqlDataSource.GlobalPercentileEstimator.NAME:
-            return SqlDataSource.GlobalPercentileEstimator(0.75)
+            return SqlDataSource.GlobalPercentileEstimator(percentile, min_duration=min_duration)
+        elif name_to_use == SqlDataSource.PlannedDurationEstimator.NAME:
+            return SqlDataSource.PlannedDurationEstimator()
         return SqlDataSource.PlannedDurationEstimator()
 
     @staticmethod
