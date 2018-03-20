@@ -92,11 +92,11 @@ void ParseArgs(int argc, char **argv) {
     gflags::SetUsageMessage("Robust Optimization for Workforce Scheduling\n"
                                     "Example: rows-main"
                                     " --problem=problem.json"
-                                    " --map=./data/scotland-latest.osrm"
+                                    " --maps=./data/scotland-latest.osrm"
                                     " --solution=past_solution.json"
                                     " --output=solution.gexf"
                                     " --time-limit=00:30:00"
-                                    " --solution-limit=1024");
+                                    " --solutions-limit=1024");
 
     FLAGS_output = util::file::GenerateNewFilePath("solution.gexf");
 

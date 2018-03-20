@@ -51,13 +51,6 @@ namespace rows {
         const auto central_location = solver.depot();
         gexf.SetDefaultValues(central_location);
 
-        const auto depot_id = gexf.DepotId(SolverWrapper::DEPOT);
-        gexf.AddNode(depot_id, "depot");
-
-        gexf.SetNodeValue(depot_id, LATITUDE, central_location.latitude());
-        gexf.SetNodeValue(depot_id, LONGITUDE, central_location.longitude());
-        gexf.SetNodeValue(depot_id, TYPE, VISIT_NODE);
-
         for (operations_research::RoutingModel::NodeIndex visit_index{1};
              visit_index < model.nodes();
              ++visit_index) {
@@ -148,14 +141,10 @@ namespace rows {
             auto start_visit_index = model.Start(vehicle);
             DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit_index))));
 
-            while (true) {
+            do {
                 const auto start_visit_node = model.IndexToNode(start_visit_index);
-                std::string start_visit_id;
-
-                if (start_visit_node == SolverWrapper::DEPOT) {
-                    start_visit_id = gexf.DepotId(start_visit_node);
-                } else {
-                    start_visit_id = gexf.VisitId(start_visit_node);
+                if (start_visit_node != SolverWrapper::DEPOT) {
+                    std::string start_visit_id = gexf.VisitId(start_visit_node);
 
                     const auto &calendar_visit = solver.NodeToVisit(start_visit_node);
                     route.emplace_back(ScheduledVisit::VisitType::UNKNOWN, carer, calendar_visit);
@@ -172,39 +161,38 @@ namespace rows {
                     gexf.SetNodeValue(start_visit_id,
                                       SATISFACTION,
                                       std::to_string(service_user.Preference(carer)));
+
+                    if (model.IsEnd(start_visit_index)) {
+                        break;
+                    }
+
+                    const auto end_visit_index = solution.Value(model.NextVar(start_visit_index));
+                    const auto end_visit_node = model.IndexToNode(end_visit_index);
+                    if (end_visit_node != SolverWrapper::DEPOT) {
+                        std::string end_visit_id = gexf.VisitId(end_visit_node);
+
+                        const auto visit_visit_edge_id = gexf.EdgeId(start_visit_id, end_visit_id, "r_");
+                        gexf.AddEdge(visit_visit_edge_id,
+                                     start_visit_id,
+                                     end_visit_id,
+                                     (boost::format("Visit %1% after %2%")
+                                      % start_visit_node
+                                      % end_visit_node).str());
+
+                        const auto travel_time = solver.Distance(start_visit_node, end_visit_node);
+                        DCHECK_GE(travel_time, 0);
+                        if (!model.IsEnd(end_visit_index)) {
+                            gexf.SetNodeValue(end_visit_id, ASSIGNED_CARER, carer.sap_number());
+                        }
+
+                        gexf.SetEdgeValue(visit_visit_edge_id,
+                                          TRAVEL_TIME,
+                                          boost::posix_time::seconds(travel_time));
+                    }
                 }
 
-                if (model.IsEnd(start_visit_index)) { break; }
-
-                const auto end_visit_index = solution.Value(model.NextVar(start_visit_index));
-                const auto end_visit_node = model.IndexToNode(end_visit_index);
-
-                std::string end_visit_id;
-                if (end_visit_node == SolverWrapper::DEPOT) {
-                    end_visit_id = gexf.DepotId(end_visit_node);
-                } else {
-                    end_visit_id = gexf.VisitId(end_visit_node);
-                }
-
-                const auto visit_visit_edge_id = gexf.EdgeId(start_visit_id, end_visit_id, "r_");
-                gexf.AddEdge(visit_visit_edge_id,
-                             start_visit_id,
-                             end_visit_id,
-                             (boost::format("Visit %1% after %2%")
-                              % start_visit_node
-                              % end_visit_node).str());
-
-                const auto travel_time = solver.Distance(start_visit_node, end_visit_node);
-                DCHECK_GE(travel_time, 0);
-                if (!model.IsEnd(end_visit_index)) {
-                    gexf.SetNodeValue(end_visit_id, ASSIGNED_CARER, carer.sap_number());
-                }
-
-                gexf.SetEdgeValue(visit_visit_edge_id,
-                                  TRAVEL_TIME,
-                                  boost::posix_time::seconds(travel_time));
-                start_visit_index = end_visit_index;
-            }
+                start_visit_index = solution.Value(model.NextVar(start_visit_index));
+            } while (!model.IsEnd(start_visit_index));
 
             if (route.empty()) {
                 continue;

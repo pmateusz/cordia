@@ -167,7 +167,14 @@ void rows::Solution::UpdateVisitProperties(const std::vector<rows::CalendarVisit
             return left_duration.total_seconds() <= right_duration.total_seconds();
         };
 
+        // find min date in visit index
         const auto calendar_visits_pair_it = visit_index.find(visit.service_user().get());
+        if (calendar_visits_pair_it == std::cend(visit_index)) {
+            // solution has a user who is not present in the problem
+            // this situation may happen when a warm start solution does not match original problem
+            continue;
+        }
+
         const auto closest_visit_it = std::min_element(std::cbegin(calendar_visits_pair_it->second),
                                                        std::cend(calendar_visits_pair_it->second),
                                                        start_time_distance);
