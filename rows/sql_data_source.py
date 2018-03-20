@@ -412,10 +412,11 @@ ORDER BY tasks, visit_id
             else:
                 visits_by_service_user[service_user_id] = [local_visit]
 
-        self.__console.write_line('Change in visit duration: mean {0}, median: {1}, stddev {2}'
-                                  .format(datetime.timedelta(seconds=int(statistics.mean(time_change))),
-                                          datetime.timedelta(seconds=int(statistics.median(time_change))),
-                                          datetime.timedelta(seconds=int(statistics.stdev(time_change)))))
+        if time_change:
+            self.__console.write_line('Change in visit duration: mean {0}, median: {1}, stddev {2}'
+                                      .format(datetime.timedelta(seconds=int(statistics.mean(time_change))),
+                                              datetime.timedelta(seconds=int(statistics.median(time_change))),
+                                              datetime.timedelta(seconds=int(statistics.stdev(time_change)))))
 
         return [Problem.LocalVisits(service_user=str(service_user_id), visits=visits)
                 for service_user_id, visits in visits_by_service_user.items()]
@@ -480,7 +481,16 @@ ORDER BY tasks, visit_id
     def __get_connection(self):
         if self.__connection:
             return self.__connection
-        self.__connection = pyodbc.connect(self.__get_connection_string())
+        try:
+            self.__connection = pyodbc.connect(self.__get_connection_string())
+        except pyodbc.OperationalError as ex:
+            error_msg = "Failed to establish connection with the database server: '{0}'. " \
+                        "Ensure that the database server is available in the network," \
+                        " database '{1}' exists, username '{2}' is authorized to access the database." \
+                        " and the password is valid".format(self.__settings.database_server,
+                                                            self.__settings.database_name,
+                                                            self.__settings.database_user)
+            raise RuntimeError(error_msg, ex)
         return self.__connection
 
     def __enter__(self):
@@ -494,10 +504,12 @@ ORDER BY tasks, visit_id
 
     def __load_credentials(self):
         path = pathlib.Path(real_path(self.__settings.database_credentials_path))
-        if path.exists():
+        try:
             with path.open() as file_stream:
                 return file_stream.read().strip()
-        return ""
+        except FileNotFoundError as ex:
+            raise RuntimeError("Failed to open the the file '{0}' which is expected to store the database credentials."
+                               " Create the file in the specified location and try again.".format(path), ex)
 
     def __build_connection_string(self):
         config = {'Driver': '{ODBC Driver 13 for SQL Server}',
@@ -506,5 +518,6 @@ ORDER BY tasks, visit_id
                   'UID': self.__settings.database_user,
                   'PWD': self.__load_credentials(),
                   'Encrypt': 'yes',
+                  'Connection Timeout': 5,
                   'TrustServerCertificate': 'yes'}
         return ';'.join(['{0}={1}'.format(key, value) for key, value in config.items()])

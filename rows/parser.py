@@ -4,6 +4,7 @@ import argparse
 import datetime
 import os
 import dateutil.parser
+import copy
 
 import rows.util
 import rows.sql_data_source
@@ -50,10 +51,9 @@ class Parser:
     """Parse and validate command line arguments."""
     COMMAND_PARSER = 'COMMAND NAME'
 
-    VERSION_COMMAND = '--version'
+    VERSION_COMMAND = 'version'
 
-    EXPORT_COMMAND = 'export'
-    EXPORT_OUTPUT_ARGUMENT = '--output'
+    VERBOSE_ARGUMENT = '--verbose'
 
     SOLVE_COMMAND = 'solve'
     SOLVE_PROBLEM_ARG = 'problem'
@@ -103,20 +103,25 @@ class Parser:
                                                 description='Robust Optimization '
                                                             'for Workforce Scheduling command line utility')
 
-        self.__parser.add_argument('-v',
-                                   Parser.VERSION_COMMAND,
-                                   help='show the version of this program and exit',
-                                   action='store_true')
+        def add_verbose_option(parser):
+            parser.add_argument('-v',
+                                Parser.VERBOSE_ARGUMENT,
+                                help='run application with the verbose logging',
+                                action='store_true')
+
+        add_verbose_option(self.__parser)
 
         subparsers = self.__parser.add_subparsers(dest=Parser.COMMAND_PARSER)
+
+        version_parser = subparsers.add_parser(Parser.VERSION_COMMAND, help='show the version of this program and exit')
+        add_verbose_option(version_parser)
 
         pull_parser = subparsers.add_parser(name=Parser.PULL_COMMAND,
                                             help='pull an instance of the scheduling problem from an external source')
 
         pull_parser.add_argument(Parser.PULL_AREA_ARG,
                                  help='an administration, operations and management area'
-                                      ' where the requested visits are assigned to',
-                                 type=self.parse_area)
+                                      ' where the requested visits are assigned to')
         pull_parser.add_argument('-f',
                                  Parser.PULL_FROM_ARG,
                                  help='limit considered visits to these that are requested'
@@ -140,6 +145,7 @@ class Parser:
                                  help='estimate duration based on historical records',
                                  type=Parser.__parse_duration_estimator,
                                  default=None)
+        add_verbose_option(pull_parser)
 
         solve_parser = subparsers.add_parser(name='solve', help='solve an instance of the scheduling problem')
 
@@ -158,13 +164,7 @@ class Parser:
                                   help='set limit on the wall time',
                                   type=str,
                                   default=None)
-
-        export_parser = subparsers.add_parser(name=Parser.EXPORT_COMMAND,
-                                              help='export a schedule in the CSV format')
-        export_parser.add_argument('-o',
-                                   Parser.EXPORT_OUTPUT_ARGUMENT,
-                                   help='an output file where the schedule should be saved',
-                                   type=Parser.__parse_file_path)
+        add_verbose_option(solve_parser)
 
     def parse_args(self, args=None):
         """Parse command line arguments"""
@@ -181,6 +181,17 @@ class Parser:
                     Parser.__set_argument(namespace, Parser.PULL_TO_ARG,
                                           ValueHolder(from_holder.value + Parser.PULL_WINDOW_WIDTH_DEFAULT, False))
         return namespace
+
+    def parse_database_objects(self, args):
+        """Parse objects that require access to the database"""
+
+        args_to_use = copy.copy(args)
+        area_name = getattr(args_to_use, 'area')
+        if area_name:
+            area = self.parse_area(area_name)
+            setattr(args_to_use, 'area', area)
+
+        return args_to_use
 
     @staticmethod
     def get_argument(namespace, argument):

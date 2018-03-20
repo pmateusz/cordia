@@ -7,6 +7,7 @@ Run with the `--help` option for more information on the supported commands and 
 
 import sys
 import logging
+import os.path
 
 import rows.application
 
@@ -29,13 +30,16 @@ if __name__ == '__main__':
     EXIT_CODE = 0
 
     try:
-        APPLICATION = rows.application.Application()
-        APPLICATION.load()
-        EXIT_CODE = APPLICATION.run(sys.argv[1:])
+        script_file = os.path.realpath(__file__)
+        install_dir = os.path.dirname(script_file)
+        APPLICATION = rows.application.Application(install_dir)
+        args_to_use = APPLICATION.load(sys.argv[1:])
+        EXIT_CODE = APPLICATION.run(args_to_use)
     except RuntimeError as ex:
-        print(ex.args[0], file=sys.stderr)
-
-        logging.error(ex, exc_info=True)
+        if ex.args:
+            print(ex.args[0], file=sys.stderr)
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
+            logging.error(ex, exc_info=True)
         EXIT_CODE = 1
     finally:
         if APPLICATION:

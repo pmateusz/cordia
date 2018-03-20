@@ -1,12 +1,12 @@
 """Finds longitude and latitude for an address"""
 
-import urllib.parse
-
 import copy
 import json
 import logging
 import re
 import sys
+import urllib.parse
+import os.path
 
 import requests
 
@@ -157,11 +157,11 @@ class FileSystemCache:
         try:
             locations = {}
             if not self.__load(self.__location_cache_path(True), locations):
-                logging.warning('Failed to load addresses already resolved by the web service from the file: {0}'
+                logging.warning('Failed to load addresses already resolved by the web service from: {0}'
                                 .format(self.__location_cache_path(False)))
 
             if not self.__load(self.__difficult_locations_path(True), locations):
-                logging.warning('Failed to load addresses that cannot be resolved by the web service from the file: {0}'
+                logging.warning('Failed to load addresses that cannot be resolved by the web service from: {0}'
                                 .format(self.__difficult_locations_path(False)))
             self.__cache = locations
             return True
@@ -179,10 +179,15 @@ class FileSystemCache:
         """Saves a copy of cached entries in the file system"""
 
         try:
-            with open(self.__location_cache_path(), 'w') as stream:
-                json.dump(list(self.__cache.items()), stream, indent=2, sort_keys=True, cls=rows.model.json.JSONEncoder)
+            self.__save_as_json(list(self.__cache.items()), self.__location_cache_path())
         except RuntimeError:
             logging.error('Failed to save location cache due to error: %s', sys.exc_info()[0])
+
+        try:
+            if not os.path.exists(self.__difficult_locations_path()):
+                self.__save_as_json([], self.__difficult_locations_path())
+        except RuntimeError:
+            logging.error('Failed to create the difficult location cache due to error: %s', sys.exc_info()[0])
 
     def __location_cache_path(self, resolve_env_vars=True):
         file_path = self.__settings.location_cache_path
@@ -191,6 +196,11 @@ class FileSystemCache:
     def __difficult_locations_path(self, resolve_env_vars=True):
         file_path = self.__settings.difficult_locations_path
         return real_path(file_path) if resolve_env_vars else file_path
+
+    @staticmethod
+    def __save_as_json(value, file_path):
+        with open(file_path, 'w') as stream:
+            json.dump(value, stream, indent=2, sort_keys=True, cls=rows.model.json.JSONEncoder)
 
     @staticmethod
     def __load(path, acc):

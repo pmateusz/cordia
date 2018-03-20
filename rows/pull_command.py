@@ -28,6 +28,9 @@ class Handler:
         duration_estimator = getattr(command, 'duration_estimator', None)
         problem = self.__create_problem(area, begin_date, end_date, duration_estimator)
         try:
+            if not problem.visits:
+                logging.warning('Problem does not contain any visits')
+
             with open(output_file, self.__application.output_file_mode) as file_stream:
                 json.dump(problem, file_stream, indent=2, sort_keys=False, cls=JSONEncoder)
             return 0
