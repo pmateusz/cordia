@@ -144,13 +144,6 @@ A DEB package of the [Google Operations Research Tools 6.6](https://github.com/g
 
 1. Create the `.dev` file that contains password to the database.
 
-1. Apply workarounds for known issues: https://github.com/pmateusz/cordia/issues/60
-    ```shell
-    mkdir -p data/cordia/data/cordia
-    touch data/cordia/data/cordia/location_cache.json
-    echo "{}" >> settings.json
-    ```
-
 ### Examples
 
 Print help.
