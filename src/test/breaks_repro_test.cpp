@@ -521,9 +521,7 @@ rows::Problem LoadReducedProblem(const std::string &problem_path) {
                         % timespan_pair.first.date();
     }
 
-    const auto problem_to_use = problem.Trim(timespan_pair.first, boost::posix_time::hours(24));
-    DCHECK(problem_to_use.IsAdmissible());
-    return problem_to_use;
+    return problem.Trim(timespan_pair.first, boost::posix_time::hours(24));
 }
 
 rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem) {

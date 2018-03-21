@@ -31,7 +31,14 @@ namespace util {
         bool IsPositive(const char *flagname, Number value);
     }
 
-    namespace date_time {
+    namespace time_duration {
+
+        bool IsNullOrPositive(const char *flagname, const std::string &value);
+
+        bool IsPositive(const char *flagname, const std::string &value);
+    }
+
+    namespace date {
 
         bool IsNullOrPositive(const char *flagname, const std::string &value);
 

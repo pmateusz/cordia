@@ -79,13 +79,18 @@ DEFINE_string(output, "solution.gexf", "a file path to save the solution");
 DEFINE_validator(output, &util::file::IsNullOrNotExists);
 
 DEFINE_string(time_limit, "", "total time dedicated for computation");
-DEFINE_validator(time_limit, &util::date_time::IsNullOrPositive);
+DEFINE_validator(time_limit, &util::time_duration::IsNullOrPositive);
 
 static const auto DEFAULT_SOLUTION_LIMIT = std::numeric_limits<int64>::max();
 DEFINE_int64(solutions_limit,
              DEFAULT_SOLUTION_LIMIT,
              "total number of solutions considered in the computation");
 DEFINE_validator(solutions_limit, &util::numeric::IsPositive);
+
+DEFINE_string(scheduling_date,
+              "",
+              "day to compute schedule for. By default it is the day of the earliest requested visit in the problem");
+DEFINE_validator(scheduling_date, &util::date::IsNullOrPositive);
 
 void ParseArgs(int argc, char **argv) {
     gflags::SetVersionString("0.0.1");
@@ -94,6 +99,7 @@ void ParseArgs(int argc, char **argv) {
                                     " --problem=problem.json"
                                     " --maps=./data/scotland-latest.osrm"
                                     " --solution=past_solution.json"
+                                    " --scheduling-date=2017-01-13"
                                     " --output=solution.gexf"
                                     " --time-limit=00:30:00"
                                     " --solutions-limit=1024");
@@ -105,14 +111,16 @@ void ParseArgs(int argc, char **argv) {
 
     VLOG(1) << boost::format("Launched with the arguments:\n"
                                      "problem: %1%\n"
-                                     "map: %2%\n"
-                                     "past-solution: %3%\n"
-                                     "output: %4%\n"
-                                     "time-limit: %5%\n"
-                                     "solution-limit: %6%")
+                                     "maps: %2%\n"
+                                     "solution: %3%\n"
+                                     "scheduling-date: %4%\n"
+                                     "output: %5%\n"
+                                     "time-limit: %6%\n"
+                                     "solutions-limit: %7%")
                % FLAGS_problem
                % FLAGS_maps
                % FLAGS_solution
+               % (FLAGS_scheduling_date.empty() ? "not set" : FLAGS_scheduling_date)
                % FLAGS_output
                % (FLAGS_time_limit.empty() ? "no" : FLAGS_time_limit)
                % FLAGS_solutions_limit;
@@ -266,17 +274,35 @@ private:
                     util::ErrorCode::ERROR);
         }
 
+
         const auto timespan_pair = problem.Timespan();
-        if (timespan_pair.first.date() < timespan_pair.second.date()) {
-            printer_->operator<<(
-                    (boost::format("Problem contains records from several days."
-                                           " The computed solution will be reduced to a single day: '%1%'")
-                     % timespan_pair.first.date()).str());
+        if (FLAGS_scheduling_date.empty()) {
+            if (timespan_pair.first < timespan_pair.second) {
+                printer_->operator<<(
+                        (boost::format("Problem contains records from several days."
+                                               " The computed solution will be reduced to a single day: '%1%'")
+                         % timespan_pair.first.date()).str());
+
+                return problem.Trim(timespan_pair.first, boost::posix_time::hours(24));
+            }
+
+            return problem;
         }
 
-        const auto problem_to_use = problem.Trim(timespan_pair.first, boost::posix_time::hours(24));
-        DCHECK(problem_to_use.IsAdmissible());
-        return problem_to_use;
+        const boost::posix_time::ptime scheduling_date{boost::gregorian::from_simple_string(FLAGS_scheduling_date)};
+        if (timespan_pair.first == timespan_pair.second && timespan_pair.first == scheduling_date) {
+            return problem;
+        } else if (timespan_pair.first <= scheduling_date
+                   && scheduling_date <= timespan_pair.second) {
+            return problem.Trim(scheduling_date, boost::posix_time::hours(24));
+        } else {
+            throw util::ApplicationError(
+                    (boost::format("Scheduling day '%1%' does not fin into the interval ['%2%','%3%']")
+                     % scheduling_date.date()
+                     % timespan_pair.first.date()
+                     % timespan_pair.second.date()).str(),
+                    util::ErrorCode::ERROR);
+        }
     }
 
     rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem) {

@@ -93,7 +93,11 @@ namespace rows {
             }
         }
 
-        return Problem(std::move(visits_to_use), std::move(carers_to_use), std::move(service_users_to_use));
+        const Problem problem_to_use(std::move(visits_to_use),
+                                     std::move(carers_to_use),
+                                     std::move(service_users_to_use));
+        DCHECK(problem_to_use.IsAdmissible());
+        return problem_to_use;
     }
 
     void Problem::RemoveCancelled(const std::vector<rows::ScheduledVisit> &visits) {

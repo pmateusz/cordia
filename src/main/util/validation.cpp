@@ -82,7 +82,7 @@ std::string util::file::GenerateNewFilePath(const std::string &pattern) {
     return file_path.string();
 }
 
-bool util::date_time::IsPositive(const char *flagname, const std::string &value) {
+bool util::time_duration::IsPositive(const char *flagname, const std::string &value) {
     const auto duration = boost::posix_time::duration_from_string(value);
     if (duration.is_negative() || duration.total_seconds() <= 0) {
         LOG(ERROR) << boost::format("Duration %1% is not positive")
@@ -93,12 +93,29 @@ bool util::date_time::IsPositive(const char *flagname, const std::string &value)
     return true;
 }
 
-bool util::date_time::IsNullOrPositive(const char *flagname, const std::string &value) {
+bool util::time_duration::IsNullOrPositive(const char *flagname, const std::string &value) {
     if (value.empty()) {
         return true;
     }
 
     return IsPositive(flagname, value);
+}
+
+bool util::date::IsNullOrPositive(const char *flagname, const std::string &value) {
+    if (value.empty()) {
+        return true;
+    }
+
+    return IsPositive(flagname, value);
+}
+
+bool util::date::IsPositive(const char *flagname, const std::string &value) {
+    const auto date = boost::gregorian::from_simple_string(value);
+    if (date.is_special()) {
+        LOG(ERROR) << boost::format("Date %1% is not recognized") % value;
+        return false;
+    }
+    return true;
 }
 
 void util::string::Strip(std::string &text) {
