@@ -160,4 +160,10 @@ namespace rows {
 
         return boost::optional<Diary>();
     }
+
+    std::domain_error Problem::JsonLoader::OnUserPropertyNotSet(std::string property, std::string user) const {
+        return std::domain_error((boost::format("Property %1% not set for the service user %2%")
+                                  % property
+                                  % user).str());
+    }
 }

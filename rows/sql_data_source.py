@@ -413,10 +413,18 @@ ORDER BY tasks, visit_id
                 visits_by_service_user[service_user_id] = [local_visit]
 
         if time_change:
-            self.__console.write_line('Change in visit duration: mean {0}, median: {1}, stddev {2}'
-                                      .format(datetime.timedelta(seconds=int(statistics.mean(time_change))),
-                                              datetime.timedelta(seconds=int(statistics.median(time_change))),
-                                              datetime.timedelta(seconds=int(statistics.stdev(time_change)))))
+            mean_stats = int(statistics.mean(time_change))
+            median_stats = int(statistics.median(time_change))
+            stddev_stats = int(statistics.stdev(time_change))
+
+            def get_sign(value):
+                return '-' if value < 0 else '+'
+
+            # we apply custom logic to display negative duration, because the standard format is misleading
+            self.__console.write_line('Change in visit duration: mean {0}{1}, median: {2}{3}, stddev {4}{5}'
+                                      .format(get_sign(mean_stats), datetime.timedelta(seconds=abs(mean_stats)),
+                                              get_sign(median_stats), datetime.timedelta(seconds=abs(median_stats)),
+                                              get_sign(stddev_stats), datetime.timedelta(seconds=abs(stddev_stats))))
 
         return [Problem.LocalVisits(service_user=str(service_user_id), visits=visits)
                 for service_user_id, visits in visits_by_service_user.items()]

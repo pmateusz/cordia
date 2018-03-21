@@ -68,6 +68,8 @@ namespace rows {
 
             template<typename JsonType>
             std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > LoadCarers(const JsonType &document);
+
+            std::domain_error OnUserPropertyNotSet(std::string item_key, std::string user_key) const;
         };
 
         void RemoveCancelled(const std::vector<rows::ScheduledVisit> &visits);
@@ -101,16 +103,27 @@ namespace rows {
             auto key = key_it.value().template get<std::string>();
 
             const auto address_it = service_user_json.find("address");
-            if (address_it == std::end(service_user_json)) { throw OnKeyNotFound("address"); }
+            if (address_it == std::end(service_user_json)) { throw OnUserPropertyNotSet("address", key); }
             auto address = address_loader.Load(address_it.value());
 
             const auto location_it = service_user_json.find("location");
-            if (location_it == std::end(service_user_json)) { throw OnKeyNotFound("location"); }
-            auto location = location_loader.Load(location_it.value());
+            if (location_it == std::end(service_user_json)) { throw OnUserPropertyNotSet("location", key); }
+            rows::Location location;
+            try {
+                location = location_loader.Load(location_it.value());
+            } catch (const std::domain_error &ex) {
+                throw std::domain_error(
+                        (boost::format("Failed to load property location of the user %'1%' due to error: %2%")
+                         % key
+                         % ex.what()).str());
+            }
 
             std::unordered_map<Carer, double> carer_preference;
             const auto carer_preference_it = service_user_json.find("carer_preference");
-            if (carer_preference_it == std::end(service_user_json)) { throw OnKeyNotFound("carer_preference"); }
+            if (carer_preference_it == std::end(service_user_json)) {
+                throw OnUserPropertyNotSet("carer_preference", key);
+            }
+
             for (const auto &carer_preference_row : carer_preference_it.value()) {
                 Carer carer{carer_preference_row.at(0).template get<std::string>()};
                 const auto preference = carer_preference_row.at(1).template get<double>();

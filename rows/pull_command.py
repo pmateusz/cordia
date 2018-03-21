@@ -54,7 +54,7 @@ class Handler:
 
     @staticmethod
     def __create_estimator(name):
-        percentile = 0.75
+        percentile = 0.60
         confidence = 0.90
         error = 0.005
         min_duration = '00:05:00'

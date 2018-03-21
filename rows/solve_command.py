@@ -77,6 +77,11 @@ class Handler:
             if time_limit_arg:
                 args.append('--time-limit=' + time_limit_arg)
 
+            schedule_date_arg = getattr(command, 'schedule_date')
+            if schedule_date_arg:
+                args.append('--scheduling-date={0}-{1}-{2}'.format(schedule_date_arg.year,
+                                                                   schedule_date_arg.month,
+                                                                   schedule_date_arg.day))
             args.append('--console-format=json')
             return args
 

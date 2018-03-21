@@ -294,12 +294,12 @@ class RobustLocationFinder:
             return None
 
         if isinstance(result.result_set, list):
-            logging.warning(
-                "Too many locations returned for an address '%s'."
-                " Selecting the first one to resolve conflict.",
-                address)
-            bundle = next((location for location in result.result_set if is_within_range(location)), None)
+            for row in result.result_set:
+                if Result.LOCATION in row:
+                    location = row[Result.LOCATION]
+                    if is_within_range(location):
+                        return location
+            logging.error("Failed to find an address '%s'. None of returned results contains a GPS location.", address)
+            return None
         else:
-            bundle = result.result_set
-
-        return bundle[Result.LOCATION]
+            return result.result_set[Result.LOCATION]

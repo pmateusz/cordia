@@ -60,6 +60,7 @@ class Parser:
     SOLVE_START_ARG = '--start'
     SOLVE_SOLUTIONS_LIMIT_ARG = '--solutions-limit'
     SOLVE_TIME_LIMIT_ARG = '--time-limit'
+    SOLVE_SCHEDULE_DATE = '--schedule-date'
 
     PULL_COMMAND = 'pull'
     PULL_AREA_ARG = 'area'
@@ -164,6 +165,10 @@ class Parser:
                                   help='set limit on the wall time',
                                   type=str,
                                   default=None)
+        solve_parser.add_argument(Parser.SOLVE_SCHEDULE_DATE,
+                                  help='set day to compute schedule for',
+                                  type=Parser.__parse_date,
+                                  default=None)
         add_verbose_option(solve_parser)
 
     def parse_args(self, args=None):
@@ -186,10 +191,10 @@ class Parser:
         """Parse objects that require access to the database"""
 
         args_to_use = copy.copy(args)
-        area_name = getattr(args_to_use, 'area')
+        area_name = self.get_argument(args_to_use, self.PULL_AREA_ARG)
         if area_name:
             area = self.parse_area(area_name)
-            setattr(args_to_use, 'area', area)
+            self.__set_argument(args_to_use, self.PULL_AREA_ARG, area)
 
         return args_to_use
 
@@ -198,7 +203,7 @@ class Parser:
         """Get the 'argument' property from the 'namespace' object"""
 
         argument_to_use = argument.lstrip('-')
-        return getattr(namespace, argument_to_use)
+        return getattr(namespace, argument_to_use, None)
 
     @staticmethod
     def __set_argument(namespace, argument, value):

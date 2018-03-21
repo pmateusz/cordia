@@ -4,6 +4,10 @@
 
 namespace rows {
 
+    Location::Location()
+            : longitude_(osrm::util::FixedLongitude()),
+              latitude_(osrm::util::FixedLatitude()) {}
+
     Location::Location(std::string latitude, std::string longitude)
             : latitude_{ToFixedValue(latitude)},
               longitude_{ToFixedValue(longitude)} {}

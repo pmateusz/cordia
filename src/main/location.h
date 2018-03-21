@@ -18,6 +18,8 @@ namespace rows {
 
     class Location {
     public:
+        Location();
+
         Location(std::string latitude, std::string longitude);
 
         Location(osrm::util::FixedLatitude latitude, osrm::util::FixedLongitude longitude);
