@@ -191,42 +191,27 @@ FROM dbo.ListCarerIntervals
 WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
 """
 
-    GLOBAL_VISIT_DURATION = """SELECT visit.visit_id,
-    STRING_AGG(task_id, ';') WITHIN GROUP (ORDER BY visit.task_id) as 'tasks',
-    MAX(visit.planned_duration) as 'planned_duration',
-    MAX(visit.real_duration) as 'real_duration'
-FROM (
-  SELECT visit.visit_id as visit_id,
-          visit.task_id as task_id,
-          MAX(visit.planned_duration) as planned_duration,
-          MAX(visit.real_duration) as real_duration
-  FROM
-  (
-      SELECT visit_id as 'visit_id',
-            CONVERT(int, task_no) as 'task_id',
-            requested_visit_duration * 60 as 'planned_duration',
-            -- date may not be valid (is a day before), so it is removed
-            -- time may span across multiple days, so need to split the difference into 2 parts
-            -- filter out cases where checking and checkout are the same
-            carer_visits.CheckInDateTime as 'checkin',
-            carer_visits.CheckOutDateTime as 'checkout',
-            (SELECT MIN(duration) FROM (
-            VALUES
-            (DATEDIFF(second, CONVERT(time, carer_visits.CheckInDateTime), CONVERT(time, carer_visits.CheckOutDateTime))),
-            (DATEDIFF(second, CONVERT(time, carer_visits.CheckOutDateTime), CONVERT(time, carer_visits.CheckInDateTime))),
-            (DATEDIFF(second, CONVERT(time, carer_visits.CheckInDateTime), CONVERT(time, '23:59:59')) + DATEDIFF(second, CONVERT(time, '00:00:00'), CONVERT(time, carer_visits.CheckOutDateTime)) + 1),
-            (DATEDIFF(second, CONVERT(time, carer_visits.CheckOutDateTime), CONVERT(time, '23:59:59')) + DATEDIFF(second, CONVERT(time, '00:00:00'), CONVERT(time, carer_visits.CheckInDateTime)) + 1)
-            ) as temp(duration)
-            WHERE duration >= 0) AS 'real_duration'
-        FROM dbo.ListVisitsWithinWindow task_visit
-        INNER JOIN dbo.ListCarerVisits carer_visits
-        ON carer_visits.VisitID = task_visit.visit_id
-        WHERE carer_visits.CheckInDateTime != carer_visits.CheckOutDateTime
-    ) visit
-    GROUP BY visit.visit_id, visit.planned_duration, visit.task_id
-) visit
-GROUP BY visit.visit_id
-ORDER BY tasks, visit_id
+    GLOBAL_VISIT_DURATION = """SELECT visit_id,
+STRING_AGG(task_id, ';') WITHIN GROUP (ORDER BY visits.task_id) as 'tasks',
+MIN(visits.planned_duration) as planned_duration,
+MIN(visits.duration) as duration
+FROM
+(
+  SELECT symmetric_visit.visit_id as visit_id, symmetric_visit.task_id as task_id, MAX(symmetric_visit.planned_duration) as planned_duration, MAX(symmetric_visit.duration) as duration
+  FROM (
+    SELECT task_visit.visit_id as 'visit_id',
+    CONVERT(int, task_no) as 'task_id',
+    requested_visit_duration * 60 as 'planned_duration',
+    dbo.CalculateDuration(carer_visits.CheckInDateTime, carer_visits.CheckOutDateTime) as duration
+    FROM dbo.ListVisitsWithinWindow task_visit
+      INNER JOIN dbo.ListCarerVisits carer_visits
+      ON carer_visits.VisitID = task_visit.visit_id
+      WHERE (carer_visits.CheckOutMethod = 1 OR carer_visits.CheckOutMethod = 2)
+    ) symmetric_visit
+    WHERE symmetric_visit.duration >= 15 * 60
+    GROUP BY symmetric_visit.visit_id, symmetric_visit.task_id
+) visits
+GROUP BY visits.visit_id
 """
 
     class IntervalEstimatorBase(object):

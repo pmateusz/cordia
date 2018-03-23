@@ -178,10 +178,11 @@ class FileSystemCache:
     def save(self):
         """Saves a copy of cached entries in the file system"""
 
-        try:
-            self.__save_as_json(list(self.__cache.items()), self.__location_cache_path())
-        except RuntimeError:
-            logging.error('Failed to save location cache due to error: %s', sys.exc_info()[0])
+        if self.__cache:
+            try:
+                self.__save_as_json(list(self.__cache.items()), self.__location_cache_path())
+            except RuntimeError:
+                logging.error('Failed to save location cache due to error: %s', sys.exc_info()[0])
 
         try:
             if not os.path.exists(self.__difficult_locations_path()):

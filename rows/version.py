@@ -2,4 +2,4 @@
 
 import distutils.version
 
-VERSION = distutils.version.StrictVersion('0.0.1')
+VERSION = distutils.version.StrictVersion('1.0.0')

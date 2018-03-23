@@ -200,6 +200,7 @@ class Address(rows.model.object.DataObject):  # pylint: disable=too-many-instanc
         city = next((part for part in parts if part and part.strip().lower() == 'glasgow'), None)
         if city:
             parts.remove(city)
+            city = city.title()
 
         # find post code
         post_code = next((part for part in parts if Address.POST_CODE_PATTERN.match(part)), None)
