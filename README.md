@@ -30,7 +30,7 @@ Change the system locale to en-US.
 Test the connection using the `sqlcmd` utility.
 
 ```shell
-sqlcmd -S 192.168.56.1 -U dev -N -C -l 5
+sqlcmd -S 130.159.46.87 -U dev -N -C -l 5
 ```
 
 Run tests of the Python components.
