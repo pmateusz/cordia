@@ -76,9 +76,7 @@ namespace rows {
             gexf.SetNodeValue(visit_id, USER, visit.service_user().id());
         }
 
-
         static const SolutionValidator validator{};
-
         operations_research::RoutingModel::NodeIndex next_user_node{0};
         std::unordered_map<rows::ServiceUser,
                 operations_research::RoutingModel::NodeIndex> user_ids;
@@ -140,7 +138,6 @@ namespace rows {
 
             auto start_visit_index = model.Start(vehicle);
             DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit_index))));
-
             do {
                 const auto start_visit_node = model.IndexToNode(start_visit_index);
                 if (start_visit_node != SolverWrapper::DEPOT) {
@@ -156,6 +153,10 @@ namespace rows {
                                  (boost::format("NodeToCarer %1% does visit %2%")
                                   % vehicle
                                   % start_visit_node).str());
+
+                    if (!model.IsEnd(start_visit_index)) {
+                        gexf.SetNodeValue(start_visit_id, ASSIGNED_CARER, carer.sap_number());
+                    }
 
                     const auto &service_user = solver.User(solver.NodeToVisit(start_visit_node).service_user());
                     gexf.SetNodeValue(start_visit_id,
@@ -181,10 +182,6 @@ namespace rows {
 
                         const auto travel_time = solver.Distance(start_visit_node, end_visit_node);
                         DCHECK_GE(travel_time, 0);
-                        if (!model.IsEnd(end_visit_index)) {
-                            gexf.SetNodeValue(end_visit_id, ASSIGNED_CARER, carer.sap_number());
-                        }
-
                         gexf.SetEdgeValue(visit_visit_edge_id,
                                           TRAVEL_TIME,
                                           boost::posix_time::seconds(travel_time));
