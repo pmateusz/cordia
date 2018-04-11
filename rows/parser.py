@@ -71,6 +71,7 @@ class Parser:
     PULL_TO_DEFAULT_ARG = PULL_FROM_DEFAULT_ARG + PULL_WINDOW_WIDTH_DEFAULT
     PULL_OUTPUT_ARG = '--output'
     PULL_DURATION_ESTIMATOR_ARG = '--duration-estimator'
+    PULL_RESOURCES_ESTIMATOR_ARG = '--resource-estimator'
 
     class PullFromArgAction(argparse.Action):
         """Validate the 'from' argument"""
@@ -146,6 +147,10 @@ class Parser:
                                  help='estimate duration based on historical records',
                                  type=Parser.__parse_duration_estimator,
                                  default=None)
+        pull_parser.add_argument(Parser.PULL_RESOURCES_ESTIMATOR_ARG,
+                                 help='use declared resource limits or retrieve them from a solution',
+                                 type=Parser.__parse_resources)
+
         add_verbose_option(pull_parser)
 
         solve_parser = subparsers.add_parser(name='solve', help='solve an instance of the scheduling problem')
@@ -243,6 +248,24 @@ class Parser:
             msg = "program does not have write permissions to directory {0}. Please try another path.".format(directory)
             raise argparse.ArgumentTypeError(msg)
         return text_value
+
+    @staticmethod
+    def __parse_resources(text_value):
+        if not text_value:
+            return rows.sql_data_source.SqlDataSource.PlannedResourceEstimator.NAME
+
+        value_to_use = text_value.strip().lower()
+        if not value_to_use:
+            return rows.sql_data_source.SqlDataSource.PlannedResourceEstimator.NAME
+
+        if value_to_use != rows.sql_data_source.SqlDataSource.PlannedResourceEstimator.NAME and \
+                value_to_use != rows.sql_data_source.SqlDataSource.UsedResourceEstimator.NAME:
+            msg = "Name '{0}' does not match any resource estimator." \
+                  " Please use a valid name, for example: {1} or {2} instead.".format(text_value,
+                                                                                      rows.sql_data_source.SqlDataSource.PlannedResourceEstimator.NAME,
+                                                                                      rows.sql_data_source.SqlDataSource.UsedResourceEstimator.NAME)
+            raise argparse.ArgumentTypeError(msg)
+        return value_to_use
 
     @staticmethod
     def __parse_duration_estimator(text_value):

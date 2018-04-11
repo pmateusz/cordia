@@ -72,6 +72,7 @@ class Problem(rows.model.object.DataObject):
         TASKS = 'tasks'
         DURATION = 'duration'
         CARER_COUNT = 'carer_count'
+        SERVICE_USER = 'service_user'
 
         def __init__(self, **kwargs):  # pylint: disable=useless-super-delegation
             super(Problem.LocalVisit, self).__init__()
@@ -80,6 +81,7 @@ class Problem(rows.model.object.DataObject):
             self.__time = kwargs.get(Problem.LocalVisit.TIME, None)
             self.__duration = kwargs.get(Problem.LocalVisit.DURATION, None)
             self.__tasks = kwargs.get(Problem.LocalVisit.TASKS, None)
+            self.__service_user = kwargs.get(Problem.LocalVisit.SERVICE_USER, None)
             self.__carer_count = kwargs.get(Problem.LocalVisit.CARER_COUNT, None)
 
         def as_dict(self):
@@ -88,6 +90,7 @@ class Problem(rows.model.object.DataObject):
             bundle[Problem.LocalVisit.TIME] = self.__time
             bundle[Problem.LocalVisit.DURATION] = self.__duration
             bundle[Problem.LocalVisit.CARER_COUNT] = self.__carer_count
+            # ignore the service user
             return bundle
 
         @staticmethod
@@ -106,6 +109,12 @@ class Problem(rows.model.object.DataObject):
             return Problem.LocalVisit(**{Problem.LocalVisit.DATE: date,
                                          Problem.LocalVisit.TIME: time,
                                          Problem.LocalVisit.DURATION: duration})
+
+        @property
+        def service_user(self):
+            """Return a property"""
+
+            return self.__service_user
 
         @property
         def date(self):

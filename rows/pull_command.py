@@ -24,8 +24,10 @@ class Handler:
         begin_date = getattr(command, 'from').value
         end_date = getattr(command, 'to').value
         output_file = getattr(command, 'output')
-        duration_estimator = getattr(command, 'duration_estimator', None)
-        problem = self.__create_problem(area, begin_date, end_date, duration_estimator)
+        resource_estimator_name = getattr(command, 'resource_estimator', None)
+        duration_estimator_name = getattr(command, 'duration_estimator', None)
+
+        problem = self.__create_problem(area, begin_date, end_date, resource_estimator_name, duration_estimator_name)
         try:
             if not problem.visits:
                 logging.warning('Problem does not contain any visits')
@@ -41,8 +43,12 @@ class Handler:
             logging.error('Failed to save problem instance due to error: %s', ex)
             return 1
 
-    def __create_problem(self, area, begin_date, end_date, duration_estimator):
-        visits = self.__data_source.get_visits(area, begin_date, end_date, self.__create_estimator(duration_estimator))
+    def __create_problem(self, area, begin_date, end_date, resource_estimator_name, duration_estimator_name):
+        visits = self.__data_source.get_visits(area,
+                                               begin_date,
+                                               end_date,
+                                               self.__create_resource_estimator(resource_estimator_name),
+                                               self.__create_duration_estimator(duration_estimator_name))
         carers = self.__data_source.get_carers(area, begin_date, end_date)
         service_users = self.__data_source.get_service_users(area, begin_date, end_date)
 
@@ -52,7 +58,18 @@ class Handler:
                        service_users=service_users)
 
     @staticmethod
-    def __create_estimator(name):
+    def __create_resource_estimator(name):
+        if not name:
+            return SqlDataSource.PlannedResourceEstimator()
+        name_to_use = Handler.__normalize(name)
+        if name_to_use == SqlDataSource.UsedResourceEstimator.NAME:
+            return SqlDataSource.UsedResourceEstimator()
+        elif name_to_use == SqlDataSource.PlannedResourceEstimator.NAME:
+            return SqlDataSource.PlannedResourceEstimator()
+        return SqlDataSource.PlannedResourceEstimator()
+
+    @staticmethod
+    def __create_duration_estimator(name):
         percentile = 0.60
         confidence = 0.90
         error = 0.005
