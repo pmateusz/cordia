@@ -44,29 +44,28 @@ class Handler:
             return 1
 
     def __create_problem(self, area, begin_date, end_date, resource_estimator_name, duration_estimator_name):
-        visits = self.__data_source.get_visits(area,
-                                               begin_date,
-                                               end_date,
-                                               self.__create_resource_estimator(resource_estimator_name),
-                                               self.__create_duration_estimator(duration_estimator_name))
-        carers = self.__data_source.get_carers(area, begin_date, end_date)
-        service_users = self.__data_source.get_service_users(area, begin_date, end_date)
-
+        visits, carers, service_users = [], [], []
+        if resource_estimator_name == SqlDataSource.PLANNED_RESOURCE_ESTIMATOR_NAME:
+            visits = self.__data_source.get_visits(area,
+                                                   begin_date,
+                                                   end_date,
+                                                   self.__create_duration_estimator(duration_estimator_name))
+            carers = self.__data_source.get_carers(area, begin_date, end_date)
+            service_users = self.__data_source.get_service_users(area, begin_date, end_date)
+        elif resource_estimator_name == SqlDataSource.USED_RESOURCE_ESTIMATOR_NAME:
+            visits, carers = self.__data_source.get_visits_carers_from_schedule(area,
+                                                                                begin_date,
+                                                                                end_date,
+                                                                                self.__create_duration_estimator(
+                                                                                    duration_estimator_name))
+            service_users = self.__data_source.get_service_users(area, begin_date, end_date)
+        else:
+            error_msg = SqlDataSource.validate_resource_estimator(resource_estimator_name)
+            raise RuntimeError(error_msg)
         return Problem(metadata=Metadata(area=area, begin=begin_date, end=end_date, version=rows.version.VERSION),
                        carers=carers,
                        visits=visits,
                        service_users=service_users)
-
-    @staticmethod
-    def __create_resource_estimator(name):
-        if not name:
-            return SqlDataSource.PlannedResourceEstimator()
-        name_to_use = Handler.__normalize(name)
-        if name_to_use == SqlDataSource.UsedResourceEstimator.NAME:
-            return SqlDataSource.UsedResourceEstimator()
-        elif name_to_use == SqlDataSource.PlannedResourceEstimator.NAME:
-            return SqlDataSource.PlannedResourceEstimator()
-        return SqlDataSource.PlannedResourceEstimator()
 
     @staticmethod
     def __create_duration_estimator(name):

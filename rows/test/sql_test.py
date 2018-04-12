@@ -1,5 +1,5 @@
 """Test integration with SQL database"""
-
+import itertools
 import unittest
 import pyodbc
 import pathlib
@@ -14,10 +14,14 @@ import rows.location_finder
 import rows.sql_data_source
 
 from rows.model.area import Area
+from rows.model.carer import Carer
+from rows.model.diary import Diary
+from rows.model.event import AbsoluteEvent
+from rows.model.problem import Problem
 
 
 def load_credentials():
-    path = pathlib.Path.home().joinpath(pathlib.PurePath('dev/cordia/.dev'))
+    path = pathlib.Path.home().joinpath(pathlib.PurePath('dev/cordia/data/.dev'))
     if path.exists():
         with path.open() as file_stream:
             return file_stream.read().strip()
@@ -26,7 +30,7 @@ def load_credentials():
 
 def build_connection_string():
     config = {'Driver': '{ODBC Driver 13 for SQL Server}',
-              'Server': '192.168.56.1',
+              'Server': 'mae-mps.mecheng.strath.ac.uk',
               'UID': 'dev',
               'Encrypt': 'yes',
               'Database': 'StrathClyde',
@@ -116,6 +120,102 @@ ORDER BY user_visit.service_user_id, care_continuity DESC''').fetchall():
         for visit_group in visits:
             for visit in visit_group.visits:
                 self.assertGreater(float(visit.duration), 0.0)
+
+    def test_schedule_retrieval(self):
+        connection = pyodbc.connect(build_connection_string())
+        cursor = connection.cursor()
+
+        begin_interval = '3/30/2017'
+        end_interval = '3/31/2017'
+        area_code = 'C240'
+
+        carer_counts = {}
+        for row in cursor.execute(rows.sql_data_source.SqlDataSource.LIST_MULTIPLE_CARER_VISITS_QUERY.format(
+                begin_interval,
+                end_interval)).fetchall():
+            visit_id, carer_count = row
+            carer_counts[visit_id] = carer_count
+
+        cursor.execute("SELECT DISTINCT visits.visit_id,"
+                       "carer_visits.PlannedStartDateTime as 'planned_start_time',"
+                       "carer_visits.PlannedEndDateTime as 'planned_end_time',"
+                       "carer_visits.PlannedCarerID as 'carer_id',"
+                       "visits.service_user_id as 'service_user_id',"
+                       "visits.tasks as 'tasks'"
+                       " FROM ("
+                       " SELECT visit_task.visit_id,"
+                       " MIN(visit_task.service_user_id) as 'service_user_id',"
+                       " STRING_AGG(visit_task.task, ',') WITHIN GROUP (ORDER BY visit_task.task) as 'tasks'"
+                       " FROM ("
+                       " SELECT visit_window.visit_id as 'visit_id',"
+                       " MIN(visit_window.service_user_id) as 'service_user_id',"
+                       " CONVERT(int, visit_window.task_no) as 'task'"
+                       " FROM dbo.ListVisitsWithinWindow visit_window"
+                       " INNER JOIN dbo.ListAom aom"
+                       " ON aom.aom_id = visit_window.aom_code"
+                       " WHERE aom.area_code = '{0}' AND visit_window.visit_date BETWEEN '{1}' AND '{2}'"
+                       " GROUP BY visit_window.visit_id, visit_window.task_no"
+                       " ) visit_task"
+                       "  GROUP BY visit_task.visit_id"
+                       ") visits"
+                       " LEFT OUTER JOIN dbo.ListCarerVisits carer_visits"
+                       " ON visits.visit_id = carer_visits.VisitID"
+                       " WHERE carer_visits.VisitID IS NOT NULL"
+                       " ORDER BY carer_visits.PlannedCarerID, planned_start_time".format(area_code,
+                                                                                          begin_interval,
+                                                                                          end_interval))
+        # get visits
+        visits = []
+        data_set = cursor.fetchall()
+        for row in data_set:
+            visit_key, start_date_time, end_date_time, carer_id, service_user_id, tasks = row
+
+            carer_count = 1
+            if visit_key in carer_counts:
+                carer_count = carer_counts[visit_key]
+
+            visits.append(Problem.LocalVisit(key=visit_key,
+                                             service_user=service_user_id,
+                                             date=start_date_time.date(),
+                                             time=start_date_time.time(),
+                                             # convert minutes to seconds
+                                             duration=str(int((end_date_time - start_date_time).total_seconds())),
+                                             tasks=tasks,
+                                             carer_count=carer_count))
+
+        raw_events_by_carer = collections.defaultdict(list)
+        for row in data_set:
+            _visit_key, start_date_time, end_date_time, carer_id, _service_user_id, _tasks = row
+            raw_events_by_carer[carer_id].append((start_date_time, end_date_time))
+
+        events_by_carer = {}
+        for carer in raw_events_by_carer.keys():
+            events = raw_events_by_carer[carer]
+            events.sort(key=lambda pair: pair[0])
+            if not events:
+                continue
+
+            aggregated_events = []
+            events_it = iter(events)
+            interval_begin, interval_end = next(events_it)
+            for current_begin, current_end in events_it:
+                if interval_end == current_begin:
+                    interval_end = current_end
+                else:
+                    aggregated_events.append((interval_begin, interval_end))
+                    interval_begin, interval_end = current_begin, current_end
+            aggregated_events.append(AbsoluteEvent(begin=interval_begin, end=interval_end))
+            events_by_carer[carer] = aggregated_events
+
+        carer_shifts = []
+        for carer_id in events_by_carer.keys():
+            diaries = [Diary(date=date, events=list(events), schedule_pattern=None)
+                       for date, events
+                       in itertools.groupby(events_by_carer[carer_id], key=lambda event: event.begin.date())]
+            carer_shift = Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries)
+            carer_shifts.append(carer_shift)
+
+        # get service users
 
     if __name__ == '__main__':
         unittest.main()

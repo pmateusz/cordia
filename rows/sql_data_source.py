@@ -7,7 +7,6 @@ import itertools
 import datetime
 
 import pyodbc
-from abc import abstractmethod
 
 import scipy.stats
 
@@ -130,6 +129,10 @@ class IntervalSampler:
 
 
 class SqlDataSource:
+    PLANNED_RESOURCE_ESTIMATOR_NAME = 'planned'
+
+    USED_RESOURCE_ESTIMATOR_NAME = 'used'
+
     LIST_AREAS_QUERY = """SELECT aom.aom_id, aom.area_code
 FROM [StrathClyde].[dbo].[ListAom] aom
 ORDER BY aom.area_code"""
@@ -159,7 +162,7 @@ FROM (
 ) visit
 GROUP BY visit.visit_id, visit.service_user_id, vdate, vtime, vduration"""
 
-    LIST_VISITS_QUERY_BY_RESOURCES = """SELECT visit_id,
+    LIST_VISITS_QUERY_BY_PLANNED_RESOURCES = """SELECT visit_id,
 service_user_id,
 vdate,
 vtime,
@@ -186,6 +189,28 @@ FROM (
     task_no
 ) visit
 GROUP BY visit.visit_id, visit.service_user_id, vdate, vtime, vduration"""
+
+    SCHEDULE_QUERY = """SELECT DISTINCT visits.visit_id,
+carer_visits.PlannedStartDateTime as 'planned_start_time',
+carer_visits.PlannedEndDateTime as 'planned_end_time',
+carer_visits.PlannedCarerID as 'carer_id',
+visits.service_user_id as 'service_user_id',
+visits.tasks as 'tasks' FROM (
+    SELECT visit_task.visit_id,
+      MIN(visit_task.service_user_id) as 'service_user_id',
+      STRING_AGG(visit_task.task, ',') WITHIN GROUP (ORDER BY visit_task.task) as 'tasks'
+    FROM (
+      SELECT visit_window.visit_id as 'visit_id',
+        MIN(visit_window.service_user_id) as 'service_user_id',
+        CONVERT(int, visit_window.task_no) as 'task'
+      FROM dbo.ListVisitsWithinWindow visit_window
+      WHERE visit_window.aom_code = {0} AND visit_window.visit_date BETWEEN '{1}' AND '{2}'
+      GROUP BY visit_window.visit_id, visit_window.task_no
+    ) visit_task GROUP BY visit_task.visit_id
+  ) visits LEFT OUTER JOIN dbo.ListCarerVisits carer_visits
+  ON visits.visit_id = carer_visits.VisitID
+  WHERE carer_visits.VisitID IS NOT NULL
+  ORDER BY carer_visits.PlannedCarerID, planned_start_time"""
 
     LIST_SERVICE_USER_QUERY = """SELECT visits.service_user_id, visits.display_address
     FROM dbo.ListVisitsWithinWindow visits
@@ -238,7 +263,7 @@ FROM
       ON carer_visits.VisitID = task_visit.visit_id
       WHERE (carer_visits.CheckOutMethod = 1 OR carer_visits.CheckOutMethod = 2)
     ) symmetric_visit
-    WHERE symmetric_visit.duration >= 15 * 60
+    WHERE symmetric_visit.duration >= 5 * 60
     GROUP BY symmetric_visit.visit_id, symmetric_visit.task_id
 ) visits
 GROUP BY visits.visit_id
@@ -379,52 +404,6 @@ GROUP BY visits.visit_id
         def __call__(self, local_visit):
             return local_visit.duration
 
-    class ResourceEstimatorBase(object):
-
-        def get_visits(self, connection, begin_date, end_date, area):
-            carer_counts = {}
-            for row in connection.cursor() \
-                    .execute(SqlDataSource.LIST_MULTIPLE_CARER_VISITS_QUERY.format(begin_date, end_date)).fetchall():
-                visit_id, carer_count = row
-                carer_counts[visit_id] = carer_count
-
-            visits = []
-            for row in self.execute_visits_query(connection, begin_date, end_date, area):
-                visit_key, service_user_id, visit_date, visit_time, visit_duration, tasks = row
-
-                carer_count = 1
-                if visit_key in carer_counts:
-                    carer_count = carer_counts[visit_key]
-
-                visits.append(Problem.LocalVisit(key=visit_key,
-                                                 service_user=service_user_id,
-                                                 date=visit_date,
-                                                 time=visit_time,
-                                                 duration=str(visit_duration * 60),  # convert minutes to seconds
-                                                 tasks=tasks,
-                                                 carer_count=carer_count))
-            return visits
-
-        @abstractmethod
-        def execute_visits_query(self, connection, begin_date, end_date, area):
-            return list()
-
-    class PlannedResourceEstimator(ResourceEstimatorBase):
-
-        NAME = 'planned'
-
-        def execute_visits_query(self, connection, begin_date, end_date, area):
-            return connection.cursor().execute(
-                SqlDataSource.LIST_VISITS_QUERY.format(begin_date, end_date, area.key)).fetchall()
-
-    class UsedResourceEstimator(ResourceEstimatorBase):
-
-        NAME = 'used'
-
-        def execute_visits_query(self, connection, begin_date, end_date, area):
-            return connection.cursor().execute(
-                SqlDataSource.LIST_VISITS_QUERY_BY_RESOURCES.format(begin_date, end_date, area.key)).fetchall()
-
     def __init__(self, settings, console, location_finder):
         self.__settings = settings
         self.__console = console
@@ -437,12 +416,35 @@ GROUP BY visits.visit_id
         cursor.execute(SqlDataSource.LIST_AREAS_QUERY)
         return [Area(key=row[0], code=row[1]) for row in cursor.fetchall()]
 
-    def get_visits(self, area, begin_date, end_date, resource_estimator, duration_estimator):
+    def get_visits(self, area, begin_date, end_date, duration_estimator):
         duration_estimator.reload(self.__console, self.__get_connection)
+
+        carer_counts = {}
+        for row in self.__get_connection().cursor() \
+                .execute(SqlDataSource.LIST_MULTIPLE_CARER_VISITS_QUERY.format(begin_date, end_date)).fetchall():
+            visit_id, carer_count = row
+            carer_counts[visit_id] = carer_count
+
+        visits = []
+        for row in self.__get_connection().cursor().execute(SqlDataSource.LIST_VISITS_QUERY.format(
+                begin_date, end_date, area.key)).fetchall():
+            visit_key, service_user_id, visit_date, visit_time, visit_duration, tasks = row
+
+            carer_count = 1
+            if visit_key in carer_counts:
+                carer_count = carer_counts[visit_key]
+
+            visits.append(Problem.LocalVisit(key=visit_key,
+                                             service_user=service_user_id,
+                                             date=visit_date,
+                                             time=visit_time,
+                                             duration=str(visit_duration * 60),  # convert minutes to seconds
+                                             tasks=tasks,
+                                             carer_count=carer_count))
 
         visits_by_service_user = {}
         time_change = []
-        for visit in resource_estimator.get_visits(self.__get_connection(), begin_date, end_date, area):
+        for visit in visits:
             original_duration = int(float(visit.duration))
             visit.duration = duration_estimator(visit)
             duration_to_use = int(float(visit.duration))
@@ -485,6 +487,102 @@ GROUP BY visits.visit_id
             carer_shifts.append(carer_shift)
         return carer_shifts
 
+    def get_visits_carers_from_schedule(self, area, begin_date, end_date, duration_estimator):
+        duration_estimator.reload(self.__console, self.__get_connection)
+
+        carer_counts = {}
+        for row in self.__get_connection().cursor().execute(SqlDataSource.LIST_MULTIPLE_CARER_VISITS_QUERY.format(
+                begin_date,
+                end_date)).fetchall():
+            visit_id, carer_count = row
+            carer_counts[visit_id] = carer_count
+
+        data_set = self.__get_connection().cursor().execute(SqlDataSource.SCHEDULE_QUERY.format(area.key,
+                                                                                                begin_date,
+                                                                                                end_date)).fetchall()
+        # get visits
+        raw_visits = []
+        for row in data_set:
+            visit_key, start_date_time, end_date_time, carer_id, service_user_id, tasks = row
+
+            carer_count = 1
+            if visit_key in carer_counts:
+                carer_count = carer_counts[visit_key]
+
+            # visit duration is not predicted
+            raw_visits.append(Problem.LocalVisit(key=visit_key,
+                                                 service_user=service_user_id,
+                                                 date=start_date_time.date(),
+                                                 time=start_date_time.time(),
+                                                 # convert minutes to seconds
+                                                 duration=str(
+                                                     int((end_date_time - start_date_time).total_seconds())),
+                                                 tasks=tasks,
+                                                 carer_count=carer_count))
+
+        visits_by_service_user = collections.defaultdict(list)
+
+        time_change = []
+        for visit in raw_visits:
+            original_duration = int(float(visit.duration))
+            visit.duration = duration_estimator(visit)
+            duration_to_use = int(float(visit.duration))
+            time_change.append(duration_to_use - original_duration)
+
+            visits_by_service_user[visit.service_user].append(visit)
+
+        if time_change:
+            mean_stats = int(statistics.mean(time_change))
+            median_stats = int(statistics.median(time_change))
+            stddev_stats = int(statistics.stdev(time_change))
+
+            def get_sign(value):
+                return '-' if value < 0 else '+'
+
+            # we apply custom logic to display negative duration, because the standard format is misleading
+            self.__console.write_line('Change in visit duration: mean {0}{1}, median: {2}{3}, stddev {4}{5}'
+                                      .format(get_sign(mean_stats), datetime.timedelta(seconds=abs(mean_stats)),
+                                              get_sign(median_stats), datetime.timedelta(seconds=abs(median_stats)),
+                                              get_sign(stddev_stats), datetime.timedelta(seconds=abs(stddev_stats))))
+
+        visits = [Problem.LocalVisits(service_user=str(service_user_id), visits=visits)
+                  for service_user_id, visits in visits_by_service_user.items()]
+
+        # get carers
+        raw_events_by_carer = collections.defaultdict(list)
+        for row in data_set:
+            _visit_key, start_date_time, end_date_time, carer_id, _service_user_id, _tasks = row
+            raw_events_by_carer[carer_id].append((start_date_time, end_date_time))
+
+        events_by_carer = {}
+        for carer in raw_events_by_carer.keys():
+            events = raw_events_by_carer[carer]
+            if not events:
+                continue
+            events.sort(key=lambda pair: pair[0])
+
+            aggregated_events = []
+            events_it = iter(events)
+            interval_begin, interval_end = next(events_it)
+            for current_begin, current_end in events_it:
+                if interval_end == current_begin:
+                    interval_end = current_end
+                else:
+                    aggregated_events.append(AbsoluteEvent(begin=interval_begin, end=interval_end))
+                    interval_begin, interval_end = current_begin, current_end
+            aggregated_events.append(AbsoluteEvent(begin=interval_begin, end=interval_end))
+            events_by_carer[carer] = aggregated_events
+
+        carer_shifts = []
+        for carer_id in events_by_carer.keys():
+            diaries = [Diary(date=date, events=list(events), schedule_pattern=None)
+                       for date, events
+                       in itertools.groupby(events_by_carer[carer_id], key=lambda event: event.begin.date())]
+            carer_shift = Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries)
+            carer_shifts.append(carer_shift)
+
+        return visits, carer_shifts
+
     def get_service_users(self, area, begin_date, end_date):
         location_by_service_user = {}
         address_by_service_user = {}
@@ -520,6 +618,17 @@ GROUP BY visits.visit_id
 
     def reload(self):
         self.__get_connection_string()
+
+    @staticmethod
+    def validate_resource_estimator(name):
+        if name != SqlDataSource.USED_RESOURCE_ESTIMATOR_NAME and \
+                name != SqlDataSource.PLANNED_RESOURCE_ESTIMATOR_NAME:
+            return "Name '{0}' does not match any resource estimator." \
+                   " Please use a valid name, for example: {1} or {2} instead." \
+                .format(name,
+                        SqlDataSource.USED_RESOURCE_ESTIMATOR_NAME,
+                        SqlDataSource.PLANNED_RESOURCE_ESTIMATOR_NAME)
+        return None
 
     def __get_connection_string(self):
         if self.__connection_string:

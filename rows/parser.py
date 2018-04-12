@@ -252,19 +252,16 @@ class Parser:
     @staticmethod
     def __parse_resources(text_value):
         if not text_value:
-            return rows.sql_data_source.SqlDataSource.PlannedResourceEstimator.NAME
+            return rows.sql_data_source.SqlDataSource.PLANNED_RESOURCE_ESTIMATOR_NAME
 
         value_to_use = text_value.strip().lower()
         if not value_to_use:
-            return rows.sql_data_source.SqlDataSource.PlannedResourceEstimator.NAME
+            return rows.sql_data_source.SqlDataSource.PLANNED_RESOURCE_ESTIMATOR_NAME
 
-        if value_to_use != rows.sql_data_source.SqlDataSource.PlannedResourceEstimator.NAME and \
-                value_to_use != rows.sql_data_source.SqlDataSource.UsedResourceEstimator.NAME:
-            msg = "Name '{0}' does not match any resource estimator." \
-                  " Please use a valid name, for example: {1} or {2} instead.".format(text_value,
-                                                                                      rows.sql_data_source.SqlDataSource.PlannedResourceEstimator.NAME,
-                                                                                      rows.sql_data_source.SqlDataSource.UsedResourceEstimator.NAME)
-            raise argparse.ArgumentTypeError(msg)
+        error_msg = rows.sql_data_source.SqlDataSource.validate_resource_estimator(value_to_use)
+        if error_msg:
+            raise argparse.ArgumentTypeError(error_msg)
+
         return value_to_use
 
     @staticmethod
@@ -279,10 +276,11 @@ class Parser:
         elif value_to_use == rows.sql_data_source.SqlDataSource.PlannedDurationEstimator.NAME:
             return value_to_use
         msg = "Name '{0}' does not match any duration estimator." \
-              " Please use a valid name, for example: {1}, {2} or {3}".format(text_value,
-                                                                              rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME,
-                                                                              rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME,
-                                                                              rows.sql_data_source.SqlDataSource.PlannedDurationEstimator.NAME)
+              " Please use a valid name, for example: {1}, {2} or {3}" \
+            .format(text_value,
+                    rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME,
+                    rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME,
+                    rows.sql_data_source.SqlDataSource.PlannedDurationEstimator.NAME)
         raise argparse.ArgumentTypeError(msg)
 
     @staticmethod
