@@ -72,7 +72,7 @@ class Handler:
         percentile = 0.60
         confidence = 0.90
         error = 0.005
-        min_duration = '00:15:00'
+        min_duration = '00:05:00'
 
         if not name:
             return SqlDataSource.PlannedDurationEstimator()

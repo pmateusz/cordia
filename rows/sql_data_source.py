@@ -203,7 +203,7 @@ visits.service_user_id as 'service_user_id',
 visits.tasks as 'tasks' FROM (
     SELECT visit_task.visit_id,
       MIN(visit_task.service_user_id) as 'service_user_id',
-      STRING_AGG(visit_task.task, ',') WITHIN GROUP (ORDER BY visit_task.task) as 'tasks'
+      STRING_AGG(visit_task.task, ';') WITHIN GROUP (ORDER BY visit_task.task) as 'tasks'
     FROM (
       SELECT visit_window.visit_id as 'visit_id',
         MIN(visit_window.service_user_id) as 'service_user_id',
@@ -506,22 +506,6 @@ AND schedule.EmployeePositionId = {0}"""
                     current_event = next_event
             filled_gaps.append(current_event)
 
-            def merge_overlapping(events):
-                result = list()
-                if events:
-                    loc_event_it = iter(events)
-                    last_event = next(loc_event_it)
-                    for event in loc_event_it:
-                        if event.begin <= last_event.end:
-                            last_event = AbsoluteEvent(begin=last_event.begin,
-                                                       end=last_event.end
-                                                       if last_event.end > event.end else event.end)
-                        else:
-                            result.append(last_event)
-                            last_event = event
-                    result.append(last_event)
-                return result
-
             def get_cum_duration(events):
                 duration = datetime.timedelta()
                 for event in events:
@@ -574,13 +558,43 @@ AND schedule.EmployeePositionId = {0}"""
                 if updated_work_to_use == actual_work_to_use:
                     break
 
-                actual_work_to_use = merge_overlapping(updated_work_to_use)
+                actual_work_to_use = SqlDataSource.Scheduler.merge_overlapping(updated_work_to_use)
                 time_budget = get_cum_duration(working_hours_to_use) - get_cum_duration(actual_work_to_use)
             return actual_work_to_use
 
         @staticmethod
         def join_within_threshold(events, threshold):
-            return events
+            if not events:
+                return events
+
+            aggregated_events = []
+            event_it = iter(SqlDataSource.Scheduler.merge_overlapping(events))
+            last_event = next(event_it)
+            for event in event_it:
+                if (event.begin - last_event.end) <= threshold:
+                    last_event = AbsoluteEvent(begin=last_event.begin, end=event.end)
+                else:
+                    aggregated_events.append(last_event)
+                    last_event = event
+            aggregated_events.append(last_event)
+            return aggregated_events
+
+        @staticmethod
+        def merge_overlapping(events):
+            result = list()
+            if events:
+                loc_event_it = iter(events)
+                last_event = next(loc_event_it)
+                for event in loc_event_it:
+                    if event.begin <= last_event.end:
+                        last_event = AbsoluteEvent(begin=last_event.begin,
+                                                   end=last_event.end
+                                                   if last_event.end > event.end else event.end)
+                    else:
+                        result.append(last_event)
+                        last_event = event
+                result.append(last_event)
+            return result
 
     class Schedule:
         def __init__(self, schedule):
@@ -811,12 +825,14 @@ AND schedule.EmployeePositionId = {0}"""
             carer_id, begin, end = row
             intervals_by_carer[carer_id].append(AbsoluteEvent(begin=begin, end=end))
 
+        join_work_threshold = datetime.timedelta(minutes=30)
         carer_shifts = []
         for carer_id in work_events_by_carer.keys():
             diaries = []
             dates_to_use = list(set((event.begin.date() for event in work_events_by_carer[carer_id])))
             dates_to_use.sort()
             carer_area = scheduler.get_area(carer_id)
+            is_external = False
             if carer_area == area:
                 for current_date in dates_to_use:
                     # carer is assigned to area
@@ -827,7 +843,7 @@ AND schedule.EmployeePositionId = {0}"""
                         work_to_use = scheduler.adjust_work(actual_work, working_hours)
                         diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
                     else:
-                        work_to_use = scheduler.join_within_threshold(actual_work, datetime.timedelta(minutes=30))
+                        work_to_use = scheduler.join_within_threshold(actual_work, join_work_threshold)
                         diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
                     diaries.append(diary)
             else:
@@ -839,14 +855,16 @@ AND schedule.EmployeePositionId = {0}"""
                         diary = Diary(date=current_date, events=actual_work, schedule_pattern=None)
                     else:
                         working_hours = scheduler.get_working_hours(carer_id, current_date)
+                        is_external = not working_hours
                         if working_hours:
                             work_to_use = scheduler.adjust_work(actual_work, working_hours)
                             diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
                         else:
-                            work_to_use = scheduler.join_within_threshold(actual_work, datetime.timedelta(minutes=30))
+                            work_to_use = scheduler.join_within_threshold(actual_work, join_work_threshold)
                             diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
                     diaries.append(diary)
-            carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries))
+            carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id), external=is_external),
+                                                   diaries=diaries))
         return visits, carer_shifts
 
     def get_service_users(self, area, begin_date, end_date):
