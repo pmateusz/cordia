@@ -102,6 +102,14 @@ class AbsoluteEvent(rows.model.object.DataObject):
         bundle[AbsoluteEvent.END] = self.__end
         return bundle
 
+    def contains(self, other):
+        return self.begin <= other.begin and other.end <= self.end
+
+    def overlaps(self, other):
+        return self != other \
+               and ((self.begin >= other.begin and other.end <= self.end)
+                    or (self.begin <= other.begin and other.end >= self.end))
+
     @property
     def begin(self):
         """Get a property"""
@@ -113,3 +121,8 @@ class AbsoluteEvent(rows.model.object.DataObject):
         """Get a property"""
 
         return self.__end
+
+    @property
+    def duration(self):
+        """Get a property"""
+        return self.end - self.begin

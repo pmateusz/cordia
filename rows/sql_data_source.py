@@ -478,8 +478,78 @@ AND schedule.EndDate >= '{1}'"""
                     current_event = next_event
             filled_gaps.append(current_event)
 
-            # TODO: extend in the possible direction if there is slack capacity
-            return filled_gaps
+            def merge_overlapping(events):
+                result = list()
+                if events:
+                    loc_event_it = iter(events)
+                    last_event = next(loc_event_it)
+                    for event in loc_event_it:
+                        if event.begin <= last_event.end:
+                            last_event = AbsoluteEvent(begin=last_event.begin,
+                                                       end=last_event.end
+                                                       if last_event.end > event.end else event.end)
+                        else:
+                            result.append(last_event)
+                            last_event = event
+                    result.append(last_event)
+                return result
+
+            def get_cum_duration(events):
+                duration = datetime.timedelta()
+                for event in events:
+                    duration += event.duration
+                return duration
+
+            def extend(actual_event, possible_event, max_time):
+                result = actual_event
+                rem_time = max_time
+                if actual_event.begin > possible_event.begin:
+                    offset = actual_event.begin - possible_event.begin
+                    if offset > rem_time:
+                        return AbsoluteEvent(begin=actual_event.begin - rem_time,
+                                             end=actual_event.end), datetime.timedelta()
+                    result = AbsoluteEvent(begin=possible_event.begin, end=actual_event.end)
+                    rem_time -= offset
+                if actual_event.end < possible_event.end:
+                    offset = possible_event.end - actual_event.end
+                    if offset > rem_time:
+                        return AbsoluteEvent(begin=result.begin, end=result.end + rem_time), datetime.timedelta()
+                    result = AbsoluteEvent(begin=result.begin, end=possible_event.end)
+                    rem_time -= offset
+                return result, rem_time
+
+            actual_work_to_use = filled_gaps
+            time_budget = get_cum_duration(working_hours_to_use) - get_cum_duration(actual_work_to_use)
+            while time_budget.total_seconds() > 0:
+                updated_work_to_use = []
+                for actual_event in actual_work_to_use:
+                    updated_event = actual_event
+                    if time_budget.total_seconds() > 0:
+                        containing_event = next((event for event in working_hours_to_use
+                                                 if event.contains(actual_event) and event != actual_event), None)
+                        if containing_event:
+                            updated_event, time_budget = extend(actual_event, containing_event, time_budget)
+                    updated_work_to_use.append(updated_event)
+
+                if updated_work_to_use == actual_work_to_use:
+                    # no expansion possible containment of time intervals, try overlaps
+                    updated_work_to_use = []
+                    for actual_event in actual_work_to_use:
+                        updated_event = actual_event
+                        if time_budget.total_seconds() > 0:
+                            overlapping_event = next((event for event in working_hours_to_use
+                                                      if event.overlaps(actual_event) and event != actual_event), None)
+                            if overlapping_event:
+                                updated_event, time_budget = extend(actual_event, overlapping_event, time_budget)
+                        updated_work_to_use.append(updated_event)
+
+                if updated_work_to_use == actual_work_to_use:
+                    break
+
+                actual_work_to_use = merge_overlapping(updated_work_to_use)
+                time_budget = get_cum_duration(working_hours_to_use) - get_cum_duration(actual_work_to_use)
+
+            return actual_work_to_use
 
     def __init__(self, settings, console, location_finder):
         self.__settings = settings
