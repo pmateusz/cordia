@@ -301,6 +301,18 @@ WHERE schedule.EmployeePositionId = {0}
 AND schedule.StartDate <= '{2}'
 AND schedule.EndDate >= '{1}'"""
 
+    CARER_SCHEDULE_QUERY = """SELECT DISTINCT details.WeekNumber as 'week_number',
+details.Day as 'day',
+details.StartTime as 'start_time',
+details.EndTime as 'end_time'
+FROM dbo.ListSchedule schedule
+INNER JOIN dbo.ListScheduleDetails details
+ON details.SchedulePatternID = schedule.SchedulePatternId
+WHERE details.Type ='Shift'
+AND schedule.StartDate <= '{2}'
+AND schedule.EndDate >= '{1}'
+AND schedule.EmployeePositionId = {0}"""
+
     class IntervalEstimatorBase(object):
 
         def __init__(self, min_duration=None):
@@ -442,18 +454,34 @@ AND schedule.EndDate >= '{1}'"""
             self.__data_source = data_source
             self.__area_by_carer = None
             self.__intervals_by_carer = None
+            self.__schedules_by_carer = None
+            self.__begin_date = None
+            self.__end_date = None
 
         def initialize(self, begin_date, end_date):
             self.__area_by_carer = self.__data_source.get_carers_areas()
             self.__intervals_by_carer = self.__data_source.get_carers_intervals(begin_date, end_date)
+            self.__schedules_by_carer = {}
+            self.__begin_date = begin_date
+            self.__end_date = end_date
 
         def get_area(self, carer_id):
             return self.__area_by_carer.get(carer_id, None)
 
         def get_working_hours(self, carer_id, date):
-            if carer_id not in self.__intervals_by_carer:
-                return list()
-            return [event for event in self.__intervals_by_carer[carer_id] if event.begin.date() == date]
+            if carer_id in self.__intervals_by_carer:
+                return [event for event in self.__intervals_by_carer[carer_id] if event.begin.date() == date]
+            schedule_opt = self.__get_schedule(carer_id)
+            if schedule_opt:
+                return schedule_opt.extrapolate(date)
+            return list()
+
+        def __get_schedule(self, carer_id):
+            if carer_id in self.__schedules_by_carer:
+                return self.__schedules_by_carer[carer_id]
+            schedule = self.__data_source.get_schedule(carer_id, self.__begin_date, self.__end_date)
+            self.__schedules_by_carer[carer_id] = schedule
+            return schedule
 
         @staticmethod
         def adjust_work(actual_work, working_hours):
@@ -548,8 +576,24 @@ AND schedule.EndDate >= '{1}'"""
 
                 actual_work_to_use = merge_overlapping(updated_work_to_use)
                 time_budget = get_cum_duration(working_hours_to_use) - get_cum_duration(actual_work_to_use)
-
             return actual_work_to_use
+
+    class Schedule:
+        def __init__(self, schedule):
+            self.__weeks = 0
+            self.__data = []
+            for week, day, begin, end in schedule:
+                if len(self.__data) < week:
+                    for _ in range(week - len(self.__data)):
+                        self.__data.append([list() for _ in range(7)])
+                self.__data[week - 1][day - 1].append((begin, end))
+            self.__weeks = len(self.__data)
+
+        def extrapolate(self, date):
+            year, week_number, week_day = date.isocalendar()
+            events = self.__data[week_number % self.__weeks][week_day - 1]
+            return [AbsoluteEvent(begin=datetime.datetime.combine(date, begin_time),
+                                  end=datetime.datetime.combine(date, end_time)) for begin_time, end_time in events]
 
     def __init__(self, settings, console, location_finder):
         self.__settings = settings
@@ -633,6 +677,14 @@ AND schedule.EndDate >= '{1}'"""
             carer_id, begin, end = row
             intervals_by_carer[carer_id].append(AbsoluteEvent(begin=begin, end=end))
         return intervals_by_carer
+
+    def get_schedule(self, carer_id, begin_date, end_date):
+        bundle = []
+        for row in self.__get_connection().cursor().execute(SqlDataSource.CARER_SCHEDULE_QUERY.format(carer_id,
+                                                                                                      begin_date,
+                                                                                                      end_date)):
+            bundle.append(row)
+        return SqlDataSource.Schedule(bundle)
 
     def get_carers(self, area, begin_date, end_date):
         events_by_carer = collections.defaultdict(list)
