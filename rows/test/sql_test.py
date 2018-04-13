@@ -1,4 +1,5 @@
 """Test integration with SQL database"""
+import datetime
 import itertools
 import unittest
 import pyodbc
@@ -216,6 +217,59 @@ ORDER BY user_visit.service_user_id, care_continuity DESC''').fetchall():
             carer_shifts.append(carer_shift)
 
         # get service users
+
+    def test_adjust_schedule(self):
+        # can fill overlap inside
+        begin = datetime.datetime(2017, 2, 1, 8, 30)
+        end = datetime.datetime(2017, 2, 1, 12, 30)
+        work = [AbsoluteEvent(begin=begin, end=datetime.datetime.combine(begin.date(), datetime.time(9, 30))),
+                AbsoluteEvent(begin=datetime.datetime.combine(begin.date(), datetime.time(10, 0)), end=end)]
+        pattern = [AbsoluteEvent(begin=begin, end=end)]
+        expected = [AbsoluteEvent(begin=begin, end=end)]
+        actual = rows.sql_data_source.SqlDataSource.Scheduler.adjust_work(work, pattern)
+        self.assertEqual(actual, expected)
+
+        # can fill partial overlap from above
+        work = [AbsoluteEvent(begin=datetime.datetime(2017, 2, 1, 8, 0),
+                              end=datetime.datetime.combine(begin.date(), datetime.time(9, 30))),
+                AbsoluteEvent(begin=datetime.datetime.combine(begin.date(), datetime.time(10, 0)),
+                              end=datetime.datetime(2017, 2, 1, 12, 0))]
+        pattern = [AbsoluteEvent(begin=datetime.datetime(2017, 2, 1, 8, 30),
+                                 end=datetime.datetime(2017, 2, 1, 12, 30))]
+        expected = [AbsoluteEvent(begin=datetime.datetime(2017, 2, 1, 8, 0),
+                                  end=datetime.datetime(2017, 2, 1, 12, 0))]
+        actual = rows.sql_data_source.SqlDataSource.Scheduler.adjust_work(work, pattern)
+        self.assertEqual(actual, expected)
+
+        # can fill partial overlap from below
+        work = [AbsoluteEvent(begin=datetime.datetime(2017, 2, 1, 9, 0),
+                              end=datetime.datetime.combine(begin.date(), datetime.time(9, 30))),
+                AbsoluteEvent(begin=datetime.datetime.combine(begin.date(), datetime.time(10, 0)),
+                              end=datetime.datetime(2017, 2, 1, 13, 0))]
+        pattern = [AbsoluteEvent(begin=datetime.datetime(2017, 2, 1, 8, 30),
+                                 end=datetime.datetime(2017, 2, 1, 12, 30))]
+        expected = [AbsoluteEvent(begin=datetime.datetime(2017, 2, 1, 9, 0),
+                                  end=datetime.datetime(2017, 2, 1, 13, 0))]
+        actual = rows.sql_data_source.SqlDataSource.Scheduler.adjust_work(work, pattern)
+        self.assertEqual(actual, expected)
+
+        # does nothing if there is no overlap
+        work = [AbsoluteEvent(begin=datetime.datetime(2017, 2, 1, 9, 0),
+                              end=datetime.datetime.combine(begin.date(), datetime.time(9, 30))),
+                AbsoluteEvent(begin=datetime.datetime.combine(begin.date(), datetime.time(10, 30)),
+                              end=datetime.datetime.combine(begin.date(), datetime.time(11, 0)))]
+        pattern = [AbsoluteEvent(begin=datetime.datetime(2017, 2, 1, 10, 0),
+                                 end=datetime.datetime(2017, 2, 1, 12, 0))]
+        expected = None
+        actual = rows.sql_data_source.SqlDataSource.Scheduler.adjust_work(work, pattern)
+        self.assertEqual(actual, work)
+        # does increase if possible from above
+
+        # does increase if possible from below
+
+        # does increase if possible from above and below
+
+        pass
 
     if __name__ == '__main__':
         unittest.main()

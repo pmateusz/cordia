@@ -162,6 +162,11 @@ FROM (
 ) visit
 GROUP BY visit.visit_id, visit.service_user_id, vdate, vtime, vduration"""
 
+    LIST_CARER_AOM_QUERY = """SELECT employee.carer_id, employee.position_hours, aom.aom_id, aom.area_code
+FROM dbo.ListEmployees employee
+INNER JOIN dbo.ListAom aom
+ON employee.aom_id = aom.aom_id"""
+
     LIST_VISITS_QUERY_BY_PLANNED_RESOURCES = """SELECT visit_id,
 service_user_id,
 vdate,
@@ -211,6 +216,21 @@ visits.tasks as 'tasks' FROM (
   ON visits.visit_id = carer_visits.VisitID
   WHERE carer_visits.VisitID IS NOT NULL
   ORDER BY carer_visits.PlannedCarerID, planned_start_time"""
+
+    CARER_INTERVAL_QUERY = """SELECT intervals.CarerId as carer_id,
+intervals.StartDateTime as start_datetime,
+intervals.EndDateTime as end_datetime
+  FROM dbo.ListCarerIntervals intervals
+  WHERE intervals.StartDateTime >= '{0}'
+    AND intervals.EndDateTime <= '{1}'"""
+
+    SINGLE_CARER_INTERVAL_QUERY = """SELECT intervals.CarerId as carer_id,
+    intervals.StartDateTime as start_datetime,
+    intervals.EndDateTime as end_datetime
+      FROM dbo.ListCarerIntervals intervals
+      WHERE intervals.StartDateTime >= '{0}'
+        AND intervals.EndDateTime <= '{1}'
+        AND intervals.CarerId = {2}"""
 
     LIST_SERVICE_USER_QUERY = """SELECT visits.service_user_id, visits.display_address
     FROM dbo.ListVisitsWithinWindow visits
@@ -268,6 +288,18 @@ FROM
 ) visits
 GROUP BY visits.visit_id
 """
+
+    SCHEDULE_DETAIL_QUERY = """SELECT details.StartTime as 'start_time',
+details.EndTime as 'end_time',
+details.WeekNumber as 'week_number',
+details.Day as 'day',
+details.Type as 'type'
+FROM dbo.ListSchedule schedule
+INNER JOIN dbo.ListScheduleDetails details
+ON details.SchedulePatternID = schedule.SchedulePatternId
+WHERE schedule.EmployeePositionId = {0}
+AND schedule.StartDate <= '{2}'
+AND schedule.EndDate >= '{1}'"""
 
     class IntervalEstimatorBase(object):
 
@@ -404,6 +436,51 @@ GROUP BY visits.visit_id
         def __call__(self, local_visit):
             return local_visit.duration
 
+    class Scheduler:
+
+        def __init__(self, data_source):
+            self.__data_source = data_source
+            self.__area_by_carer = None
+            self.__intervals_by_carer = None
+
+        def initialize(self, begin_date, end_date):
+            self.__area_by_carer = self.__data_source.get_carers_areas()
+            self.__intervals_by_carer = self.__data_source.get_carers_intervals(begin_date, end_date)
+
+        def get_area(self, carer_id):
+            return self.__area_by_carer.get(carer_id, None)
+
+        def get_working_hours(self, carer_id, date):
+            if carer_id not in self.__intervals_by_carer:
+                return list()
+            return [event for event in self.__intervals_by_carer[carer_id] if event.begin.date() == date]
+
+        @staticmethod
+        def adjust_work(actual_work, working_hours):
+            actual_work_to_use = list(actual_work)
+            actual_work_to_use.sort(key=lambda event: event.begin)
+            working_hours_to_use = list(working_hours)
+            working_hours_to_use.sort(key=lambda event: event.begin)
+
+            filled_gaps = []
+            event_it = iter(actual_work_to_use)
+            current_event = next(event_it)
+            for next_event in event_it:
+                can_combine = False
+                for slot in working_hours_to_use:
+                    if current_event.end >= slot.begin and next_event.begin <= slot.end:
+                        can_combine = True
+                        break
+                if can_combine:
+                    current_event = AbsoluteEvent(begin=current_event.begin, end=next_event.end)
+                else:
+                    filled_gaps.append(current_event)
+                    current_event = next_event
+            filled_gaps.append(current_event)
+
+            # TODO: extend in the possible direction if there is slack capacity
+            return filled_gaps
+
     def __init__(self, settings, console, location_finder):
         self.__settings = settings
         self.__console = console
@@ -472,6 +549,21 @@ GROUP BY visits.visit_id
         return [Problem.LocalVisits(service_user=str(service_user_id), visits=visits)
                 for service_user_id, visits in visits_by_service_user.items()]
 
+    def get_carers_areas(self):
+        area_by_carer = {}
+        for row in self.__get_connection().cursor().execute(SqlDataSource.LIST_CARER_AOM_QUERY):
+            carer_id, position_hours, aom_id, area_code = row
+            area_by_carer[carer_id] = Area(key=aom_id, code=area_code)
+        return area_by_carer
+
+    def get_carers_intervals(self, begin_date, end_date):
+        intervals_by_carer = collections.defaultdict(list)
+        for row in self.__get_connection().cursor().execute(SqlDataSource.CARER_INTERVAL_QUERY.format(
+                begin_date, end_date)).fetchall():
+            carer_id, begin, end = row
+            intervals_by_carer[carer_id].append(AbsoluteEvent(begin=begin, end=end))
+        return intervals_by_carer
+
     def get_carers(self, area, begin_date, end_date):
         events_by_carer = collections.defaultdict(list)
         for row in self.__get_connection().cursor().execute(
@@ -486,6 +578,15 @@ GROUP BY visits.visit_id
             carer_shift = Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries)
             carer_shifts.append(carer_shift)
         return carer_shifts
+
+    def get_carers_windows(self, carer_id, begin_date, end_date):
+        windows = []
+        for row in self.__get_connection() \
+                .cursor() \
+                .execute(SqlDataSource.SINGLE_CARER_INTERVAL_QUERY.format(begin_date, end_date, carer_id)):
+            _carer_id, begin_date_time, end_date_time = row
+            windows.append(AbsoluteEvent(begin=begin_date_time, end=end_date_time))
+        return windows
 
     def get_visits_carers_from_schedule(self, area, begin_date, end_date, duration_estimator):
         duration_estimator.reload(self.__console, self.__get_connection)
@@ -549,14 +650,14 @@ GROUP BY visits.visit_id
                   for service_user_id, visits in visits_by_service_user.items()]
 
         # get carers
-        raw_events_by_carer = collections.defaultdict(list)
+        raw_work_events_by_carer = collections.defaultdict(list)
         for row in data_set:
             _visit_key, start_date_time, end_date_time, carer_id, _service_user_id, _tasks = row
-            raw_events_by_carer[carer_id].append((start_date_time, end_date_time))
+            raw_work_events_by_carer[carer_id].append((start_date_time, end_date_time))
 
-        events_by_carer = {}
-        for carer in raw_events_by_carer.keys():
-            events = raw_events_by_carer[carer]
+        work_events_by_carer = {}
+        for carer in raw_work_events_by_carer.keys():
+            events = raw_work_events_by_carer[carer]
             if not events:
                 continue
             events.sort(key=lambda pair: pair[0])
@@ -571,16 +672,45 @@ GROUP BY visits.visit_id
                     aggregated_events.append(AbsoluteEvent(begin=interval_begin, end=interval_end))
                     interval_begin, interval_end = current_begin, current_end
             aggregated_events.append(AbsoluteEvent(begin=interval_begin, end=interval_end))
-            events_by_carer[carer] = aggregated_events
+            work_events_by_carer[carer] = aggregated_events
+
+        scheduler = SqlDataSource.Scheduler(self)
+        scheduler.initialize(begin_date, end_date)
+
+        intervals_by_carer = collections.defaultdict(list)
+        for row in self.__get_connection().cursor().execute(SqlDataSource.CARER_INTERVAL_QUERY.format(
+                begin_date, end_date)).fetchall():
+            carer_id, begin, end = row
+            intervals_by_carer[carer_id].append(AbsoluteEvent(begin=begin, end=end))
 
         carer_shifts = []
-        for carer_id in events_by_carer.keys():
-            diaries = [Diary(date=date, events=list(events), schedule_pattern=None)
-                       for date, events
-                       in itertools.groupby(events_by_carer[carer_id], key=lambda event: event.begin.date())]
-            carer_shift = Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries)
-            carer_shifts.append(carer_shift)
-
+        for carer_id in work_events_by_carer.keys():
+            diaries = None
+            carer_area = scheduler.get_area(carer_id)
+            if carer_area == area:
+                diaries = []
+                dates_to_use = list(set((event.begin.date() for event in work_events_by_carer[carer_id])))
+                dates_to_use.sort()
+                for current_date in dates_to_use:
+                    # carer is assigned to area
+                    working_hours = scheduler.get_working_hours(carer_id, current_date)
+                    if working_hours:
+                        actual_work = [event for event in work_events_by_carer[carer_id]
+                                       if event.begin.date() == current_date]
+                        work_to_use = scheduler.adjust_work(actual_work, working_hours)
+                        diaries.append(Diary(date=current_date, events=work_to_use, schedule_pattern=None))
+                    else:
+                        diaries.append(Diary(date=current_date,
+                                             events=[event for event in work_events_by_carer[carer_id]
+                                                     if event.begin.date() == current_date],
+                                             schedule_pattern=None))
+            else:
+                # carer is used conditionally
+                diaries = [Diary(date=date, events=list(events), schedule_pattern=None)
+                           for date, events
+                           in itertools.groupby(work_events_by_carer[carer_id],
+                                                key=lambda event: event.begin.date())]
+            carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries))
         return visits, carer_shifts
 
     def get_service_users(self, area, begin_date, end_date):
@@ -666,8 +796,9 @@ GROUP BY visits.visit_id
             with path.open() as file_stream:
                 return file_stream.read().strip()
         except FileNotFoundError as ex:
-            raise RuntimeError("Failed to open the the file '{0}' which is expected to store the database credentials."
-                               " Create the file in the specified location and try again.".format(path), ex)
+            raise RuntimeError(
+                "Failed to open the the file '{0}' which is expected to store the database credentials."
+                " Create the file in the specified location and try again.".format(path), ex)
 
     def __build_connection_string(self):
         config = {'Driver': '{ODBC Driver 13 for SQL Server}',
