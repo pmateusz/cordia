@@ -578,6 +578,10 @@ AND schedule.EmployeePositionId = {0}"""
                 time_budget = get_cum_duration(working_hours_to_use) - get_cum_duration(actual_work_to_use)
             return actual_work_to_use
 
+        @staticmethod
+        def join_within_threshold(events, threshold):
+            return events
+
     class Schedule:
         def __init__(self, schedule):
             self.__weeks = 0
@@ -590,10 +594,12 @@ AND schedule.EmployeePositionId = {0}"""
             self.__weeks = len(self.__data)
 
         def extrapolate(self, date):
-            year, week_number, week_day = date.isocalendar()
-            events = self.__data[week_number % self.__weeks][week_day - 1]
-            return [AbsoluteEvent(begin=datetime.datetime.combine(date, begin_time),
-                                  end=datetime.datetime.combine(date, end_time)) for begin_time, end_time in events]
+            if self.__data:
+                year, week_number, week_day = date.isocalendar()
+                events = self.__data[week_number % self.__weeks][week_day - 1]
+                return [AbsoluteEvent(begin=datetime.datetime.combine(date, begin_time),
+                                      end=datetime.datetime.combine(date, end_time)) for begin_time, end_time in events]
+            return list()
 
     def __init__(self, settings, console, location_finder):
         self.__settings = settings
@@ -807,31 +813,39 @@ AND schedule.EmployeePositionId = {0}"""
 
         carer_shifts = []
         for carer_id in work_events_by_carer.keys():
-            diaries = None
+            diaries = []
+            dates_to_use = list(set((event.begin.date() for event in work_events_by_carer[carer_id])))
+            dates_to_use.sort()
             carer_area = scheduler.get_area(carer_id)
             if carer_area == area:
-                diaries = []
-                dates_to_use = list(set((event.begin.date() for event in work_events_by_carer[carer_id])))
-                dates_to_use.sort()
                 for current_date in dates_to_use:
                     # carer is assigned to area
+                    actual_work = [event for event in work_events_by_carer[carer_id]
+                                   if event.begin.date() == current_date]
                     working_hours = scheduler.get_working_hours(carer_id, current_date)
                     if working_hours:
-                        actual_work = [event for event in work_events_by_carer[carer_id]
-                                       if event.begin.date() == current_date]
                         work_to_use = scheduler.adjust_work(actual_work, working_hours)
-                        diaries.append(Diary(date=current_date, events=work_to_use, schedule_pattern=None))
+                        diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
                     else:
-                        diaries.append(Diary(date=current_date,
-                                             events=[event for event in work_events_by_carer[carer_id]
-                                                     if event.begin.date() == current_date],
-                                             schedule_pattern=None))
+                        work_to_use = scheduler.join_within_threshold(actual_work, datetime.timedelta(minutes=30))
+                        diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
+                    diaries.append(diary)
             else:
                 # carer is used conditionally
-                diaries = [Diary(date=date, events=list(events), schedule_pattern=None)
-                           for date, events
-                           in itertools.groupby(work_events_by_carer[carer_id],
-                                                key=lambda event: event.begin.date())]
+                for current_date in dates_to_use:
+                    actual_work = [event for event in work_events_by_carer[carer_id]
+                                   if event.begin.date() == current_date]
+                    if len(actual_work) == 1:
+                        diary = Diary(date=current_date, events=actual_work, schedule_pattern=None)
+                    else:
+                        working_hours = scheduler.get_working_hours(carer_id, current_date)
+                        if working_hours:
+                            work_to_use = scheduler.adjust_work(actual_work, working_hours)
+                            diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
+                        else:
+                            work_to_use = scheduler.join_within_threshold(actual_work, datetime.timedelta(minutes=30))
+                            diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
+                    diaries.append(diary)
             carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries))
         return visits, carer_shifts
 
