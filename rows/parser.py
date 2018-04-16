@@ -60,7 +60,7 @@ class Parser:
     SOLVE_START_ARG = '--start'
     SOLVE_SOLUTIONS_LIMIT_ARG = '--solutions-limit'
     SOLVE_TIME_LIMIT_ARG = '--time-limit'
-    SOLVE_SCHEDULE_DATE = '--schedule-date'
+    SOLVE_SCHEDULE_DATE_ARG = '--schedule-date'
 
     PULL_COMMAND = 'pull'
     PULL_AREA_ARG = 'area'
@@ -72,6 +72,11 @@ class Parser:
     PULL_OUTPUT_ARG = '--output'
     PULL_DURATION_ESTIMATOR_ARG = '--duration-estimator'
     PULL_RESOURCES_ESTIMATOR_ARG = '--resource-estimator'
+
+    SOLUTION_COMMAND = 'solution'
+    SOLUTION_AREA_ARG = PULL_AREA_ARG
+    SOLUTION_SCHEDULE_DATE_ARG = SOLVE_SCHEDULE_DATE_ARG
+    SOLUTION_OUTPUT_ARG = PULL_OUTPUT_ARG
 
     class PullFromArgAction(argparse.Action):
         """Validate the 'from' argument"""
@@ -170,11 +175,27 @@ class Parser:
                                   help='set limit on the wall time',
                                   type=str,
                                   default=None)
-        solve_parser.add_argument(Parser.SOLVE_SCHEDULE_DATE,
+        solve_parser.add_argument(Parser.SOLVE_SCHEDULE_DATE_ARG,
                                   help='set day to compute schedule for',
                                   type=Parser.__parse_date,
                                   default=None)
         add_verbose_option(solve_parser)
+
+        solution_parser = subparsers.add_parser(name='solution',
+                                                help='loads an instance of previous schedule from the database')
+        solution_parser.add_argument(Parser.SOLUTION_AREA_ARG,
+                                     help='an administration, operations and management area'
+                                          ' where the requested visits are assigned to')
+        solution_parser.add_argument(Parser.SOLUTION_SCHEDULE_DATE_ARG,
+                                     help='set day to download schedule for',
+                                     type=Parser.__parse_date,
+                                     default=None)
+        solution_parser.add_argument('-o',
+                                     Parser.SOLUTION_OUTPUT_ARG,
+                                     help='Save output to the specified file',
+                                     type=str,
+                                     default='solution.json')
+        add_verbose_option(solution_parser)
 
     def parse_args(self, args=None):
         """Parse command line arguments"""

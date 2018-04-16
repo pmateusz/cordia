@@ -10,6 +10,10 @@ import pyodbc
 
 import scipy.stats
 
+from rows.model.metadata import Metadata
+from rows.model.past_visit import PastVisit
+from rows.model.schedule import Schedule
+from rows.model.visit import Visit
 from rows.util.file_system import real_path
 
 from rows.model.address import Address
@@ -312,6 +316,38 @@ WHERE details.Type ='Shift'
 AND schedule.StartDate <= '{2}'
 AND schedule.EndDate >= '{1}'
 AND schedule.EmployeePositionId = {0}"""
+
+    PLANNED_SCHEDULE_QUERY = """SELECT carer_visits.VisitID as visit_id,
+carer_visits.PlannedCarerID as carer_id,
+carer_visits.CheckInDateTime as check_in,
+carer_visits.CheckOutDateTime as check_out,
+CONVERT(date, carer_visits.PlannedStartDateTime) as 'date',
+CONVERT(time, carer_visits.PlannedStartDateTime) as 'planned_time',
+CONVERT(time, carer_visits.CheckInDateTime) as 'real_time',
+DATEDIFF(SECOND, carer_visits.PlannedStartDateTime, carer_visits.PlannedEndDateTime) as 'planned_duration',
+DATEDIFF(SECOND, carer_visits.CheckInDateTime, carer_visits.CheckOutDateTime) as 'real_duration',
+covered_visits.address as address,
+covered_visits.service_user as service_user,
+covered_visits.carer_count as carer_count
+FROM dbo.ListCarerVisits carer_visits
+INNER JOIN (
+  SELECT inner_visits.visit_id, inner_visits.address, inner_visits.service_user, COUNT(inner_visits.carer_id) as carer_count
+    FROM (
+      SELECT DISTINCT inner_carer_visits.VisitID as 'visit_id',
+      inner_carer_visits.PlannedCarerID as 'carer_id',
+      planned_visits.display_address as 'address',
+      planned_visits.service_user_id as 'service_user'
+      FROM ListCarerVisits inner_carer_visits
+      INNER JOIN dbo.ListVisitsWithinWindow planned_visits
+      ON inner_carer_visits.VisitID = planned_visits.visit_id
+      INNER JOIN dbo.ListAom aom
+      ON aom.aom_id = planned_visits.aom_code
+      WHERE aom.area_code = '{0}' AND CONVERT(date, inner_carer_visits.PlannedStartDateTime) BETWEEN '{1}' AND '{2}'
+      GROUP BY inner_carer_visits.VisitID, planned_visits.display_address, planned_visits.service_user_id, inner_carer_visits.PlannedCarerID
+    ) inner_visits
+    GROUP BY visit_id, service_user, address
+) covered_visits
+ON carer_visits.VisitID = covered_visits.visit_id"""
 
     class IntervalEstimatorBase(object):
 
@@ -899,6 +935,30 @@ AND schedule.EmployeePositionId = {0}"""
                                              address=address_by_service_user[service_user_id],
                                              carer_preference=carer_preference))
         return service_users
+
+    def get_past_schedule(self, area, schedule_date):
+        visits = []
+        for row in self.__get_connection().cursor().execute(
+                SqlDataSource.PLANNED_SCHEDULE_QUERY.format(area.code, schedule_date, schedule_date)) \
+                .fetchall():
+            visit_id, carer_id, check_in, check_out, date, planned_time, real_time, planned_duration, read_duration, \
+            raw_address, service_user, carer_count = row
+            visits.append(PastVisit(
+                cancelled=False,
+                carer=Carer(sap_number=carer_id),
+                visit=Visit(
+                    service_user=ServiceUser(key=service_user, address=Address.parse(raw_address)),
+                    time=planned_time,
+                    duration=planned_duration,
+                    carer_count=carer_count
+                ),
+                date=date,
+                time=real_time,
+                duration=read_duration,
+                check_in=check_in,
+                check_out=check_out
+            ))
+        return Schedule(visits=visits, metadata=Metadata(area=area, begin=schedule_date, end=schedule_date))
 
     def reload(self):
         self.__get_connection_string()

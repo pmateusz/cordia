@@ -13,6 +13,7 @@ import rows.sql_data_source
 import rows.pull_command
 import rows.solve_command
 import rows.version_command
+import rows.solution_command
 import rows.version
 
 
@@ -34,7 +35,8 @@ class Application:
                                                                 self.__location_finder)
         self.__handlers = {rows.parser.Parser.PULL_COMMAND: rows.pull_command.Handler(self),
                            rows.parser.Parser.SOLVE_COMMAND: rows.solve_command.Handler(self),
-                           rows.parser.Parser.VERSION_COMMAND: rows.version_command.Handler(self)}
+                           rows.parser.Parser.VERSION_COMMAND: rows.version_command.Handler(self),
+                           rows.parser.Parser.SOLUTION_COMMAND: rows.solution_command.Handler(self)}
         self.__output_file_mode = output_file_mode
 
     def load(self, args):
