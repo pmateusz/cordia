@@ -945,16 +945,18 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
             raw_address, service_user, carer_count = row
             visits.append(PastVisit(
                 cancelled=False,
-                carer=Carer(sap_number=carer_id),
+                carer=Carer(sap_number=str(carer_id)),
                 visit=Visit(
-                    service_user=ServiceUser(key=service_user, address=Address.parse(raw_address)),
+                    service_user=str(service_user),
+                    address=Address.parse(raw_address),
+                    date=date,
                     time=planned_time,
-                    duration=planned_duration,
+                    duration=str(planned_duration),
                     carer_count=carer_count
                 ),
                 date=date,
-                time=real_time,
-                duration=read_duration,
+                time=planned_time,
+                duration=str(planned_duration),
                 check_in=check_in,
                 check_out=check_out
             ))
