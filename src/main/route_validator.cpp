@@ -649,7 +649,7 @@ namespace rows {
     boost::posix_time::time_duration ValidationSession::GetBeginWindow(
             const Event &interval) const {
         if (!breaks_.empty() && breaks_.front() != interval && breaks_.back() != interval) {
-            return boost::posix_time::seconds(solver_.GetBeginWindow(interval.begin().time_of_day()));
+            return boost::posix_time::seconds(solver_.GetBeginVisitWindow(interval.begin().time_of_day()));
         }
 
         return interval.begin().time_of_day();
@@ -658,7 +658,7 @@ namespace rows {
     boost::posix_time::time_duration ValidationSession::GetEndWindow(
             const Event &interval) const {
         if (!breaks_.empty() && breaks_.front() != interval && breaks_.back() != interval) {
-            return boost::posix_time::seconds(solver_.GetEndWindow(interval.begin().time_of_day()));
+            return boost::posix_time::seconds(solver_.GetEndVisitWindow(interval.begin().time_of_day()));
         }
 
         return interval.begin().time_of_day();
@@ -666,7 +666,7 @@ namespace rows {
 
     boost::posix_time::time_duration ValidationSession::GetBeginWindow(const ScheduledVisit &visit) const {
         const auto earliest_arrival = static_cast<boost::posix_time::time_duration>(
-                boost::posix_time::seconds(solver_.GetBeginWindow(visit.datetime().time_of_day())));
+                boost::posix_time::seconds(solver_.GetBeginVisitWindow(visit.datetime().time_of_day())));
         const auto find_it = latest_arrival_times_.find(visit.calendar_visit().get());
         if (find_it != std::cend(latest_arrival_times_)) {
             return std::max(earliest_arrival, find_it->second);
@@ -675,7 +675,7 @@ namespace rows {
     }
 
     boost::posix_time::time_duration ValidationSession::GetEndWindow(const ScheduledVisit &visit) const {
-        return boost::posix_time::seconds(solver_.GetEndWindow(visit.datetime().time_of_day()));
+        return boost::posix_time::seconds(solver_.GetEndVisitWindow(visit.datetime().time_of_day()));
     }
 
     ValidationSession::ValidationSession(const Route &route, SolverWrapper &solver)
@@ -995,8 +995,8 @@ namespace rows {
             const auto visit_index = indices[node_pos];
             const auto visit_node = model.IndexToNode(visit_index);
             const auto &visit = visits[node_pos - 1];
-            const ptime fastest_arrival{date, seconds(solver.GetBeginWindow(visit.datetime().time_of_day()))};
-            const ptime latest_arrival{date, seconds(solver.GetEndWindow(visit.datetime().time_of_day()))};
+            const ptime fastest_arrival{date, seconds(solver.GetBeginVisitWindow(visit.datetime().time_of_day()))};
+            const ptime latest_arrival{date, seconds(solver.GetEndVisitWindow(visit.datetime().time_of_day()))};
             const ptime arrival{date, seconds(solution.Value(time_dim.CumulVar(visit_index)))};
 
             VLOG(2) << boost::format("Visit [%1%,%2%] arrival: %3% busy until %4%")

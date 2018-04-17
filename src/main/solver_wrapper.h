@@ -17,6 +17,7 @@
 #include <osrm/engine/engine_config.hpp>
 
 #include <ortools/constraint_solver/routing.h>
+#include <ortools/base/logging.h>
 
 #include "calendar_visit.h"
 #include "carer.h"
@@ -122,7 +123,8 @@ namespace rows {
 
         std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
                                                                              const rows::Carer &carer,
-                                                                             const rows::Diary &diary) const;
+                                                                             const rows::Diary &diary,
+                                                                             bool breaks_for_out_of_office_hours) const;
 
         void DisplayPlan(const operations_research::RoutingModel &routing, const operations_research::Assignment &plan);
 
@@ -132,9 +134,13 @@ namespace rows {
         std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
         GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
 
-        int64 GetBeginWindow(boost::posix_time::time_duration value) const;
+        int64 GetBeginVisitWindow(boost::posix_time::time_duration value) const;
 
-        int64 GetEndWindow(boost::posix_time::time_duration value) const;
+        int64 GetEndVisitWindow(boost::posix_time::time_duration value) const;
+
+        int64 GetBeginBreakWindow(boost::posix_time::time_duration value) const;
+
+        int64 GetEndBreakWindow(boost::posix_time::time_duration value) const;
 
         const Location &depot() const;
 
@@ -144,8 +150,6 @@ namespace rows {
 
         bool HasTimeWindows() const;
 
-        boost::posix_time::time_duration TimeWindow() const;
-
         int vehicles() const;
 
         int nodes() const;
@@ -154,6 +158,12 @@ namespace rows {
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
         };
+
+        int64 GetBeginWindow(boost::posix_time::time_duration value,
+                             boost::posix_time::time_duration window_size) const;
+
+        int64 GetEndWindow(boost::posix_time::time_duration value,
+                           boost::posix_time::time_duration window_size) const;
 
         class CareContinuityMetrics {
         public:
@@ -175,19 +185,17 @@ namespace rows {
             bool operator()(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const noexcept;
         };
 
-        operations_research::IntervalVar *CreateBreakWithTimeWindows(operations_research::Solver *solver,
-                                                                     const boost::posix_time::time_duration &start_time,
-                                                                     const boost::posix_time::time_duration &duration,
-                                                                     const std::string &label) const;
-
         static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
 
         const rows::Problem problem_;
         const Location depot_;
         const LocalServiceUser depot_service_user_;
-        boost::posix_time::time_duration visit_time_window_;
-        rows::CachedLocationContainer location_container_;
 
+        boost::posix_time::time_duration visit_time_window_;
+        boost::posix_time::time_duration break_time_window_;
+        bool care_continuity_enabled_;
+
+        rows::CachedLocationContainer location_container_;
         operations_research::RoutingSearchParameters parameters_;
 
         std::unordered_map<rows::CalendarVisit,

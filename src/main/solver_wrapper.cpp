@@ -40,6 +40,12 @@
 #include "break_constraint.h"
 #include "search_monitor.h"
 
+// TODO: ensure that travel may happen befor and after the break or inbetween?
+// TODO: add maximum working hours for external employees -- low priority
+// TODO: modify cost function to differentiate between each of employee category
+// TODO: add support for mobile workers
+// TODO: add information about back to back carers
+
 namespace rows {
 
     const operations_research::RoutingModel::NodeIndex SolverWrapper::DEPOT{0};
@@ -74,7 +80,9 @@ namespace rows {
             : problem_(problem),
               depot_(Location::GetCentralLocation(std::cbegin(locations), std::cend(locations))),
               depot_service_user_(),
-              visit_time_window_(boost::posix_time::minutes(30)),
+              visit_time_window_(boost::posix_time::minutes(90)),
+              break_time_window_(boost::posix_time::minutes(90)),
+              care_continuity_enabled_(false),
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(search_parameters),
               visit_index_(),
@@ -167,14 +175,11 @@ namespace rows {
         return find_it->second;
     }
 
-    boost::posix_time::time_duration SolverWrapper::TimeWindow() const {
-        return this->visit_time_window_;
-    }
-
     std::vector<operations_research::IntervalVar *> SolverWrapper::CreateBreakIntervals(
             operations_research::Solver *const solver,
             const rows::Carer &carer,
-            const rows::Diary &diary) const {
+            const rows::Diary &diary,
+            bool breaks_for_out_of_office_hours) const {
         std::vector<operations_research::IntervalVar *> result;
 
         const auto &events = diary.events();
@@ -182,30 +187,36 @@ namespace rows {
             auto event_it = std::begin(events);
             const auto event_it_end = std::end(events);
 
-            result.push_back(solver->MakeFixedInterval(0,
-                                                       event_it->begin().time_of_day().total_seconds(),
-                                                       GetBreakLabel(carer, BreakType::BEFORE_WORKDAY)));
+            if (breaks_for_out_of_office_hours) {
+                result.push_back(solver->MakeFixedInterval(0,
+                                                           event_it->begin().time_of_day().total_seconds(),
+                                                           GetBreakLabel(carer, BreakType::BEFORE_WORKDAY)));
+            }
 
             auto prev_event_it = event_it++;
             while (event_it != event_it_end) {
                 const auto start_time = prev_event_it->end().time_of_day();
                 const auto duration = (event_it->begin() - prev_event_it->end());
                 const auto raw_duration = duration.total_seconds();
+                const auto begin_break_window = GetBeginBreakWindow(start_time);
+                const auto end_break_window = GetEndBreakWindow(start_time);
                 result.push_back(solver->MakeIntervalVar(
-                        GetBeginWindow(start_time), GetEndWindow(start_time),
+                        begin_break_window, end_break_window,
                         raw_duration, raw_duration,
-                        GetBeginWindow(start_time) + raw_duration,
-                        GetEndWindow(start_time) + raw_duration,
+                        begin_break_window + raw_duration,
+                        end_break_window + raw_duration,
                         /*optional*/false,
                         GetBreakLabel(carer, BreakType::BREAK)));
 
                 prev_event_it = event_it++;
             }
 
-            result.push_back(solver->MakeFixedInterval(prev_event_it->end().time_of_day().total_seconds(),
-                                                       (boost::posix_time::hours(24)
-                                                        - prev_event_it->end().time_of_day()).total_seconds(),
-                                                       GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
+            if (breaks_for_out_of_office_hours) {
+                result.push_back(solver->MakeFixedInterval(prev_event_it->end().time_of_day().total_seconds(),
+                                                           (boost::posix_time::hours(24)
+                                                            - prev_event_it->end().time_of_day()).total_seconds(),
+                                                           GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
+            }
         }
 
         return result;
@@ -295,28 +306,34 @@ namespace rows {
         LOG(INFO) << out.rdbuf();
     }
 
-    operations_research::IntervalVar *SolverWrapper::CreateBreakWithTimeWindows(operations_research::Solver *solver,
-                                                                                const boost::posix_time::time_duration &start_time,
-                                                                                const boost::posix_time::time_duration &duration,
-                                                                                const std::string &label) const {
-        static const auto IS_OPTIONAL = false;
-        return solver->MakeFixedDurationIntervalVar(
-                GetBeginWindow(start_time),
-                GetEndWindow(start_time),
-                duration.total_seconds(),
-                IS_OPTIONAL,
-                label);
-    }
-
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
 
         static const auto USE_ADVANCED_SEARCH = true;
-        static const auto USE_LIGHT_PROPAGATION = false; // breaks contractual breaks
+        static const auto USE_LIGHT_PROPAGATION = true; // breaks contractual breaks
         parameters.set_use_light_propagation(USE_LIGHT_PROPAGATION);
-        parameters.mutable_local_search_operators()->set_use_path_lns(USE_ADVANCED_SEARCH);
+//        parameters.set_savings_add_reverse_arcs(USE_ADVANCED_SEARCH); // more harm
+//        parameters.set_fingerprint_arc_cost_evaluators(USE_ADVANCED_SEARCH); // more harm
+        parameters.mutable_local_search_operators()->set_use_cross(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_cross_exchange(USE_ADVANCED_SEARCH); // more harm
+//        parameters.mutable_local_search_operators()->set_use_exchange(USE_ADVANCED_SEARCH); // inconclusive
+//        parameters.mutable_local_search_operators()->set_use_extended_swap_active(USE_ADVANCED_SEARCH); // inconclusive
+        parameters.mutable_local_search_operators()->set_use_full_path_lns(USE_ADVANCED_SEARCH);
         parameters.mutable_local_search_operators()->set_use_inactive_lns(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_lin_kernighan(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_make_chain_inactive(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_make_active(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_make_inactive(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_relocate(USE_ADVANCED_SEARCH); // more harm
+//        parameters.mutable_local_search_operators()->set_use_relocate_pair(USE_ADVANCED_SEARCH); // inconclusive
+        parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_relocate_neighbors(USE_ADVANCED_SEARCH); // more harm
+//        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH); // more harm
+        parameters.mutable_local_search_operators()->set_use_two_opt(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_or_opt(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_tsp_lns(USE_ADVANCED_SEARCH); // more harm
+//        parameters.mutable_local_search_operators()->set_use_tsp_opt(USE_ADVANCED_SEARCH); // inconclusive
         return parameters;
     }
 
@@ -364,38 +381,42 @@ namespace rows {
             const auto visit_start = visit_index_pair.first.datetime().time_of_day();
 
             std::vector<operations_research::IntVar *> start_visit_vars;
+            std::vector<operations_research::IntVar *> slack_visit_vars;
             std::vector<operations_research::IntVar *> active_visit_vars;
             for (const auto &visit_node : visit_index_pair.second) {
                 covered_nodes.insert(visit_node);
                 const auto visit_index = model.NodeToIndex(visit_node);
                 if (HasTimeWindows()) {
+                    const auto start_window = GetBeginVisitWindow(visit_start);
+                    const auto end_window = GetEndVisitWindow(visit_start);
+
                     time_dimension
                             ->CumulVar(visit_index)
-                            ->SetRange(GetBeginWindow(visit_start), GetEndWindow(visit_start));
+                            ->SetRange(start_window, end_window);
 
-                    const auto start_window = boost::posix_time::seconds(GetBeginWindow(visit_start));
-                    const auto end_window = boost::posix_time::seconds(GetEndWindow(visit_start));
                     DCHECK_LT(start_window, end_window);
-                    DCHECK_EQ((start_window + end_window) / 2, visit_start);
+                    DCHECK_EQ((start_window + end_window) / 2, visit_start.total_seconds());
                 } else {
                     time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
                 }
                 model.AddToAssignment(time_dimension->SlackVar(visit_index));
 
                 start_visit_vars.push_back(time_dimension->CumulVar(visit_index));
+                slack_visit_vars.push_back(time_dimension->SlackVar(visit_index));
                 active_visit_vars.push_back(model.ActiveVar(visit_index));
             }
 
             const auto visit_index_size = start_visit_vars.size();
             if (visit_index_size > 1) {
-                const auto latest_arrival = model.solver()->MakeMax(start_visit_vars);
+                CHECK_EQ(visit_index_size, 2);
+
+                const auto arrival_with_waiting_1 = model.solver()->MakeSum(start_visit_vars[0], slack_visit_vars[0]);
+                const auto arrival_with_waiting_2 = model.solver()->MakeSum(start_visit_vars[1], slack_visit_vars[1]);
+                const auto equality_const = solver->MakeEquality(arrival_with_waiting_1, arrival_with_waiting_2);
+                solver->AddConstraint(equality_const);
+
                 const auto all_active = model.solver()->MakeMin(active_visit_vars);
-
                 for (auto visit_index = 0; visit_index < visit_index_size; ++visit_index) {
-                    const auto start_time_constraint
-                            = model.solver()->MakeEquality(start_visit_vars[visit_index], latest_arrival);
-                    solver->AddConstraint(start_time_constraint);
-
                     const auto active_constraint
                             = model.solver()->MakeEquality(active_visit_vars[visit_index], all_active);
                     solver->AddConstraint(active_constraint);
@@ -418,76 +439,83 @@ namespace rows {
                 begin_time = diary.begin_time().total_seconds();
                 end_time = diary.end_time().total_seconds();
 
-                const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
+                const auto breaks_for_out_office_hours = false;
+                const auto breaks = CreateBreakIntervals(solver_ptr,
+                                                         carer,
+                                                         diary,
+                                                         breaks_for_out_office_hours);
                 solver_ptr->AddConstraint(
                         solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
             }
 
+            static const auto range_offset = 30 * 60;
+            begin_time = std::max(begin_time - range_offset, 0);
+            end_time = std::min(end_time + range_offset, static_cast<int>(SECONDS_IN_DAY));
             time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
             time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
         }
 
-        printer->operator<<(ProblemDefinition(model.vehicles(),
-                                              model.nodes() - 1,
-                                              visit_time_window_,
-                                              0));
-
-        for (const auto &carer_pair :problem_.carers()) {
-            care_continuity_metrics_.emplace_back(*this, carer_pair.first);
-        }
-
-        std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
-        for (const auto &carer_metrics :care_continuity_metrics_) {
-            care_continuity_evaluators.
-                    push_back(
-                    NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
-        }
-
-        model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
-                                              0,
-                                              CARE_CONTINUITY_MAX,
-                                              START_FROM_ZERO_SERVICE_SATISFACTION,
-                                              CARE_CONTINUITY_DIMENSION);
-
-        operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
-                rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
+        printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
 
         // minimize time variables
-        for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
-            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
-        }
+//        for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
+//            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(variable_index));
+//            model.AddVariableMinimizedByFinalizer(time_dimension->SlackVar(variable_index));
+//        }
 
         // minimize route duration
-        for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
-            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.Start(vehicle)));
-            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(vehicle)));
-        }
+//        for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+//            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.Start(vehicle)));
+//            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(vehicle)));
+//        }
 
-        // define and maximize the service satisfaction
-        for (const auto &service_user :problem_.service_users()) {
-            std::vector<operations_research::IntVar *> service_user_visits;
-
-            for (const auto &visit :problem_.visits()) {
-                if (visit.service_user() != service_user) {
-                    continue;
-                }
-
-                const auto visit_it = visit_index_.find(visit);
-                DCHECK(visit_it != std::end(visit_index_));
-                for (const auto &visit_node : visit_it->second) {
-                    service_user_visits.push_back(
-                            care_continuity_dimension->TransitVar(model.NodeToIndex(visit_node)));
-                }
+        if (care_continuity_enabled_) {
+            for (const auto &carer_pair :problem_.carers()) {
+                care_continuity_metrics_.emplace_back(*this, carer_pair.first);
             }
 
-            auto find_it = care_continuity_.find(service_user);
-            DCHECK(find_it != std::end(care_continuity_));
+            std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
+            for (const auto &carer_metrics :care_continuity_metrics_) {
+                care_continuity_evaluators.
+                        push_back(
+                        NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
+            }
 
-            const auto care_satisfaction = model.solver()->MakeSum(service_user_visits)->Var();
-            find_it->second = care_satisfaction;
+            model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
+                                                  0,
+                                                  CARE_CONTINUITY_MAX,
+                                                  START_FROM_ZERO_SERVICE_SATISFACTION,
+                                                  CARE_CONTINUITY_DIMENSION);
 
-            model.AddToAssignment(care_satisfaction);
-            model.AddVariableMaximizedByFinalizer(care_satisfaction);
+            operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
+                    rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
+
+            // define and maximize the service satisfaction
+            for (const auto &service_user :problem_.service_users()) {
+                std::vector<operations_research::IntVar *> service_user_visits;
+
+                for (const auto &visit :problem_.visits()) {
+                    if (visit.service_user() != service_user) {
+                        continue;
+                    }
+
+                    const auto visit_it = visit_index_.find(visit);
+                    DCHECK(visit_it != std::end(visit_index_));
+                    for (const auto &visit_node : visit_it->second) {
+                        service_user_visits.push_back(
+                                care_continuity_dimension->TransitVar(model.NodeToIndex(visit_node)));
+                    }
+                }
+
+                auto find_it = care_continuity_.find(service_user);
+                DCHECK(find_it != std::end(care_continuity_));
+
+                const auto care_satisfaction = model.solver()->MakeSum(service_user_visits)->Var();
+                find_it->second = care_satisfaction;
+
+                model.AddToAssignment(care_satisfaction);
+                model.AddVariableMaximizedByFinalizer(care_satisfaction);
+            }
         }
 
         // Adding penalty costs to allow skipping orders.
@@ -704,12 +732,30 @@ namespace rows {
         return visit_time_window_.ticks() != 0;
     }
 
-    int64 SolverWrapper::GetBeginWindow(boost::posix_time::time_duration value) const {
-        return std::max((value - visit_time_window_).total_seconds(), 0);
+    int64 SolverWrapper::GetBeginVisitWindow(boost::posix_time::time_duration value) const {
+        return GetBeginWindow(value, visit_time_window_);
     }
 
-    int64 SolverWrapper::GetEndWindow(boost::posix_time::time_duration value) const {
-        return std::min((value + visit_time_window_).total_seconds(), static_cast<int>(SECONDS_IN_DAY));
+    int64 SolverWrapper::GetEndVisitWindow(boost::posix_time::time_duration value) const {
+        return GetEndWindow(value, visit_time_window_);
+    }
+
+    int64 SolverWrapper::GetBeginBreakWindow(boost::posix_time::time_duration value) const {
+        return GetBeginWindow(value, break_time_window_);
+    }
+
+    int64 SolverWrapper::GetEndBreakWindow(boost::posix_time::time_duration value) const {
+        return GetEndWindow(value, break_time_window_);
+    }
+
+    int64 SolverWrapper::GetBeginWindow(boost::posix_time::time_duration value,
+                                        boost::posix_time::time_duration window_size) const {
+        return std::max((value - window_size).total_seconds(), 0);
+    }
+
+    int64 SolverWrapper::GetEndWindow(boost::posix_time::time_duration value,
+                                      boost::posix_time::time_duration window_size) const {
+        return std::min((value + window_size).total_seconds(), static_cast<int>(SECONDS_IN_DAY));
     }
 
     const Problem &SolverWrapper::problem() const {
