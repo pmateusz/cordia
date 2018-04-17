@@ -632,6 +632,22 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
                 result.append(last_event)
             return result
 
+        @staticmethod
+        def patch_outlieres(events, max_outlier_duration, max_window):
+            result = list()
+            if events:
+                events_it = iter(events)
+                last_event = next(events_it)
+                for event in events_it:
+                    if (last_event.duration > max_outlier_duration and event.duration > max_outlier_duration) \
+                            or (event.begin - last_event.end) > max_window:
+                        result.append(last_event)
+                        last_event = event
+                        continue
+                    last_event = AbsoluteEvent(begin=last_event.begin, end=event.end)
+                result.append(last_event)
+            return result
+
     class Schedule:
         def __init__(self, schedule):
             self.__weeks = 0
@@ -861,14 +877,12 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
             carer_id, begin, end = row
             intervals_by_carer[carer_id].append(AbsoluteEvent(begin=begin, end=end))
 
-        join_work_threshold = datetime.timedelta(minutes=30)
         carer_shifts = []
         for carer_id in work_events_by_carer.keys():
             diaries = []
             dates_to_use = list(set((event.begin.date() for event in work_events_by_carer[carer_id])))
             dates_to_use.sort()
             carer_area = scheduler.get_area(carer_id)
-            is_external = False
             if carer_area == area:
                 for current_date in dates_to_use:
                     # carer is assigned to area
@@ -877,30 +891,55 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
                     working_hours = scheduler.get_working_hours(carer_id, current_date)
                     if working_hours:
                         work_to_use = scheduler.adjust_work(actual_work, working_hours)
-                        diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
+                        work_to_use = scheduler.join_within_threshold(work_to_use, datetime.timedelta(minutes=15))
+                        work_to_use = scheduler.patch_outlieres(work_to_use,
+                                                                max_outlier_duration=datetime.timedelta(minutes=30),
+                                                                max_window=datetime.timedelta(minutes=45))
+                        diary = Diary(date=current_date,
+                                      events=work_to_use,
+                                      shift_type=Diary.STANDARD_SHIFT_TYPE)
                     else:
-                        work_to_use = scheduler.join_within_threshold(actual_work, join_work_threshold)
-                        diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
+                        work_to_use = scheduler.join_within_threshold(actual_work, datetime.timedelta(minutes=45))
+                        work_to_use = scheduler.patch_outlieres(work_to_use,
+                                                                max_outlier_duration=datetime.timedelta(minutes=30),
+                                                                max_window=datetime.timedelta(minutes=45))
+                        diary = Diary(date=current_date,
+                                      events=work_to_use,
+                                      shift_type=Diary.EXTRA_SHIFT_TYPE)
                     diaries.append(diary)
             else:
                 # carer is used conditionally
                 for current_date in dates_to_use:
                     actual_work = [event for event in work_events_by_carer[carer_id]
                                    if event.begin.date() == current_date]
+                    working_hours = scheduler.get_working_hours(carer_id, current_date)
                     if len(actual_work) == 1:
-                        diary = Diary(date=current_date, events=actual_work, schedule_pattern=None)
-                    else:
-                        working_hours = scheduler.get_working_hours(carer_id, current_date)
                         is_external = not working_hours
-                        if working_hours:
-                            work_to_use = scheduler.adjust_work(actual_work, working_hours)
-                            diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
+                        diary = Diary(date=current_date,
+                                      events=actual_work,
+                                      shift_type=Diary.EXTERNAL_SHIFT_TYPE if is_external
+                                      else Diary.EXTERNAL_SHIFT_TYPE)
+                    else:
+                        is_external = not working_hours
+                        if is_external:
+                            work_to_use = scheduler.join_within_threshold(actual_work, datetime.timedelta(minutes=45))
+                            work_to_use = scheduler.patch_outlieres(work_to_use,
+                                                                    max_outlier_duration=datetime.timedelta(minutes=30),
+                                                                    max_window=datetime.timedelta(minutes=45))
+                            diary = Diary(date=current_date,
+                                          events=work_to_use,
+                                          shift_type=Diary.EXTERNAL_SHIFT_TYPE)
                         else:
-                            work_to_use = scheduler.join_within_threshold(actual_work, join_work_threshold)
-                            diary = Diary(date=current_date, events=work_to_use, schedule_pattern=None)
+                            work_to_use = scheduler.adjust_work(actual_work, working_hours)
+                            work_to_use = scheduler.join_within_threshold(work_to_use, datetime.timedelta(minutes=15))
+                            work_to_use = scheduler.patch_outlieres(work_to_use,
+                                                                    max_outlier_duration=datetime.timedelta(minutes=30),
+                                                                    max_window=datetime.timedelta(minutes=45))
+                            diary = Diary(date=current_date,
+                                          events=work_to_use,
+                                          shift_type=Diary.EXTRA_SHIFT_TYPE)
                     diaries.append(diary)
-            carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id), external=is_external),
-                                                   diaries=diaries))
+            carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries))
         return visits, carer_shifts
 
     def get_service_users(self, area, begin_date, end_date):

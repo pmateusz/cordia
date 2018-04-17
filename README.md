@@ -78,5 +78,26 @@ Output a problem
 The project is supported by a continuous integration pipeline hosted by [Travis CI](https://travis-ci.com/pmateusz/cordia). Review the [.travis.yml](.travis.yml) file
 for the most up to date instructions about development environment set up.
 
+
+### CLion Configuration
+
+Solve the scheduling problem for a given day.
+```shell
+rows-main --problem=test_used_fixed_problem.json --maps=./data/cars/scotland-latest.osrm --solution=past_solution.json --scheduling-date=2017-02-01 --output=test_solution.gexf
+```
+
+Pull the solution for a given day.
+```shell
+rows_cli.py solution C240 --schedule-date=2/1/2017
+```
+
+Pull the problem definition for a given day.
+```shell
+rows_cli.py pull C240 --from=2/1/2017 --to=2/14/2017 --resource-estimator=used
+rows_cli.py pull C070 -f 2/1/2017 -t 2/14/2017  -o test_problem.json  --duration-estimator=global_percentile --resource-estimator=used
+```
+
+
+
 ## Project Documentation
 Refer to [the project wiki pages](https://github.com/pmateusz/cordia/wiki) for more information on this subject.
