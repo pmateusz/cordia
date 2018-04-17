@@ -46,35 +46,61 @@ namespace rows {
             for (operations_research::IntervalVar *const break_interval : break_intervals_) {
                 break_interval->SetPerformed(false);
             }
-        } else {
-            operations_research::RoutingModel *const model = dimension_->model();
-            std::vector<operations_research::IntervalVar *> all_intervals;
-            operations_research::IntervalVar *last_interval = nullptr;
+            return;
+        }
 
-            int64 current_index = model->NextVar(model->Start(vehicle_))->Value();
-            while (!model->IsEnd(current_index)) {
-                const auto next_index = model->NextVar(current_index)->Value();
+        std::vector<operations_research::IntervalVar *> all_intervals;
+        operations_research::IntervalVar *last_travel_interval = nullptr;
 
-                operations_research::IntervalVar *const current_interval = solver()->MakeFixedDurationIntervalVar(
-                        dimension_->CumulVar(current_index),
-                        dimension_->GetTransitValue(current_index, next_index, vehicle_),
-                        (boost::format("%1%-%2%") % current_index % next_index).str());
-                all_intervals.push_back(current_interval);
+        operations_research::RoutingModel *const model = dimension_->model();
+        int64 current_index = model->NextVar(model->Start(vehicle_))->Value();
+        int64 last_travel_duration = 0;
+        while (!model->IsEnd(current_index)) {
+            const auto next_index = model->NextVar(current_index)->Value();
 
-                if (last_interval != nullptr) {
-                    solver()->AddConstraint(solver()->MakeIntervalVarRelation(
-                            current_interval, operations_research::Solver::STARTS_AFTER_END, last_interval));
-                }
+            // make visit interval
+            const auto visit_duration = solver_.ServiceTime(model->IndexToNode(current_index));
+            operations_research::IntervalVar *const visit_interval = solver()->MakeFixedDurationIntervalVar(
+                    dimension_->CumulVar(current_index),
+                    visit_duration,
+                    (boost::format("visit %1%") % current_index).str());
+            all_intervals.push_back(visit_interval);
 
-                last_interval = current_interval;
-                current_index = next_index;
+            if (last_travel_interval != nullptr) {
+                solver()->AddConstraint(solver()->MakeIntervalVarRelation(visit_interval,
+                                                                          operations_research::Solver::STARTS_AFTER_END,
+                                                                          last_travel_interval));
             }
 
-            std::copy(std::begin(break_intervals_), std::end(break_intervals_), std::back_inserter(all_intervals));
+            // make travel interval
+            const auto travel_duration = solver_.Distance(model->IndexToNode(current_index),
+                                                          model->IndexToNode(next_index));
+            const auto min_travel_start = visit_interval->EndMin();
+            const auto max_travel_start = dimension_->CumulVar(next_index)->Max() - travel_duration;
+            operations_research::IntervalVar *const travel_interval = solver()->MakeIntervalVar(
+                    min_travel_start,
+                    max_travel_start,
+                    travel_duration,
+                    travel_duration,
+                    min_travel_start + travel_duration,
+                    max_travel_start + travel_duration,
+                    false,
+                    (boost::format("travel %1%-%2%") % current_index % next_index).str());
+            all_intervals.push_back(travel_interval);
 
-            solver()->AddConstraint(solver()->MakeStrictDisjunctiveConstraint(all_intervals,
-                                                                              (boost::format("Vehicle breaks %1%")
-                                                                               % vehicle_).str()));
+            if (last_travel_interval && last_travel_duration > 0) {
+                solver()->AddConstraint(solver()->MakeIntervalVarRelation(last_travel_interval,
+                                                                          operations_research::Solver::STARTS_AFTER_END,
+                                                                          visit_interval));
+            }
+
+            last_travel_interval = travel_interval;
+            current_index = next_index;
         }
+
+        std::copy(std::begin(break_intervals_), std::end(break_intervals_), std::back_inserter(all_intervals));
+        solver()->AddConstraint(solver()->MakeDisjunctiveConstraint(all_intervals,
+                                                                    (boost::format("Vehicle breaks %1%")
+                                                                     % vehicle_).str()));
     }
 }

@@ -102,6 +102,8 @@ namespace rows {
         int64 Distance(operations_research::RoutingModel::NodeIndex from,
                        operations_research::RoutingModel::NodeIndex to);
 
+        int64 ServiceTime(operations_research::RoutingModel::NodeIndex node);
+
         int64 ServicePlusTravelTime(operations_research::RoutingModel::NodeIndex from,
                                     operations_research::RoutingModel::NodeIndex to);
 

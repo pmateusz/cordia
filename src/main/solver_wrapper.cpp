@@ -40,7 +40,6 @@
 #include "break_constraint.h"
 #include "search_monitor.h"
 
-// TODO: ensure that travel may happen befor and after the break or inbetween?
 // TODO: add maximum working hours for external employees -- low priority
 // TODO: modify cost function to differentiate between each of employee category
 // TODO: add support for mobile workers
@@ -140,14 +139,22 @@ namespace rows {
                                             NodeToVisit(to).location().get());
     }
 
+    int64 SolverWrapper::ServiceTime(operations_research::RoutingModel::NodeIndex node) {
+        if (node == DEPOT) {
+            return 0;
+        }
+
+        const auto visit = NodeToVisit(node);
+        return visit.duration().total_seconds();
+    }
+
     int64 SolverWrapper::ServicePlusTravelTime(operations_research::RoutingModel::NodeIndex from,
                                                operations_research::RoutingModel::NodeIndex to) {
         if (from == DEPOT) {
             return 0;
         }
 
-        const auto visit = NodeToVisit(from);
-        const auto service_time = visit.duration().total_seconds();
+        const auto service_time = ServiceTime(from);
         const auto travel_time = Distance(from, to);
         return service_time + travel_time;
     }
