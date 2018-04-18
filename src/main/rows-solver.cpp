@@ -426,7 +426,7 @@ void ChatBot(SchedulingWorker &worker) {
         util::string::Strip(line);
         util::string::ToLower(line);
 
-        if (!line.empty() && line == "stop") {
+        if (!line.empty() && line == "s") {
             worker.Cancel();
             break;
         }

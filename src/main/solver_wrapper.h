@@ -125,8 +125,7 @@ namespace rows {
 
         std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
                                                                              const rows::Carer &carer,
-                                                                             const rows::Diary &diary,
-                                                                             bool breaks_for_out_of_office_hours) const;
+                                                                             const rows::Diary &diary) const;
 
         void DisplayPlan(const operations_research::RoutingModel &routing, const operations_research::Assignment &plan);
 
@@ -143,6 +142,8 @@ namespace rows {
         int64 GetBeginBreakWindow(boost::posix_time::time_duration value) const;
 
         int64 GetEndBreakWindow(boost::posix_time::time_duration value) const;
+
+        std::vector<rows::Event> GetEffectiveBreaks(const rows::Diary &diary) const;
 
         const Location &depot() const;
 
@@ -166,6 +167,10 @@ namespace rows {
 
         int64 GetEndWindow(boost::posix_time::time_duration value,
                            boost::posix_time::time_duration window_size) const;
+
+        int64 GetAdjustedWorkdayStart(boost::posix_time::time_duration start_time) const;
+
+        int64 GetAdjustedWorkdayFinish(boost::posix_time::time_duration finish_time) const;
 
         class CareContinuityMetrics {
         public:
@@ -193,9 +198,13 @@ namespace rows {
         const Location depot_;
         const LocalServiceUser depot_service_user_;
 
+        bool care_continuity_enabled_;
+        bool out_office_hours_breaks_enabled_;
+        bool begin_end_work_day_adjustment_enabled_;
+
         boost::posix_time::time_duration visit_time_window_;
         boost::posix_time::time_duration break_time_window_;
-        bool care_continuity_enabled_;
+        boost::posix_time::time_duration begin_end_work_day_adjustment_;
 
         rows::CachedLocationContainer location_container_;
         operations_research::RoutingSearchParameters parameters_;

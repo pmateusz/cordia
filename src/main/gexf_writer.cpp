@@ -36,10 +36,6 @@ namespace rows {
         static const auto CARER_NODE = "carer";
         static const auto SERVICE_USER_NODE = "user";
         static const auto TRUE_VALUE = "true";
-
-        operations_research::RoutingDimension const *care_continuity_dim = model.GetMutableDimension(
-                SolverWrapper::CARE_CONTINUITY_DIMENSION);
-
         operations_research::RoutingDimension const *time_dim = model.GetMutableDimension(
                 rows::SolverWrapper::TIME_DIMENSION);
 
@@ -93,9 +89,9 @@ namespace rows {
             const auto &location = service_user.location();
             gexf.SetNodeValue(user_id, LONGITUDE, location.longitude());
             gexf.SetNodeValue(user_id, LATITUDE, location.latitude());
-            gexf.SetNodeValue(user_id,
-                              SATISFACTION,
-                              std::to_string(solution.Min(solver.CareContinuityVar(service_user))));
+//            gexf.SetNodeValue(user_id,
+//                              SATISFACTION,
+//                              std::to_string(solution.Min(solver.CareContinuityVar(service_user))));
             gexf.SetNodeValue(user_id,
                               UTIL_VISITS_COUNT,
                               std::to_string(solver.User(service_user).visit_count()));
@@ -210,7 +206,6 @@ namespace rows {
                 gexf.SetNodeValue(carer_id, UTIL_TRAVEL_TIME, metrics.travel_time());
 
                 const auto work_duration = metrics.service_time() + metrics.travel_time();
-                DCHECK_LE(work_duration, metrics.available_time());
                 if (work_duration.total_seconds() > 0) {
                     const auto relative_duration = static_cast<double>(work_duration.total_seconds())
                                                    / metrics.available_time().total_seconds();

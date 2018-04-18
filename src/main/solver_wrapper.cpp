@@ -40,6 +40,7 @@
 #include "break_constraint.h"
 #include "search_monitor.h"
 
+// TODO: change constraint about multiple carer visits
 // TODO: add maximum working hours for external employees -- low priority
 // TODO: modify cost function to differentiate between each of employee category
 // TODO: add support for mobile workers
@@ -79,9 +80,11 @@ namespace rows {
             : problem_(problem),
               depot_(Location::GetCentralLocation(std::cbegin(locations), std::cend(locations))),
               depot_service_user_(),
-              visit_time_window_(boost::posix_time::minutes(90)),
-              break_time_window_(boost::posix_time::minutes(90)),
+              visit_time_window_(boost::posix_time::minutes(60)),
+              break_time_window_(boost::posix_time::minutes(60)),
               care_continuity_enabled_(false),
+              out_office_hours_breaks_enabled_(false),
+              begin_end_work_day_adjustment_enabled_(true),
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(search_parameters),
               visit_index_(),
@@ -182,51 +185,121 @@ namespace rows {
         return find_it->second;
     }
 
+    std::vector<rows::Event> SolverWrapper::GetEffectiveBreaks(const rows::Diary &diary) const {
+        const auto original_breaks = diary.Breaks();
+
+        if (original_breaks.size() < 2) {
+            return original_breaks;
+        }
+
+        std::vector<Event> breaks_to_use;
+        if (out_office_hours_breaks_enabled_) {
+            const auto &before_work_interval = original_breaks.front();
+            breaks_to_use.emplace_back(
+                    boost::posix_time::time_period(before_work_interval.begin(), before_work_interval.end()));
+        }
+
+        std::copy(std::begin(original_breaks) + 1, std::end(original_breaks) - 1, std::back_inserter(breaks_to_use));
+
+        if (out_office_hours_breaks_enabled_) {
+            const auto &after_work_interval = original_breaks.back();
+            breaks_to_use.emplace_back(
+                    boost::posix_time::time_period(after_work_interval.begin(), after_work_interval.end()));
+        }
+
+        return breaks_to_use;
+    }
+
     std::vector<operations_research::IntervalVar *> SolverWrapper::CreateBreakIntervals(
             operations_research::Solver *const solver,
             const rows::Carer &carer,
-            const rows::Diary &diary,
-            bool breaks_for_out_of_office_hours) const {
-        std::vector<operations_research::IntervalVar *> result;
+            const rows::Diary &diary) const {
+        std::vector<operations_research::IntervalVar *> break_intervals;
 
-        const auto &events = diary.events();
-        if (!events.empty()) {
-            auto event_it = std::begin(events);
-            const auto event_it_end = std::end(events);
+        const auto break_periods = GetEffectiveBreaks(diary);
+        if (break_periods.empty()) {
+            return break_intervals;
+        }
 
-            if (breaks_for_out_of_office_hours) {
-                result.push_back(solver->MakeFixedInterval(0,
-                                                           event_it->begin().time_of_day().total_seconds(),
-                                                           GetBreakLabel(carer, BreakType::BEFORE_WORKDAY)));
+        static const auto create_break_within_working_hours = [solver, carer, this](const rows::Event &break_event)
+                -> operations_research::IntervalVar * {
+            const auto start_time = break_event.begin().time_of_day();
+            const auto raw_duration = break_event.duration().total_seconds();
+            const auto begin_break_window = this->GetBeginBreakWindow(start_time);
+            const auto end_break_window = this->GetEndBreakWindow(start_time);
+            return solver->MakeIntervalVar(
+                    begin_break_window, end_break_window,
+                    raw_duration, raw_duration,
+                    begin_break_window + raw_duration,
+                    end_break_window + raw_duration,
+                    /*optional*/false,
+                    SolverWrapper::GetBreakLabel(carer, BreakType::BREAK));
+        };
+
+        if (out_office_hours_breaks_enabled_) {
+            const auto &break_before_work = break_periods.front();
+            CHECK_EQ(break_before_work.begin().time_of_day().total_seconds(), 0);
+
+            break_intervals.push_back(solver->MakeFixedInterval(break_before_work.begin().time_of_day().total_seconds(),
+                                                                break_before_work.duration().total_seconds(),
+                                                                GetBreakLabel(carer, BreakType::BEFORE_WORKDAY)));
+
+            const auto last_break = break_periods.size() - 1;
+            for (auto break_index = 1; break_index < last_break; ++break_index) {
+                break_intervals.push_back(create_break_within_working_hours(break_periods[break_index]));
             }
 
-            auto prev_event_it = event_it++;
-            while (event_it != event_it_end) {
-                const auto start_time = prev_event_it->end().time_of_day();
-                const auto duration = (event_it->begin() - prev_event_it->end());
-                const auto raw_duration = duration.total_seconds();
-                const auto begin_break_window = GetBeginBreakWindow(start_time);
-                const auto end_break_window = GetEndBreakWindow(start_time);
-                result.push_back(solver->MakeIntervalVar(
-                        begin_break_window, end_break_window,
-                        raw_duration, raw_duration,
-                        begin_break_window + raw_duration,
-                        end_break_window + raw_duration,
-                        /*optional*/false,
-                        GetBreakLabel(carer, BreakType::BREAK)));
+            const auto &break_after_work = break_periods.back();
+            CHECK_EQ(break_after_work.end().time_of_day().total_seconds(), SECONDS_IN_DAY);
 
-                prev_event_it = event_it++;
-            }
-
-            if (breaks_for_out_of_office_hours) {
-                result.push_back(solver->MakeFixedInterval(prev_event_it->end().time_of_day().total_seconds(),
-                                                           (boost::posix_time::hours(24)
-                                                            - prev_event_it->end().time_of_day()).total_seconds(),
-                                                           GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
+            break_intervals.push_back(solver->MakeFixedInterval(break_after_work.begin().time_of_day().total_seconds(),
+                                                                break_after_work.duration().total_seconds(),
+                                                                GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
+        } else {
+            for (const auto &break_period : break_periods) {
+                break_intervals.push_back(create_break_within_working_hours(break_period));
             }
         }
 
-        return result;
+//        const auto &events = diary.events();
+//        if (!events.empty()) {
+//            auto event_it = std::begin(events);
+//            const auto event_it_end = std::end(events);
+//
+//            if (out_office_hours_breaks_enabled_) {
+//                break_intervals.push_back(solver->MakeFixedInterval(0,
+//                                                                    event_it->begin().time_of_day().total_seconds(),
+//                                                                    GetBreakLabel(carer, BreakType::BEFORE_WORKDAY)));
+//            }
+//
+//            auto prev_event_it = event_it++;
+//            while (event_it != event_it_end) {
+//                const auto start_time = prev_event_it->end().time_of_day();
+//                const auto duration = (event_it->begin() - prev_event_it->end());
+//                const auto raw_duration = duration.total_seconds();
+//                const auto begin_break_window = GetBeginBreakWindow(start_time);
+//                const auto end_break_window = GetEndBreakWindow(start_time);
+//                break_intervals.push_back(solver->MakeIntervalVar(
+//                        begin_break_window, end_break_window,
+//                        raw_duration, raw_duration,
+//                        begin_break_window + raw_duration,
+//                        end_break_window + raw_duration,
+//                        /*optional*/false,
+//                        GetBreakLabel(carer, BreakType::BREAK)));
+//
+//                prev_event_it = event_it++;
+//            }
+//
+//            if (out_office_hours_breaks_enabled_) {
+//                break_intervals.push_back(solver->MakeFixedInterval(prev_event_it->end().time_of_day().total_seconds(),
+//                                                                    (boost::posix_time::hours(24)
+//                                                                     -
+//                                                                     prev_event_it->end().time_of_day()).total_seconds(),
+//                                                                    GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
+//            }
+//        }
+
+        return break_intervals;
     }
 
     std::string SolverWrapper::GetBreakLabel(const rows::Carer &carer,
@@ -325,7 +398,7 @@ namespace rows {
         parameters.mutable_local_search_operators()->set_use_cross(USE_ADVANCED_SEARCH);
 //        parameters.mutable_local_search_operators()->set_use_cross_exchange(USE_ADVANCED_SEARCH); // more harm
 //        parameters.mutable_local_search_operators()->set_use_exchange(USE_ADVANCED_SEARCH); // inconclusive
-//        parameters.mutable_local_search_operators()->set_use_extended_swap_active(USE_ADVANCED_SEARCH); // inconclusive
+        parameters.mutable_local_search_operators()->set_use_extended_swap_active(USE_ADVANCED_SEARCH); // inconclusive
         parameters.mutable_local_search_operators()->set_use_full_path_lns(USE_ADVANCED_SEARCH);
         parameters.mutable_local_search_operators()->set_use_inactive_lns(USE_ADVANCED_SEARCH);
         parameters.mutable_local_search_operators()->set_use_lin_kernighan(USE_ADVANCED_SEARCH);
@@ -438,26 +511,18 @@ namespace rows {
             const auto &carer = Carer(vehicle);
             const auto &diary_opt = problem_.diary(carer, schedule_day);
 
-            int begin_time = 0;
-            int end_time = 0;
+            int64 begin_time, end_time;
             if (diary_opt.is_initialized()) {
                 const auto &diary = diary_opt.get();
 
-                begin_time = diary.begin_time().total_seconds();
-                end_time = diary.end_time().total_seconds();
+                begin_time = GetAdjustedWorkdayStart(diary.begin_time());
+                end_time = GetAdjustedWorkdayFinish(diary.end_time());
 
-                const auto breaks_for_out_office_hours = false;
-                const auto breaks = CreateBreakIntervals(solver_ptr,
-                                                         carer,
-                                                         diary,
-                                                         breaks_for_out_office_hours);
+                const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
                 solver_ptr->AddConstraint(
                         solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
             }
 
-            static const auto range_offset = 30 * 60;
-            begin_time = std::max(begin_time - range_offset, 0);
-            end_time = std::min(end_time + range_offset, static_cast<int>(SECONDS_IN_DAY));
             time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
             time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
         }
@@ -530,7 +595,7 @@ namespace rows {
         for (const auto &visit_bundle : visit_index_) {
             std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
                                                                                   std::cend(visit_bundle.second)};
-            model.AddDisjunction(std::move(visit_nodes), kPenalty, static_cast<int64>(visit_nodes.size()));
+            model.AddDisjunction(visit_nodes, kPenalty, static_cast<int64>(visit_nodes.size()));
         }
 
         VLOG(1) << "Computing missing entries of the distance matrix...";
@@ -869,12 +934,14 @@ namespace rows {
                         boost::accumulators::tag::median,
                         boost::accumulators::tag::variance> > care_continuity_stats;
 
-        for (const auto &user_satisfaction_pair : care_continuity_) {
-            care_continuity_stats(solution.Value(user_satisfaction_pair.second));
+        if (care_continuity_enabled_) {
+            for (const auto &user_satisfaction_pair : care_continuity_) {
+                care_continuity_stats(solution.Value(user_satisfaction_pair.second));
+            }
+            stats.CareContinuity.Mean = boost::accumulators::mean(care_continuity_stats);
+            stats.CareContinuity.Median = boost::accumulators::median(care_continuity_stats);
+            stats.CareContinuity.Stddev = sqrt(boost::accumulators::variance(care_continuity_stats));
         }
-        stats.CareContinuity.Mean = boost::accumulators::mean(care_continuity_stats);
-        stats.CareContinuity.Median = boost::accumulators::median(care_continuity_stats);
-        stats.CareContinuity.Stddev = sqrt(boost::accumulators::variance(care_continuity_stats));
 
         return stats;
     }
@@ -917,6 +984,23 @@ namespace rows {
         DCHECK_NE(DEPOT, node);
 
         return visit_by_node_.at(static_cast<std::size_t>(node.value()));
+    }
+
+    int64 SolverWrapper::GetAdjustedWorkdayStart(boost::posix_time::time_duration start_time) const {
+        if (begin_end_work_day_adjustment_enabled_) {
+            return std::max((start_time - begin_end_work_day_adjustment_).total_seconds(), 0);
+        }
+
+        return start_time.total_seconds();
+    }
+
+    int64 SolverWrapper::GetAdjustedWorkdayFinish(boost::posix_time::time_duration finish_time) const {
+        if (begin_end_work_day_adjustment_enabled_) {
+            return std::min(static_cast<int64>((finish_time + begin_end_work_day_adjustment_).total_seconds()),
+                            SECONDS_IN_DAY);
+        }
+
+        return finish_time.total_seconds();
     }
 
     std::size_t

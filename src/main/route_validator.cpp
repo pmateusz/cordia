@@ -156,7 +156,7 @@ namespace rows {
                     visit_index_it->second.emplace_back(visit, route);
                 } else {
                     visit_index.insert({calendar_visit.get(),
-                                        std::vector<std::pair<rows::ScheduledVisit, rows::Route >> {
+                                        std::vector<std::pair<rows::ScheduledVisit, rows::Route >>{
                                                 std::make_pair(visit, route)}
                                        });
                 }
@@ -985,12 +985,13 @@ namespace rows {
         const auto date = visits.front().datetime().date();
         const auto diary = solver.problem().diary(carer, date).get();
 
-        // build intervals where carer does not work - it must account for travel time
+        // build intervals where carer may not work
         std::vector<boost::posix_time::time_period> idle_periods;
 
         const auto &time_dim = model.GetDimensionOrDie(SolverWrapper::TIME_DIMENSION);
-        auto last_node = solver.DEPOT;
-        ptime last_time = ptime(date, seconds(0));
+        auto last_node = SolverWrapper::DEPOT;
+        boost::posix_time::ptime last_visit_finish = ptime(date, seconds(0));
+        boost::posix_time::time_duration last_travel_time = boost::posix_time::seconds(0);
         for (auto node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {
             const auto visit_index = indices[node_pos];
             const auto visit_node = model.IndexToNode(visit_index);
@@ -1006,31 +1007,40 @@ namespace rows {
                        % (arrival + visit.duration());
 
             const time_period arrival_period{fastest_arrival, latest_arrival};
-            if (ValidationSession::GreaterThan(arrival.time_of_day(), arrival_period.end().time_of_day())) {
+            if (!arrival_period.contains(arrival)) {
                 const auto arrival_delay = arrival - arrival_period.end();
                 LOG(FATAL) << boost::format("Arrival time %1% is expected to be outside the interval %2%")
                               % arrival
                               % arrival_period;
-                return RouteValidatorBase::ValidationResult(std::make_unique<RouteValidatorBase::ScheduledVisitError>(
-                        session.CreateLateArrivalError(route, visit, arrival_delay)));
+                std::unique_ptr<RouteValidatorBase::ValidationError> error_ptr
+                        = std::make_unique<RouteValidatorBase::ScheduledVisitError>(
+                                session.CreateLateArrivalError(route, visit, arrival_delay));
+                return RouteValidatorBase::ValidationResult(std::move(error_ptr));
             }
 
-            if (ValidationSession::GreaterThan(arrival.time_of_day(), last_time.time_of_day())) {
-                idle_periods.emplace_back(last_time, arrival);
+            if (ValidationSession::GreaterThan(arrival.time_of_day(),
+                                               last_visit_finish.time_of_day() + last_travel_time)) {
+                // first case - travel to the next location just after visit completion
+                idle_periods.emplace_back(last_visit_finish + last_travel_time, arrival.time_of_day());
+
+                if (last_travel_time.total_seconds() > 0) {
+                    // extra check to avoid adding an interval twice
+                    // second case - travel to the next location just before the start of a visit
+                    idle_periods.emplace_back(last_visit_finish, arrival - last_travel_time);
+                }
             }
 
             const auto next_node = model.IndexToNode(indices[node_pos + 1]);
-            last_time = arrival
-                        + visit.duration()
-                        + session.GetTravelTime(visit_node, next_node);
+            last_visit_finish = arrival + visit.duration();
+            last_travel_time = session.GetTravelTime(visit_node, next_node);
         }
 
         ptime end_of_day(date, boost::posix_time::hours(24));
-        if (end_of_day > last_time) {
-            idle_periods.emplace_back(last_time, end_of_day);
+        if (end_of_day > last_visit_finish) {
+            idle_periods.emplace_back(last_visit_finish, end_of_day);
         }
 
-        for (const auto &event : diary.Breaks()) {
+        for (const auto &event : solver.GetEffectiveBreaks(diary)) {
             boost::posix_time::time_period break_period{ptime(date, session.GetBeginWindow(event)),
                                                         ptime(date, session.GetEndWindow(event)) + event.duration()};
 
@@ -1043,8 +1053,19 @@ namespace rows {
             }
 
             if (!is_satisfied) {
-                return RouteValidatorBase::ValidationResult(std::make_unique<RouteValidatorBase::ScheduledVisitError>(
-                        session.CreateContractualBreakViolationError(route, visits.front())));
+                LOG(ERROR) << "Break constraint violation";
+                LOG(ERROR) << boost::format("Did not find an interval window for the break: (%1%, %2%)")
+                              % break_period.begin()
+                              % break_period.end();
+                LOG(ERROR) << "Available periods:";
+                for (const auto &period : idle_periods) {
+                    LOG(ERROR) << boost::format("(%1%,%2%)") % period.begin() % period.end();
+                }
+
+                std::unique_ptr<rows::RouteValidatorBase::ValidationError> error_ptr
+                        = std::make_unique<rows::RouteValidatorBase::ScheduledVisitError>(
+                                session.CreateContractualBreakViolationError(route, visits.front()));
+                return RouteValidatorBase::ValidationResult(std::move(error_ptr));
             }
         }
 
