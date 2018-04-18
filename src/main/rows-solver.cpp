@@ -48,6 +48,7 @@
 #include "printer.h"
 #include "solver_wrapper.h"
 #include "gexf_writer.h"
+#include "single_step_solver.h"
 
 
 static const int STATUS_OK = 1;
@@ -140,8 +141,8 @@ public:
             model_.reset();
         }
 
-        if (wrapper_) {
-            wrapper_.reset();
+        if (solver_) {
+            solver_.reset();
         }
 
         initial_assignment_ = nullptr;
@@ -174,18 +175,18 @@ public:
                 search_parameters.set_time_limit_ms(duration_limit.total_milliseconds());
             }
 
-            wrapper_ = std::make_unique<rows::SolverWrapper>(problem_to_use, engine_config, search_parameters);
-            model_ = std::make_unique<operations_research::RoutingModel>(wrapper_->nodes(),
-                                                                         wrapper_->vehicles(),
+            solver_ = std::make_unique<rows::SingleStepSolver>(problem_to_use, engine_config, search_parameters);
+            model_ = std::make_unique<operations_research::RoutingModel>(solver_->nodes(),
+                                                                         solver_->vehicles(),
                                                                          rows::SolverWrapper::DEPOT);
 
-            wrapper_->ConfigureModel(*model_, printer_, cancel_token_);
+            solver_->ConfigureModel(*model_, printer_, cancel_token_);
             VLOG(1) << "Completed routing model configuration with status: " << GetModelStatus(model_->status());
             if (solution) {
                 VLOG(1) << "Starting with a solution.";
-                VLOG(1) << solution.get().DebugStatus(*wrapper_, *model_);
-                const auto solution_to_use = wrapper_->ResolveValidationErrors(solution.get(), *model_);
-                VLOG(1) << solution_to_use.DebugStatus(*wrapper_, *model_);
+                VLOG(1) << solution.get().DebugStatus(*solver_, *model_);
+                const auto solution_to_use = solver_->ResolveValidationErrors(solution.get(), *model_);
+                VLOG(1) << solution_to_use.DebugStatus(*solver_, *model_);
 
                 if (VLOG_IS_ON(2)) {
                     for (const auto &visit : solution_to_use.visits()) {
@@ -195,7 +196,7 @@ public:
                     }
                 }
 
-                const auto routes = wrapper_->GetRoutes(solution_to_use, *model_);
+                const auto routes = solver_->GetRoutes(solution_to_use, *model_);
                 initial_assignment_ = model_->ReadAssignmentFromRoutes(routes, false);
                 if (initial_assignment_ == nullptr || !model_->solver()->CheckAssignment(initial_assignment_)) {
                     throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
@@ -370,7 +371,7 @@ private:
             }
 
             operations_research::Assignment const *assignment = model_->SolveFromAssignmentWithParameters(
-                    initial_assignment_, wrapper_->parameters());
+                    initial_assignment_, solver_->parameters());
 
             VLOG(1) << "Search completed"
                     << "\nLocal search profile: " << model_->solver()->LocalSearchProfile()
@@ -386,8 +387,8 @@ private:
             DCHECK(is_solution_correct);
 
             rows::GexfWriter solution_writer;
-            solution_writer.Write(output_file, *wrapper_, *model_, *assignment);
-            wrapper_->DisplayPlan(*model_, *assignment);
+            solution_writer.Write(output_file, *solver_, *model_, *assignment);
+            solver_->DisplayPlan(*model_, *assignment);
             return_code_ = STATUS_OK;
         } catch (util::ApplicationError &ex) {
             LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();
@@ -406,7 +407,7 @@ private:
     std::unique_ptr<operations_research::RoutingModel> model_;
     operations_research::Assignment *initial_assignment_;
 
-    std::unique_ptr<rows::SolverWrapper> wrapper_;
+    std::unique_ptr<rows::SolverWrapper> solver_;
 
     std::atomic<int> return_code_;
     std::atomic<bool> cancel_token_;

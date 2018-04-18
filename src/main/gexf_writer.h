@@ -84,7 +84,7 @@ namespace rows {
                                const std::string &to_id,
                                const std::string &prefix) const;
 
-            void SetStats(const rows::SolverWrapper::Statistics &stats);
+            void SetDescription(std::string description);
 
             void AddNode(const std::string &node_id,
                          const std::string &label);

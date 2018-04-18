@@ -39,10 +39,8 @@ namespace rows {
         operations_research::RoutingDimension const *time_dim = model.GetMutableDimension(
                 rows::SolverWrapper::TIME_DIMENSION);
 
-        const auto stats = solver.CalculateStats(model, solution);
-
         GexfEnvironmentWrapper gexf;
-        gexf.SetStats(stats);
+        gexf.SetDescription(solver.GetDescription(model, solution));
 
         const auto central_location = solver.depot();
         gexf.SetDefaultValues(central_location);
@@ -336,21 +334,7 @@ namespace rows {
                 % service_user_id).str();
     }
 
-    void GexfWriter::GexfEnvironmentWrapper::SetStats(const rows::SolverWrapper::Statistics &stats) {
-        env_ptr_->getMetaData().setDescription(
-                (boost::format("Cost: %1%\nErrors: %2%\nDropped visits: %3%\nTotal visits: %4%"
-                                       "Care continuity: mean: %5% median: %6% stddev: %7%\n"
-                                       "Carer utility: mean: %8% median: %9% stddev: %10% total ration: %11%\n")
-                 % stats.Cost
-                 % stats.Errors
-                 % stats.DroppedVisits
-                 % stats.TotalVisits
-                 % stats.CareContinuity.Mean
-                 % stats.CareContinuity.Median
-                 % stats.CareContinuity.Stddev
-                 % stats.CarerUtility.Mean
-                 % stats.CarerUtility.Median
-                 % stats.CarerUtility.Stddev
-                 % stats.CarerUtility.TotalMean).str());
+    void GexfWriter::GexfEnvironmentWrapper::SetDescription(std::string description) {
+        env_ptr_->getMetaData().setDescription(description);
     }
 }

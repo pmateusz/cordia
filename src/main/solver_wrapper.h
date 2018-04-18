@@ -65,21 +65,15 @@ namespace rows {
                 double Mean{0.0};
                 double Median{0.0};
                 double Stddev{0.0};
-            } CareContinuity;
-
-            struct {
-                double Mean{0.0};
-                double Median{0.0};
-                double Stddev{0.0};
                 double TotalMean{0.0};
             } CarerUtility;
+
+            virtual std::string RenderDescription() const;
         };
 
         static const operations_research::RoutingModel::NodeIndex DEPOT;
         static const int64 SECONDS_IN_DAY;
         static const std::string TIME_DIMENSION;
-        static const int64 CARE_CONTINUITY_MAX;
-        static const std::string CARE_CONTINUITY_DIMENSION;
 
         static operations_research::RoutingSearchParameters CreateSearchParameters();
 
@@ -92,12 +86,12 @@ namespace rows {
                       osrm::EngineConfig &config,
                       const operations_research::RoutingSearchParameters &search_parameters);
 
-        void ConfigureModel(operations_research::RoutingModel &model,
-                            const std::shared_ptr<Printer> &printer,
-                            const std::atomic<bool> &cancel_token);
+        virtual void ConfigureModel(operations_research::RoutingModel &model,
+                                    const std::shared_ptr<Printer> &printer,
+                                    const std::atomic<bool> &cancel_token);
 
-        Statistics CalculateStats(const operations_research::RoutingModel &model,
-                                  const operations_research::Assignment &solution);
+        virtual std::string GetDescription(const operations_research::RoutingModel &model,
+                                           const operations_research::Assignment &solution);
 
         int64 Distance(operations_research::RoutingModel::NodeIndex from,
                        operations_research::RoutingModel::NodeIndex to);
@@ -109,41 +103,9 @@ namespace rows {
 
         bool Contains(const CalendarVisit &visit) const;
 
-        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
-                const CalendarVisit &visit) const;
-
-        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
-                const ScheduledVisit &visit) const;
-
-        const CalendarVisit &NodeToVisit(const operations_research::RoutingModel::NodeIndex &node) const;
-
         const LocalServiceUser &User(const rows::ServiceUser &service_user) const;
 
         const rows::Carer &Carer(int vehicle) const;
-
-        operations_research::IntVar const *CareContinuityVar(const rows::ExtendedServiceUser &service_user) const;
-
-        std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
-                                                                             const rows::Carer &carer,
-                                                                             const rows::Diary &diary) const;
-
-        void DisplayPlan(const operations_research::RoutingModel &routing, const operations_research::Assignment &plan);
-
-        Solution ResolveValidationErrors(const rows::Solution &solution,
-                                         const operations_research::RoutingModel &model);
-
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
-        GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
-
-        int64 GetBeginVisitWindow(boost::posix_time::time_duration value) const;
-
-        int64 GetEndVisitWindow(boost::posix_time::time_duration value) const;
-
-        int64 GetBeginBreakWindow(boost::posix_time::time_duration value) const;
-
-        int64 GetEndBreakWindow(boost::posix_time::time_duration value) const;
-
-        std::vector<rows::Event> GetEffectiveBreaks(const rows::Diary &diary) const;
 
         const Location &depot() const;
 
@@ -155,9 +117,39 @@ namespace rows {
 
         int vehicles() const;
 
+        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
+                const CalendarVisit &visit) const;
+
+        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
+                const ScheduledVisit &visit) const;
+
+        int64 GetBeginVisitWindow(boost::posix_time::time_duration value) const;
+
+        int64 GetEndVisitWindow(boost::posix_time::time_duration value) const;
+
+        int64 GetBeginBreakWindow(boost::posix_time::time_duration value) const;
+
+        int64 GetEndBreakWindow(boost::posix_time::time_duration value) const;
+
+        std::vector<rows::Event> GetEffectiveBreaks(const rows::Diary &diary) const;
+
         int nodes() const;
 
-    private:
+        const CalendarVisit &NodeToVisit(const operations_research::RoutingModel::NodeIndex &node) const;
+
+        void DisplayPlan(const operations_research::RoutingModel &routing, const operations_research::Assignment &plan);
+
+        Solution ResolveValidationErrors(const rows::Solution &solution,
+                                         const operations_research::RoutingModel &model);
+
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > GetRoutes(
+                const rows::Solution &solution, const operations_research::RoutingModel &model) const;
+
+    protected:
+        std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
+                                                                             const rows::Carer &carer,
+                                                                             const rows::Diary &diary) const;
+
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
         };
@@ -171,17 +163,6 @@ namespace rows {
         int64 GetAdjustedWorkdayStart(boost::posix_time::time_duration start_time) const;
 
         int64 GetAdjustedWorkdayFinish(boost::posix_time::time_duration finish_time) const;
-
-        class CareContinuityMetrics {
-        public:
-            CareContinuityMetrics(const SolverWrapper &solver, const rows::Carer &carer);
-
-            int64 operator()(operations_research::RoutingModel::NodeIndex from,
-                             operations_research::RoutingModel::NodeIndex to) const;
-
-        private:
-            std::unordered_map<operations_research::RoutingModel::NodeIndex, int64> values_;
-        };
 
         rows::Solution Resolve(const rows::Solution &solution,
                                const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > &validation_errors) const;
@@ -198,7 +179,6 @@ namespace rows {
         const Location depot_;
         const LocalServiceUser depot_service_user_;
 
-        bool care_continuity_enabled_;
         bool out_office_hours_breaks_enabled_;
         bool begin_end_work_day_adjustment_enabled_;
 
@@ -217,10 +197,6 @@ namespace rows {
         std::vector<rows::CalendarVisit> visit_by_node_;
 
         std::unordered_map<rows::ServiceUser, rows::SolverWrapper::LocalServiceUser> service_users_;
-
-        std::unordered_map<rows::ExtendedServiceUser, operations_research::IntVar *> care_continuity_;
-
-        std::vector<CareContinuityMetrics> care_continuity_metrics_;
     };
 }
 

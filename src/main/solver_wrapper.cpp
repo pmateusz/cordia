@@ -53,10 +53,6 @@ namespace rows {
 
     const std::string SolverWrapper::TIME_DIMENSION{"Time"};
 
-    const int64 SolverWrapper::CARE_CONTINUITY_MAX = 10000;
-
-    const std::string SolverWrapper::CARE_CONTINUITY_DIMENSION{"CareContinuity"};
-
     SolverWrapper::SolverWrapper(const rows::Problem &problem,
                                  osrm::EngineConfig &config,
                                  const operations_research::RoutingSearchParameters &search_parameters)
@@ -81,7 +77,6 @@ namespace rows {
               depot_service_user_(),
               visit_time_window_(boost::posix_time::minutes(60)),
               break_time_window_(boost::posix_time::minutes(60)),
-              care_continuity_enabled_(false),
               out_office_hours_breaks_enabled_(true),
               begin_end_work_day_adjustment_enabled_(true),
               begin_end_work_day_adjustment_(boost::posix_time::minutes(15)),
@@ -89,9 +84,7 @@ namespace rows {
               parameters_(search_parameters),
               visit_index_(),
               visit_by_node_(),
-              service_users_(),
-              care_continuity_(),
-              care_continuity_metrics_() {
+              service_users_() {
 
         visit_by_node_.emplace_back(CalendarVisit()); // depot visit
         // visit that needs multiple carers is referenced by multiple nodes
@@ -127,8 +120,6 @@ namespace rows {
             const auto insert_it = service_users_.insert(
                     std::make_pair(service_user, LocalServiceUser(service_user, visit_count)));
             DCHECK(insert_it.second);
-
-            care_continuity_.insert(std::make_pair(service_user, nullptr));
         }
     }
 
@@ -287,39 +278,10 @@ namespace rows {
 
     void SolverWrapper::DisplayPlan(const operations_research::RoutingModel &model,
                                     const operations_research::Assignment &solution) {
-        const auto stats = CalculateStats(model, solution);
         operations_research::RoutingDimension const *time_dimension = model.GetMutableDimension(TIME_DIMENSION);
 
         std::stringstream out;
-
-        out << boost::format("Cost: %1$g") % stats.Cost
-            << std::endl;
-
-        if (stats.Errors > 0) {
-            out << boost::format("Solution has %1% validation errors") % stats.Errors << std::endl;
-        }
-
-        out << boost::format("NodeToCarer utilization: mean: %1% median %2% stddev %3% total ratio %4%")
-               % stats.CarerUtility.Mean
-               % stats.CarerUtility.Median
-               % stats.CarerUtility.Stddev
-               % stats.CarerUtility.TotalMean
-            << std::endl;
-
-        if (stats.DroppedVisits == 0) {
-            out << "No dropped visits";
-        } else {
-            out << boost::format("Dropped visits: %1% out of %2%")
-                   % stats.DroppedVisits
-                   % stats.TotalVisits;
-        }
-        out << std::endl;
-
-        out << boost::format("Continuity of care average: %1% mean: %2% stddev: %3%")
-               % stats.CareContinuity.Mean
-               % stats.CareContinuity.Median
-               % stats.CareContinuity.Stddev
-            << std::endl;
+        out << GetDescription(model, solution);
 
         for (int route_number = 0; route_number < model.vehicles(); ++route_number) {
             int64 order = model.Start(route_number);
@@ -379,7 +341,6 @@ namespace rows {
                                        const std::shared_ptr<Printer> &printer,
                                        const std::atomic<bool> &cancel_token) {
         static const auto START_FROM_ZERO_TIME = false;
-        static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
 
         printer->operator<<("Loading the model");
         model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
@@ -485,56 +446,6 @@ namespace rows {
         }
 
         printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
-
-        // TODO: move continuity of care to a different solver
-        if (care_continuity_enabled_) {
-            for (const auto &carer_pair :problem_.carers()) {
-                care_continuity_metrics_.emplace_back(*this, carer_pair.first);
-            }
-
-            std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
-            for (const auto &carer_metrics :care_continuity_metrics_) {
-                care_continuity_evaluators.
-                        push_back(
-                        NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
-            }
-
-            model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
-                                                  0,
-                                                  CARE_CONTINUITY_MAX,
-                                                  START_FROM_ZERO_SERVICE_SATISFACTION,
-                                                  CARE_CONTINUITY_DIMENSION);
-
-            operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
-                    rows::SolverWrapper::CARE_CONTINUITY_DIMENSION);
-
-            // define and maximize the service satisfaction
-            for (const auto &service_user :problem_.service_users()) {
-                std::vector<operations_research::IntVar *> service_user_visits;
-
-                for (const auto &visit :problem_.visits()) {
-                    if (visit.service_user() != service_user) {
-                        continue;
-                    }
-
-                    const auto visit_it = visit_index_.find(visit);
-                    DCHECK(visit_it != std::end(visit_index_));
-                    for (const auto &visit_node : visit_it->second) {
-                        service_user_visits.push_back(
-                                care_continuity_dimension->TransitVar(model.NodeToIndex(visit_node)));
-                    }
-                }
-
-                auto find_it = care_continuity_.find(service_user);
-                DCHECK(find_it != std::end(care_continuity_));
-
-                const auto care_satisfaction = model.solver()->MakeSum(service_user_visits)->Var();
-                find_it->second = care_satisfaction;
-
-                model.AddToAssignment(care_satisfaction);
-                model.AddVariableMaximizedByFinalizer(care_satisfaction);
-            }
-        }
 
         // Adding penalty costs to allow skipping orders.
         const int64 kPenalty = 10000000;
@@ -780,8 +691,8 @@ namespace rows {
         return problem_;
     }
 
-    SolverWrapper::Statistics SolverWrapper::CalculateStats(const operations_research::RoutingModel &model,
-                                                            const operations_research::Assignment &solution) {
+    std::string SolverWrapper::GetDescription(const operations_research::RoutingModel &model,
+                                              const operations_research::Assignment &solution) {
         static const SolutionValidator route_validator{};
 
         SolverWrapper::Statistics stats;
@@ -859,7 +770,6 @@ namespace rows {
             VLOG(2) << "No validation errors";
         }
 
-//        VLOG(1) << model.DebugOutputAssignment(solution, "");
         stats.CarerUtility.Mean = boost::accumulators::mean(carer_work_stats);
         stats.CarerUtility.Median = boost::accumulators::median(carer_work_stats);
         stats.CarerUtility.Stddev = sqrt(boost::accumulators::variance(carer_work_stats));
@@ -874,29 +784,7 @@ namespace rows {
         }
         stats.TotalVisits = model.nodes() - 1; // remove depot
 
-        boost::accumulators::accumulator_set<double,
-                boost::accumulators::stats<
-                        boost::accumulators::tag::mean,
-                        boost::accumulators::tag::median,
-                        boost::accumulators::tag::variance> > care_continuity_stats;
-
-        if (care_continuity_enabled_) {
-            for (const auto &user_satisfaction_pair : care_continuity_) {
-                care_continuity_stats(solution.Value(user_satisfaction_pair.second));
-            }
-            stats.CareContinuity.Mean = boost::accumulators::mean(care_continuity_stats);
-            stats.CareContinuity.Median = boost::accumulators::median(care_continuity_stats);
-            stats.CareContinuity.Stddev = sqrt(boost::accumulators::variance(care_continuity_stats));
-        }
-
-        return stats;
-    }
-
-    operations_research::IntVar const *
-    SolverWrapper::CareContinuityVar(const rows::ExtendedServiceUser &service_user) const {
-        const auto service_user_it = care_continuity_.find(service_user);
-        DCHECK(service_user_it != std::cend(care_continuity_));
-        return service_user_it->second;
+        return stats.RenderDescription();
     }
 
     int SolverWrapper::vehicles() const {
@@ -969,29 +857,6 @@ namespace rows {
                && left.duration() == right.duration();
     }
 
-    SolverWrapper::CareContinuityMetrics::CareContinuityMetrics(const SolverWrapper &solver,
-                                                                const rows::Carer &carer)
-            : values_() {
-        const auto visit_it_end = std::cend(solver.visit_index_);
-        for (auto visit_it = std::cbegin(solver.visit_index_); visit_it != visit_it_end; ++visit_it) {
-            const auto &service_user = solver.User(visit_it->first.service_user());
-            if (service_user.IsPreferred(carer)) {
-                for (const auto visit_node : visit_it->second) {
-                    values_.insert(std::make_pair(visit_node, service_user.Preference(carer)));
-                }
-            }
-        }
-    }
-
-    int64 SolverWrapper::CareContinuityMetrics::operator()(operations_research::RoutingModel::NodeIndex from,
-                                                           operations_research::RoutingModel::NodeIndex to) const {
-        const auto to_it = values_.find(to);
-        if (to_it == std::end(values_)) {
-            return 0;
-        }
-        return to_it->second;
-    }
-
     SolverWrapper::LocalServiceUser::LocalServiceUser()
             : LocalServiceUser(ExtendedServiceUser(), 1) {}
 
@@ -1015,5 +880,18 @@ namespace rows {
 
     int64 SolverWrapper::LocalServiceUser::visit_count() const {
         return visit_count_;
+    }
+
+    std::string SolverWrapper::Statistics::RenderDescription() const {
+        return (boost::format("Cost: %1%\nErrors: %2%\nDropped visits: %3%\nTotal visits: %4%\n"
+                              "Carer utility: mean: %5% median: %6% stddev: %7% total ratio: %8%\n")
+                % Cost
+                % Errors
+                % DroppedVisits
+                % TotalVisits
+                % CarerUtility.Mean
+                % CarerUtility.Median
+                % CarerUtility.Stddev
+                % CarerUtility.TotalMean).str();
     }
 }
