@@ -178,10 +178,6 @@ public:
             model_ = std::make_unique<operations_research::RoutingModel>(wrapper_->nodes(),
                                                                          wrapper_->vehicles(),
                                                                          rows::SolverWrapper::DEPOT);
-//        model.solver()->parameters().set_print_added_constraints(true);
-//        model.solver()->parameters().set_print_model(true);
-//        model.solver()->parameters().set_print_model_stats(true);
-//        model.solver()->parameters().disable_solve();
 
             wrapper_->ConfigureModel(*model_, printer_, cancel_token_);
             VLOG(1) << "Completed routing model configuration with status: " << GetModelStatus(model_->status());
