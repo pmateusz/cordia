@@ -41,8 +41,12 @@
 #include "search_monitor.h"
 
 // TODO: add support for mobile workers
+
+// TODO: add information about partner
+
 // TODO: add information about back to back carers
-// TODO: change constraint about multiple carer visits
+// TODO: two phase optimization for multiple carer workers
+
 // TODO: modify cost function to differentiate between each of employee category
 
 namespace rows {
@@ -75,11 +79,11 @@ namespace rows {
             : problem_(problem),
               depot_(Location::GetCentralLocation(std::cbegin(locations), std::cend(locations))),
               depot_service_user_(),
-              visit_time_window_(boost::posix_time::minutes(60)),
-              break_time_window_(boost::posix_time::minutes(60)),
+              visit_time_window_(boost::posix_time::minutes(90)),
+              break_time_window_(boost::posix_time::minutes(90)),
               out_office_hours_breaks_enabled_(true),
               begin_end_work_day_adjustment_enabled_(true),
-              begin_end_work_day_adjustment_(boost::posix_time::minutes(15)),
+              begin_end_work_day_adjustment_(boost::posix_time::minutes(30)),
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(search_parameters),
               visit_index_(),
@@ -379,12 +383,12 @@ namespace rows {
         for (const auto &visit_index_pair : visit_index_) {
             const auto visit_start = visit_index_pair.first.datetime().time_of_day();
 
-            std::vector<operations_research::IntVar *> start_visit_vars;
-            std::vector<operations_research::IntVar *> slack_visit_vars;
-            std::vector<operations_research::IntVar *> active_visit_vars;
+            std::vector<int64> visit_indices;
             for (const auto &visit_node : visit_index_pair.second) {
                 covered_nodes.insert(visit_node);
                 const auto visit_index = model.NodeToIndex(visit_node);
+                visit_indices.push_back(visit_index);
+
                 if (HasTimeWindows()) {
                     const auto start_window = GetBeginVisitWindow(visit_start);
                     const auto end_window = GetEndVisitWindow(visit_start);
@@ -399,25 +403,43 @@ namespace rows {
                     time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
                 }
                 model.AddToAssignment(time_dimension->SlackVar(visit_index));
-
-                start_visit_vars.push_back(time_dimension->CumulVar(visit_index));
-                slack_visit_vars.push_back(time_dimension->SlackVar(visit_index));
-                active_visit_vars.push_back(model.ActiveVar(visit_index));
             }
 
-            const auto visit_index_size = start_visit_vars.size();
-            if (visit_index_size > 1) {
-                CHECK_EQ(visit_index_size, 2);
+            const auto visit_indices_size = visit_indices.size();
+            if (visit_indices_size > 1) {
+                CHECK_EQ(visit_indices_size, 2);
 
-                const auto max_arrival_vars = solver->MakeMax(start_visit_vars);
-                solver->AddConstraint(solver->MakeLessOrEqual(
-                        max_arrival_vars, solver->MakeSum(start_visit_vars[0], slack_visit_vars[0])));
-                solver->AddConstraint(solver->MakeLessOrEqual(
-                        max_arrival_vars, solver->MakeSum(start_visit_vars[1], slack_visit_vars[1])));
+                const auto first_visit = visit_indices[0];
+                const auto second_visit = visit_indices[1];
 
-                const auto min_active_vars = solver->MakeMin(active_visit_vars);
-                solver->AddConstraint(solver->MakeLessOrEqual(active_visit_vars[0], min_active_vars));
-                solver->AddConstraint(solver->MakeLessOrEqual(active_visit_vars[1], min_active_vars));
+                const auto max_arrival_vars = solver->MakeMax({time_dimension->CumulVar(first_visit),
+                                                               time_dimension->CumulVar(second_visit)});
+                solver->AddConstraint(solver->MakeLessOrEqual(
+                        max_arrival_vars,
+                        solver->MakeSum(time_dimension->CumulVar(first_visit),
+                                        time_dimension->SlackVar(first_visit))));
+                solver->AddConstraint(solver->MakeLessOrEqual(
+                        max_arrival_vars,
+                        solver->MakeSum(time_dimension->CumulVar(second_visit),
+                                        time_dimension->SlackVar(second_visit))));
+
+                const auto min_active_vars = solver->MakeMin({model.ActiveVar(first_visit),
+                                                              model.ActiveVar(second_visit)});
+                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit), min_active_vars));
+                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit), min_active_vars));
+
+                solver->AddConstraint(solver->MakeLess(
+                        solver->MakeConditionalExpression(
+                                solver->MakeIsDifferentCstVar(model.VehicleVar(first_visit), -1),
+                                model.VehicleVar(first_visit), 0),
+                        solver->MakeConditionalExpression(
+                                solver->MakeIsDifferentCstVar(model.VehicleVar(second_visit), -1),
+                                model.VehicleVar(second_visit), 1)
+                ));
+//                solver->AddConstraint(
+//                        solver->MakeAllDifferentExcept({model.VehicleVar(first_visit),
+//                                                        model.VehicleVar(second_visit)},
+//                                                       -1));
 
                 ++total_multiple_carer_visits;
             }

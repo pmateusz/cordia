@@ -49,6 +49,7 @@
 #include "solver_wrapper.h"
 #include "gexf_writer.h"
 #include "single_step_solver.h"
+#include "instant_transfer_solver.h"
 
 
 static const int STATUS_OK = 1;
@@ -129,14 +130,54 @@ void ParseArgs(int argc, char **argv) {
 
 class SchedulingWorker {
 public:
-    SchedulingWorker(std::shared_ptr<rows::Printer> printer)
-            : printer_{std::move(printer)},
-              initial_assignment_{nullptr},
-              return_code_{NOT_STARTED},
+    SchedulingWorker()
+            : return_code_{NOT_STARTED},
               cancel_token_{false},
               worker_{} {}
 
-    ~SchedulingWorker() {
+    virtual ~SchedulingWorker() = default;
+
+    virtual void Run() = 0;
+
+    void Start() {
+        worker_ = std::thread(&SchedulingWorker::Run, this);
+    }
+
+    void Join() {
+        worker_.join();
+    }
+
+    void Cancel() {
+        VLOG(1) << "Cancellation requested";
+        cancel_token_ = true;
+    }
+
+    int ReturnCode() const {
+        return return_code_;
+    }
+
+protected:
+    const std::atomic<bool> &CancelToken() const {
+        return cancel_token_;
+    }
+
+    void SetReturnCode(int return_code) {
+        return_code_ = return_code;
+    }
+
+private:
+    std::atomic<int> return_code_;
+    std::atomic<bool> cancel_token_;
+    std::thread worker_;
+};
+
+class SingleStepSchedulingWorker : public SchedulingWorker {
+public:
+    explicit SingleStepSchedulingWorker(std::shared_ptr<rows::Printer> printer) :
+            printer_{std::move(printer)},
+            initial_assignment_{nullptr} {}
+
+    ~SingleStepSchedulingWorker() override {
         if (model_) {
             model_.reset();
         }
@@ -152,7 +193,8 @@ public:
               const std::string &map_file,
               const std::string &past_solution_file,
               const std::string &time_limit,
-              int64 solution_limit) {
+              int64 solution_limit,
+              std::string output_file) {
         try {
             auto problem_to_use = LoadReducedProblem(problem_file);
 
@@ -180,7 +222,7 @@ public:
                                                                          solver_->vehicles(),
                                                                          rows::SolverWrapper::DEPOT);
 
-            solver_->ConfigureModel(*model_, printer_, cancel_token_);
+            solver_->ConfigureModel(*model_, printer_, CancelToken());
             VLOG(1) << "Completed routing model configuration with status: " << GetModelStatus(model_->status());
             if (solution) {
                 VLOG(1) << "Starting with a solution.";
@@ -202,28 +244,13 @@ public:
                     throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
                 }
             }
+
+            output_file_ = std::move(output_file);
         } catch (util::ApplicationError &ex) {
             LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();
-            return_code_ = util::to_exit_code(ex.error_code());
+            SetReturnCode(util::to_exit_code(ex.error_code()));
             return false;
         }
-    }
-
-    void Start(const std::string &output_file) {
-        worker_ = std::thread(&SchedulingWorker::SolveScheduling, this, output_file);
-    }
-
-    void Join() {
-        worker_.join();
-    }
-
-    void Cancel() {
-        VLOG(1) << "Cancellation requested";
-        cancel_token_ = true;
-    }
-
-    int ReturnCode() const {
-        return return_code_;
     }
 
 private:
@@ -362,7 +389,7 @@ private:
         return config;
     }
 
-    void SolveScheduling(const std::string &output_file) {
+    void Run() override {
         try {
             if (initial_assignment_ == nullptr) {
                 VLOG(1) << "Search started without a solution";
@@ -387,31 +414,39 @@ private:
             DCHECK(is_solution_correct);
 
             rows::GexfWriter solution_writer;
-            solution_writer.Write(output_file, *solver_, *model_, *assignment);
+            solution_writer.Write(output_file_, *solver_, *model_, *assignment);
             solver_->DisplayPlan(*model_, *assignment);
-            return_code_ = STATUS_OK;
+            SetReturnCode(STATUS_OK);
         } catch (util::ApplicationError &ex) {
             LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();
-            return_code_ = util::to_exit_code(ex.error_code());
+            SetReturnCode(util::to_exit_code(ex.error_code()));
         } catch (const std::exception &ex) {
             LOG(ERROR) << ex.what() << std::endl;
-            return_code_ = 2;
+            SetReturnCode(2);
         } catch (...) {
             LOG(ERROR) << "Unhandled exception";
-            return_code_ = 3;
+            SetReturnCode(3);
         }
     }
 
+    std::string output_file_;
+
     std::shared_ptr<rows::Printer> printer_;
 
-    std::unique_ptr<operations_research::RoutingModel> model_;
     operations_research::Assignment *initial_assignment_;
-
+    std::unique_ptr<operations_research::RoutingModel> model_;
     std::unique_ptr<rows::SolverWrapper> solver_;
+};
 
-    std::atomic<int> return_code_;
-    std::atomic<bool> cancel_token_;
-    std::thread worker_;
+class TwoStepSchedulingWorker : public SchedulingWorker {
+public:
+    explicit TwoStepSchedulingWorker(std::shared_ptr<rows::Printer> printer) :
+            printer_{std::move(printer)} {}
+
+    void Run() override {}
+
+private:
+    std::shared_ptr<rows::Printer> printer_;
 };
 
 void ChatBot(SchedulingWorker &worker) {
@@ -447,24 +482,42 @@ std::shared_ptr<rows::Printer> CreatePrinter() {
     throw util::ApplicationError("Unknown console format.", util::ErrorCode::ERROR);
 }
 
-int main(int argc, char **argv) {
-    util::SetupLogging(argv[0]);
-    ParseArgs(argc, argv);
-
+int RunSingleStepSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = CreatePrinter();
 
-    SchedulingWorker worker{printer};
+    SingleStepSchedulingWorker worker{printer};
     if (worker.Init(FLAGS_problem,
                     FLAGS_maps,
                     FLAGS_solution,
                     FLAGS_time_limit,
-                    FLAGS_solutions_limit)) {
+                    FLAGS_solutions_limit,
+                    FLAGS_output)) {
 
-        worker.Start(FLAGS_output);
+        worker.Start();
         std::thread chat_thread(ChatBot, std::ref(worker));
         chat_thread.detach();
         worker.Join();
     }
 
     return worker.ReturnCode();
+}
+
+int RunTwoStepSchedulingWorker() {
+    std::shared_ptr<rows::Printer> printer = CreatePrinter();
+
+    TwoStepSchedulingWorker worker{printer};
+    worker.Start();
+    std::thread chat_thread(ChatBot, std::ref(worker));
+    chat_thread.detach();
+    worker.Join();
+
+    return worker.ReturnCode();
+}
+
+
+int main(int argc, char **argv) {
+    util::SetupLogging(argv[0]);
+    ParseArgs(argc, argv);
+
+    return RunSingleStepSchedulingWorker();
 }

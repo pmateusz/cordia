@@ -203,23 +203,28 @@ GROUP BY visit.visit_id, visit.service_user_id, vdate, vtime, vduration"""
 carer_visits.PlannedStartDateTime as 'planned_start_time',
 carer_visits.PlannedEndDateTime as 'planned_end_time',
 carer_visits.PlannedCarerID as 'carer_id',
+COALESCE(emp.is_mobile_worker, 0) as 'is_mobile',
 visits.service_user_id as 'service_user_id',
 visits.tasks as 'tasks' FROM (
-    SELECT visit_task.visit_id,
-      MIN(visit_task.service_user_id) as 'service_user_id',
-      STRING_AGG(visit_task.task, ';') WITHIN GROUP (ORDER BY visit_task.task) as 'tasks'
-    FROM (
-      SELECT visit_window.visit_id as 'visit_id',
-        MIN(visit_window.service_user_id) as 'service_user_id',
-        CONVERT(int, visit_window.task_no) as 'task'
-      FROM dbo.ListVisitsWithinWindow visit_window
-      WHERE visit_window.aom_code = {0} AND visit_window.visit_date BETWEEN '{1}' AND '{2}'
-      GROUP BY visit_window.visit_id, visit_window.task_no
-    ) visit_task GROUP BY visit_task.visit_id
-  ) visits LEFT OUTER JOIN dbo.ListCarerVisits carer_visits
-  ON visits.visit_id = carer_visits.VisitID
-  WHERE carer_visits.VisitID IS NOT NULL
-  ORDER BY carer_visits.PlannedCarerID, planned_start_time"""
+SELECT visit_task.visit_id,
+MIN(visit_task.service_user_id) as 'service_user_id',
+STRING_AGG(visit_task.task, ';') WITHIN GROUP (ORDER BY visit_task.task) as 'tasks'
+FROM (
+SELECT visit_window.visit_id as 'visit_id',
+MIN(visit_window.service_user_id) as 'service_user_id',
+CONVERT(int, visit_window.task_no) as 'task'
+FROM dbo.ListVisitsWithinWindow visit_window
+INNER JOIN ListAom aom
+ON visit_window.aom_code = aom.aom_id
+WHERE aom.area_code = '{0}' AND visit_window.visit_date BETWEEN '{1}' AND '{2}'
+GROUP BY visit_window.visit_id, visit_window.task_no
+) visit_task GROUP BY visit_task.visit_id
+) visits LEFT OUTER JOIN dbo.ListCarerVisits carer_visits
+ON visits.visit_id = carer_visits.VisitID
+LEFT OUTER JOIN dbo.ListEmployees emp
+ON emp.carer_id = carer_visits.PlannedCarerID
+WHERE carer_visits.VisitID IS NOT NULL
+ORDER BY carer_visits.PlannedCarerID, planned_start_time"""
 
     CARER_INTERVAL_QUERY = """SELECT intervals.CarerId as carer_id,
 intervals.StartDateTime as start_datetime,
@@ -265,8 +270,10 @@ ON total_visits.service_user_id = user_visit.service_user_id
 GROUP BY user_visit.service_user_id, carer_visit.PlannedCarerID, total_visits.service_user_id
 ORDER BY user_visit.service_user_id, care_continuity DESC"""
 
-    CARER_WORKING_HOURS = """SELECT CarerId, StartDateTime, EndDateTime
+    CARER_WORKING_HOURS = """SELECT CarerId, COALESCE(emp.is_mobile_worker, 0) as 'IsMobile', StartDateTime, EndDateTime
 FROM dbo.ListCarerIntervals
+LEFT OUTER JOIN dbo.ListEmployees emp
+ON emp.carer_id = CarerId
 WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
 """
 
@@ -349,6 +356,19 @@ INNER JOIN (
 ) covered_visits
 ON carer_visits.VisitID = covered_visits.visit_id"""
 
+    PAST_VISIT_DURATION = """SELECT carer_visits.VisitID as visit_id,
+AVG(DATEDIFF(SECOND, carer_visits.CheckInDateTime, carer_visits.CheckOutDateTime)) as avg_duration
+FROM dbo.ListCarerVisits carer_visits
+INNER JOIN dbo.ListVisitsWithinWindow visit_window
+ON visit_window.visit_id = carer_visits.VisitID
+INNER JOIN dbo.ListAom aom
+ON aom.aom_id = visit_window.aom_code
+WHERE aom.area_code = '{0}'
+AND (carer_visits.CheckInMethod = 1 OR carer_visits.CheckInMethod = 2)
+AND visit_window.visit_date BETWEEN '{1}' AND '{2}'
+GROUP BY carer_visits.VisitID
+ORDER BY carer_visits.VisitID"""
+
     class IntervalEstimatorBase(object):
 
         def __init__(self, min_duration=None):
@@ -361,7 +381,7 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
             if self.should_reload:
                 self.reload(console, connection_factory)
 
-        def reload(self, console, connection_factory):
+        def reload(self, console, connection_factory, area, start_date, end_date):
             rows = []
             groups = []
 
@@ -417,7 +437,7 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
             self.__sampler = IntervalSampler(percentile, confidence, error)
             self.__duration_by_task = {}
 
-        def reload(self, console, connection_factory):
+        def reload(self, console, connection_factory, area, start_date, end_date):
             self.__duration_by_task.clear()
             super(SqlDataSource.GlobalTaskConfidenceIntervalEstimator, self).reload(console, connection_factory)
 
@@ -451,10 +471,11 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
         def should_reload(self):
             return bool(self.__duration_by_task)
 
-        def reload(self, console, connection_factory):
+        def reload(self, console, connection_factory, area, start_date, end_date):
             self.__duration_by_task.clear()
 
-            super(SqlDataSource.GlobalPercentileEstimator, self).reload(console, connection_factory)
+            super(SqlDataSource.GlobalPercentileEstimator, self) \
+                .reload(console, connection_factory, area, start_date, end_date)
 
         def process(self, key, group):
             durations = [row[3] for row in group]
@@ -467,6 +488,33 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
         def __call__(self, local_visit):
             value = self.__duration_by_task.get(local_visit.tasks, None)
             return value if value else super(SqlDataSource.GlobalPercentileEstimator, self).__call__(local_visit)
+
+    class PastDurationEstimator:
+
+        NAME = 'past'
+
+        def __init__(self):
+            self.__duration_by_visit = {}
+
+        def __call__(self, local_visit):
+            return self.__duration_by_visit.get(local_visit.key, local_visit.duration)
+
+        @property
+        def should_reload(self):
+            return True
+
+        def reload(self, console, connection_factory, area, start_date, end_date):
+            self.__duration_by_visit.clear()
+
+            with console.create_progress_bar(leave=False, unit='') as bar:
+                bar.set_description_str('Connecting to the database...')
+                cursor = connection_factory().cursor()
+
+                bar.set_description_str('Estimating visit duration')
+                for row in cursor.execute(
+                        SqlDataSource.PAST_VISIT_DURATION.format(area.code, start_date, end_date)).fetchall():
+                    visit_id, duration = row
+                    self.__duration_by_visit[visit_id] = str(duration)
 
     class PlannedDurationEstimator:
 
@@ -760,16 +808,21 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
 
     def get_carers(self, area, begin_date, end_date):
         events_by_carer = collections.defaultdict(list)
+        mobile_carers = set()
         for row in self.__get_connection().cursor().execute(
                 SqlDataSource.CARER_WORKING_HOURS.format(begin_date, end_date, area.key)).fetchall():
-            carer_id, begin_time, end_time = row
+            carer_id, mobile, begin_time, end_time = row
             events_by_carer[carer_id].append(AbsoluteEvent(begin=begin_time, end=end_time))
+            if mobile == 1:
+                mobile_carers.add(carer_id)
         carer_shifts = []
         for carer_id in events_by_carer.keys():
             diaries = [Diary(date=date, events=list(events), schedule_pattern=None)
                        for date, events
                        in itertools.groupby(events_by_carer[carer_id], key=lambda event: event.begin.date())]
-            carer_shift = Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries)
+            carer_mobility = Carer.CAR_MOBILITY_TYPE if carer_id in mobile_carers else Carer.FOOT_MOBILITY_TYPE
+            carer_shift = Problem.CarerShift(carer=Carer(sap_number=str(carer_id),
+                                                         mobility=carer_mobility), diaries=diaries)
             carer_shifts.append(carer_shift)
         return carer_shifts
 
@@ -783,7 +836,7 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
         return windows
 
     def get_visits_carers_from_schedule(self, area, begin_date, end_date, duration_estimator):
-        duration_estimator.reload(self.__console, self.__get_connection)
+        duration_estimator.reload(self.__console, self.__get_connection, area, begin_date, end_date)
 
         carer_counts = {}
         for row in self.__get_connection().cursor().execute(SqlDataSource.LIST_MULTIPLE_CARER_VISITS_QUERY.format(
@@ -792,13 +845,17 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
             visit_id, carer_count = row
             carer_counts[visit_id] = carer_count
 
-        data_set = self.__get_connection().cursor().execute(SqlDataSource.SCHEDULE_QUERY.format(area.key,
+        data_set = self.__get_connection().cursor().execute(SqlDataSource.SCHEDULE_QUERY.format(area.code,
                                                                                                 begin_date,
                                                                                                 end_date)).fetchall()
         # get visits
+        mobile_carers = set()
         raw_visits = []
         for row in data_set:
-            visit_key, start_date_time, end_date_time, carer_id, service_user_id, tasks = row
+            visit_key, start_date_time, end_date_time, carer_id, is_mobile, service_user_id, tasks = row
+
+            if is_mobile == 1:
+                mobile_carers.add(carer_id)
 
             carer_count = 1
             if visit_key in carer_counts:
@@ -846,7 +903,7 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
         # get carers
         raw_work_events_by_carer = collections.defaultdict(list)
         for row in data_set:
-            _visit_key, start_date_time, end_date_time, carer_id, _service_user_id, _tasks = row
+            _visit_key, start_date_time, end_date_time, carer_id, _is_mobile, _service_user_id, _tasks = row
             raw_work_events_by_carer[carer_id].append((start_date_time, end_date_time))
 
         work_events_by_carer = {}
@@ -939,7 +996,9 @@ ON carer_visits.VisitID = covered_visits.visit_id"""
                                           events=work_to_use,
                                           shift_type=Diary.EXTRA_SHIFT_TYPE)
                     diaries.append(diary)
-            carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id)), diaries=diaries))
+            carer_mobility = Carer.CAR_MOBILITY_TYPE if carer_id in mobile_carers else Carer.FOOT_MOBILITY_TYPE
+            carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id),
+                                                               mobility=carer_mobility), diaries=diaries))
         return visits, carer_shifts
 
     def get_service_users(self, area, begin_date, end_date):

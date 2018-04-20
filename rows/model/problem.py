@@ -64,7 +64,7 @@ class Problem(rows.model.object.DataObject):
 
             return Problem.CarerShift(**{Problem.CarerShift.CARER: carer, Problem.CarerShift.DIARIES: diaries})
 
-    class LocalVisit(rows.model.object.DataObject):
+    class LocalVisit(rows.model.object.DatabaseObject):
         """Visit to be performed at the known location"""
 
         DATE = 'date'
@@ -75,7 +75,7 @@ class Problem(rows.model.object.DataObject):
         SERVICE_USER = 'service_user'
 
         def __init__(self, **kwargs):  # pylint: disable=useless-super-delegation
-            super(Problem.LocalVisit, self).__init__()
+            super(Problem.LocalVisit, self).__init__(**kwargs)
 
             self.__date = kwargs.get(Problem.LocalVisit.DATE, None)
             self.__time = kwargs.get(Problem.LocalVisit.TIME, None)

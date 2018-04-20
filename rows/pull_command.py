@@ -87,6 +87,8 @@ class Handler:
             return SqlDataSource.GlobalPercentileEstimator(percentile, min_duration=min_duration)
         elif name_to_use == SqlDataSource.PlannedDurationEstimator.NAME:
             return SqlDataSource.PlannedDurationEstimator()
+        elif name_to_use == SqlDataSource.PastDurationEstimator.NAME:
+            return SqlDataSource.PastDurationEstimator()
         return SqlDataSource.PlannedDurationEstimator()
 
     @staticmethod

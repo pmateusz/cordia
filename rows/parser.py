@@ -78,6 +78,11 @@ class Parser:
     SOLUTION_SCHEDULE_DATE_ARG = SOLVE_SCHEDULE_DATE_ARG
     SOLUTION_OUTPUT_ARG = PULL_OUTPUT_ARG
 
+    DURATION_ESTIMATORS = {rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME,
+                           rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME,
+                           rows.sql_data_source.SqlDataSource.PlannedDurationEstimator.NAME,
+                           rows.sql_data_source.SqlDataSource.PastDurationEstimator.NAME}
+
     class PullFromArgAction(argparse.Action):
         """Validate the 'from' argument"""
 
@@ -290,18 +295,11 @@ class Parser:
         if not text_value:
             return None
         value_to_use = text_value.strip().lower()
-        if value_to_use == rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME:
-            return value_to_use
-        elif value_to_use == rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME:
-            return value_to_use
-        elif value_to_use == rows.sql_data_source.SqlDataSource.PlannedDurationEstimator.NAME:
+        if value_to_use in Parser.DURATION_ESTIMATORS:
             return value_to_use
         msg = "Name '{0}' does not match any duration estimator." \
-              " Please use a valid name, for example: {1}, {2} or {3}" \
-            .format(text_value,
-                    rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME,
-                    rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME,
-                    rows.sql_data_source.SqlDataSource.PlannedDurationEstimator.NAME)
+              " Please use a valid name, for example: {1}, {2}, {3} or {4}" \
+            .format(text_value, *Parser.DURATION_ESTIMATORS)
         raise argparse.ArgumentTypeError(msg)
 
     @staticmethod
