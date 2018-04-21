@@ -850,9 +850,14 @@ ORDER BY carer_visits.VisitID"""
                                                                                                 end_date)).fetchall()
         # get visits
         mobile_carers = set()
+        marked_visit_ids = set()
         raw_visits = []
         for row in data_set:
             visit_key, start_date_time, end_date_time, carer_id, is_mobile, service_user_id, tasks = row
+
+            if visit_key in marked_visit_ids:
+                continue
+            marked_visit_ids.add(visit_key)
 
             if is_mobile == 1:
                 mobile_carers.add(carer_id)
@@ -871,6 +876,7 @@ ORDER BY carer_visits.VisitID"""
                                                      int((end_date_time - start_date_time).total_seconds())),
                                                  tasks=tasks,
                                                  carer_count=carer_count))
+            marked_visit_ids.add(visit_key)
 
         visits_by_service_user = collections.defaultdict(list)
 
