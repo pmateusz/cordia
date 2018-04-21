@@ -3,6 +3,8 @@
 #include <vector>
 #include <string>
 
+#include <glog/logging.h>
+
 #include <boost/date_time.hpp>
 #include <boost/format.hpp>
 #include <boost/algorithm/string/join.hpp>
@@ -13,7 +15,7 @@ namespace rows {
             : date_(boost::date_time::not_a_date_time) {}
 
     Diary::Diary(boost::gregorian::date date, std::vector<rows::Event> events)
-            : date_(std::move(date)),
+            : date_(date),
               events_(std::move(events)) {}
 
     Diary::Diary(const Diary &other)
@@ -94,6 +96,14 @@ namespace rows {
         return events_.back().end().time_of_day();
     }
 
+    boost::posix_time::ptime::time_duration_type Diary::duration() const {
+        boost::posix_time::ptime::time_duration_type duration;
+        for (const auto &event : events_) {
+            duration += event.duration();
+        }
+        return duration;
+    }
+
     std::ostream &operator<<(std::ostream &out, const Diary &object) {
         std::vector<std::string> events;
         for (const auto &event : object.events_) {
@@ -106,5 +116,52 @@ namespace rows {
                % object.date_
                % boost::algorithm::join(events, ", ");
         return out;
+    }
+
+    Diary Diary::Intersect(const Diary &other) const {
+        DCHECK_EQ(date_, other.date_);
+
+        auto left_events_it = std::begin(events_);
+        auto right_events_it = std::begin(other.events_);
+        const auto left_events_it_end = std::end(events_);
+        const auto right_events_it_end = std::end(other.events_);
+
+        std::vector<rows::Event> overlapping_events;
+        while ((left_events_it != left_events_it_end) && (right_events_it != right_events_it_end)) {
+            if (right_events_it->end() > left_events_it->end()) {
+                // left finishes faster
+
+                if (left_events_it->end() > right_events_it->begin()) {
+                    const auto begin = std::max(left_events_it->begin(), right_events_it->begin());
+                    if (begin < left_events_it->end()) {
+                        overlapping_events.emplace_back(boost::posix_time::time_period(begin, left_events_it->end()));
+                    }
+                }
+
+                ++left_events_it;
+            } else if (right_events_it->end() < left_events_it->end()) {
+                // right finishes faster
+
+                if (right_events_it->begin() > left_events_it->begin()) {
+                    const auto begin = std::max(left_events_it->begin(), right_events_it->begin());
+                    if (begin < right_events_it->end()) {
+                        overlapping_events.emplace_back(boost::posix_time::time_period(begin, right_events_it->end()));
+                    }
+                }
+
+                ++right_events_it;
+            } else {
+                // both finish at the same time
+                const auto begin = std::max(left_events_it->begin(), right_events_it->begin());
+                if (begin < left_events_it->end()) {
+                    overlapping_events.emplace_back(boost::posix_time::time_period(begin, left_events_it->end()));
+                }
+
+                ++left_events_it;
+                ++right_events_it;
+            }
+        }
+
+        return {date_, overlapping_events};
     }
 }

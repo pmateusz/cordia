@@ -199,8 +199,15 @@ namespace rows {
             const auto &carer_json = carer_json_it.value();
             const auto sap_number_it = carer_json.find("sap_number");
             if (sap_number_it == std::end(carer_json)) { throw OnKeyNotFound("sap_number"); }
+            const auto sap_number = sap_number_it.value().template get<std::string>();
 
-            rows::Carer carer(sap_number_it.value().template get<std::string>());
+            Transport transport = Transport::Foot;
+            const auto transport_it = carer_json.find("mobility");
+            if (transport_it != std::end(carer_json)) {
+                transport = ParseTransport(transport_it.value().template get<std::string>());
+            }
+
+            rows::Carer carer(sap_number, transport);
 
             const auto diaries_it = carer_json_group.find("diaries");
             if (diaries_it == std::end(carer_json_group)) { throw OnKeyNotFound("diaries"); }

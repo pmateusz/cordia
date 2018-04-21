@@ -120,10 +120,11 @@ namespace rows {
                                                    [&service_user](const rows::CalendarVisit &visit) -> bool {
                                                        return visit.service_user() == service_user;
                                                    });
-            DCHECK_GT(visit_count, 0);
-            const auto insert_it = service_users_.insert(
-                    std::make_pair(service_user, LocalServiceUser(service_user, visit_count)));
-            DCHECK(insert_it.second);
+            if (visit_count > 0) {
+                const auto insert_it = service_users_.insert(
+                        std::make_pair(service_user, LocalServiceUser(service_user, visit_count)));
+                DCHECK(insert_it.second);
+            }
         }
     }
 
@@ -586,8 +587,8 @@ namespace rows {
                                                     std::cend(solution_to_use.visits()),
                                                     is_assigned);
             VLOG_IF(1, initial_size != reduced_size)
-            << boost::format("Removed %1% visit assignments due to constrain violations.")
-               % (initial_size - reduced_size);
+                    << boost::format("Removed %1% visit assignments due to constrain violations.")
+                       % (initial_size - reduced_size);
         }
         VLOG(1) << boost::format("Validation of the solution for warm start completed in %1% seconds")
                    % std::chrono::duration_cast<std::chrono::seconds>(
@@ -742,7 +743,7 @@ namespace rows {
             while (!model.IsEnd(order)) {
                 if (!model.IsStart(order)) {
                     const auto visit_index = model.IndexToNode(order);
-                    DCHECK_NE (visit_index, DEPOT);
+                    DCHECK_NE(visit_index, DEPOT);
                     carer_visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN, carer, NodeToVisit(visit_index));
                 }
 

@@ -7,11 +7,19 @@
 
 namespace rows {
 
+    enum class Transport {
+        Unknown, Foot, Car
+    };
+
+    Transport ParseTransport(const std::string &value);
+
     class Carer {
     public:
         Carer();
 
         explicit Carer(std::string sap_number);
+
+        Carer(std::string sap_number, Transport transport);
 
         Carer(const Carer &other);
 
@@ -31,8 +39,11 @@ namespace rows {
 
         const std::string &sap_number() const;
 
+        Transport transport() const;
+
     private:
         std::string sap_number_;
+        Transport transport_;
     };
 }
 
