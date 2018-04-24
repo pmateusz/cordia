@@ -14,6 +14,7 @@
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/optional.hpp>
+#include <boost/algorithm/string/join.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/algorithm/string/join.hpp>
 
@@ -50,6 +51,7 @@
 #include "gexf_writer.h"
 #include "single_step_solver.h"
 #include "instant_transfer_solver.h"
+#include "two_step_solver.h"
 
 
 static const int STATUS_OK = 1;
@@ -447,6 +449,11 @@ public:
     }
 
     void Add(std::pair<rows::Carer, rows::Diary> member) {
+        DCHECK(std::find_if(std::cbegin(members_), std::cend(members_),
+                            [&member](const std::pair<rows::Carer, rows::Diary> &local_member) -> bool {
+                                return local_member.first == member.first;
+                            }) == std::cend(members_));
+
         diary_ = diary_.Intersect(member.second);
         members_.emplace_back(std::move(member));
     }
@@ -454,6 +461,30 @@ public:
     std::size_t size() const {
         return members_.size();
     }
+
+    std::vector<rows::Carer> Members() const {
+        std::vector<rows::Carer> result;
+        for (const auto &member : members_) {
+            result.push_back(member.first);
+        }
+        return result;
+    }
+
+    const std::vector<std::pair<rows::Carer, rows::Diary> > &FullMembers() const {
+        return members_;
+    };
+
+    std::vector<rows::Carer> AvailableMembers(const boost::posix_time::ptime date_time,
+                                              const boost::posix_time::time_duration &adjustment) const {
+        std::vector<rows::Carer> result;
+        for (const auto &member : members_) {
+            if (member.second.IsAvailable(date_time, adjustment)) {
+                result.push_back(member.first);
+            }
+        }
+        return result;
+    }
+
 
     const rows::Diary &Diary() const {
         return diary_;
@@ -476,51 +507,175 @@ public:
         for (auto &team : GetCarerTeams(problem_)) {
             rows::Carer carer{(boost::format("team-%1%") % ++id).str(), rows::Transport::Foot};
 
-            team_carers.push_back({carer, {team.Diary()}});
+            if (team.size() > 1) {
+                team_carers.push_back({carer, {team.Diary()}});
+            }
+
             teams.emplace(std::move(carer), team);
         }
 
+        LOG(INFO) << "Teams:";
+        for (const auto &team : teams) {
+            LOG(INFO) << "Team: " << team.first.sap_number() << " " << team.second.Diary().duration();
+            for (const auto &event : team.second.Diary().events()) {
+                LOG(INFO) << event;
+            }
+        }
+
+        LOG(INFO) << "Visits:";
         std::vector<rows::CalendarVisit> team_visits;
         for (const auto &visit: problem_.visits()) {
             if (visit.carer_count() > 1) {
                 rows::CalendarVisit visit_copy{visit};
                 visit_copy.carer_count(1);
+
+                LOG(INFO) << visit_copy.service_user() << " " << visit_copy.datetime();
                 team_visits.emplace_back(std::move(visit_copy));
             }
         }
 
-        for (auto &visit : team_visits) {
-            LOG(INFO) << visit.datetime();
-            visit.carer_count(1);
-        }
-
+        // some visits in the test problem are duplicated
         rows::Problem sub_problem{team_visits, team_carers, problem_.service_users()};
 
-
         auto routing_parameters = CreateEngineConfig(FLAGS_maps);
-        auto search_parameters = rows::SolverWrapper::CreateSearchParameters();
-        std::unique_ptr<rows::SolverWrapper> wrapper = std::make_unique<rows::SingleStepSolver>(sub_problem,
-                                                                                                routing_parameters,
-                                                                                                search_parameters);
-        std::unique_ptr<operations_research::RoutingModel> routing_model
-                = std::make_unique<operations_research::RoutingModel>(wrapper->nodes(),
-                                                                      wrapper->vehicles(),
+        auto first_step_search_params = rows::SolverWrapper::CreateSearchParameters();
+        first_step_search_params.set_time_limit_ms(60 * 1000);
+        std::unique_ptr<rows::SolverWrapper> first_stage_wrapper
+                = std::make_unique<rows::SingleStepSolver>(sub_problem,
+                                                           routing_parameters,
+                                                           first_step_search_params,
+                                                           boost::posix_time::minutes(0),
+                                                           false);
+        std::unique_ptr<operations_research::RoutingModel> first_step_model
+                = std::make_unique<operations_research::RoutingModel>(first_stage_wrapper->nodes(),
+                                                                      first_stage_wrapper->vehicles(),
                                                                       rows::SolverWrapper::DEPOT);
-        wrapper->ConfigureModel(*routing_model, printer_, CancelToken());
-        operations_research::Assignment const *assignment = routing_model->SolveWithParameters(search_parameters);
+        first_stage_wrapper->ConfigureModel(*first_step_model, printer_, CancelToken());
+        operations_research::Assignment const *first_step_assignment = first_step_model->SolveWithParameters(
+                first_step_search_params);
 
-        VLOG(1) << "Search completed"
-                << "\nLocal search profile: " << routing_model->solver()->LocalSearchProfile()
-                << "\nDebug string: " << routing_model->solver()->DebugString()
-                << "\nModel status: " << GetModelStatus(routing_model->status());
-
-        if (assignment == nullptr) {
-            throw util::ApplicationError("No solution found.", util::ErrorCode::ERROR);
+        if (first_step_assignment == nullptr) {
+            throw util::ApplicationError("No first stage solution found.", util::ErrorCode::ERROR);
         }
 
-        operations_research::Assignment validation_copy{assignment};
-        const auto is_solution_correct = routing_model->solver()->CheckAssignment(&validation_copy);
-        DCHECK(is_solution_correct);
+        operations_research::Assignment first_validation_copy{first_step_assignment};
+        const auto is_first_solution_correct = first_step_model->solver()->CheckAssignment(&first_validation_copy);
+        DCHECK(is_first_solution_correct);
+
+        LOG(INFO) << "First step solved to completion";
+        auto second_step_search_params = rows::SolverWrapper::CreateSearchParameters(); // operations_research::RoutingModel::DefaultSearchParameters();
+        std::unique_ptr<rows::SolverWrapper> second_stage_wrapper
+                = std::make_unique<rows::TwoStepSolver>(problem_, routing_parameters, second_step_search_params);
+
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > first_step_solution;
+        first_step_model->AssignmentToRoutes(*first_step_assignment, &first_step_solution);
+
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
+                static_cast<std::size_t>(second_stage_wrapper->vehicles())};
+        auto time_dim = first_step_model->GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
+        auto vehicle_number = 0;
+        for (const auto &route : first_step_solution) {
+            const auto &team_carer = first_stage_wrapper->Carer(vehicle_number);
+            const auto team_carer_find_it = teams.find(team_carer);
+            DCHECK(team_carer_find_it != std::end(teams));
+
+            std::vector<std::string> nodes;
+            std::vector<rows::CalendarVisit> visits;
+            for (const auto node : route) {
+                const auto &visit = first_stage_wrapper->NodeToVisit(node);
+
+                std::vector<int> vehicle_numbers;;
+                boost::posix_time::ptime visit_start_time{
+                        team_carer_find_it->second.Diary().date(),
+                        boost::posix_time::seconds(
+                                first_step_assignment->Min(time_dim->CumulVar(first_step_model->NodeToIndex(node))))
+                };
+                LOG(INFO) << visit_start_time;
+                for (const auto &carer : team_carer_find_it->second.AvailableMembers(visit_start_time,
+                                                                                     first_stage_wrapper->GetAdjustment())) {
+                    vehicle_numbers.push_back(second_stage_wrapper->Vehicle(carer));
+                }
+
+                std::unordered_set<int> unique_members{std::begin(vehicle_numbers), std::end(vehicle_numbers)};
+                DCHECK_EQ(unique_members.size(), vehicle_numbers.size());
+
+                LOG(INFO) << visit;
+                LOG(INFO) << team_carer_find_it->second.Diary();
+                for (const auto &full_member : team_carer_find_it->second.FullMembers()) {
+                    LOG(INFO) << full_member.first << " " << full_member.second;
+                }
+
+                auto visit_nodes = second_stage_wrapper->GetNodes(visit);
+                std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes_to_use{
+                        std::begin(visit_nodes),
+                        std::end(visit_nodes)};
+                LOG(INFO) << vehicle_numbers.front() << " " << vehicle_numbers.back();
+                DCHECK_EQ(visit_nodes_to_use.size(), vehicle_numbers.size());
+
+                const auto nodes_size = visit_nodes_to_use.size();
+                for (auto index = 0; index < nodes_size; ++index) {
+                    second_step_locks[vehicle_numbers[index]].push_back(visit_nodes_to_use[index]);
+                }
+            }
+
+            LOG(INFO) << boost::format("Route %1%") % vehicle_number;
+
+            ++vehicle_number;
+        }
+
+        first_step_model.release();
+
+        std::unique_ptr<operations_research::RoutingModel> second_stage_model
+                = std::make_unique<operations_research::RoutingModel>(second_stage_wrapper->nodes(),
+                                                                      second_stage_wrapper->vehicles(),
+                                                                      rows::SolverWrapper::DEPOT);
+        second_stage_wrapper->ConfigureModel(*second_stage_model, printer_, CancelToken());
+
+        for (const auto &route : second_step_locks) {
+            std::vector<std::string> raw_route;
+            for (const auto node : route) {
+                raw_route.push_back(std::to_string(node.value()));
+            }
+
+            LOG(INFO) << boost::algorithm::join(raw_route, " -> ");
+        }
+
+        const auto computed_assignment = second_stage_model->ReadAssignmentFromRoutes(second_step_locks, true);
+        DCHECK(computed_assignment);
+
+//        second_stage_model->solver()->set_fail_intercept([&second_stage_model, &second_stage_wrapper]() -> void {
+//            LOG(FATAL) << "Faiure";
+//        });
+
+        const auto locks_applied = second_stage_model->ApplyLocksToAllVehicles(second_step_locks, false);
+        DCHECK(locks_applied);
+//        DCHECK(second_stage_model->PreAssignment());
+
+//        second_step_search_params.mutable_local_search_operators()->set_use_cross(false);
+//        second_step_search_params.mutable_local_search_operators()->set_use_extended_swap_active(false);
+        second_step_search_params.mutable_local_search_operators()->set_use_path_lns(false);
+        second_step_search_params.mutable_local_search_operators()->set_use_full_path_lns(false);
+        second_step_search_params.mutable_local_search_operators()->set_use_inactive_lns(false);
+//        second_step_search_params.mutable_local_search_operators()->set_use_lin_kernighan(false);
+//        second_step_search_params.mutable_local_search_operators()->set_use_make_chain_inactive(false);
+//        second_step_search_params.mutable_local_search_operators()->set_use_make_active(false);
+//        second_step_search_params.mutable_local_search_operators()->set_use_make_inactive(false);
+//        second_step_search_params.mutable_local_search_operators()->set_use_relocate_and_make_active(false);
+//        second_step_search_params.mutable_local_search_operators()->set_use_two_opt(false);
+//        second_step_search_params.mutable_local_search_operators()->set_use_or_opt(false);
+        operations_research::Assignment const *second_stage_assignment
+                = second_stage_model->SolveFromAssignmentWithParameters(computed_assignment,
+                                                                        second_step_search_params);
+
+        if (second_stage_assignment == nullptr) {
+            throw util::ApplicationError("No second stage solution found.", util::ErrorCode::ERROR);
+        }
+
+        operations_research::Assignment second_validation_copy{second_stage_assignment};
+        const auto is_second_solution_correct = first_step_model->solver()->CheckAssignment(&second_validation_copy);
+        DCHECK(is_second_solution_correct);
+
+        SetReturnCode(0);
     }
 
     bool Init() {
@@ -566,16 +721,21 @@ private:
 
                 const auto match_diary = carer_diary_it->second.Intersect(possible_match_it->second);
                 if (!best_match_diary || (best_match_diary->duration() < match_diary.duration())) {
-                    best_match = *carer_diary_it;
+                    best_match = *possible_match_it;
                     best_match_diary = match_diary;
                 }
             }
 
-            if (best_match) {
+            if (best_match && best_match_diary->duration() >= boost::posix_time::time_duration(2, 30, 0, 0)) {
+                if (!processed_carers.insert(best_match->first).second) {
+                    throw util::ApplicationError(
+                            (boost::format("Carer %1% cannot be a member of more than 1 team")
+                             % best_match->first).str(),
+                            util::ErrorCode::ERROR);
+                }
                 team.Add(std::move(*best_match));
+                teams.emplace_back(std::move(team));
             }
-
-            teams.emplace_back(std::move(team));
         }
 
         return teams;

@@ -167,4 +167,23 @@ namespace rows {
                                   % property
                                   % user).str());
     }
+
+    std::size_t Problem::PartialVisitOperations::operator()(const rows::CalendarVisit &object) const noexcept {
+        static const std::hash<rows::ServiceUser> hash_service_user{};
+        static const std::hash<boost::posix_time::ptime> hash_date_time{};
+        static const std::hash<boost::posix_time::ptime::time_duration_type> hash_duration{};
+
+        std::size_t seed = 0;
+        boost::hash_combine(seed, hash_service_user(object.service_user()));
+        boost::hash_combine(seed, hash_date_time(object.datetime()));
+        boost::hash_combine(seed, hash_duration(object.duration()));
+        return seed;
+    }
+
+    bool Problem::PartialVisitOperations::operator()(const rows::CalendarVisit &left,
+                                                     const rows::CalendarVisit &right) const noexcept {
+        return left.service_user() == right.service_user()
+               && left.datetime() == right.datetime()
+               && left.duration() == right.duration();
+    }
 }

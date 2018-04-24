@@ -8,6 +8,7 @@
 #include <osrm.hpp>
 #include <osrm/storage_config.hpp>
 #include <util/logging.h>
+#include <single_step_solver.h>
 
 #include "solution.h"
 #include "problem.h"
@@ -111,7 +112,7 @@ TEST(RouteValidation, CanValidateRoute) {
     problem.RemoveCancelled(solution.visits());
 
     auto engine_config = CreateEngineConfig(maps_path);
-    rows::SolverWrapper wrapper(problem, engine_config, rows::SolverWrapper::CreateSearchParameters());
+    rows::SingleStepSolver wrapper(problem, engine_config, rows::SolverWrapper::CreateSearchParameters());
 
     operations_research::RoutingModel model{wrapper.nodes(),
                                             wrapper.vehicles(),

@@ -49,4 +49,8 @@ namespace rows {
     const boost::posix_time::time_period &Event::period() const {
         return period_;
     }
+
+    bool Event::Contains(const boost::posix_time::ptime date_time) const {
+        return period_.contains(date_time);
+    }
 }

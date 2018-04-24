@@ -16,7 +16,7 @@ namespace rows {
     public:
         Diary();
 
-        Diary(boost::gregorian::date date, std::vector <rows::Event> events);
+        Diary(boost::gregorian::date date, std::vector<rows::Event> events);
 
         Diary(const Diary &other);
 
@@ -38,9 +38,12 @@ namespace rows {
 
         boost::posix_time::ptime::time_duration_type duration() const;
 
-        const std::vector <rows::Event> &events() const;
+        const std::vector<rows::Event> &events() const;
 
-        std::vector <rows::Event> Breaks() const;
+        std::vector<rows::Event> Breaks() const;
+
+        bool IsAvailable(boost::posix_time::ptime date_time,
+                         boost::posix_time::time_duration adjustment) const;
 
         Diary Intersect(const Diary &other) const;
 
@@ -48,7 +51,7 @@ namespace rows {
 
     private:
         boost::gregorian::date date_;
-        std::vector <rows::Event> events_;
+        std::vector<rows::Event> events_;
     };
 }
 

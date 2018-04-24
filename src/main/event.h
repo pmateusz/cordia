@@ -30,6 +30,8 @@ namespace rows {
 
         boost::posix_time::time_duration duration() const;
 
+        bool Contains(const boost::posix_time::ptime date_time) const;
+
         const boost::posix_time::time_period &period() const;
 
         friend std::ostream &operator<<(std::ostream &out, const Event &object);

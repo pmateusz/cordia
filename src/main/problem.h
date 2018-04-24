@@ -20,11 +20,18 @@
 #include "location.h"
 #include "json.h"
 #include "data_time.h"
+#include "util/aplication_error.h"
 
 namespace rows {
 
     class Problem {
     public:
+        struct PartialVisitOperations {
+            std::size_t operator()(const rows::CalendarVisit &object) const noexcept;
+
+            bool operator()(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const noexcept;
+        };
+
         Problem() = default;
 
         Problem(std::vector<CalendarVisit> visits,
@@ -41,7 +48,7 @@ namespace rows {
 
         const std::vector<ExtendedServiceUser> &service_users() const;
 
-        const boost::optional<Diary> diary(const Carer &carer, boost::posix_time::ptime::date_type date) const;
+        const boost::optional <Diary> diary(const Carer &carer, boost::posix_time::ptime::date_type date) const;
 
         /*!
          * Runs fast checks to test if the problem can be solved
@@ -73,10 +80,6 @@ namespace rows {
         };
 
         void RemoveCancelled(const std::vector<rows::ScheduledVisit> &visits);
-
-        int nodes() const;
-
-        int vehicles() const;
 
     private:
         std::vector<CalendarVisit> visits_;
@@ -260,6 +263,18 @@ namespace rows {
 
         const auto visits = LoadVisits(document, service_user_index);
         const auto carers = LoadCarers(document);
+
+        std::unordered_set<rows::CalendarVisit,
+                Problem::PartialVisitOperations,
+                Problem::PartialVisitOperations> visit_index;
+        for (const auto &visit : visits) {
+            if (!visit_index.insert(visit).second) {
+                throw util::ApplicationError(
+                        (boost::format("Problem definition contains duplicate visit %1% at service user %2%")
+                         % visit.datetime()
+                         % visit.service_user()).str(), util::ErrorCode::ERROR);
+            }
+        }
 
         return Problem(std::move(visits), std::move(carers), std::move(service_users));
     }

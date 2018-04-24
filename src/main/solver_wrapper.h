@@ -18,6 +18,7 @@
 
 #include <ortools/constraint_solver/routing.h>
 #include <ortools/base/logging.h>
+#include <boost/date_time/posix_time/posix_time_config.hpp>
 
 #include "calendar_visit.h"
 #include "carer.h"
@@ -82,13 +83,14 @@ namespace rows {
                       const operations_research::RoutingSearchParameters &search_parameters);
 
         SolverWrapper(const rows::Problem &problem,
-                      const std::vector<rows::Location> &locations,
                       osrm::EngineConfig &config,
-                      const operations_research::RoutingSearchParameters &search_parameters);
+                      const operations_research::RoutingSearchParameters &search_parameters,
+                      boost::posix_time::time_duration break_time_window,
+                      bool begin_end_work_day_adjustment_enabled);
 
         virtual void ConfigureModel(operations_research::RoutingModel &model,
                                     const std::shared_ptr<Printer> &printer,
-                                    const std::atomic<bool> &cancel_token);
+                                    const std::atomic<bool> &cancel_token) = 0;
 
         virtual std::string GetDescription(const operations_research::RoutingModel &model,
                                            const operations_research::Assignment &solution);
@@ -107,6 +109,8 @@ namespace rows {
 
         const rows::Carer &Carer(int vehicle) const;
 
+        int Vehicle(const rows::Carer &carer) const;
+
         const Location &depot() const;
 
         const Problem &problem() const;
@@ -116,6 +120,8 @@ namespace rows {
         bool HasTimeWindows() const;
 
         int vehicles() const;
+
+        int nodes() const;
 
         const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
                 const CalendarVisit &visit) const;
@@ -133,7 +139,7 @@ namespace rows {
 
         std::vector<rows::Event> GetEffectiveBreaks(const rows::Diary &diary) const;
 
-        int nodes() const;
+        boost::posix_time::time_duration GetAdjustment() const;
 
         const CalendarVisit &NodeToVisit(const operations_research::RoutingModel::NodeIndex &node) const;
 
@@ -146,6 +152,15 @@ namespace rows {
                 const rows::Solution &solution, const operations_research::RoutingModel &model) const;
 
     protected:
+        SolverWrapper(const rows::Problem &problem,
+                      const std::vector<rows::Location> &locations,
+                      osrm::EngineConfig &config,
+                      const operations_research::RoutingSearchParameters &search_parameters,
+                      boost::posix_time::time_duration break_time_window,
+                      bool begin_end_work_day_adjustment_enabled);
+
+        void OnConfigureModel();
+
         std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
                                                                              const rows::Carer &carer,
                                                                              const rows::Diary &diary) const;
@@ -167,12 +182,6 @@ namespace rows {
         rows::Solution Resolve(const rows::Solution &solution,
                                const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > &validation_errors) const;
 
-        struct PartialVisitOperations {
-            std::size_t operator()(const rows::CalendarVisit &object) const noexcept;
-
-            bool operator()(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const noexcept;
-        };
-
         static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
 
         const rows::Problem problem_;
@@ -191,8 +200,8 @@ namespace rows {
 
         std::unordered_map<rows::CalendarVisit,
                 std::unordered_set<operations_research::RoutingModel::NodeIndex>,
-                PartialVisitOperations,
-                PartialVisitOperations> visit_index_;
+                Problem::PartialVisitOperations,
+                Problem::PartialVisitOperations> visit_index_;
 
         std::vector<rows::CalendarVisit> visit_by_node_;
 

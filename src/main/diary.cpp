@@ -139,10 +139,10 @@ namespace rows {
                 }
 
                 ++left_events_it;
-            } else if (right_events_it->end() < left_events_it->end()) {
+            } else if (left_events_it->end() > right_events_it->end()) {
                 // right finishes faster
 
-                if (right_events_it->begin() > left_events_it->begin()) {
+                if (right_events_it->end() > left_events_it->begin()) {
                     const auto begin = std::max(left_events_it->begin(), right_events_it->begin());
                     if (begin < right_events_it->end()) {
                         overlapping_events.emplace_back(boost::posix_time::time_period(begin, right_events_it->end()));
@@ -163,5 +163,21 @@ namespace rows {
         }
 
         return {date_, overlapping_events};
+    }
+
+    bool Diary::IsAvailable(const boost::posix_time::ptime date_time,
+                            const boost::posix_time::time_duration adjustment) const {
+        for (const auto &event : events_) {
+            if (event.Contains(date_time)) {
+                return true;
+            }
+        }
+
+        if (adjustment.total_seconds() > 0 && !events_.empty()) {
+            return ((date_time < events_.front().begin()) && ((events_.front().begin() - date_time) <= adjustment))
+                   || ((date_time > events_.back().end()) && ((date_time - events_.back().end()) <= adjustment));
+        }
+
+        return false;
     }
 }
