@@ -254,6 +254,10 @@ protected:
         return cancel_token_;
     }
 
+    void ResetCancelToken() {
+        cancel_token_ = false;
+    }
+
     void SetReturnCode(int return_code) {
         return_code_ = return_code;
     }
@@ -643,37 +647,51 @@ public:
         const auto computed_assignment = second_stage_model->ReadAssignmentFromRoutes(second_step_locks, true);
         DCHECK(computed_assignment);
 
-//        second_stage_model->solver()->set_fail_intercept([&second_stage_model, &second_stage_wrapper]() -> void {
-//            LOG(FATAL) << "Faiure";
-//        });
-
         const auto locks_applied = second_stage_model->ApplyLocksToAllVehicles(second_step_locks, false);
         DCHECK(locks_applied);
-//        DCHECK(second_stage_model->PreAssignment());
+        DCHECK(second_stage_model->PreAssignment());
 
-//        second_step_search_params.mutable_local_search_operators()->set_use_cross(false);
-//        second_step_search_params.mutable_local_search_operators()->set_use_extended_swap_active(false);
-        second_step_search_params.mutable_local_search_operators()->set_use_path_lns(false);
-        second_step_search_params.mutable_local_search_operators()->set_use_full_path_lns(false);
-        second_step_search_params.mutable_local_search_operators()->set_use_inactive_lns(false);
-//        second_step_search_params.mutable_local_search_operators()->set_use_lin_kernighan(false);
-//        second_step_search_params.mutable_local_search_operators()->set_use_make_chain_inactive(false);
-//        second_step_search_params.mutable_local_search_operators()->set_use_make_active(false);
-//        second_step_search_params.mutable_local_search_operators()->set_use_make_inactive(false);
-//        second_step_search_params.mutable_local_search_operators()->set_use_relocate_and_make_active(false);
-//        second_step_search_params.mutable_local_search_operators()->set_use_two_opt(false);
-//        second_step_search_params.mutable_local_search_operators()->set_use_or_opt(false);
         operations_research::Assignment const *second_stage_assignment
-                = second_stage_model->SolveFromAssignmentWithParameters(computed_assignment,
-                                                                        second_step_search_params);
+                = second_stage_model->SolveFromAssignmentWithParameters(computed_assignment, second_step_search_params);
 
         if (second_stage_assignment == nullptr) {
             throw util::ApplicationError("No second stage solution found.", util::ErrorCode::ERROR);
         }
 
+        auto third_step_routing_parameters = rows::SolverWrapper::CreateSearchParameters();
+
         operations_research::Assignment second_validation_copy{second_stage_assignment};
-        const auto is_second_solution_correct = first_step_model->solver()->CheckAssignment(&second_validation_copy);
+        const auto is_second_solution_correct = second_stage_model->solver()->CheckAssignment(&second_validation_copy);
         DCHECK(is_second_solution_correct);
+
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > third_stage_initial_routes;
+        second_stage_model->AssignmentToRoutes(*second_stage_assignment, &third_stage_initial_routes);
+
+        second_stage_model.release();
+
+        std::unique_ptr<rows::SolverWrapper> third_stage_wrapper
+                = std::make_unique<rows::TwoStepSolver>(problem_, routing_parameters, second_step_search_params);
+
+        std::unique_ptr<operations_research::RoutingModel> third_stage_model
+                = std::make_unique<operations_research::RoutingModel>(third_stage_wrapper->nodes(),
+                                                                      third_stage_wrapper->vehicles(),
+                                                                      rows::SolverWrapper::DEPOT);
+
+        third_stage_wrapper->ConfigureModel(*third_stage_model, printer_, CancelToken());
+
+        ResetCancelToken();
+
+        operations_research::Assignment const *initial_guess_assignment
+                = third_stage_model->ReadAssignmentFromRoutes(third_stage_initial_routes, false);
+        DCHECK(initial_guess_assignment);
+
+        operations_research::Assignment const *third_stage_assignment
+                = third_stage_model->SolveFromAssignmentWithParameters(initial_guess_assignment,
+                                                                       third_step_routing_parameters);
+
+        if (third_stage_assignment == nullptr) {
+            throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
+        }
 
         SetReturnCode(0);
     }
@@ -755,7 +773,7 @@ void ChatBot(SchedulingWorker &worker) {
         util::string::Strip(line);
         util::string::ToLower(line);
 
-        if (!line.empty() && line == "s") {
+        if (!line.empty() && line == "stop") {
             worker.Cancel();
             break;
         }

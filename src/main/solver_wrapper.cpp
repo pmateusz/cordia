@@ -75,7 +75,7 @@ namespace rows {
             : SolverWrapper(problem,
                             config,
                             search_parameters,
-                            boost::posix_time::minutes(90),
+                            boost::posix_time::minutes(120),
                             true) {}
 
     SolverWrapper::SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config,
@@ -98,7 +98,7 @@ namespace rows {
             : problem_(problem),
               depot_(Location::GetCentralLocation(std::cbegin(locations), std::cend(locations))),
               depot_service_user_(),
-              visit_time_window_(boost::posix_time::minutes(90)),
+              visit_time_window_(boost::posix_time::minutes(120)),
               break_time_window_(break_time_window),
               out_office_hours_breaks_enabled_(true),
               begin_end_work_day_adjustment_enabled_(begin_end_work_day_adjustment_enabled),
@@ -343,7 +343,7 @@ namespace rows {
 
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
-        parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
+        parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::BEST_INSERTION);
 
         static const auto USE_ADVANCED_SEARCH = true;
         parameters.mutable_local_search_operators()->set_use_cross(USE_ADVANCED_SEARCH);
@@ -357,6 +357,13 @@ namespace rows {
         parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
         parameters.mutable_local_search_operators()->set_use_two_opt(USE_ADVANCED_SEARCH);
         parameters.mutable_local_search_operators()->set_use_or_opt(USE_ADVANCED_SEARCH);
+
+        parameters.mutable_local_search_operators()->set_use_path_lns(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_relocate_pair(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_relocate(USE_ADVANCED_SEARCH);
+
+        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_cross_exchange(USE_ADVANCED_SEARCH);
 
         return parameters;
     }

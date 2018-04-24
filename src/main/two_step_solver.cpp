@@ -94,15 +94,15 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
             solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit), min_active_vars));
             solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit), min_active_vars));
 
-//            solver->AddConstraint(solver->MakeLess(
-//                    solver->MakeConditionalExpression(
-//                            solver->MakeIsDifferentCstVar(model.VehicleVar(first_visit), -1),
-//                            model.VehicleVar(first_visit), 0),
-//                    solver->MakeConditionalExpression(
-//                            solver->MakeIsDifferentCstVar(model.VehicleVar(second_visit), -1),
-//                            model.VehicleVar(second_visit), 1)
-//            ));
-//
+            solver->AddConstraint(solver->MakeLess(
+                    solver->MakeConditionalExpression(
+                            solver->MakeIsDifferentCstVar(model.VehicleVar(first_visit), -1),
+                            model.VehicleVar(first_visit), 0),
+                    solver->MakeConditionalExpression(
+                            solver->MakeIsDifferentCstVar(model.VehicleVar(second_visit), -1),
+                            model.VehicleVar(second_visit), 1)
+            ));
+
             solver->AddConstraint(
                     solver->MakeAllDifferentExcept({model.VehicleVar(first_visit),
                                                     model.VehicleVar(second_visit)},
@@ -148,7 +148,7 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
         }
     }
 
-    const int64 kPenalty = max_distance;
+    const int64 kPenalty = max_distance / 6;
     LOG(INFO) << "Penalty: " << kPenalty;
 
     for (const auto &visit_bundle : visit_index_) {
