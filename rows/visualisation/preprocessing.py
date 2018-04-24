@@ -11,7 +11,6 @@ for i in nsm.keys():
 
 tree = ET.parse('solution.gexf')
 root = tree.getroot()
-root.attrib.update({'xmlns:viz':'http://www.gexf.net/1.2draft/viz'})
 tag = '{http://www.gexf.net/1.1draft}'
 
 #convert to dynamic
@@ -135,7 +134,9 @@ for nodes in sh.findall(tag+'nodes'):
                 color = colors_dict['dropped'] 
                 child_col.set('r', str(color[0]))                          
                 child_col.set('g', str(color[1]))
-                child_col.set('b', str(color[2]))
+                child_col.set('b', str(color[2]))   
+        elif attributes[type_id]=='user':
+            nodes.remove(node)
 
 #write final xml to file
 tree.write('solution_modified.gexf')           
