@@ -138,5 +138,10 @@ for nodes in sh.findall(tag+'nodes'):
         elif attributes[type_id]=='user':
             nodes.remove(node)
 
+for edges in sh.findall(tag+'edges'):
+    for edge in edges.findall(tag+'edge'):
+        if 'u' in edge.attrib['source']:
+            edges.remove(edge)
+
 #write final xml to file
 tree.write('solution_modified.gexf')           
