@@ -1008,14 +1008,24 @@ namespace rows {
 
             const time_period arrival_period{fastest_arrival, latest_arrival};
             if (!arrival_period.contains(arrival)) {
-                const auto arrival_delay = arrival - arrival_period.end();
-                LOG(FATAL) << boost::format("Arrival time %1% is expected to be outside the interval %2%")
-                              % arrival
-                              % arrival_period;
-                std::unique_ptr<RouteValidatorBase::ValidationError> error_ptr
-                        = std::make_unique<RouteValidatorBase::ScheduledVisitError>(
-                                session.CreateLateArrivalError(route, visit, arrival_delay));
-                return RouteValidatorBase::ValidationResult(std::move(error_ptr));
+                static const boost::posix_time::time_duration MIN_DURATION{0, 0, 1};
+
+                boost::posix_time::time_duration effective_delay;
+                if (arrival_period.is_before(arrival)) {
+                    effective_delay = arrival - arrival_period.end();
+                } else {
+                    effective_delay = arrival_period.begin() - arrival;
+                }
+
+                if (effective_delay > MIN_DURATION) {
+                    LOG(FATAL) << boost::format("Arrival time %1% is expected to be outside the interval %2%")
+                                  % arrival
+                                  % arrival_period;
+                    std::unique_ptr<RouteValidatorBase::ValidationError> error_ptr
+                            = std::make_unique<RouteValidatorBase::ScheduledVisitError>(
+                                    session.CreateLateArrivalError(route, visit, effective_delay));
+                    return RouteValidatorBase::ValidationResult(std::move(error_ptr));
+                }
             }
 
             if (ValidationSession::GreaterThan(arrival.time_of_day(),

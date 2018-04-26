@@ -191,7 +191,6 @@ namespace rows {
 
             gexf.SetNodeValue(carer_id, UTIL_VISITS_COUNT, std::to_string(route.size()));
             const auto validation_result = validator.Validate(vehicle, solution, model, solver);
-
             if (validation_result.error()) {
                 LOG(ERROR) << (boost::format("Route %1% is invalid %2%")
                                % carer

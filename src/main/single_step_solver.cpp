@@ -122,19 +122,19 @@ namespace rows {
                     std::swap(first_visit_to_use, second_visit_to_use);
                 }
 
-                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
-                                                              time_dimension->CumulVar(second_visit_to_use)));
-                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
-                                                              time_dimension->CumulVar(first_visit_to_use)));
-                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
-                                                              model.ActiveVar(second_visit_to_use)));
-                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
-                                                              model.ActiveVar(first_visit_to_use)));
-
-                const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
-                                                                       solver->MakeIntConst(0));
-                solver->AddConstraint(
-                        solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
+//                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
+//                                                              time_dimension->CumulVar(second_visit_to_use)));
+//                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
+//                                                              time_dimension->CumulVar(first_visit_to_use)));
+//                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
+//                                                              model.ActiveVar(second_visit_to_use)));
+//                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
+//                                                              model.ActiveVar(first_visit_to_use)));
+//
+//                const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
+//                                                                       solver->MakeIntConst(0));
+//                solver->AddConstraint(
+//                        solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
 
                 ++total_multiple_carer_visits;
             }

@@ -575,8 +575,6 @@ public:
         std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > first_step_solution;
         first_step_model->AssignmentToRoutes(*first_step_assignment, &first_step_solution);
 
-        // TODO: make sure that symmetry breaking constraint is now respected
-        // a carer with smaller vehicle number, gets visit with a smaller number
         std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
                 static_cast<std::size_t>(second_stage_wrapper->vehicles())};
         auto time_dim = first_step_model->GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
@@ -658,9 +656,9 @@ public:
         const auto computed_assignment = second_stage_model->ReadAssignmentFromRoutes(second_step_locks, true);
         DCHECK(computed_assignment);
 
-        const auto locks_applied = second_stage_model->ApplyLocksToAllVehicles(second_step_locks, false);
-        DCHECK(locks_applied);
-        DCHECK(second_stage_model->PreAssignment());
+//        const auto locks_applied = second_stage_model->ApplyLocksToAllVehicles(second_step_locks, false);
+//        DCHECK(locks_applied);
+//        DCHECK(second_stage_model->PreAssignment());
 
         operations_research::Assignment const *second_stage_assignment
                 = second_stage_model->SolveFromAssignmentWithParameters(computed_assignment, second_step_search_params);
@@ -847,5 +845,5 @@ int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
 
-    return RunTwoStepSchedulingWorker();
+    return RunSingleStepSchedulingWorker();
 }
