@@ -3,6 +3,7 @@
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include <utility>
 #include <memory>
 #include <thread>
 #include <future>
@@ -543,7 +544,7 @@ public:
 
         auto routing_parameters = CreateEngineConfig(FLAGS_maps);
         auto first_step_search_params = rows::SolverWrapper::CreateSearchParameters();
-        first_step_search_params.set_time_limit_ms(60 * 1000);
+        first_step_search_params.set_time_limit_ms(20 * 1000);
         std::unique_ptr<rows::SolverWrapper> first_stage_wrapper
                 = std::make_unique<rows::SingleStepSolver>(sub_problem,
                                                            routing_parameters,
@@ -574,12 +575,14 @@ public:
         std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > first_step_solution;
         first_step_model->AssignmentToRoutes(*first_step_assignment, &first_step_solution);
 
+        // TODO: make sure that symmetry breaking constraint is now respected
+        // a carer with smaller vehicle number, gets visit with a smaller number
         std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
                 static_cast<std::size_t>(second_stage_wrapper->vehicles())};
         auto time_dim = first_step_model->GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
-        auto vehicle_number = 0;
+        auto route_number = 0;
         for (const auto &route : first_step_solution) {
-            const auto &team_carer = first_stage_wrapper->Carer(vehicle_number);
+            const auto &team_carer = first_stage_wrapper->Carer(route_number);
             const auto team_carer_find_it = teams.find(team_carer);
             DCHECK(team_carer_find_it != std::end(teams));
 
@@ -588,43 +591,51 @@ public:
             for (const auto node : route) {
                 const auto &visit = first_stage_wrapper->NodeToVisit(node);
 
-                std::vector<int> vehicle_numbers;;
+                std::vector<int> vehicle_numbers;
                 boost::posix_time::ptime visit_start_time{
                         team_carer_find_it->second.Diary().date(),
                         boost::posix_time::seconds(
                                 first_step_assignment->Min(time_dim->CumulVar(first_step_model->NodeToIndex(node))))
                 };
-                LOG(INFO) << visit_start_time;
+
                 for (const auto &carer : team_carer_find_it->second.AvailableMembers(visit_start_time,
                                                                                      first_stage_wrapper->GetAdjustment())) {
                     vehicle_numbers.push_back(second_stage_wrapper->Vehicle(carer));
                 }
 
-                std::unordered_set<int> unique_members{std::begin(vehicle_numbers), std::end(vehicle_numbers)};
-                DCHECK_EQ(unique_members.size(), vehicle_numbers.size());
+                DCHECK_EQ(vehicle_numbers.size(), 2);
+                DCHECK_NE(vehicle_numbers[0], vehicle_numbers[1]);
 
-                LOG(INFO) << visit;
-                LOG(INFO) << team_carer_find_it->second.Diary();
-                for (const auto &full_member : team_carer_find_it->second.FullMembers()) {
-                    LOG(INFO) << full_member.first << " " << full_member.second;
-                }
-
-                auto visit_nodes = second_stage_wrapper->GetNodes(visit);
+                const auto visit_nodes = second_stage_wrapper->GetNodes(visit);
                 std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes_to_use{
                         std::begin(visit_nodes),
                         std::end(visit_nodes)};
-                LOG(INFO) << vehicle_numbers.front() << " " << vehicle_numbers.back();
                 DCHECK_EQ(visit_nodes_to_use.size(), vehicle_numbers.size());
 
-                const auto nodes_size = visit_nodes_to_use.size();
-                for (auto index = 0; index < nodes_size; ++index) {
-                    second_step_locks[vehicle_numbers[index]].push_back(visit_nodes_to_use[index]);
+
+                auto first_vehicle_to_use = vehicle_numbers[0];
+                auto second_vehicle_to_use = vehicle_numbers[1];
+                if (first_vehicle_to_use > second_vehicle_to_use) {
+                    std::swap(first_vehicle_to_use, second_vehicle_to_use);
                 }
+
+                auto first_visit_to_use = visit_nodes_to_use[0];
+                auto second_visit_to_use = visit_nodes_to_use[1];
+                if (first_visit_to_use > second_visit_to_use) {
+                    std::swap(first_visit_to_use, second_visit_to_use);
+                }
+
+                LOG(INFO) << boost::format("%1% %2% -> %3% %4%")
+                             % first_vehicle_to_use
+                             % second_vehicle_to_use
+                             % first_visit_to_use
+                             % second_visit_to_use;
+
+                second_step_locks[first_vehicle_to_use].push_back(first_visit_to_use);
+                second_step_locks[second_vehicle_to_use].push_back(second_visit_to_use);
             }
 
-            LOG(INFO) << boost::format("Route %1%") % vehicle_number;
-
-            ++vehicle_number;
+            ++route_number;
         }
 
         first_step_model.release();

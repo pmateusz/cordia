@@ -116,37 +116,25 @@ namespace rows {
             if (visit_indices_size > 1) {
                 CHECK_EQ(visit_indices_size, 2);
 
-                const auto first_visit = visit_indices[0];
-                const auto second_visit = visit_indices[1];
+                auto first_visit_to_use = visit_indices[0];
+                auto second_visit_to_use = visit_indices[1];
+                if (first_visit_to_use > second_visit_to_use) {
+                    std::swap(first_visit_to_use, second_visit_to_use);
+                }
 
-                const auto max_arrival_vars = solver->MakeMax({time_dimension->CumulVar(first_visit),
-                                                               time_dimension->CumulVar(second_visit)});
-                solver->AddConstraint(solver->MakeLessOrEqual(
-                        max_arrival_vars,
-                        solver->MakeSum(time_dimension->CumulVar(first_visit),
-                                        time_dimension->SlackVar(first_visit))));
-                solver->AddConstraint(solver->MakeLessOrEqual(
-                        max_arrival_vars,
-                        solver->MakeSum(time_dimension->CumulVar(second_visit),
-                                        time_dimension->SlackVar(second_visit))));
+                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
+                                                              time_dimension->CumulVar(second_visit_to_use)));
+                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
+                                                              time_dimension->CumulVar(first_visit_to_use)));
+                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
+                                                              model.ActiveVar(second_visit_to_use)));
+                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
+                                                              model.ActiveVar(first_visit_to_use)));
 
-                const auto min_active_vars = solver->MakeMin({model.ActiveVar(first_visit),
-                                                              model.ActiveVar(second_visit)});
-                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit), min_active_vars));
-                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit), min_active_vars));
-
-                solver->AddConstraint(solver->MakeLess(
-                        solver->MakeConditionalExpression(
-                                solver->MakeIsDifferentCstVar(model.VehicleVar(first_visit), -1),
-                                model.VehicleVar(first_visit), 0),
-                        solver->MakeConditionalExpression(
-                                solver->MakeIsDifferentCstVar(model.VehicleVar(second_visit), -1),
-                                model.VehicleVar(second_visit), 1)
-                ));
-//                solver->AddConstraint(
-//                        solver->MakeAllDifferentExcept({model.VehicleVar(first_visit),
-//                                                        model.VehicleVar(second_visit)},
-//                                                       -1));
+                const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
+                                                                       solver->MakeIntConst(0));
+                solver->AddConstraint(
+                        solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
 
                 ++total_multiple_carer_visits;
             }
@@ -158,26 +146,41 @@ namespace rows {
             const auto &diary_opt = problem_.diary(carer, schedule_day);
 
             int64 begin_time = 0;
+            int64 begin_time_to_use = 0;
             int64 end_time = 0;
+            int64 end_time_to_use = 0;
             if (diary_opt.is_initialized()) {
                 const auto &diary = diary_opt.get();
 
-                begin_time = GetAdjustedWorkdayStart(diary.begin_time());
-                end_time = GetAdjustedWorkdayFinish(diary.end_time());
+                begin_time = diary.begin_time().total_seconds();
+                end_time = diary.end_time().total_seconds();
+                begin_time_to_use = GetAdjustedWorkdayStart(diary.begin_time());
+                end_time_to_use = GetAdjustedWorkdayFinish(diary.end_time());
 
                 const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
                 solver_ptr->AddConstraint(
                         solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
             }
 
-            time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
-            time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
+            time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time_to_use, end_time);
+            time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time_to_use);
         }
 
         printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
 
         // Adding penalty costs to allow skipping orders.
-        const int64 kPenalty = 10000000;
+        auto max_distance = std::numeric_limits<int64>::min();
+        const auto max_node = model.nodes() - 1;
+        for (operations_research::RoutingModel::NodeIndex source{0}; source < max_node; ++source) {
+            for (auto destination = source + 1; destination < max_node; ++destination) {
+                const auto distance = Distance(source, destination);
+                if (max_distance < distance) {
+                    max_distance = distance;
+                }
+            }
+        }
+
+        const int64 kPenalty = max_distance / 6;
         for (const auto &visit_bundle : visit_index_) {
             std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
                                                                                   std::cend(visit_bundle.second)};

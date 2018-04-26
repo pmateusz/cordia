@@ -343,7 +343,7 @@ namespace rows {
 
     operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() {
         operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
-        parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::BEST_INSERTION);
+        parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
 
         static const auto USE_ADVANCED_SEARCH = true;
         parameters.mutable_local_search_operators()->set_use_cross(USE_ADVANCED_SEARCH);
@@ -364,6 +364,8 @@ namespace rows {
 
         parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
         parameters.mutable_local_search_operators()->set_use_cross_exchange(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
+        parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
 
         return parameters;
     }

@@ -73,6 +73,12 @@ Output a problem
 > ./rows_cli.py pull merchant_city --from=2/1/2017 --to=2/2/2017 --output=problem.json
 ```
 
+Run a simulation as the part of control group
+```shell
+sudo cgcreate -t pmateusz:pmateusz -a pmateusz:pmateusz  -g memory,cpu:simulations 
+cgexec -g 'memory,cpu:simulations' ./rows_cli.py solve test_problem.json --schedule-date=2/1/2017
+```
+
 ## Contribute
 
 The project is supported by a continuous integration pipeline hosted by [Travis CI](https://travis-ci.com/pmateusz/cordia). Review the [.travis.yml](.travis.yml) file

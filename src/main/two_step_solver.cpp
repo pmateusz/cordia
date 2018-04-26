@@ -50,6 +50,7 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
     for (const auto &visit_index_pair : visit_index_) {
         const auto visit_start = visit_index_pair.first.datetime().time_of_day();
 
+        // TODO: sort visit indices
         std::vector<int64> visit_indices;
         for (const auto &visit_node : visit_index_pair.second) {
             const auto visit_index = model.NodeToIndex(visit_node);
@@ -75,38 +76,24 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
         if (visit_indices_size > 1) {
             CHECK_EQ(visit_indices_size, 2);
 
-            const auto first_visit = visit_indices[0];
-            const auto second_visit = visit_indices[1];
+            auto first_visit_to_use = visit_indices[0];
+            auto second_visit_to_use = visit_indices[1];
+            if (first_visit_to_use > second_visit_to_use) {
+                std::swap(first_visit_to_use, second_visit_to_use);
+            }
 
-            const auto max_arrival_vars = solver->MakeMax({time_dimension->CumulVar(first_visit),
-                                                           time_dimension->CumulVar(second_visit)});
-            solver->AddConstraint(solver->MakeLessOrEqual(
-                    max_arrival_vars,
-                    solver->MakeSum(time_dimension->CumulVar(first_visit),
-                                    time_dimension->SlackVar(first_visit))));
-            solver->AddConstraint(solver->MakeLessOrEqual(
-                    max_arrival_vars,
-                    solver->MakeSum(time_dimension->CumulVar(second_visit),
-                                    time_dimension->SlackVar(second_visit))));
+            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
+                                                          time_dimension->CumulVar(second_visit_to_use)));
+            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
+                                                          time_dimension->CumulVar(first_visit_to_use)));
+            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
+                                                          model.ActiveVar(second_visit_to_use)));
+            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
+                                                          model.ActiveVar(first_visit_to_use)));
 
-            const auto min_active_vars = solver->MakeMin({model.ActiveVar(first_visit),
-                                                          model.ActiveVar(second_visit)});
-            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit), min_active_vars));
-            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit), min_active_vars));
-
-            solver->AddConstraint(solver->MakeLess(
-                    solver->MakeConditionalExpression(
-                            solver->MakeIsDifferentCstVar(model.VehicleVar(first_visit), -1),
-                            model.VehicleVar(first_visit), 0),
-                    solver->MakeConditionalExpression(
-                            solver->MakeIsDifferentCstVar(model.VehicleVar(second_visit), -1),
-                            model.VehicleVar(second_visit), 1)
-            ));
-
-            solver->AddConstraint(
-                    solver->MakeAllDifferentExcept({model.VehicleVar(first_visit),
-                                                    model.VehicleVar(second_visit)},
-                                                   -1));
+            const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
+                                                                   solver->MakeIntConst(0));
+            solver->AddConstraint(solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
 
             ++total_multiple_carer_visits;
         }
