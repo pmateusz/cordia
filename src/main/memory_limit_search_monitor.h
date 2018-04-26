@@ -7,8 +7,18 @@ namespace rows {
 
     class MemoryLimitSearchMonitor : public operations_research::SearchLimit {
     public:
-        MemoryLimitSearchMonitor(operations_research::Solver *const solver);
+        MemoryLimitSearchMonitor(int64 memory_limit_in_bytes, operations_research::Solver *const solver);
 
+        bool Check() override;
+
+        void Init() override;
+
+        void Copy(const SearchLimit *limit) override;
+
+        operations_research::SearchLimit *MakeClone() const override;
+
+    private:
+        int64 memory_limit_in_bytes_;
     };
 }
 

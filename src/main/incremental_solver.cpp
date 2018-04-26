@@ -6,6 +6,7 @@
 #include "progress_printer_monitor.h"
 #include "progress_monitor.h"
 #include "cancel_search_limit.h"
+#include "memory_limit_search_monitor.h"
 
 rows::IncrementalSolver::IncrementalSolver(const rows::Problem &problem, osrm::EngineConfig &config,
                                            const operations_research::RoutingSearchParameters &search_parameters,
@@ -22,10 +23,6 @@ void rows::IncrementalSolver::ConfigureModel(operations_research::RoutingModel &
                                              std::shared_ptr<const std::atomic<bool> > cancel_token) {
     OnConfigureModel(model);
 
-    // TODO: move to the model
-
-
-    static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
     static const auto START_FROM_ZERO_TIME = false;
 
     printer->operator<<("Loading the model");
@@ -134,4 +131,6 @@ void rows::IncrementalSolver::ConfigureModel(operations_research::RoutingModel &
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
+    model.AddSearchMonitor(solver_ptr->RevAlloc(new MemoryLimitSearchMonitor(std::size_t{16 * 1024 * 1024 * 1024},
+                                                                             solver_ptr)));
 }
