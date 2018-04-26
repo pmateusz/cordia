@@ -7,6 +7,7 @@
 #include "progress_monitor.h"
 #include "cancel_search_limit.h"
 #include "memory_limit_search_monitor.h"
+#include "stalled_search_limit.h"
 
 rows::IncrementalSolver::IncrementalSolver(const rows::Problem &problem, osrm::EngineConfig &config,
                                            const operations_research::RoutingSearchParameters &search_parameters,
@@ -131,6 +132,9 @@ void rows::IncrementalSolver::ConfigureModel(operations_research::RoutingModel &
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
-    model.AddSearchMonitor(solver_ptr->RevAlloc(new MemoryLimitSearchMonitor(std::size_t{16 * 1024 * 1024 * 1024},
-                                                                             solver_ptr)));
+
+    static const int64 MEGA_BYTE = 1024 * 1024;
+    static const int64 GIGA_BYTE = MEGA_BYTE * 1024;
+    model.AddSearchMonitor(solver_ptr->RevAlloc(new MemoryLimitSearchMonitor(16 * GIGA_BYTE, solver_ptr)));
+    model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(solver_ptr)));
 }
