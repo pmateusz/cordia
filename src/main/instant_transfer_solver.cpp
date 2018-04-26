@@ -5,7 +5,8 @@
 
 #include "instant_transfer_solver.h"
 #include "break_constraint.h"
-#include "search_monitor.h"
+#include "progress_printer_monitor.h"
+#include "cancel_search_limit.h"
 
 rows::InstantTransferSolver::InstantTransferSolver(const rows::Problem &problem,
                                                    osrm::EngineConfig &config,
@@ -14,7 +15,7 @@ rows::InstantTransferSolver::InstantTransferSolver(const rows::Problem &problem,
 
 void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingModel &model,
                                                  const std::shared_ptr<rows::Printer> &printer,
-                                                 const std::atomic<bool> &cancel_token) {
+                                                 std::shared_ptr<const std::atomic<bool> > cancel_token) {
     static const auto START_FROM_ZERO_TIME = false;
 
     printer->operator<<("Loading the model");
@@ -130,7 +131,8 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
     }
 
     model.CloseModelWithParameters(parameters_);
-    model.AddSearchMonitor(solver_ptr->RevAlloc(new SearchMonitor(solver_ptr, &model, printer, cancel_token)));
+    model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+    model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 }
 
 int64 rows::InstantTransferSolver::ServiceTimeWithInstantTransfer(operations_research::RoutingModel::NodeIndex from,

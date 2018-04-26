@@ -53,6 +53,7 @@
 #include "single_step_solver.h"
 #include "instant_transfer_solver.h"
 #include "two_step_solver.h"
+#include "incremental_solver.h"
 
 
 static const int STATUS_OK = 1;
@@ -226,7 +227,7 @@ class SchedulingWorker {
 public:
     SchedulingWorker()
             : return_code_{NOT_STARTED},
-              cancel_token_{false},
+              cancel_token_{std::make_shared<std::atomic<bool> >(false)},
               worker_{} {}
 
     virtual ~SchedulingWorker() = default;
@@ -243,7 +244,7 @@ public:
 
     void Cancel() {
         VLOG(1) << "Cancellation requested";
-        cancel_token_ = true;
+        cancel_token_->operator=(true);
     }
 
     int ReturnCode() const {
@@ -251,12 +252,12 @@ public:
     }
 
 protected:
-    const std::atomic<bool> &CancelToken() const {
+    std::shared_ptr<const std::atomic<bool> > CancelToken() const {
         return cancel_token_;
     }
 
     void ResetCancelToken() {
-        cancel_token_ = false;
+        cancel_token_->operator=(false);
     }
 
     void SetReturnCode(int return_code) {
@@ -265,7 +266,7 @@ protected:
 
 private:
     std::atomic<int> return_code_;
-    std::atomic<bool> cancel_token_;
+    std::shared_ptr<std::atomic<bool> > cancel_token_;
     std::thread worker_;
 };
 
@@ -503,7 +504,8 @@ private:
 class TwoStepSchedulingWorker : public SchedulingWorker {
 public:
     explicit TwoStepSchedulingWorker(std::shared_ptr<rows::Printer> printer) :
-            printer_{std::move(printer)} {}
+            printer_{std::move(printer)},
+            lock_partial_paths_{false} {}
 
     void Run() override {
         std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
@@ -656,9 +658,11 @@ public:
         const auto computed_assignment = second_stage_model->ReadAssignmentFromRoutes(second_step_locks, true);
         DCHECK(computed_assignment);
 
-//        const auto locks_applied = second_stage_model->ApplyLocksToAllVehicles(second_step_locks, false);
-//        DCHECK(locks_applied);
-//        DCHECK(second_stage_model->PreAssignment());
+        if (lock_partial_paths_) {
+            const auto locks_applied = second_stage_model->ApplyLocksToAllVehicles(second_step_locks, false);
+            DCHECK(locks_applied);
+            DCHECK(second_stage_model->PreAssignment());
+        }
 
         operations_research::Assignment const *second_stage_assignment
                 = second_stage_model->SolveFromAssignmentWithParameters(computed_assignment, second_step_search_params);
@@ -769,8 +773,76 @@ private:
     }
 
     std::shared_ptr<rows::Printer> printer_;
+    bool lock_partial_paths_;
 
     rows::Problem problem_;
+};
+
+class IncrementalSchedulingWorker : public SchedulingWorker {
+public:
+
+    explicit IncrementalSchedulingWorker(std::shared_ptr<rows::Printer> printer) :
+            printer_{std::move(printer)} {}
+
+    void Run() override {
+        auto routing_parameters = CreateEngineConfig(FLAGS_maps);
+        auto search_parameters = rows::SolverWrapper::CreateSearchParameters();
+
+        try {
+            std::unique_ptr<rows::SolverWrapper> solver_wrapper
+                    = std::make_unique<rows::IncrementalSolver>(problem_,
+                                                                routing_parameters,
+                                                                search_parameters,
+                                                                boost::posix_time::minutes(0),
+                                                                false);
+            std::unique_ptr<operations_research::RoutingModel> model
+                    = std::make_unique<operations_research::RoutingModel>(solver_wrapper->nodes(),
+                                                                          solver_wrapper->vehicles(),
+                                                                          rows::SolverWrapper::DEPOT);
+
+            solver_wrapper->ConfigureModel(*model, printer_, CancelToken());
+
+            operations_research::Assignment const *assignment = model->SolveWithParameters(search_parameters);
+            VLOG(1) << "Search completed"
+                    << "\nLocal search profile: " << model->solver()->LocalSearchProfile()
+                    << "\nDebug string: " << model->solver()->DebugString()
+                    << "\nModel status: " << GetModelStatus(model->status());
+
+            if (assignment == nullptr) {
+                throw util::ApplicationError("No solution found.", util::ErrorCode::ERROR);
+            }
+
+            operations_research::Assignment validation_copy{assignment};
+            const auto is_solution_correct = model->solver()->CheckAssignment(&validation_copy);
+            DCHECK(is_solution_correct);
+
+            rows::GexfWriter solution_writer;
+            solution_writer.Write(output_file_, *solver_wrapper, *model, *assignment);
+            solver_wrapper->DisplayPlan(*model, *assignment);
+            SetReturnCode(STATUS_OK);
+        } catch (util::ApplicationError &ex) {
+            LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();
+            SetReturnCode(util::to_exit_code(ex.error_code()));
+        } catch (const std::exception &ex) {
+            LOG(ERROR) << ex.what() << std::endl;
+            SetReturnCode(2);
+        } catch (...) {
+            LOG(ERROR) << "Unhandled exception";
+            SetReturnCode(3);
+        }
+    }
+
+    bool Init() {
+        problem_ = LoadReducedProblem(printer_);
+        output_file_ = FLAGS_output;
+        return true;
+    }
+
+private:
+    std::shared_ptr<rows::Printer> printer_;
+
+    rows::Problem problem_;
+    std::string output_file_;
 };
 
 void ChatBot(SchedulingWorker &worker) {
@@ -840,10 +912,24 @@ int RunTwoStepSchedulingWorker() {
     return worker.ReturnCode();
 }
 
+int RunIncrementalSchedulingWorker() {
+    std::shared_ptr<rows::Printer> printer = CreatePrinter();
+
+    IncrementalSchedulingWorker worker{printer};
+    if (worker.Init()) {
+        worker.Start();
+        std::thread chat_thread(ChatBot, std::ref(worker));
+        chat_thread.detach();
+        worker.Join();
+    }
+
+    return worker.ReturnCode();
+}
+
 
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
 
-    return RunSingleStepSchedulingWorker();
+    return RunIncrementalSchedulingWorker();
 }

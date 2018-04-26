@@ -33,7 +33,7 @@ namespace rows {
 
         void ConfigureModel(operations_research::RoutingModel &model,
                             const std::shared_ptr<Printer> &printer,
-                            const std::atomic<bool> &cancel_token) override;
+                            std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 
         std::string GetDescription(const operations_research::RoutingModel &model,
                                    const operations_research::Assignment &solution) override;

@@ -1,24 +1,35 @@
-#include "two_step_solver.h"
+#include <algorithm>
 
-#include "util/aplication_error.h"
+#include "incremental_solver.h"
+#include "solver_wrapper.h"
 #include "break_constraint.h"
 #include "progress_printer_monitor.h"
+#include "progress_monitor.h"
 #include "cancel_search_limit.h"
 
-rows::TwoStepSolver::TwoStepSolver(const rows::Problem &problem,
-                                   osrm::EngineConfig &config,
-                                   const operations_research::RoutingSearchParameters &search_parameters)
-        : SolverWrapper(problem, config, search_parameters) {}
+rows::IncrementalSolver::IncrementalSolver(const rows::Problem &problem, osrm::EngineConfig &config,
+                                           const operations_research::RoutingSearchParameters &search_parameters,
+                                           boost::posix_time::time_duration break_time_window,
+                                           bool begin_end_work_day_adjustment_enabled)
+        : SolverWrapper(problem,
+                        config,
+                        search_parameters,
+                        std::move(break_time_window),
+                        begin_end_work_day_adjustment_enabled) {}
 
-void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &model,
-                                         const std::shared_ptr<Printer> &printer,
-                                         std::shared_ptr<const std::atomic<bool> > cancel_token) {
+void rows::IncrementalSolver::ConfigureModel(operations_research::RoutingModel &model,
+                                             const std::shared_ptr<rows::Printer> &printer,
+                                             std::shared_ptr<const std::atomic<bool> > cancel_token) {
     OnConfigureModel(model);
+
+    // TODO: move to the model
+
+
+    static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
+    static const auto START_FROM_ZERO_TIME = false;
 
     printer->operator<<("Loading the model");
     model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
-
-    static const auto START_FROM_ZERO_TIME = false;
     model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
                        SECONDS_IN_DAY,
                        SECONDS_IN_DAY,
@@ -37,7 +48,6 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
     for (const auto &visit_index_pair : visit_index_) {
         const auto visit_start = visit_index_pair.first.datetime().time_of_day();
 
-        // TODO: sort visit indices
         std::vector<int64> visit_indices;
         for (const auto &visit_node : visit_index_pair.second) {
             const auto visit_index = model.NodeToIndex(visit_node);
@@ -80,9 +90,8 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
 
             const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
                                                                    solver->MakeIntConst(0));
-            solver->AddConstraint(solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
-
-            ++total_multiple_carer_visits;
+            solver->AddConstraint(
+                    solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
         }
     }
 
@@ -93,20 +102,24 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
         const auto &diary_opt = problem_.diary(carer, schedule_day);
 
         int64 begin_time = 0;
+        int64 begin_time_to_use = 0;
         int64 end_time = 0;
+        int64 end_time_to_use = 0;
         if (diary_opt.is_initialized()) {
             const auto &diary = diary_opt.get();
 
-            begin_time = GetAdjustedWorkdayStart(diary.begin_time());
-            end_time = GetAdjustedWorkdayFinish(diary.end_time());
+            begin_time = diary.begin_time().total_seconds();
+            end_time = diary.end_time().total_seconds();
+            begin_time_to_use = GetAdjustedWorkdayStart(diary.begin_time());
+            end_time_to_use = GetAdjustedWorkdayFinish(diary.end_time());
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             solver_ptr->AddConstraint(
                     solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
         }
 
-        time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
-        time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
+        time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time_to_use, end_time);
+        time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time_to_use);
     }
 
     printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));

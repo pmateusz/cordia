@@ -1,16 +1,18 @@
-
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
 #include <boost/accumulators/statistics/median.hpp>
 #include <boost/accumulators/statistics/variance.hpp>
+
 #include <chrono>
+#include <utility>
 
 #include "util/aplication_error.h"
 
 #include "single_step_solver.h"
 #include "break_constraint.h"
-#include "search_monitor.h"
+#include "progress_printer_monitor.h"
+#include "cancel_search_limit.h"
 
 namespace rows {
 
@@ -31,7 +33,7 @@ namespace rows {
             : SolverWrapper(problem,
                             config,
                             search_parameters,
-                            break_time_window,
+                            std::move(break_time_window),
                             begin_end_work_day_adjustment_enabled),
               care_continuity_enabled_(false),
               care_continuity_(),
@@ -51,8 +53,8 @@ namespace rows {
 
     void SingleStepSolver::ConfigureModel(operations_research::RoutingModel &model,
                                           const std::shared_ptr<Printer> &printer,
-                                          const std::atomic<bool> &cancel_token) {
-        OnConfigureModel();
+                                          std::shared_ptr<const std::atomic<bool> > cancel_token) {
+        OnConfigureModel(model);
 
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
         static const auto START_FROM_ZERO_TIME = false;
@@ -67,20 +69,6 @@ namespace rows {
 
         operations_research::RoutingDimension *time_dimension
                 = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
-
-        if (model.nodes() == 0) {
-            throw util::ApplicationError("Model contains no visits.", util::ErrorCode::ERROR);
-        }
-
-        const auto schedule_day = NodeToVisit(operations_research::RoutingModel::NodeIndex{1}).datetime().date();
-        if (model.nodes() > 1) {
-            for (operations_research::RoutingModel::NodeIndex visit_node{2}; visit_node < model.nodes(); ++visit_node) {
-                const auto &visit = NodeToVisit(visit_node);
-                if (visit.datetime().date() != schedule_day) {
-                    throw util::ApplicationError("Visits span across multiple days.", util::ErrorCode::ERROR);
-                }
-            }
-        }
 
         operations_research::Solver *const solver = model.solver();
         time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DAY);
@@ -122,24 +110,25 @@ namespace rows {
                     std::swap(first_visit_to_use, second_visit_to_use);
                 }
 
-//                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
-//                                                              time_dimension->CumulVar(second_visit_to_use)));
-//                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
-//                                                              time_dimension->CumulVar(first_visit_to_use)));
-//                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
-//                                                              model.ActiveVar(second_visit_to_use)));
-//                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
-//                                                              model.ActiveVar(first_visit_to_use)));
-//
-//                const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
-//                                                                       solver->MakeIntConst(0));
-//                solver->AddConstraint(
-//                        solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
+                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
+                                                              time_dimension->CumulVar(second_visit_to_use)));
+                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
+                                                              time_dimension->CumulVar(first_visit_to_use)));
+                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
+                                                              model.ActiveVar(second_visit_to_use)));
+                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
+                                                              model.ActiveVar(first_visit_to_use)));
+
+                const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
+                                                                       solver->MakeIntConst(0));
+                solver->AddConstraint(
+                        solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
 
                 ++total_multiple_carer_visits;
             }
         }
 
+        const auto schedule_day = GetScheduleDate();
         auto solver_ptr = model.solver();
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto &carer = Carer(vehicle);
@@ -246,7 +235,8 @@ namespace rows {
                    % std::chrono::duration_cast<std::chrono::seconds>(end_time_model_closing
                                                                       - start_time_model_closing).count();
 
-        model.AddSearchMonitor(solver_ptr->RevAlloc(new SearchMonitor(solver_ptr, &model, printer, cancel_token)));
+        model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+        model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
     }
 
     std::string SingleStepSolver::GetDescription(const operations_research::RoutingModel &model,

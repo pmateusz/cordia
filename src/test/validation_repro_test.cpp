@@ -118,7 +118,7 @@ TEST(RouteValidation, CanValidateRoute) {
                                             wrapper.vehicles(),
                                             rows::SolverWrapper::DEPOT};
 
-    std::atomic<bool> cancel_token{false};
+    std::shared_ptr<std::atomic<bool> > cancel_token = std::make_shared<std::atomic<bool> >(false);
     std::shared_ptr<rows::Printer> console_printer = std::make_shared<rows::ConsolePrinter>();
     wrapper.ConfigureModel(model, console_printer, cancel_token);
 

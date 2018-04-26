@@ -38,15 +38,11 @@
 #include "solution.h"
 #include "solver_wrapper.h"
 #include "break_constraint.h"
-#include "search_monitor.h"
+#include "progress_printer_monitor.h"
 
 // TODO: add support for mobile workers
-
 // TODO: add information about partner
-
 // TODO: add information about back to back carers
-// TODO: two phase optimization for multiple carer workers
-
 // TODO: modify cost function to differentiate between each of employee category
 
 std::vector<rows::Location> DistinctLocations(const rows::Problem &problem) {
@@ -744,7 +740,7 @@ namespace rows {
         return finish_time.total_seconds();
     }
 
-    void SolverWrapper::OnConfigureModel() {
+    void SolverWrapper::OnConfigureModel(const operations_research::RoutingModel &model) {
         VLOG(1) << "Computing missing entries of the distance matrix...";
         const auto start_time_distance_computation = std::chrono::high_resolution_clock::now();
         const auto distance_pairs = location_container_.ComputeDistances();
@@ -754,6 +750,20 @@ namespace rows {
                    % distance_pairs
                    % std::chrono::duration_cast<std::chrono::seconds>(end_time_distance_computation
                                                                       - start_time_distance_computation).count();
+
+        if (model.nodes() == 0) {
+            throw util::ApplicationError("Model contains no visits.", util::ErrorCode::ERROR);
+        }
+
+        const auto schedule_day = GetScheduleDate();
+        if (model.nodes() > 1) {
+            for (operations_research::RoutingModel::NodeIndex visit_node{2}; visit_node < model.nodes(); ++visit_node) {
+                const auto &visit = NodeToVisit(visit_node);
+                if (visit.datetime().date() != schedule_day) {
+                    throw util::ApplicationError("Visits span across multiple days.", util::ErrorCode::ERROR);
+                }
+            }
+        }
     }
 
     boost::posix_time::time_duration SolverWrapper::GetAdjustment() const {
@@ -762,6 +772,25 @@ namespace rows {
         }
 
         return {};
+    }
+
+    boost::gregorian::date SolverWrapper::GetScheduleDate() const {
+        return NodeToVisit(operations_research::RoutingModel::NodeIndex{1}).datetime().date();
+    }
+
+    int64 SolverWrapper::GetDroppedVisitPenalty(const operations_research::RoutingModel &model) {
+        auto max_distance = std::numeric_limits<int64>::min();
+        const auto max_node = model.nodes() - 1;
+        for (operations_research::RoutingModel::NodeIndex source{0}; source < max_node; ++source) {
+            for (auto destination = source + 1; destination < max_node; ++destination) {
+                const auto distance = Distance(source, destination);
+                if (max_distance < distance) {
+                    max_distance = distance;
+                }
+            }
+        }
+
+        return max_distance / 6;
     }
 
     SolverWrapper::LocalServiceUser::LocalServiceUser()

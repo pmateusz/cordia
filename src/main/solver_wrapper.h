@@ -90,7 +90,7 @@ namespace rows {
 
         virtual void ConfigureModel(operations_research::RoutingModel &model,
                                     const std::shared_ptr<Printer> &printer,
-                                    const std::atomic<bool> &cancel_token) = 0;
+                                    std::shared_ptr<const std::atomic<bool> > cancel_token) = 0;
 
         virtual std::string GetDescription(const operations_research::RoutingModel &model,
                                            const operations_research::Assignment &solution);
@@ -139,6 +139,8 @@ namespace rows {
 
         std::vector<rows::Event> GetEffectiveBreaks(const rows::Diary &diary) const;
 
+        boost::gregorian::date GetScheduleDate() const;
+
         boost::posix_time::time_duration GetAdjustment() const;
 
         const CalendarVisit &NodeToVisit(const operations_research::RoutingModel::NodeIndex &node) const;
@@ -159,7 +161,7 @@ namespace rows {
                       boost::posix_time::time_duration break_time_window,
                       bool begin_end_work_day_adjustment_enabled);
 
-        void OnConfigureModel();
+        void OnConfigureModel(const operations_research::RoutingModel &model);
 
         std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
                                                                              const rows::Carer &carer,
@@ -183,6 +185,8 @@ namespace rows {
                                const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > &validation_errors) const;
 
         static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
+
+        int64 GetDroppedVisitPenalty(const operations_research::RoutingModel &model);
 
         const rows::Problem problem_;
         const Location depot_;
