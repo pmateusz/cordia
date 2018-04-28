@@ -998,7 +998,7 @@ namespace rows {
             const auto &visit = visits[node_pos - 1];
             const ptime fastest_arrival{date, seconds(solver.GetBeginVisitWindow(visit.datetime().time_of_day()))};
             const ptime latest_arrival{date, seconds(solver.GetEndVisitWindow(visit.datetime().time_of_day()))};
-            const ptime arrival{date, seconds(solution.Value(time_dim.CumulVar(visit_index)))};
+            const ptime arrival{date, seconds(solution.Min(time_dim.CumulVar(visit_index)))};
 
             VLOG(2) << boost::format("Visit [%1%,%2%] arrival: %3% busy until %4%")
                        % fastest_arrival

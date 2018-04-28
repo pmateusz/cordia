@@ -1,6 +1,8 @@
 #ifndef ROWS_INCREMENTAL_SOLVER_H
 #define ROWS_INCREMENTAL_SOLVER_H
 
+#include <unordered_set>
+
 #include <osrm/osrm.hpp>
 
 #include <ortools/constraint_solver/routing_parameters.pb.h>
@@ -23,6 +25,13 @@ namespace rows {
         void ConfigureModel(operations_research::RoutingModel &model,
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
+
+        bool EnforceMultipleCarerConstraint(const rows::CalendarVisit &visit);
+
+    private:
+        std::unordered_set<rows::CalendarVisit,
+                Problem::PartialVisitOperations,
+                Problem::PartialVisitOperations> constrained_visits_;
     };
 }
 

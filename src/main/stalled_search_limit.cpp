@@ -4,7 +4,7 @@ rows::StalledSearchLimit::StalledSearchLimit(operations_research::Solver *const 
         : SearchLimit(solver) {}
 
 bool rows::StalledSearchLimit::Check() {
-    return found_first_solution_ && search_in_progress_ && (solver()->wall_time() - last_solution_update_) > 5 * 1000;
+    return found_first_solution_ && search_in_progress_ && (solver()->wall_time() - last_solution_update_) > 10 * 1000;
 }
 
 void rows::StalledSearchLimit::Init() {}

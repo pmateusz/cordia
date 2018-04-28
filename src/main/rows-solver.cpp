@@ -781,28 +781,29 @@ private:
 class IncrementalSchedulingWorker : public SchedulingWorker {
 public:
 
-    explicit IncrementalSchedulingWorker(std::shared_ptr<rows::Printer> printer) :
-            printer_{std::move(printer)} {}
+    explicit IncrementalSchedulingWorker(std::shared_ptr<rows::Printer> printer)
+            : printer_{std::move(printer)} {}
 
     void Run() override {
         auto routing_parameters = CreateEngineConfig(FLAGS_maps);
         auto search_parameters = rows::SolverWrapper::CreateSearchParameters();
 
         try {
-            std::unique_ptr<rows::SolverWrapper> solver_wrapper
+            std::unique_ptr<rows::IncrementalSolver> solver_wrapper
                     = std::make_unique<rows::IncrementalSolver>(problem_,
                                                                 routing_parameters,
                                                                 search_parameters,
-                                                                boost::posix_time::minutes(0),
-                                                                false);
+                                                                boost::posix_time::minutes(120),
+                                                                true);
+
             std::unique_ptr<operations_research::RoutingModel> model
                     = std::make_unique<operations_research::RoutingModel>(solver_wrapper->nodes(),
                                                                           solver_wrapper->vehicles(),
                                                                           rows::SolverWrapper::DEPOT);
 
             solver_wrapper->ConfigureModel(*model, printer_, CancelToken());
-
             operations_research::Assignment const *assignment = model->SolveWithParameters(search_parameters);
+
             VLOG(1) << "Search completed"
                     << "\nLocal search profile: " << model->solver()->LocalSearchProfile()
                     << "\nDebug string: " << model->solver()->DebugString()
@@ -816,9 +817,152 @@ public:
             const auto is_solution_correct = model->solver()->CheckAssignment(&validation_copy);
             DCHECK(is_solution_correct);
 
-            rows::GexfWriter solution_writer;
-            solution_writer.Write(output_file_, *solver_wrapper, *model, *assignment);
-            solver_wrapper->DisplayPlan(*model, *assignment);
+            const auto get_satisfied_visits = [&solver_wrapper, this](const operations_research::RoutingModel &model,
+                                                                      const operations_research::Assignment &assignment)
+                    -> std::vector<std::pair<int64, int64> > {
+                std::vector<std::pair<int64, int64> > results;
+
+                const auto time_dimension_ptr = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
+                for (const auto &visit : this->problem_.visits()) {
+                    if (visit.carer_count() <= 1) {
+                        continue;
+                    }
+
+                    const auto &nodes = solver_wrapper->GetNodes(visit);
+                    DCHECK_EQ(nodes.size(), 2);
+
+                    auto node_it = std::begin(nodes);
+                    const auto first_visit_node = *node_it;
+                    const auto second_visit_node = *std::next(node_it);
+
+                    auto first_visit_index = model.NodeToIndex(first_visit_node);
+                    auto second_visit_index = model.NodeToIndex(second_visit_node);
+                    LOG(INFO) << boost::format("Visit %3d %3d - %2d %2d - %7d %7d - %2d %2d")
+                                 % first_visit_node
+                                 % second_visit_node
+                                 % assignment.Min(model.VehicleVar(first_visit_index))
+                                 % assignment.Min(model.VehicleVar(second_visit_index))
+                                 % assignment.Min(time_dimension_ptr->CumulVar(first_visit_index))
+                                 % assignment.Min(time_dimension_ptr->CumulVar(second_visit_index))
+                                 % assignment.Min(model.ActiveVar(first_visit_index))
+                                 % assignment.Min(model.ActiveVar(second_visit_index));
+
+                    const auto first_vehicle = assignment.Min(model.VehicleVar(first_visit_index));
+                    const auto second_vehicle = assignment.Min(model.VehicleVar(second_visit_index));
+                    const auto first_time = assignment.Min(time_dimension_ptr->CumulVar(first_visit_index));
+                    const auto second_time = assignment.Min(time_dimension_ptr->CumulVar(second_visit_index));
+                    if (first_vehicle != -1
+                        && second_vehicle != -1
+                        && first_vehicle != second_vehicle
+                        && first_time == second_time) {
+                        if (first_visit_index < second_visit_index) {
+                            results.emplace_back(first_visit_index, second_visit_index);
+                        } else {
+                            results.emplace_back(second_visit_index, first_visit_index);
+                        }
+                        LOG(INFO) << "Visit enforced";
+                    } else {
+                        LOG(INFO) << "Visit not enforced";
+                    }
+                }
+
+                return results;
+            };
+
+            // TODO: start second level
+            // - get multiple carer visits and check which of them are violated or not
+            // - if there are any constraints that can be enforced without destroying solution - do it
+            // - select a multiple carer visit that is performed
+            // - is done by the same carer carers
+            // - is done at different times
+            // - the complementary visit is not active
+            // - drop them altogether and add higher cost of dropping - check if optimizer can return to previous cost or stall
+
+            // select visits that already satisfy the constraint and enforce it
+
+
+            // find variable in assignment whose next is
+            // TODO:
+            // rebind nexts
+            // rebind vehicle
+            // keep slack and cumul as is
+            for (const auto &multiple_visit_pair : get_satisfied_visits(*model, *assignment)) {
+                auto &nexts = model->Nexts();
+                for (auto index = 0; index < nexts.size(); ++index) {
+                    LOG(INFO) << assignment->Value(nexts[index]);
+                    if (assignment->Value(nexts[index]) == multiple_visit_pair.first) {
+                        LOG(INFO) << "FOUND " << multiple_visit_pair.first;
+                    }
+
+                    if (assignment->Value(nexts[index]) == multiple_visit_pair.second) {
+                        LOG(INFO) << "FOUND " << multiple_visit_pair.second;
+                    }
+                }
+            }
+
+            LOG(INFO) << "Koniec";
+            auto extra_constraint_enforced = false;
+            do {
+                std::vector<std::vector<operations_research::RoutingNodeIndex> > patched_routes;
+                model->AssignmentToRoutes(*assignment, &patched_routes);
+                for (const auto &multiple_visit_pair : get_satisfied_visits(*model, *assignment)) {
+                    const auto first_vehicle = assignment->Value(model->VehicleVar(multiple_visit_pair.first));
+                    const auto second_vehicle = assignment->Value(model->VehicleVar(multiple_visit_pair.second));
+                    if (first_vehicle > second_vehicle) {
+                        auto &first_route = patched_routes[first_vehicle];
+                        auto &second_route = patched_routes[second_vehicle];
+                        auto first_route_it = std::find(first_route.begin(),
+                                                        first_route.end(),
+                                                        multiple_visit_pair.first);
+                        CHECK(first_route_it != first_route.end());
+                        auto second_route_it = std::find(second_route.begin(),
+                                                         second_route.end(),
+                                                         multiple_visit_pair.second);
+                        CHECK(second_route_it != second_route.end());
+                        *first_route_it = multiple_visit_pair.second;
+                        *second_route_it = multiple_visit_pair.first;
+                    }
+
+                    const auto &first_visit = solver_wrapper->NodeToVisit(
+                            model->IndexToNode(multiple_visit_pair.first));
+                    const auto &second_visit = solver_wrapper->NodeToVisit(
+                            model->IndexToNode(multiple_visit_pair.second));
+                    DCHECK_EQ(first_visit, second_visit);
+                    extra_constraint_enforced = solver_wrapper->EnforceMultipleCarerConstraint(first_visit);
+                    if (extra_constraint_enforced) {
+                        break;
+                    }
+                }
+
+                LOG(INFO) << "Routes";
+                for (const auto &route : patched_routes) {
+                    std::vector<std::string> route_str;
+                    for (const auto node : route) {
+                        route_str.push_back(std::to_string(node.value()));
+                    }
+                    LOG(INFO) << boost::join(route_str, " -> ");
+                }
+
+                if (extra_constraint_enforced) {
+                    model.release();
+                    model = std::make_unique<operations_research::RoutingModel>(solver_wrapper->nodes(),
+                                                                                solver_wrapper->vehicles(),
+                                                                                rows::SolverWrapper::DEPOT);
+                    solver_wrapper->ConfigureModel(*model, printer_, CancelToken());
+
+                    assignment = model->ReadAssignmentFromRoutes(patched_routes, true);
+                    CHECK(assignment) << "Restoring assignment from routes failed";
+                    operations_research::Assignment local_copy{assignment};
+                    auto is_patch_correct = model->solver()->CheckAssignment(&local_copy);
+                    CHECK(is_patch_correct) << "Assignment is not valid";
+                }
+
+                LOG(INFO) << "----------------- New round -----------------";
+            } while (extra_constraint_enforced);
+
+//            rows::GexfWriter solution_writer;
+//            solution_writer.Write(output_file_, *solver_wrapper, *model, *final_assignment_ptr);
+//            solver_wrapper->DisplayPlan(*model, *final_assignment_ptr);
             SetReturnCode(STATUS_OK);
         } catch (util::ApplicationError &ex) {
             LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();
@@ -925,7 +1069,6 @@ int RunIncrementalSchedulingWorker() {
 
     return worker.ReturnCode();
 }
-
 
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);

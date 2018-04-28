@@ -8,6 +8,7 @@
 #include "cancel_search_limit.h"
 #include "memory_limit_search_monitor.h"
 #include "stalled_search_limit.h"
+#include "multiple_carer_visit_constraint.h"
 
 rows::IncrementalSolver::IncrementalSolver(const rows::Problem &problem, osrm::EngineConfig &config,
                                            const operations_research::RoutingSearchParameters &search_parameters,
@@ -79,17 +80,27 @@ void rows::IncrementalSolver::ConfigureModel(operations_research::RoutingModel &
 
             solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
                                                           time_dimension->CumulVar(second_visit_to_use)));
-            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
-                                                          time_dimension->CumulVar(first_visit_to_use)));
+//            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
+//                                                          time_dimension->CumulVar(first_visit_to_use)));
             solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
                                                           model.ActiveVar(second_visit_to_use)));
-            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
-                                                          model.ActiveVar(first_visit_to_use)));
+//            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
+//                                                          model.ActiveVar(first_visit_to_use)));
 
-            const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
-                                                                   solver->MakeIntConst(0));
-            solver->AddConstraint(
-                    solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
+//            const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
+//                                                                   solver->MakeIntConst(0));
+//            solver->AddConstraint(
+//                    solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
+
+            if (constrained_visits_.find(visit_index_pair.first) != std::end(constrained_visits_)) {
+                LOG(INFO) << "Enforcing constraint";
+
+                solver->AddConstraint(
+                        solver->RevAlloc(
+                                new MultipleCarerVisitConstraint(time_dimension,
+                                                                 first_visit_to_use,
+                                                                 second_visit_to_use)));
+            }
         }
     }
 
@@ -133,8 +144,14 @@ void rows::IncrementalSolver::ConfigureModel(operations_research::RoutingModel &
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 
-    static const int64 MEGA_BYTE = 1024 * 1024;
-    static const int64 GIGA_BYTE = MEGA_BYTE * 1024;
-    model.AddSearchMonitor(solver_ptr->RevAlloc(new MemoryLimitSearchMonitor(16 * GIGA_BYTE, solver_ptr)));
+//    static const int64 MEGA_BYTE = 1024 * 1024;
+//    static const int64 GIGA_BYTE = MEGA_BYTE * 1024;
+//    model.AddSearchMonitor(solver_ptr->RevAlloc(new MemoryLimitSearchMonitor(16 * GIGA_BYTE, solver_ptr)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(solver_ptr)));
+}
+
+bool rows::IncrementalSolver::EnforceMultipleCarerConstraint(const rows::CalendarVisit &visit) {
+    DCHECK_EQ(visit.carer_count(), 2);
+
+    return constrained_visits_.insert(visit).second;
 }

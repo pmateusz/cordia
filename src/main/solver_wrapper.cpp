@@ -587,7 +587,11 @@ namespace rows {
 
         operations_research::RoutingDimension const *time_dimension = model.GetMutableDimension(TIME_DIMENSION);
 
-        stats.Cost = solution.ObjectiveValue();
+        if (solution.ObjectiveBound()) {
+            stats.Cost = solution.ObjectiveValue();
+        } else {
+            stats.Cost = solution.ObjectiveMax();
+        }
 
         boost::accumulators::accumulator_set<double,
                 boost::accumulators::stats<
