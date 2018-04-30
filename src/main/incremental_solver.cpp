@@ -155,3 +155,7 @@ bool rows::IncrementalSolver::EnforceMultipleCarerConstraint(const rows::Calenda
 
     return constrained_visits_.insert(visit).second;
 }
+
+bool rows::IncrementalSolver::IsEnforced(const rows::CalendarVisit &visit) const {
+    return constrained_visits_.find(visit) != std::end(constrained_visits_);
+}

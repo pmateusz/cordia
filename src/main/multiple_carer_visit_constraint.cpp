@@ -70,7 +70,6 @@ void rows::MultipleCarerVisitConstraint::PropagateVehicle() {
                 return;
             }
 
-            LOG(INFO) << " invalid vehicles " << first_vehicle_val << " " << second_vehicle_val;
             solver()->Fail();
         } else {
             if (first_vehicle_val == -1) {
@@ -138,7 +137,6 @@ void rows::MultipleCarerVisitConstraint::PropagateTime() {
     } else if (second_visit_time_->Bound()) {
         const auto second_visit_time = second_visit_time_->Value();
         if (second_visit_time < first_visit_time_->Min() || first_visit_time_->Max() < second_visit_time) {
-            LOG(ERROR) << second_visit_time << " is outside first visit time boundaries";
             solver()->Fail();
         } else {
             first_visit_time_->SetValue(second_visit_time);
@@ -147,7 +145,6 @@ void rows::MultipleCarerVisitConstraint::PropagateTime() {
         const auto min_time_to_use = std::max(first_visit_time_->Min(), second_visit_time_->Min());
         const auto max_time_to_use = std::min(first_visit_time_->Max(), second_visit_time_->Max());
         if (max_time_to_use < min_time_to_use) {
-            LOG(ERROR) << max_time_to_use << " is lower than " << min_time_to_use;
             solver()->Fail();
         } else {
             first_visit_time_->SetRange(min_time_to_use, max_time_to_use);

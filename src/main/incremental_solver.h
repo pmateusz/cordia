@@ -28,6 +28,8 @@ namespace rows {
 
         bool EnforceMultipleCarerConstraint(const rows::CalendarVisit &visit);
 
+        bool IsEnforced(const rows::CalendarVisit &visit) const;
+
     private:
         std::unordered_set<rows::CalendarVisit,
                 Problem::PartialVisitOperations,
