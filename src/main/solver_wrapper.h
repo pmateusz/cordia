@@ -129,6 +129,9 @@ namespace rows {
         const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
                 const ScheduledVisit &visit) const;
 
+        std::pair<operations_research::RoutingModel::NodeIndex,
+                operations_research::RoutingModel::NodeIndex> GetNodePair(const rows::CalendarVisit &visit) const;
+
         int64 GetBeginVisitWindow(boost::posix_time::time_duration value) const;
 
         int64 GetEndVisitWindow(boost::posix_time::time_duration value) const;
@@ -152,6 +155,8 @@ namespace rows {
 
         std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > GetRoutes(
                 const rows::Solution &solution, const operations_research::RoutingModel &model) const;
+
+        std::string GetModelStatus(int status);
 
     protected:
         SolverWrapper(const rows::Problem &problem,
