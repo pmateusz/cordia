@@ -77,7 +77,7 @@ void rows::IncrementalSolver::ConfigureModel(operations_research::RoutingModel &
             if (first_visit_to_use > second_visit_to_use) {
                 std::swap(first_visit_to_use, second_visit_to_use);
             }
-
+            // CAUTION - it ceased to remain valid with symmetry fixing
             solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
                                                           time_dimension->CumulVar(second_visit_to_use)));
 //            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
