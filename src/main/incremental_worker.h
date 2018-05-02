@@ -5,6 +5,7 @@
 #include <memory>
 #include <iterator>
 #include <string>
+#include <atomic>
 #include <vector>
 
 #include <boost/filesystem.hpp>
@@ -15,14 +16,29 @@
 
 #include <osrm/engine/engine_config.hpp>
 
+#include <algorithm>
+
 #include "scheduling_worker.h"
 #include "printer.h"
-#include "incremental_solver.h"
+#include "solver_wrapper.h"
 
 namespace rows {
 
     class IncrementalSchedulingWorker : public rows::SchedulingWorker {
     public:
+        class IncrementalSolver : public SolverWrapper {
+        public:
+            IncrementalSolver(const rows::Problem &problem,
+                              osrm::EngineConfig &config,
+                              const operations_research::RoutingSearchParameters &search_parameters,
+                              boost::posix_time::time_duration break_time_window,
+                              bool begin_end_work_day_adjustment_enabled);
+
+            void ConfigureModel(operations_research::RoutingModel &model,
+                                const std::shared_ptr<Printer> &printer,
+                                std::shared_ptr<const std::atomic<bool> > cancel_token) override;
+        };
+
         explicit IncrementalSchedulingWorker(std::shared_ptr<rows::Printer> printer);
 
         void Run() override;
@@ -33,34 +49,15 @@ namespace rows {
                   std::string output_file);
 
     private:
-        class ConstraintOperations {
-        public:
-            ConstraintOperations(rows::SolverWrapper &solver_wrapper, operations_research::RoutingModel &routing_model);
-
-            void FirstVehicleNumberIsSmaller(int64 first_index, int64 second_index);
-
-            void FirstVisitIsActiveIfSecondIs(int64 first_index, int64 second_index);
-
-            void FirstVehicleArrivesNoLaterThanSecond(int64 first_index, int64 second_index);
-
-        private:
-            rows::SolverWrapper &solver_wrapper_;
-            operations_research::RoutingModel &model_;
-            operations_research::RoutingDimension *time_dim_;
-        };
-
-        void PrintRoutes(const std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes) const;
-
-        void PrintMultipleCarerVisits(const operations_research::Assignment &assignment,
-                                      const operations_research::RoutingModel &model,
-                                      const rows::SolverWrapper &solver_wrapper) const;
-
         std::shared_ptr<rows::Printer> printer_;
 
         rows::Problem problem_;
         operations_research::RoutingSearchParameters search_params_;
         osrm::EngineConfig routing_params_;
         std::string output_file_;
+
+        double progress_fraction_{0.2};
+        int halt_restarts_{5};
     };
 }
 

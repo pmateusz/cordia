@@ -53,7 +53,6 @@
 #include "single_step_solver.h"
 #include "instant_transfer_solver.h"
 #include "two_step_solver.h"
-#include "incremental_solver.h"
 #include "multiple_carer_visit_constraint.h"
 #include "scheduling_worker.h"
 #include "two_step_worker.h"
