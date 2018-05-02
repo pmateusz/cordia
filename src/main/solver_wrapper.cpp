@@ -587,7 +587,11 @@ namespace rows {
 
         operations_research::RoutingDimension const *time_dimension = model.GetMutableDimension(TIME_DIMENSION);
 
-        stats.Cost = solution.ObjectiveValue();
+        if (solution.ObjectiveBound()) {
+            stats.Cost = solution.ObjectiveValue();
+        } else {
+            stats.Cost = solution.ObjectiveMax();
+        }
 
         boost::accumulators::accumulator_set<double,
                 boost::accumulators::stats<
@@ -791,6 +795,38 @@ namespace rows {
         }
 
         return max_distance / 6;
+    }
+
+    std::string rows::SolverWrapper::GetModelStatus(int status) {
+        switch (status) {
+            case operations_research::RoutingModel::Status::ROUTING_FAIL:
+                return "ROUTING_FAIL";
+            case operations_research::RoutingModel::Status::ROUTING_FAIL_TIMEOUT:
+                return "ROUTING_FAIL_TIMEOUT";
+            case operations_research::RoutingModel::Status::ROUTING_INVALID:
+                return "ROUTING_INVALID";
+            case operations_research::RoutingModel::Status::ROUTING_NOT_SOLVED:
+                return "ROUTING_NOT_SOLVED";
+            case operations_research::RoutingModel::Status::ROUTING_SUCCESS:
+                return "ROUTING_SUCCESS";
+        }
+    }
+
+    std::pair<operations_research::RoutingModel::NodeIndex,
+            operations_research::RoutingModel::NodeIndex> SolverWrapper::GetNodePair(
+            const rows::CalendarVisit &visit) const {
+        const auto &nodes = GetNodes(visit);
+        CHECK_EQ(nodes.size(), 2);
+
+        const auto first_node = *std::begin(nodes);
+        const auto second_node = *std::next(std::begin(nodes));
+        auto first_node_to_use = first_node;
+        auto second_node_to_use = second_node;
+        if (first_node_to_use > second_node_to_use) {
+            std::swap(first_node_to_use, second_node_to_use);
+        }
+
+        return std::make_pair(first_node_to_use, second_node_to_use);
     }
 
     SolverWrapper::LocalServiceUser::LocalServiceUser()

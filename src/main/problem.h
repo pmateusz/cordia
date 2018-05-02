@@ -44,11 +44,14 @@ namespace rows {
 
         const std::vector<CalendarVisit> &visits() const;
 
+        template<typename PredicateType>
+        std::vector<rows::CalendarVisit> Visits(const PredicateType &predicate) const;
+
         const std::vector<std::pair<Carer, std::vector<Diary> > > &carers() const;
 
         const std::vector<ExtendedServiceUser> &service_users() const;
 
-        const boost::optional <Diary> diary(const Carer &carer, boost::posix_time::ptime::date_type date) const;
+        const boost::optional<Diary> diary(const Carer &carer, boost::posix_time::ptime::date_type date) const;
 
         /*!
          * Runs fast checks to test if the problem can be solved
@@ -89,6 +92,17 @@ namespace rows {
 }
 
 namespace rows {
+
+    template<typename PredicateType>
+    std::vector<rows::CalendarVisit> Problem::Visits(const PredicateType &predicate) const {
+        std::vector<rows::CalendarVisit> result;
+        for (const auto &visit: visits_) {
+            if (predicate(visit)) {
+                result.push_back(visit);
+            }
+        }
+        return result;
+    }
 
     template<typename JsonType>
     std::vector<ExtendedServiceUser> Problem::JsonLoader::LoadServiceUsers(const JsonType &json) const {
