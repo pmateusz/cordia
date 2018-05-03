@@ -1,6 +1,15 @@
-#include "visit_query.h"
+#include "multiple_visit_query.h"
 
-bool rows::VisitQuery::operator()(const rows::CalendarVisit &visit) const {
+rows::MultipleVisitQuery::MultipleVisitQuery(rows::SolverWrapper &solver_wrapper,
+                                             operations_research::RoutingModel &model,
+                                             operations_research::Assignment const *solution, bool avoid_symmetry)
+        : solver_wrapper_(solver_wrapper),
+          model_(model),
+          time_dim_(model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION)),
+          solution_(solution),
+          avoid_symmetry_(avoid_symmetry) {}
+
+bool rows::MultipleVisitQuery::IsRelaxed(const rows::CalendarVisit &visit) const {
     if (visit.carer_count() < 2) {
         return false;
     }
@@ -25,19 +34,43 @@ bool rows::VisitQuery::operator()(const rows::CalendarVisit &visit) const {
         return true;
     }
 
-    if (first_vehicle > second_vehicle) {
-        // symmetry violation
-        return true;
-    }
+    if (avoid_symmetry_) {
+        if (first_vehicle > second_vehicle) {
+            // symmetry violation
+            return true;
+        }
 
-    CHECK_LT(first_vehicle, second_vehicle);
+        CHECK_LT(first_vehicle, second_vehicle);
+    }
 
     // different arrival time
     return solution_->Min(time_dim_->CumulVar(first_index)) !=
            solution_->Min(time_dim_->CumulVar(second_index));
 }
 
-void rows::VisitQuery::PrintMultipleCarerVisits(std::shared_ptr<rows::Printer> printer) const {
+bool rows::MultipleVisitQuery::IsSatisfied(const rows::CalendarVisit &visit) const {
+    if (visit.carer_count() < 2) {
+        return false;
+    }
+
+
+    const auto &nodes = solver_wrapper_.GetNodePair(visit);
+    const auto first_index = model_.NodeToIndex(nodes.first);
+    const auto second_index = model_.NodeToIndex(nodes.second);
+    const auto first_vehicle = solution_->Min(model_.VehicleVar(first_index));
+    const auto second_vehicle = solution_->Min(model_.VehicleVar(second_index));
+
+    if (avoid_symmetry_) {
+        if (first_vehicle > second_vehicle) {
+            return false;
+        }
+    }
+
+    return first_vehicle != -1 && second_vehicle != -1 && first_vehicle != second_vehicle
+           && solution_->Min(time_dim_->CumulVar(first_index)) == solution_->Min(time_dim_->CumulVar(second_index));
+}
+
+void rows::MultipleVisitQuery::Print(std::shared_ptr<rows::Printer> printer) const {
     for (const auto &visit : this->solver_wrapper_.problem().visits()) {
         if (visit.carer_count() <= 1) {
             continue;
@@ -81,4 +114,8 @@ void rows::VisitQuery::PrintMultipleCarerVisits(std::shared_ptr<rows::Printer> p
                              % solution_->Max(time_dim_->SlackVar(second_visit_index))
                              % status).str());
     }
+}
+
+void rows::MultipleVisitQuery::SetAssignment(operations_research::Assignment const *solution) {
+    solution_ = solution;
 }

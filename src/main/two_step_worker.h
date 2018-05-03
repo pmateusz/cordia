@@ -35,7 +35,7 @@ namespace rows {
 
             const std::vector<std::pair<rows::Carer, rows::Diary> > &FullMembers() const;;
 
-            std::vector<rows::Carer> AvailableMembers(const boost::posix_time::ptime date_time,
+            std::vector<rows::Carer> AvailableMembers(boost::posix_time::ptime date_time,
                                                       const boost::posix_time::time_duration &adjustment) const;
 
 

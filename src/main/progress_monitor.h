@@ -20,6 +20,8 @@ namespace rows {
 
         boost::posix_time::time_duration WallTime() const;
 
+        const operations_research::RoutingModel &model() const;
+
     private:
         const operations_research::RoutingModel &model_;
     };

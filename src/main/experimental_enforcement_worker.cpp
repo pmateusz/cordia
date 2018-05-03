@@ -1,32 +1,30 @@
-#include "incremental_worker.h"
-
 #include <random>
+#include <unordered_map>
 
-#include <glog/logging.h>
-
+#include "experimental_enforcement_worker.h"
 #include "gexf_writer.h"
+#include "progress_printer_monitor.h"
+#include "break_constraint.h"
+#include "stalled_search_limit.h"
+#include "cancel_search_limit.h"
+#include "routing_operations.h"
 #include "constraint_operations.h"
 #include "multiple_visit_query.h"
-#include "break_constraint.h"
-#include "progress_printer_monitor.h"
-#include "cancel_search_limit.h"
-#include "stalled_search_limit.h"
-#include "routing_operations.h"
 
-rows::IncrementalSchedulingWorker::IncrementalSolver::IncrementalSolver(const rows::Problem &problem,
-                                                                        osrm::EngineConfig &config,
-                                                                        const operations_research::RoutingSearchParameters &search_parameters,
-                                                                        boost::posix_time::time_duration break_time_window,
-                                                                        bool begin_end_work_day_adjustment_enabled)
+rows::ExperimentalEnforcementWorker::Solver::Solver(const rows::Problem &problem,
+                                                    osrm::EngineConfig &config,
+                                                    const operations_research::RoutingSearchParameters &search_parameters,
+                                                    boost::posix_time::time_duration break_time_window,
+                                                    bool begin_end_work_day_adjustment_enabled)
         : SolverWrapper(problem,
                         config,
                         search_parameters,
                         std::move(break_time_window),
                         begin_end_work_day_adjustment_enabled) {}
 
-void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operations_research::RoutingModel &model,
-                                                                          const std::shared_ptr<rows::Printer> &printer,
-                                                                          std::shared_ptr<const std::atomic<bool> > cancel_token) {
+void rows::ExperimentalEnforcementWorker::Solver::ConfigureModel(operations_research::RoutingModel &model,
+                                                                 const std::shared_ptr<rows::Printer> &printer,
+                                                                 std::shared_ptr<const std::atomic<bool> > cancel_token) {
     OnConfigureModel(model);
 
     static const auto START_FROM_ZERO_TIME = false;
@@ -81,19 +79,23 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operat
             }
             // CAUTION - it ceased to remain valid with symmetry fixing
             model.solver()->AddConstraint(model.solver()->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
-                                                                          time_dimension->CumulVar(
-                                                                                  second_visit_to_use)));
+                                                                          time_dimension->CumulVar(second_visit_to_use)
+            ));
 //            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
 //                                                          time_dimension->CumulVar(first_visit_to_use)));
             model.solver()->AddConstraint(model.solver()->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
-                                                                          model.ActiveVar(second_visit_to_use)));
+                                                                          model.ActiveVar(second_visit_to_use)
+            ));
 //            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
 //                                                          model.ActiveVar(first_visit_to_use)));
 
-//            const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
-//                                                                   solver->MakeIntConst(0));
-//            solver->AddConstraint(
-//                    solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
+//            const auto second_vehicle_var_to_use = model.solver()->MakeMax(model.VehicleVar(second_visit_to_use),
+//                                                                           model.solver()->MakeIntConst(1));
+//            model.solver()->AddConstraint(
+//                    model.solver()->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
+
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(first_visit_to_use));
+            model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(second_visit_to_use));
         }
     }
 
@@ -129,7 +131,13 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operat
     for (const auto &visit_bundle : visit_index_) {
         std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
                                                                               std::cend(visit_bundle.second)};
-        model.AddDisjunction(visit_nodes, kPenalty, static_cast<int64>(visit_nodes.size()));
+        if (visit_nodes.size() == 1) {
+            model.AddDisjunction(visit_nodes, kPenalty);
+        } else {
+            model.AddDisjunction(visit_nodes,
+                                 static_cast<int64>(1.5 * kPenalty),
+                                 static_cast<int64>(visit_nodes.size()));
+        }
     }
 
     model.CloseModelWithParameters(parameters_);
@@ -139,16 +147,16 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operat
 //    static const int64 MEGA_BYTE = 1024 * 1024;
 //    static const int64 GIGA_BYTE = MEGA_BYTE * 1024;
 //    model.AddSearchMonitor(solver_ptr->RevAlloc(new MemoryLimitSearchMonitor(16 * GIGA_BYTE, solver_ptr)));
-    model.AddSearchMonitor(model.solver()->RevAlloc(new rows::StalledSearchLimit(60 * 1000, model.solver())));
+    model.AddSearchMonitor(model.solver()->RevAlloc(new rows::StalledSearchLimit(30 * 1000, model.solver())));
 }
 
-rows::IncrementalSchedulingWorker::IncrementalSchedulingWorker(std::shared_ptr<rows::Printer> printer)
+rows::ExperimentalEnforcementWorker::ExperimentalEnforcementWorker(std::shared_ptr<rows::Printer> printer)
         : printer_{std::move(printer)} {}
 
-bool rows::IncrementalSchedulingWorker::Init(rows::Problem problem,
-                                             osrm::EngineConfig routing_params,
-                                             const operations_research::RoutingSearchParameters &search_params,
-                                             std::string output_file) {
+bool rows::ExperimentalEnforcementWorker::Init(rows::Problem problem,
+                                               osrm::EngineConfig routing_params,
+                                               const operations_research::RoutingSearchParameters &search_params,
+                                               std::string output_file) {
     problem_ = std::move(problem);
     routing_params_ = std::move(routing_params);
     search_params_ = search_params;
@@ -156,16 +164,27 @@ bool rows::IncrementalSchedulingWorker::Init(rows::Problem problem,
     return true;
 }
 
-void rows::IncrementalSchedulingWorker::Run() {
+struct EnforcedConstraints {
+    EnforcedConstraints()
+            : Symmetry{false},
+              BothActiveOrNone{false},
+              StartAtTheSameTime{false} {}
+
+    bool Symmetry;
+    bool BothActiveOrNone;
+    bool StartAtTheSameTime;
+};
+
+void rows::ExperimentalEnforcementWorker::Run() {
     static const boost::filesystem::path CACHED_ASSIGNMENT_PATH{"cached_assignment.pb"};
 
     try {
-        std::unique_ptr<IncrementalSolver> solver_wrapper
-                = std::make_unique<IncrementalSolver>(problem_,
-                                                      routing_params_,
-                                                      search_params_,
-                                                      boost::posix_time::minutes(120),
-                                                      true);
+        std::unique_ptr<Solver> solver_wrapper
+                = std::make_unique<Solver>(problem_,
+                                           routing_params_,
+                                           search_params_,
+                                           boost::posix_time::minutes(120),
+                                           true);
 
         std::unique_ptr<operations_research::RoutingModel> model
                 = std::make_unique<operations_research::RoutingModel>(solver_wrapper->nodes(),
@@ -212,17 +231,59 @@ void rows::IncrementalSchedulingWorker::Run() {
         std::default_random_engine generator;
         rows::ConstraintOperations constraint_operations{*solver_wrapper, *model};
         static const rows::RoutingOperations routing_operations{};
+        std::unordered_map<rows::CalendarVisit,
+                EnforcedConstraints,
+                rows::Problem::PartialVisitOperations,
+                rows::Problem::PartialVisitOperations> enforced_constraints;
+
+        static const auto AVOID_SYMMETRY = true;
+        rows::MultipleVisitQuery query{*solver_wrapper, *model, patched_assignment, AVOID_SYMMETRY};
         while (true) {
-            std::vector<rows::CalendarVisit> relaxed_visits;
-            {
-                static const auto AVOID_SYMMETRY = true;
-                rows::MultipleVisitQuery query{*solver_wrapper, *model, patched_assignment, AVOID_SYMMETRY};
-                relaxed_visits = problem_.Visits(
-                        [&query](const rows::CalendarVisit &visit) -> bool { return query.IsRelaxed(visit); }
-                );
+            std::vector<rows::CalendarVisit> relaxed_visits = problem_.Visits(
+                    [&query](const rows::CalendarVisit &visit) -> bool { return query.IsRelaxed(visit); }
+            );
+
+            LOG(INFO) << "Visits relaxed: " << relaxed_visits.size();
+            if (relaxed_visits.empty()) {
+                break;
             }
 
-            LOG(INFO) << "Relaxed visits: " << relaxed_visits.size();
+            std::vector<rows::CalendarVisit> satisfied_visits = problem_.Visits(
+                    [&query](const rows::CalendarVisit &visit) -> bool { return query.IsSatisfied(visit); }
+            );
+
+            int enforced_visits = 0;
+            for (const auto &visit : satisfied_visits) {
+                const auto nodes = solver_wrapper->GetNodePair(visit);
+                const auto first_index = model->NodeToIndex(nodes.first);
+                const auto second_index = model->NodeToIndex(nodes.second);
+
+                auto find_it = enforced_constraints.find(visit);
+                if (find_it == std::end(enforced_constraints)) {
+                    auto insert_pair = enforced_constraints.insert({visit, EnforcedConstraints()});
+                    CHECK(insert_pair.second);
+                    find_it = insert_pair.first;
+                    ++enforced_visits;
+                }
+
+                if (!find_it->second.StartAtTheSameTime) {
+                    find_it->second.StartAtTheSameTime = true;
+                    constraint_operations.FirstVehicleArrivesNoLaterThanSecond(first_index, second_index);
+                }
+
+                if (!find_it->second.BothActiveOrNone) {
+                    find_it->second.BothActiveOrNone = true;
+                    constraint_operations.FirstVisitIsActiveIfSecondIs(first_index, second_index);
+                }
+
+                if (!find_it->second.Symmetry) {
+                    find_it->second.Symmetry = true;
+                    constraint_operations.FirstVehicleNumberIsSmaller(first_index, second_index);
+                }
+            }
+
+            LOG(INFO) << "Visits closed: " << enforced_visits;
+
             const auto visit_fraction = static_cast<std::size_t>(std::ceil(progress_fraction_ * relaxed_visits.size()));
             CHECK_GT(visit_fraction, 0);
             std::vector<rows::CalendarVisit> relaxed_visits_to_use{visit_fraction};
@@ -242,10 +303,6 @@ void rows::IncrementalSchedulingWorker::Run() {
                 }
             }
 
-            if (relaxed_visits_to_use.empty()) {
-                break;
-            }
-
             local_routes.clear();
             model->AssignmentToRoutes(*patched_assignment, &local_routes);
             for (const auto &relaxed_visit: relaxed_visits_to_use) {
@@ -260,30 +317,57 @@ void rows::IncrementalSchedulingWorker::Run() {
                         CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(first_index)), 1);
                         CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(second_index)), 1);
                         constraint_operations.FirstVehicleNumberIsSmaller(first_index, second_index);
-                        LOG(INFO) << "FirstVehicleNumberIsSmaller: " << first_index << " " << second_index;
+                        LOG(INFO) << "Patched symmetry violation";
                     } else if (first_vehicle == second_vehicle) {
                         CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(first_index)), 1);
                         CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(second_index)), 1);
                         constraint_operations.FirstVehicleNumberIsSmaller(first_index, second_index);
-                        LOG(INFO) << "FirstVehicleNumberIsSmaller: eq " << first_index << " " << second_index;
+                        LOG(INFO) << "Patched the same vehicle for both visits";
                     } else if (patched_assignment->Min(time_dim->CumulVar(first_index))
                                != patched_assignment->Min(time_dim->CumulVar(second_index))) {
                         CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(first_index)), 1);
                         CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(second_index)), 1);
-                        LOG(INFO) << "FirstVehicleArrivesNoLaterThanSecond: " << first_index << " " << second_index;
+                        LOG(INFO) << "Patched different arrival times";
                         constraint_operations.FirstVehicleArrivesNoLaterThanSecond(first_index, second_index);
+                    } else if (query.IsSatisfied(relaxed_visit)) {
+                        LOG(INFO) << "Relaxed visit became valid";
+
+                        auto find_it = enforced_constraints.find(relaxed_visit);
+                        if (find_it == std::end(enforced_constraints)) {
+                            auto insert_pair = enforced_constraints.insert({relaxed_visit, EnforcedConstraints()});
+                            CHECK(insert_pair.second);
+                            find_it = insert_pair.first;
+                            ++enforced_visits;
+                        }
+
+                        if (!find_it->second.StartAtTheSameTime) {
+                            find_it->second.StartAtTheSameTime = true;
+                            constraint_operations.FirstVehicleArrivesNoLaterThanSecond(first_index, second_index);
+                        }
+
+                        if (!find_it->second.BothActiveOrNone) {
+                            find_it->second.BothActiveOrNone = true;
+                            constraint_operations.FirstVisitIsActiveIfSecondIs(first_index, second_index);
+                        }
+
+                        if (!find_it->second.Symmetry) {
+                            find_it->second.Symmetry = true;
+                            constraint_operations.FirstVehicleNumberIsSmaller(first_index, second_index);
+                        }
+                    } else {
+                        LOG(FATAL) << "Unknown constraint violation";
                     }
                 } else if (!(first_vehicle == -1 && second_vehicle == -1)) {
                     CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(second_index)), 1);
                     constraint_operations.FirstVisitIsActiveIfSecondIs(first_index, second_index);
-
-                    LOG(INFO) << "FirstVisitIsActiveIfSecondIs: " << first_index << " " << second_index;
+                    LOG(INFO) << "Patched only one visit is being served";
                 } else {
                     LOG(FATAL) << "Unknown constraint violation";
                 }
 
                 patched_assignment = model->ReadAssignmentFromRoutes(local_routes, true);
                 CHECK(model->solver()->CheckAssignment(patched_assignment)) << "Assignment became invalid";
+                query.SetAssignment(patched_assignment);
             }
 
             auto local_assignment = model->SolveFromAssignmentWithParameters(patched_assignment, search_params_);
@@ -292,6 +376,7 @@ void rows::IncrementalSchedulingWorker::Run() {
             // TODO: record value of objective functions
             // TODO: record number of dropped visits
             patched_assignment = model->solver()->MakeAssignment(local_assignment);
+            query.SetAssignment(patched_assignment);
         }
 
         // TODO: slow progression of the bound

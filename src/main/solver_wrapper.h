@@ -27,6 +27,7 @@
 #include "route_validator.h"
 #include "service_user.h"
 #include "printer.h"
+#include "../../../../../../usr/local/include/ortools/constraint_solver/constraint_solver.h"
 
 namespace rows {
 
@@ -171,6 +172,10 @@ namespace rows {
         std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
                                                                              const rows::Carer &carer,
                                                                              const rows::Diary &diary) const;
+
+        operations_research::IntervalVar *CreateBreakInterval(operations_research::Solver *solver,
+                                                              const rows::Event &event,
+                                                              std::string label) const;
 
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY

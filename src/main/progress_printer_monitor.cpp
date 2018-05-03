@@ -30,6 +30,6 @@ namespace rows {
                                           static_cast<size_t>(solver()->solutions()),
                                           static_cast<size_t>(memory_usage)));
 
-        return operations_research::SearchMonitor::AtSolution();
+        return true;
     }
 }

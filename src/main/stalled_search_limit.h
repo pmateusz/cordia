@@ -7,7 +7,7 @@ namespace rows {
 
     class StalledSearchLimit : public operations_research::SearchLimit {
     public:
-        explicit StalledSearchLimit(operations_research::Solver *solver);
+        StalledSearchLimit(int time_limit_ms, operations_research::Solver *solver);
 
         bool Check() override;
 
@@ -27,6 +27,8 @@ namespace rows {
         bool search_in_progress_{false};
         bool found_first_solution_{false};
         int64 last_solution_update_{0};
+
+        int time_limit_ms_;
     };
 }
 

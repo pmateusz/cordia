@@ -4,6 +4,7 @@
 #include "break_constraint.h"
 #include "progress_printer_monitor.h"
 #include "cancel_search_limit.h"
+#include "solution_dumper.h"
 
 rows::TwoStepSolver::TwoStepSolver(const rows::Problem &problem,
                                    osrm::EngineConfig &config,
@@ -119,6 +120,10 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
     }
 
     model.CloseModelWithParameters(parameters_);
+    model.AddSearchMonitor(
+            solver_ptr->RevAlloc(new SolutionDumper(boost::filesystem::path("/home/pmateusz/dev/cordia/"),
+                                                    "solution%1%.pb",
+                                                    model)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 }
