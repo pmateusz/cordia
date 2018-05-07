@@ -21,3 +21,7 @@ double rows::ProgressMonitor::Cost() const {
 boost::posix_time::time_duration rows::ProgressMonitor::WallTime() const {
     return boost::posix_time::milliseconds(static_cast<int64_t>(solver()->wall_time()));
 }
+
+const operations_research::RoutingModel &rows::ProgressMonitor::model() const {
+    return model_;
+}

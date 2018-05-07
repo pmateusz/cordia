@@ -24,11 +24,7 @@ namespace rows {
                                               {status_});
 
         solver()->AddConstraint(path_connected_const);
-        operations_research::Demon *const demon
-                = MakeConstraintDemon0(solver(),
-                                       this,
-                                       &BreakConstraint::OnPathClosed,
-                                       (boost::format("Path Closed %1%") % std::to_string(vehicle_)).str());
+        operations_research::Demon *const demon = solver()->MakeConstraintInitialPropagateCallback(this);
         status_->WhenBound(demon);
     }
 
@@ -48,6 +44,8 @@ namespace rows {
             }
             return;
         }
+
+        const auto initial_number_of_failures = solver()->failures();
 
         std::vector<operations_research::IntervalVar *> all_intervals;
         operations_research::IntervalVar *last_travel_interval = nullptr;
@@ -131,10 +129,15 @@ namespace rows {
             }
         }
 
-        std::copy(std::begin(break_intervals_), std::end(break_intervals_), std::back_inserter(all_intervals));
-        // TODO: consider sorting
-        solver()->AddConstraint(solver()->MakeDisjunctiveConstraint(all_intervals,
-                                                                    (boost::format("Vehicle breaks %1%")
-                                                                     % vehicle_).str()));
+        const auto current_number_of_failures = solver()->failures();
+
+        if (current_number_of_failures > initial_number_of_failures) {
+            LOG(WARNING) << "Registered a failure and have no way to jump...";
+        } else {
+            std::copy(std::begin(break_intervals_), std::end(break_intervals_), std::back_inserter(all_intervals));
+            solver()->AddConstraint(solver()->MakeDisjunctiveConstraint(all_intervals,
+                                                                        (boost::format("Vehicle breaks %1%")
+                                                                         % vehicle_).str()));
+        }
     }
 }

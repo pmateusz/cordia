@@ -228,6 +228,22 @@ namespace rows {
         return breaks_to_use;
     }
 
+    operations_research::IntervalVar *SolverWrapper::CreateBreakInterval(operations_research::Solver *solver,
+                                                                         const rows::Event &event,
+                                                                         std::string label) const {
+        const auto start_time = event.begin().time_of_day();
+        const auto raw_duration = event.duration().total_seconds();
+        const auto begin_break_window = this->GetBeginBreakWindow(start_time);
+        const auto end_break_window = this->GetEndBreakWindow(start_time);
+        return solver->MakeIntervalVar(
+                begin_break_window, end_break_window,
+                raw_duration, raw_duration,
+                begin_break_window + raw_duration,
+                end_break_window + raw_duration,
+                /*optional*/false,
+                label);
+    }
+
     std::vector<operations_research::IntervalVar *> SolverWrapper::CreateBreakIntervals(
             operations_research::Solver *const solver,
             const rows::Carer &carer,
@@ -239,21 +255,6 @@ namespace rows {
             return break_intervals;
         }
 
-        static const auto create_break_within_working_hours = [solver, carer, this](const rows::Event &break_event)
-                -> operations_research::IntervalVar * {
-            const auto start_time = break_event.begin().time_of_day();
-            const auto raw_duration = break_event.duration().total_seconds();
-            const auto begin_break_window = this->GetBeginBreakWindow(start_time);
-            const auto end_break_window = this->GetEndBreakWindow(start_time);
-            return solver->MakeIntervalVar(
-                    begin_break_window, end_break_window,
-                    raw_duration, raw_duration,
-                    begin_break_window + raw_duration,
-                    end_break_window + raw_duration,
-                    /*optional*/false,
-                    SolverWrapper::GetBreakLabel(carer, BreakType::BREAK));
-        };
-
         if (out_office_hours_breaks_enabled_) {
             const auto &break_before_work = break_periods.front();
             CHECK_EQ(break_before_work.begin().time_of_day().total_seconds(), 0);
@@ -264,7 +265,9 @@ namespace rows {
 
             const auto last_break = break_periods.size() - 1;
             for (auto break_index = 1; break_index < last_break; ++break_index) {
-                break_intervals.push_back(create_break_within_working_hours(break_periods[break_index]));
+                break_intervals.push_back(CreateBreakInterval(solver,
+                                                              break_periods[break_index],
+                                                              SolverWrapper::GetBreakLabel(carer, BreakType::BREAK)));
             }
 
             const auto &break_after_work = break_periods.back();
@@ -275,7 +278,9 @@ namespace rows {
                                                                 GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
         } else {
             for (const auto &break_period : break_periods) {
-                break_intervals.push_back(create_break_within_working_hours(break_period));
+                break_intervals.push_back(CreateBreakInterval(solver,
+                                                              break_period,
+                                                              SolverWrapper::GetBreakLabel(carer, BreakType::BREAK)));
             }
         }
 

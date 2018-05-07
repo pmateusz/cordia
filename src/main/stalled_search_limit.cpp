@@ -1,10 +1,12 @@
 #include "stalled_search_limit.h"
 
-rows::StalledSearchLimit::StalledSearchLimit(operations_research::Solver *const solver)
-        : SearchLimit(solver) {}
+rows::StalledSearchLimit::StalledSearchLimit(int time_limit_ms, operations_research::Solver *const solver)
+        : SearchLimit(solver),
+          time_limit_ms_(time_limit_ms) {}
 
 bool rows::StalledSearchLimit::Check() {
-    return found_first_solution_ && search_in_progress_ && (solver()->wall_time() - last_solution_update_) > 10 * 1000;
+    return found_first_solution_ && search_in_progress_ &&
+           (solver()->wall_time() - last_solution_update_) > time_limit_ms_;
 }
 
 void rows::StalledSearchLimit::Init() {}
@@ -17,14 +19,14 @@ void rows::StalledSearchLimit::Copy(const operations_research::SearchLimit *limi
 }
 
 operations_research::SearchLimit *rows::StalledSearchLimit::MakeClone() const {
-    return solver()->RevAlloc(new StalledSearchLimit(solver()));
+    return solver()->RevAlloc(new StalledSearchLimit(time_limit_ms_, solver()));
 }
 
 bool rows::StalledSearchLimit::AtSolution() {
     last_solution_update_ = solver()->wall_time();
     found_first_solution_ = true;
 
-    return operations_research::SearchMonitor::AtSolution();
+    return true;
 }
 
 void rows::StalledSearchLimit::EnterSearch() {

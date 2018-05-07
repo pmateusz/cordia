@@ -48,6 +48,8 @@ const rows::Diary &rows::TwoStepSchedulingWorker::CarerTeam::Diary() const {
 }
 
 void rows::TwoStepSchedulingWorker::Run() {
+    static const boost::filesystem::path FIRST_GUESS_ASSIGNMENT_PATH{"first_guess_assignment.pb"};
+
     std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
     std::unordered_map<rows::Carer, CarerTeam> teams;
     int id = 0;
@@ -211,41 +213,43 @@ void rows::TwoStepSchedulingWorker::Run() {
         throw util::ApplicationError("No second stage solution found.", util::ErrorCode::ERROR);
     }
 
-    auto third_step_routing_parameters = rows::SolverWrapper::CreateSearchParameters();
+    CHECK(second_stage_assignment->Save(FIRST_GUESS_ASSIGNMENT_PATH.string())) << "Failed to save the assignment";
 
-    operations_research::Assignment second_validation_copy{second_stage_assignment};
-    const auto is_second_solution_correct = second_stage_model->solver()->CheckAssignment(
-            &second_validation_copy);
-    DCHECK(is_second_solution_correct);
-
-    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > third_stage_initial_routes;
-    second_stage_model->AssignmentToRoutes(*second_stage_assignment, &third_stage_initial_routes);
-
-    second_stage_model.release();
-
-    std::unique_ptr<rows::SolverWrapper> third_stage_wrapper
-            = std::make_unique<rows::TwoStepSolver>(problem_, routing_parameters_, second_step_search_params);
-
-    std::unique_ptr<operations_research::RoutingModel> third_stage_model
-            = std::make_unique<operations_research::RoutingModel>(third_stage_wrapper->nodes(),
-                                                                  third_stage_wrapper->vehicles(),
-                                                                  rows::SolverWrapper::DEPOT);
-
-    third_stage_wrapper->ConfigureModel(*third_stage_model, printer_, CancelToken());
-
-    ResetCancelToken();
-
-    operations_research::Assignment const *initial_guess_assignment
-            = third_stage_model->ReadAssignmentFromRoutes(third_stage_initial_routes, false);
-    DCHECK(initial_guess_assignment);
-
-    operations_research::Assignment const *third_stage_assignment
-            = third_stage_model->SolveFromAssignmentWithParameters(initial_guess_assignment,
-                                                                   third_step_routing_parameters);
-
-    if (third_stage_assignment == nullptr) {
-        throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
-    }
+//    auto third_step_routing_parameters = rows::SolverWrapper::CreateSearchParameters();
+//
+//    operations_research::Assignment second_validation_copy{second_stage_assignment};
+//    const auto is_second_solution_correct = second_stage_model->solver()->CheckAssignment(
+//            &second_validation_copy);
+//    DCHECK(is_second_solution_correct);
+//
+//    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > third_stage_initial_routes;
+//    second_stage_model->AssignmentToRoutes(*second_stage_assignment, &third_stage_initial_routes);
+//
+//    second_stage_model.release();
+//
+//    std::unique_ptr<rows::SolverWrapper> third_stage_wrapper
+//            = std::make_unique<rows::TwoStepSolver>(problem_, routing_parameters_, second_step_search_params);
+//
+//    std::unique_ptr<operations_research::RoutingModel> third_stage_model
+//            = std::make_unique<operations_research::RoutingModel>(third_stage_wrapper->nodes(),
+//                                                                  third_stage_wrapper->vehicles(),
+//                                                                  rows::SolverWrapper::DEPOT);
+//
+//    third_stage_wrapper->ConfigureModel(*third_stage_model, printer_, CancelToken());
+//
+//    ResetCancelToken();
+//
+//    operations_research::Assignment const *initial_guess_assignment
+//            = third_stage_model->ReadAssignmentFromRoutes(third_stage_initial_routes, false);
+//    DCHECK(initial_guess_assignment);
+//
+//    operations_research::Assignment const *third_stage_assignment
+//            = third_stage_model->SolveFromAssignmentWithParameters(initial_guess_assignment,
+//                                                                   third_step_routing_parameters);
+//
+//    if (third_stage_assignment == nullptr) {
+//        throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
+//    }
 
     SetReturnCode(0);
 }
