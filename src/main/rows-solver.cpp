@@ -60,7 +60,6 @@
 #include "incremental_worker.h"
 #include "experimental_enforcement_worker.h"
 
-
 DEFINE_string(problem, "../problem.json", "a file path to the problem instance");
 DEFINE_validator(problem, &util::file::Exists);
 
