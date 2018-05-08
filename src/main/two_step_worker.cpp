@@ -1,4 +1,5 @@
 #include "two_step_worker.h"
+#include "gexf_writer.h"
 
 rows::TwoStepSchedulingWorker::CarerTeam::CarerTeam(std::pair<rows::Carer, rows::Diary> member)
         : diary_{member.second} {
@@ -215,12 +216,17 @@ void rows::TwoStepSchedulingWorker::Run() {
 
     CHECK(second_stage_assignment->Save(FIRST_GUESS_ASSIGNMENT_PATH.string())) << "Failed to save the assignment";
 
+    operations_research::Assignment second_validation_copy{second_stage_assignment};
+    const auto is_second_solution_correct = second_stage_model->solver()->CheckAssignment(
+            &second_validation_copy);
+    DCHECK(is_second_solution_correct);
+
+    rows::GexfWriter solution_writer;
+    solution_writer.Write(output_file_, *second_stage_wrapper, *second_stage_model, *second_stage_assignment);
+
 //    auto third_step_routing_parameters = rows::SolverWrapper::CreateSearchParameters();
 //
-//    operations_research::Assignment second_validation_copy{second_stage_assignment};
-//    const auto is_second_solution_correct = second_stage_model->solver()->CheckAssignment(
-//            &second_validation_copy);
-//    DCHECK(is_second_solution_correct);
+
 //
 //    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > third_stage_initial_routes;
 //    second_stage_model->AssignmentToRoutes(*second_stage_assignment, &third_stage_initial_routes);
@@ -317,8 +323,11 @@ rows::TwoStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
     return teams;
 }
 
-bool rows::TwoStepSchedulingWorker::Init(rows::Problem problem, osrm::EngineConfig routing_config) {
+bool rows::TwoStepSchedulingWorker::Init(rows::Problem problem,
+                                         osrm::EngineConfig routing_config,
+                                         std::string output_file) {
     problem_ = std::move(problem);
     routing_parameters_ = std::move(routing_config);
+    output_file_ = std::move(output_file);
     return true;
 }

@@ -130,7 +130,7 @@ namespace rows {
                 location = location_loader.Load(location_it.value());
             } catch (const std::domain_error &ex) {
                 throw std::domain_error(
-                        (boost::format("Failed to load property location of the user %'1%' due to error: %2%")
+                        (boost::format("Failed to load property location of the user '%1%' due to error: %2%")
                          % key
                          % ex.what()).str());
             }

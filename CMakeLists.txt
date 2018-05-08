@@ -13,7 +13,7 @@ if (CMAKE_COMPILER_IS_GNUCXX)
     set(CMAKE_CXX_FLAGS_RELEASE "-O4 -DNDEBUG -march=native")
 endif ()
 
-#set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/or-tools)
+set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/or-tools)
 
 set(default_build_type "RELEASE")
 if(EXISTS "${CMAKE_SOURCE_DIR}/.git")

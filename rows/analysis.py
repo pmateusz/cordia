@@ -8,7 +8,6 @@ import logging
 import functools
 import math
 import tqdm
-import os
 import statistics
 
 
@@ -355,7 +354,7 @@ if __name__ == '__main__':
                    unit_scale=True) as t:
         restricted_visits_ = []
         for visit in visits_to_use_:
-            if visit.area == 1:
+            if visit.area < 4:
                 restricted_visits_.append(visit)
             t.update(1)
 
@@ -390,11 +389,12 @@ if __name__ == '__main__':
             headers = ['VisitId',
                        'UserId',
                        'AreaId',
+                       'Tasks',
                        'StartDate',
-                       'OrignalStart',
+                       'OriginalStart',
                        'OriginalStartOrd',
-                       'OrignalDuration',
-                       'OrignalDurationOrd',
+                       'OriginalDuration',
+                       'OriginalDurationOrd',
                        'PlannedStart',
                        'PlannedStartOrd',
                        'PlannedDuration',
@@ -403,7 +403,7 @@ if __name__ == '__main__':
                        'RealStartOrd',
                        'RealDuration',
                        'RealDurationOrd',
-                       'MultipleCarers',
+                       'CarerCount',
                        'CheckoutMethod']
 
             writer.writerow(headers)
@@ -411,6 +411,7 @@ if __name__ == '__main__':
                 writer.writerow([visit.id,
                                  visit.user,
                                  visit.area,
+                                 visit.tasks,
                                  visit.original_start.date(),
                                  visit.original_start,
                                  time_to_seconds(visit.original_start.time()),
@@ -424,6 +425,7 @@ if __name__ == '__main__':
                                  time_to_seconds(visit.real_start.time()),
                                  visit.real_duration,
                                  int(visit.real_duration.total_seconds()),
-                                 isinstance(visit, CompositeVisit),
+                                 visit.carer_count,
                                  visit.checkout_method])
                 t.update(1)
+            stream_writer.flush()

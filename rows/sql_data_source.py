@@ -138,7 +138,7 @@ class SqlDataSource:
     USED_RESOURCE_ESTIMATOR_NAME = 'used'
 
     LIST_AREAS_QUERY = """SELECT aom.aom_id, aom.area_code
-FROM [StrathClyde].[dbo].[ListAom] aom
+FROM [StrathClydeOld].[dbo].[ListAom] aom
 ORDER BY aom.area_code"""
 
     LIST_VISITS_QUERY = """SELECT visit_id,

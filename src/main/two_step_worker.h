@@ -50,10 +50,12 @@ namespace rows {
 
         void Run() override;
 
-        bool Init(rows::Problem problem, osrm::EngineConfig routing_config);
+        bool Init(rows::Problem problem, osrm::EngineConfig routing_config, std::string output_file);
 
     private:
         std::vector<CarerTeam> GetCarerTeams(const rows::Problem &problem);
+
+        std::string output_file_;
 
         std::shared_ptr<rows::Printer> printer_;
         bool lock_partial_paths_;

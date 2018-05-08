@@ -333,7 +333,7 @@ int RunTwoStepSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = CreatePrinter();
 
     rows::TwoStepSchedulingWorker worker{printer};
-    if (worker.Init(LoadReducedProblem(printer), CreateEngineConfig(FLAGS_maps))) {
+    if (worker.Init(LoadReducedProblem(printer), CreateEngineConfig(FLAGS_maps), FLAGS_output)) {
         worker.Start();
         std::thread chat_thread(ChatBot, std::ref(worker));
         chat_thread.detach();
