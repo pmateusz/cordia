@@ -11,12 +11,21 @@ new_packages <- packages[!(packages %in% installed.packages()[,"Package"])]
 if (length(new_packages)) {
     install.packages(new_packages)
 }
+remove(packages)
+remove(new_packages)
 
 library('dplyr')
 library('tidyr')
 library('fpp2')
 
 data_set <- read.csv('/home/pmateusz/dev/cordia/output.csv')
+
+# analysis of user 123
+user_136 <- data_set %>% filter(UserId=136)
+tasks_136 <- user_136 %>% group_by(Tasks, CarerCount) %>% select(StartDate, OriginalStartOrd, RealStartOrd, RealDurationOrd)
+groups_136 <- user_136 %>% group_by(Tasks) %>% summarise(n(), mean(OriginalStartOrd), sd(OriginalStartOrd), mean(RealDurationOrd), sd(RealDurationOrd))
+visits_136_101119 <- user_136 %>% filter(Tasks=='10-11-19') %>% select(StartDate, OriginalStartOrd) %>% arrange(StartDate)
+ts_136_101119 <- ts(visits_136_101119)
 
 # heat map of different visit start times
 # visit_freq <- dataset %>% group_by(UserId,Tasks) %>% count()
