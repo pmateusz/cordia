@@ -10,7 +10,7 @@ packages <- c('dplyr', 'tidyr', 'fpp2', 'car')
 new_packages <- packages[!(packages %in% installed.packages()[,"Package"])]
 if (length(new_packages)) {
     install.packages(new_packages)
-}
+}a
 remove(packages)
 remove(new_packages)
 

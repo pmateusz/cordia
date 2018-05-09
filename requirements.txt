@@ -4,6 +4,8 @@ pytest
 requests
 scipy
 setuptools
+sklearn
+matplotlib
 tqdm
 wheel
 twine

@@ -7,8 +7,76 @@ import datetime
 import logging
 import functools
 import math
+import re
 import tqdm
 import statistics
+
+__DATE_TIME_MATCHER = re.compile(
+    '^(?P<year>\d+)-(?P<month>\d+)-(?P<day>\d+)\s+(?P<hour>\d+):(?P<minute>\d+):(?P<second>\d+)(?:\.\d+)?$')
+
+__TIME_DELTA_MATCHER = re.compile('^(:?(?P<day>-?\d+)\s+\w+,\s+)?'
+                                  '(?P<hour>\d+):(?P<minute>\d+):(?P<second>\d+)(?:\.\d+)?$')
+
+
+def str_to_tasks(text):
+    if text:
+        tasks = [int(raw_task) for raw_task in text.split('-')]
+        return Tasks(tasks)
+    return Tasks(list())
+
+
+def str_to_date_time(text):
+    match = __DATE_TIME_MATCHER.match(text)
+    if not match:
+        raise ValueError("'{0}' does not is not recognized as date time."
+                         " Pass a value compliant with the pattern '%Y-%m-%d %H:%M:%S.%f'".format(text))
+    return datetime.datetime(int(match.group('year')), int(match.group('month')), int(match.group('day')),
+                             int(match.group('hour')), int(match.group('minute')), int(match.group('second')), 0)
+
+
+def str_to_time_delta(text):
+    match = __TIME_DELTA_MATCHER.match(text)
+    if not match:
+        raise ValueError("'{0}' does not is not recognized as time delta."
+                         " Pass a value compliant with the pattern '%H:%M:%S.%f'".format(text))
+
+    raw_days = match.group('day')
+    day = int(raw_days) if raw_days else 0
+    return datetime.timedelta(days=day,
+                              hours=int(match.group('hour')),
+                              minutes=int(match.group('minute')),
+                              seconds=int(match.group('second')))
+
+
+def time_to_seconds(value):
+    delta = datetime.timedelta(hours=value.hour, minutes=value.minute, seconds=value.second)
+    return int(delta.total_seconds())
+
+
+class Tasks:
+
+    def __init__(self, tasks):
+        self.__tasks = set(tasks)
+        self.__raw_tasks = self.__to_str(tasks)
+
+    def __eq__(self, other):
+        return isinstance(other, Tasks) and self.__raw_tasks == other.__raw_tasks
+
+    def __hash__(self):
+        return self.__raw_tasks.__hash__()
+
+    def __str__(self):
+        return self.__raw_tasks
+
+    @property
+    def tasks(self):
+        return self.__tasks
+
+    @staticmethod
+    def __to_str(tasks):
+        tasks_to_use = list(tasks)
+        tasks_to_use.sort()
+        return '-'.join((str(t) for t in tasks_to_use))
 
 
 class Visit(abc.ABC):
@@ -47,9 +115,17 @@ class Visit(abc.ABC):
         pass
 
     @property
+    def planned_start_ord(self):
+        return time_to_seconds(self.planned_start.time())
+
+    @property
     @abc.abstractmethod
     def planned_duration(self):
         pass
+
+    @property
+    def planned_duration_ord(self):
+        return int(self.planned_duration.total_seconds())
 
     @property
     @abc.abstractmethod
@@ -57,9 +133,17 @@ class Visit(abc.ABC):
         pass
 
     @property
+    def original_start_ord(self):
+        return time_to_seconds(self.original_start.time())
+
+    @property
     @abc.abstractmethod
     def original_duration(self):
         pass
+
+    @property
+    def original_duration_ord(self):
+        return int(self.original_duration.total_seconds())
 
     @property
     @abc.abstractmethod
@@ -67,9 +151,17 @@ class Visit(abc.ABC):
         pass
 
     @property
+    def real_start_ord(self):
+        return time_to_seconds(self.real_start.time())
+
+    @property
     @abc.abstractmethod
     def real_duration(self):
         pass
+
+    @property
+    def real_duration_ord(self):
+        return int(self.real_duration.total_seconds())
 
     @property
     @abc.abstractmethod
@@ -240,9 +332,6 @@ class CompositeVisit(Visit):
 
 
 def row_to_visit(row):
-    def parse_date_time(value):
-        return datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S.%f')
-
     visit_raw_id, \
     user_raw_id, \
     planned_carer_id, \
@@ -256,14 +345,15 @@ def row_to_visit(row):
     check_out_date_raw_time, \
     real_duration, \
     check_out_raw_method, \
-    tasks, \
+    raw_tasks, \
     area = row
-    planned_start_date_time = parse_date_time(planned_start_raw_date_time)
-    planned_end_date_time = parse_date_time(planned_end_raw_date_time)
-    original_start_date_time = parse_date_time(original_start_raw_date_time)
-    original_end_date_time = parse_date_time(original_end_raw_date_time)
-    real_start_date_time = parse_date_time(check_in_date_raw_time)
-    real_end_date_time = parse_date_time(check_out_date_raw_time)
+    tasks = str_to_tasks(raw_tasks)
+    planned_start_date_time = str_to_date_time(planned_start_raw_date_time)
+    planned_end_date_time = str_to_date_time(planned_end_raw_date_time)
+    original_start_date_time = str_to_date_time(original_start_raw_date_time)
+    original_end_date_time = str_to_date_time(original_end_raw_date_time)
+    real_start_date_time = str_to_date_time(check_in_date_raw_time)
+    real_end_date_time = str_to_date_time(check_out_date_raw_time)
     return SimpleVisit(id=int(visit_raw_id),
                        user=int(user_raw_id),
                        area=int(area),
@@ -293,11 +383,6 @@ def load_data_csv():
             stream_it = iter(progress_stream)
             next(stream_it)
             return list(stream_it)
-
-
-def time_to_seconds(value):
-    delta = datetime.timedelta(hours=value.hour, minutes=value.minute, seconds=value.second)
-    return int(delta.total_seconds())
 
 
 if __name__ == '__main__':
@@ -354,7 +439,7 @@ if __name__ == '__main__':
                    unit_scale=True) as t:
         restricted_visits_ = []
         for visit in visits_to_use_:
-            if visit.area < 4:
+            if visit.area < 2:
                 restricted_visits_.append(visit)
             t.update(1)
 
@@ -414,17 +499,17 @@ if __name__ == '__main__':
                                  visit.tasks,
                                  visit.original_start.date(),
                                  visit.original_start,
-                                 time_to_seconds(visit.original_start.time()),
+                                 visit.original_start_ord,
                                  visit.original_duration,
-                                 int(visit.original_duration.total_seconds()),
+                                 visit.original_duration_ord,
                                  visit.planned_start,
-                                 time_to_seconds(visit.planned_start.time()),
+                                 visit.planned_start_ord,
                                  visit.planned_duration,
-                                 int(visit.planned_duration.total_seconds()),
+                                 visit.planned_duration_ord,
                                  visit.real_start,
-                                 time_to_seconds(visit.real_start.time()),
+                                 visit.real_start_ord,
                                  visit.real_duration,
-                                 int(visit.real_duration.total_seconds()),
+                                 visit.real_duration_ord,
                                  visit.carer_count,
                                  visit.checkout_method])
                 t.update(1)
