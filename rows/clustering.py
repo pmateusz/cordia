@@ -3,6 +3,7 @@
 import csv
 import collections
 import datetime
+import functools
 import itertools
 
 import numpy
@@ -133,6 +134,43 @@ def load_visits(file_path):
         return results
 
 
+class Cluster:
+
+    def __init__(self, label):
+        self.__label = label
+        self.__items = []
+
+    def add(self, item):
+        self.__items.append(item)
+
+    @property
+    def label(self):
+        return self.__label
+
+    @property
+    def items(self):
+        return self.__items
+
+    @staticmethod
+    def __ordering(left, right):
+        if left.tasks == right.tasks:
+            if left.original_start == right.original_start:
+                if left.original_duration == right.original_duration:
+                    return 0
+                else:
+                    return -1 if left.original_duration < right.original_duration else 1
+            else:
+                return -1 if left.original_start < right.original_start else 1
+        else:
+            return -1 if str(left.tasks) < str(right.tasks) else 1
+
+    def centroid(self):
+        sorted_items = list(self.__items)
+        sorted_items.sort(key=functools.cmp_to_key(self.__ordering))
+        position = float(len(sorted_items)) / 2
+        return sorted_items[int(position)]
+
+
 def calculate_distance(records, metric):
     length = len(records)
     out = numpy.zeros((length, length), dtype='float')
@@ -201,8 +239,8 @@ if __name__ == '__main__':
     labels = db.labels_
     print(labels)
 
-    no_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-    print(no_clusters)
+    cluster_count = len(set(labels)) - (1 if -1 in labels else 0)
+    print(cluster_count)
 
     fig, ax = matplotlib.pyplot.subplots()
 
@@ -213,63 +251,71 @@ if __name__ == '__main__':
     group_handles = []
     group_number = 0
 
-    matplotlib.pyplot.set_cmap('Paired')
+    clusters = [Cluster(label) for label in range(-1, cluster_count, 1)]
 
+    matplotlib.pyplot.set_cmap('Paired')
     color_map = matplotlib.cm.get_cmap('Paired')
     color_it = iter(color_map.colors)
+    next(color_it)
     shapes = ['s']
     shape_it = iter(shapes)
     task_shapes = {}
     label_colors = {}
 
-    task_label_visit_groups = collections.defaultdict(lambda: collections.defaultdict(list))
     for visit, label in zip(visits_to_use, labels):
-        task_label_visit_groups[visit.tasks][label].append(visit)
+        clusters[label + 1].add(visit)
 
-    for task in task_label_visit_groups:
-        for label in task_label_visit_groups[task]:
-            group = task_label_visit_groups[task][label]
+    for cluster in clusters:
+        for tasks, group_it in itertools.groupby(cluster.items, lambda item: item.tasks):
             fill_color = 'w'
             edge_color = 'black'
             shape = 's'
             edge_width = 0.5
             size = 8
 
-            group_elem = group[0]
-            if label != -1:
+            group_to_use = list(group_it)
+            if cluster.label != -1:
                 edge_width = 0
-
-                if group_elem.tasks in task_shapes:
-                    shape = task_shapes[group_elem.tasks]
+                item = group_to_use[0]
+                if item.tasks in task_shapes:
+                    shape = task_shapes[item.tasks]
                 else:
                     shape = next(shape_it)
-                    task_shapes[group_elem.tasks] = shape
+                    task_shapes[item.tasks] = shape
 
-                if label in label_colors:
-                    fill_color = label_colors[label]
+                if cluster.label in label_colors:
+                    fill_color = label_colors[cluster.label]
                 else:
                     fill_color = next(color_it)
                     next(color_it)
-                    label_colors[label] = fill_color
+                    label_colors[cluster.label] = fill_color
 
-            group_start_day = []
-            group_start_time = []
-            for visit in group:
-                group_start_day.append(clear_time(visit.original_start))
-                group_start_time.append(clear_date(visit.original_start))
-            task_label_handle = ax.scatter(group_start_day,
-                                           group_start_time,
+            start_days = []
+            start_times = []
+            for visit in group_to_use:
+                start_days.append(clear_time(visit.original_start))
+                start_times.append(clear_date(visit.original_start))
+            task_label_handle = ax.scatter(start_days,
+                                           start_times,
                                            c=fill_color,
                                            marker='s',
                                            linewidth=edge_width,
                                            edgecolor=edge_color,
                                            alpha=0.7,
                                            s=size)
-            group_handles.append(('{0} {1}'.format(str(task), label), task_label_handle))
 
-    handles = [handle for _, handle in group_handles]
-    names = [name for name, _ in group_handles]
-    fig.legend(handles, names)
+
+            def get_series_name(group, cluster):
+                if cluster.label == -1:
+                    return "{0} - outliers".format(group[0].tasks)
+                centroid = cluster.centroid()
+                return "{0} - {1}".format(group[0].tasks, centroid.original_start.time())
+
+
+            group_handles.append((task_label_handle, get_series_name(group_to_use, cluster)))
+
+    group_handles.sort(key=lambda item: item[1])
+    fig.legend(map(lambda item: item[0], group_handles), map(lambda item: item[1], group_handles))
 
     ax.yaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
     ax.set_ylim(__ZERO_DATE, __ZERO_DATE + datetime.timedelta(days=1))
