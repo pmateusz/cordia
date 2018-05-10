@@ -5,19 +5,25 @@ import collections
 import datetime
 import functools
 import itertools
+import logging
+import os
 
 import numpy
 
-import rows.analysis
+import analysis
 
 import numpy as np
 
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, SpectralClustering, MeanShift, MiniBatchKMeans, AffinityPropagation, \
+    AgglomerativeClustering
 from sklearn import metrics
 from sklearn.datasets.samples_generator import make_blobs
 from sklearn.preprocessing import StandardScaler
 
 import matplotlib.pyplot
+import matplotlib.pylab
+
+import tqdm
 
 
 def example():
@@ -109,28 +115,28 @@ def load_visits(file_path):
             visit_id = int(raw_visit_id)
             user_id = int(raw_user_id)
             area_id = int(raw_area_id)
-            tasks = rows.analysis.str_to_tasks(raw_tasks)
-            original_start = rows.analysis.str_to_date_time(raw_original_start)
-            original_duration = rows.analysis.str_to_time_delta(raw_original_duration)
-            planned_start = rows.analysis.str_to_date_time(raw_planned_start)
-            planned_duration = rows.analysis.str_to_time_delta(raw_planned_duration)
-            real_start = rows.analysis.str_to_date_time(raw_real_start)
-            real_duration = rows.analysis.str_to_time_delta(raw_real_duration)
+            tasks = analysis.str_to_tasks(raw_tasks)
+            original_start = analysis.str_to_date_time(raw_original_start)
+            original_duration = analysis.str_to_time_delta(raw_original_duration)
+            planned_start = analysis.str_to_date_time(raw_planned_start)
+            planned_duration = analysis.str_to_time_delta(raw_planned_duration)
+            real_start = analysis.str_to_date_time(raw_real_start)
+            real_duration = analysis.str_to_time_delta(raw_real_duration)
             carer_count = int(raw_carer_count)
             checkout_method = int(raw_checkout_method)
 
-            results.append(rows.analysis.SimpleVisit(id=visit_id,
-                                                     user=user_id,
-                                                     area=area_id,
-                                                     tasks=tasks,
-                                                     original_start=original_start,
-                                                     original_duration=original_duration,
-                                                     planned_start=planned_start,
-                                                     planned_duration=planned_duration,
-                                                     real_start=real_start,
-                                                     real_duration=real_duration,
-                                                     carer_count=carer_count,
-                                                     checkout_method=checkout_method))
+            results.append(analysis.SimpleVisit(id=visit_id,
+                                                user=user_id,
+                                                area=area_id,
+                                                tasks=tasks,
+                                                original_start=original_start,
+                                                original_duration=original_duration,
+                                                planned_start=planned_start,
+                                                planned_duration=planned_duration,
+                                                real_start=real_start,
+                                                real_duration=real_duration,
+                                                carer_count=carer_count,
+                                                checkout_method=checkout_method))
         return results
 
 
@@ -169,6 +175,24 @@ class Cluster:
         sorted_items.sort(key=functools.cmp_to_key(self.__ordering))
         position = float(len(sorted_items)) / 2
         return sorted_items[int(position)]
+
+
+def distance(left, right):
+    left_start_min = left.original_start_ord / 60
+    right_start_min = right.original_start_ord / 60
+    left_duration_min = left.original_duration_ord / 60
+    right_duration_min = right.original_duration_ord / 60
+
+    if left.tasks == right.tasks \
+            or left.tasks.tasks.issubset(right.tasks.tasks) \
+            or right.tasks.tasks.issubset(left.tasks.tasks):
+        return abs(left_start_min - right_start_min) + abs(left_duration_min - right_duration_min)
+    else:
+        left_task_price = left_duration_min / len(left.tasks.tasks)
+        right_task_price = right_duration_min / len(right.tasks.tasks)
+        return abs(left_start_min - right_start_min) \
+               + left_task_price * len(left.tasks.tasks.difference(right.tasks.tasks)) \
+               + right_task_price * len(right.tasks.tasks.difference(left.tasks.tasks))
 
 
 def calculate_distance(records, metric):
@@ -213,113 +237,121 @@ def clear_time(value):
 
 if __name__ == '__main__':
     visits = load_visits('/home/pmateusz/dev/cordia/output.csv')
+    output_dir = '/home/pmateusz/dev/cordia/data/clustering'
     user_counter = collections.Counter()
     for visit in visits:
         user_counter[visit.user] += 1
-
-    user_id = 5509
-    print('Loaded users', user_counter)
-
-    visits_to_use = [v for v in visits if v.user == user_id]
-    print('Focusing on user', user_id, len(visits_to_use))
-
-    raw_visits_to_use = np.array(visits_to_use)
+    print('Loaded {0} users'.format(user_counter))
 
 
-    def distance(left, right):
-        return abs(left.original_start_ord - right.original_start_ord)
+    def get_series_name(group, cluster):
+        if cluster.label == -1:
+            return '{0} - outliers'.format(group[0].tasks)
+        centroid = cluster.centroid()
+        return '{0} - {1}'.format(group[0].tasks, centroid.original_start.time())
 
 
-    distances = calculate_distance(raw_visits_to_use, distance)
-    db = DBSCAN(eps=0.3, min_samples=10, metric='precomputed')
-    print(db)
-    db.fit(distances)
+    # if more than 2 visits in the same day lower distance
+    for user_id in user_counter:  # tqdm.tqdm(user_counter, unit='users', desc='Clustering', leave=False):
+        visits_to_use = [v for v in visits if v.user == user_id]
+        raw_visits_to_use = np.array(visits_to_use)
 
-    # get number of clusters
-    labels = db.labels_
-    print(labels)
+        distances = calculate_distance(raw_visits_to_use, distance)
+        eps_threshold = -1
+        cluster_count = -1
+        for eps_threshold, min_samples in zip([91, 76, 61, 46, 31, 17], [8, 8, 8, 16, 16, 16]):
+            db = DBSCAN(eps=eps_threshold, min_samples=min_samples, metric='precomputed')
+            db.fit(distances)
 
-    cluster_count = len(set(labels)) - (1 if -1 in labels else 0)
-    print(cluster_count)
+            labels = db.labels_
+            cluster_count = len(set(labels)) - (1 if -1 in labels else 0)
 
-    fig, ax = matplotlib.pyplot.subplots()
+            clusters = [Cluster(label) for label in range(-1, cluster_count, 1)]
+            for visit, label in zip(visits_to_use, labels):
+                clusters[label + 1].add(visit)
 
-    ax.grid(True)
+            has_duplicates = False
+            for cluster in clusters[1:]:
+                visit_dates = set((item.original_start.date() for item in cluster.items))
+                if len(visit_dates) < len(cluster.items):
+                    has_duplicates = True
+                    break
+            if not has_duplicates:
+                break
 
-    unfilled_markers = (',', '.', '+', 'x', ',', '2')
+        print('User=({0}) Clusters=({1}) Threshold=({2})'.format(user_id, cluster_count, eps_threshold))
+        group_handles = []
+        fig, ax = matplotlib.pyplot.subplots()
+        __COLOR_MAP = 'tab10'
+        matplotlib.pyplot.set_cmap(__COLOR_MAP)
+        color_map = matplotlib.cm.get_cmap(__COLOR_MAP)
+        color_it = iter(color_map.colors)
+        shapes = ['s', 'o', 'D', 'X']
+        shape_it = iter(shapes)
+        task_shapes = {}
+        label_colors = {}
 
-    group_handles = []
-    group_number = 0
+        for cluster in clusters:
+            task_groups = collections.defaultdict(list)
+            for visit in cluster.items:
+                task_groups[visit.tasks].append(visit)
 
-    clusters = [Cluster(label) for label in range(-1, cluster_count, 1)]
+            for tasks, group in task_groups.items():
+                fill_color = 'w'
+                edge_color = 'black'
+                shape = 's'
+                edge_width = 0.5
+                size = 8
 
-    matplotlib.pyplot.set_cmap('Paired')
-    color_map = matplotlib.cm.get_cmap('Paired')
-    color_it = iter(color_map.colors)
-    next(color_it)
-    shapes = ['s']
-    shape_it = iter(shapes)
-    task_shapes = {}
-    label_colors = {}
+                if cluster.label != -1:
+                    edge_width = 0
+                    item = group[0]
+                    if item.tasks in task_shapes:
+                        shape = task_shapes[item.tasks]
+                    else:
+                        shape = next(shape_it, '.')
+                        task_shapes[item.tasks] = shape
 
-    for visit, label in zip(visits_to_use, labels):
-        clusters[label + 1].add(visit)
+                    if cluster.label in label_colors:
+                        fill_color = label_colors[cluster.label]
+                    else:
+                        fill_color = next(color_it, None)
+                        label_colors[cluster.label] = fill_color
 
-    for cluster in clusters:
-        for tasks, group_it in itertools.groupby(cluster.items, lambda item: item.tasks):
-            fill_color = 'w'
-            edge_color = 'black'
-            shape = 's'
-            edge_width = 0.5
-            size = 8
+                start_days = []
+                start_times = []
+                for visit in group:
+                    start_days.append(clear_time(visit.original_start))
+                    start_times.append(clear_date(visit.original_start))
+                task_label_handle = ax.scatter(start_days,
+                                               start_times,
+                                               c=fill_color,
+                                               marker='s',
+                                               linewidth=edge_width,
+                                               edgecolor=edge_color,
+                                               alpha=0.7,
+                                               s=size)
 
-            group_to_use = list(group_it)
-            if cluster.label != -1:
-                edge_width = 0
-                item = group_to_use[0]
-                if item.tasks in task_shapes:
-                    shape = task_shapes[item.tasks]
-                else:
-                    shape = next(shape_it)
-                    task_shapes[item.tasks] = shape
+                group_handles.append((task_label_handle, get_series_name(group, cluster)))
 
-                if cluster.label in label_colors:
-                    fill_color = label_colors[cluster.label]
-                else:
-                    fill_color = next(color_it)
-                    next(color_it)
-                    label_colors[cluster.label] = fill_color
+        ax.yaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
+        ax.set_ylim(__ZERO_DATE + datetime.timedelta(hours=6), __ZERO_DATE + datetime.timedelta(hours=23, minutes=50))
+        matplotlib.pyplot.xticks(rotation=-60)
 
-            start_days = []
-            start_times = []
-            for visit in group_to_use:
-                start_days.append(clear_time(visit.original_start))
-                start_times.append(clear_date(visit.original_start))
-            task_label_handle = ax.scatter(start_days,
-                                           start_times,
-                                           c=fill_color,
-                                           marker='s',
-                                           linewidth=edge_width,
-                                           edgecolor=edge_color,
-                                           alpha=0.7,
-                                           s=size)
+        chart_box = ax.get_position()
+        ax.set_position([chart_box.x0, chart_box.y0, chart_box.width, chart_box.height * 0.75])
+        ax.grid(True)
 
+        group_handles.sort(key=lambda item: item[1])
 
-            def get_series_name(group, cluster):
-                if cluster.label == -1:
-                    return "{0} - outliers".format(group[0].tasks)
-                centroid = cluster.centroid()
-                return "{0} - {1}".format(group[0].tasks, centroid.original_start.time())
-
-
-            group_handles.append((task_label_handle, get_series_name(group_to_use, cluster)))
-
-    group_handles.sort(key=lambda item: item[1])
-    fig.legend(map(lambda item: item[0], group_handles), map(lambda item: item[1], group_handles))
-
-    ax.yaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
-    ax.set_ylim(__ZERO_DATE, __ZERO_DATE + datetime.timedelta(days=1))
-    matplotlib.pyplot.xticks(rotation=-60)
-
-    fig.tight_layout()
-    matplotlib.pyplot.show()
+        legend = matplotlib.pylab.legend(map(lambda item: item[0], group_handles),
+                                         map(lambda item: item[1], group_handles),
+                                         loc=9,
+                                         bbox_to_anchor=(0.5, -0.30),
+                                         ncol=2,
+                                         shadow=False,
+                                         frameon=True)
+        matplotlib.pyplot.savefig(os.path.join(output_dir, str(user_id) + '.png'),
+                                  additional_artists=(legend,),
+                                  bbox_inches='tight')
+        matplotlib.pyplot.close(fig)
