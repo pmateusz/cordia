@@ -185,11 +185,6 @@ if __name__ == '__main__':
     visits_to_use = [v for v in visits if v.user == user_id]
     print('Focusing on user', user_id, len(visits_to_use))
 
-    # print('Visits')
-    # for v in visits_to_use:
-    #     print(v.tasks, v.original_start, v.original_duration)
-
-    # raw_visits_to_use = [[str('abc'), v.original_start_ord, v.original_duration_ord] for v in visits_to_use]
     raw_visits_to_use = np.array(visits_to_use)
 
 
@@ -211,35 +206,74 @@ if __name__ == '__main__':
 
     fig, ax = matplotlib.pyplot.subplots()
 
-    markers = ('o', 's', '^', 'D', '*', 'P', 'X', '<', '>', 'v', 'p', 'd', '8')
-    hatches = ('///', '--', '...', '\///', 'xxx', '\\\\')
-    task_handles = []
-    visit_label_pairs = zip(visits_to_use, labels)
+    ax.grid(True)
+
+    unfilled_markers = (',', '.', '+', 'x', ',', '2')
+
+    group_handles = []
     group_number = 0
-    for tasks, group in itertools.groupby(visit_label_pairs, key=lambda rec: rec[0].tasks):
-        group_to_use = list(group)
-        for visit, label in group_to_use:
-            task_handle = ax.scatter([clear_time(visit.original_start)],
-                                     [clear_date(visit.original_start)],
-                                     hatch=hatches[group_number],
-                                     marker='o',
-                                     s=64)
 
-        # task_handle = ax.scatter(group_start_day,
-        #                          group_start_time,
-        #                          hatch=hatches[group_number],
-        #                          marker=group_category)
-        # task_handles.append((tasks, task_handle))
-        group_number += 1
+    matplotlib.pyplot.set_cmap('Paired')
 
-    handles = [handle for _, handle in task_handles]
-    tasks = [str(tasks) for tasks, _ in task_handles]
-    # fig.legend(handles, tasks)
+    color_map = matplotlib.cm.get_cmap('Paired')
+    color_it = iter(color_map.colors)
+    shapes = ['s']
+    shape_it = iter(shapes)
+    task_shapes = {}
+    label_colors = {}
+
+    task_label_visit_groups = collections.defaultdict(lambda: collections.defaultdict(list))
+    for visit, label in zip(visits_to_use, labels):
+        task_label_visit_groups[visit.tasks][label].append(visit)
+
+    for task in task_label_visit_groups:
+        for label in task_label_visit_groups[task]:
+            group = task_label_visit_groups[task][label]
+            fill_color = 'w'
+            edge_color = 'black'
+            shape = 's'
+            edge_width = 0.5
+            size = 8
+
+            group_elem = group[0]
+            if label != -1:
+                edge_width = 0
+
+                if group_elem.tasks in task_shapes:
+                    shape = task_shapes[group_elem.tasks]
+                else:
+                    shape = next(shape_it)
+                    task_shapes[group_elem.tasks] = shape
+
+                if label in label_colors:
+                    fill_color = label_colors[label]
+                else:
+                    fill_color = next(color_it)
+                    next(color_it)
+                    label_colors[label] = fill_color
+
+            group_start_day = []
+            group_start_time = []
+            for visit in group:
+                group_start_day.append(clear_time(visit.original_start))
+                group_start_time.append(clear_date(visit.original_start))
+            task_label_handle = ax.scatter(group_start_day,
+                                           group_start_time,
+                                           c=fill_color,
+                                           marker='s',
+                                           linewidth=edge_width,
+                                           edgecolor=edge_color,
+                                           alpha=0.7,
+                                           s=size)
+            group_handles.append(('{0} {1}'.format(str(task), label), task_label_handle))
+
+    handles = [handle for _, handle in group_handles]
+    names = [name for name, _ in group_handles]
+    fig.legend(handles, names)
 
     ax.yaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H:%M'))
     ax.set_ylim(__ZERO_DATE, __ZERO_DATE + datetime.timedelta(days=1))
     matplotlib.pyplot.xticks(rotation=-60)
-    ax.grid(True)
 
     fig.tight_layout()
     matplotlib.pyplot.show()
