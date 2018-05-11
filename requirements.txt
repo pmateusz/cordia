@@ -10,4 +10,5 @@ matplotlib
 tqdm
 wheel
 twine
+pandas
 python-dateutil
