@@ -5,6 +5,7 @@ requests
 scipy
 setuptools
 sklearn
+statsmodels
 matplotlib
 tqdm
 wheel
