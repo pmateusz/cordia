@@ -257,7 +257,7 @@ def plot_clusters(clusters, output_dir):
     matplotlib.pyplot.close(fig)
 
 
-if __name__ == '__main__':
+def analyze():
     visits = load_visits('/home/pmateusz/dev/cordia/output.csv')
     output_dir = '/home/pmateusz/dev/cordia/data/clustering'
     user_counter = collections.Counter()
@@ -265,13 +265,11 @@ if __name__ == '__main__':
         user_counter[visit.user] += 1
     print('Loaded {0} users'.format(user_counter))
 
-
     def get_series_name(group, cluster):
         if cluster.label == -1:
             return '{0} - outliers'.format(group[0].tasks)
         centroid = cluster.centroid()
         return '{0} - {1}'.format(group[0].tasks, centroid.original_start.time())
-
 
     # if more than 2 visits in the same day lower distance
     for user_id in user_counter:  # tqdm.tqdm(user_counter, unit='users', desc='Clustering', leave=False):
@@ -303,12 +301,16 @@ if __name__ == '__main__':
                 break
 
         print('User=({0}) Clusters=({1}) Threshold=({2})'.format(user_id, cluster_count, eps_threshold))
-        plot_clusters(clusters, output_dir)
+        # plot_clusters(clusters, output_dir)
 
         cluster = clusters[1]
         data_frame = pandas.DataFrame([(clear_time(visit.original_start), visit.real_duration.total_seconds() / 60.0)
                                        for visit in cluster.items],
                                       columns=['DateTime', 'Duration'])
+
+        data_frame.to_pickle(os.path.join(output_dir, 'u{0}_c{1}.pickle'.format(user_id, cluster.label)))
+        continue
+
         data_frame = data_frame \
             .where((numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()) & (
                 data_frame.Duration > 0))
@@ -363,3 +365,55 @@ if __name__ == '__main__':
                 test_frame_to_use.Duration, test_frame_to_use['MovingAverage']))))
         matplotlib.pyplot.legend(loc='best')
         matplotlib.pyplot.show()
+
+
+if __name__ == '__main__':
+    root_dir = '/home/pmateusz/dev/cordia/data/clustering/'
+    for file_name in os.listdir(root_dir):
+        data_frame = pandas.read_pickle(os.path.join(root_dir, file_name))
+        data_frame = data_frame \
+            .where((numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()) & (
+                data_frame.Duration > 0))
+        data_frame = data_frame.dropna()
+        data_frame.index = data_frame.DateTime
+        data_frame = data_frame.resample('D').mean()
+
+        nan_counter = collections.Counter()
+        day_counter = collections.Counter()
+        missing_days_counter = collections.Counter()
+        last_week_of_year = None
+        last_missing_days = 0
+        min_day = datetime.datetime.max
+        max_day = datetime.datetime.min
+        # TODO: stop iteration on last non-none day
+        for index, row in data_frame.iterrows():
+            min_day = min(index, min_day)
+            max_day = max(index, max_day)
+            week_of_year = index.date().isocalendar()[1]
+            if last_week_of_year != week_of_year:
+                if last_week_of_year:
+                    missing_days_counter[last_missing_days] += 1
+                last_week_of_year = week_of_year
+                last_missing_days = 0
+            if numpy.isnan(row.Duration):
+                nan_counter['nan'] += 1
+                last_missing_days += 1
+                day_counter[index.weekday()] += 1
+            else:
+                nan_counter['real'] += 1
+        # visit frequency, week completion
+        print(file_name)
+        visits = nan_counter['real']
+        visit_frequency = float(visits) / float(visits + nan_counter['nan'])
+        total_weeks = sum(value for _, value in missing_days_counter.items())
+        completed_weeks = sum(value for element, value in missing_days_counter.items() if element < 2)
+        week_completion = completed_weeks / total_weeks
+        print(visits, visit_frequency, week_completion)
+        print(min_day.date(), max_day.date(), nan_counter)
+        print(missing_days_counter)
+        print(day_counter)
+
+    # how to deal with missing data
+    # pad - forward
+    # fill - 0
+    # interpolate
