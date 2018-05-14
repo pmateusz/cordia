@@ -11,15 +11,16 @@ import numpy
 
 import pandas
 
-import analysis
 import sklearn.cluster
 
-import numpy as np
+import tqdm
 
 import matplotlib.pyplot
 import matplotlib.pylab
 
 import statsmodels.api
+
+from analysis import SimpleVisit, str_to_date_time, str_to_tasks, str_to_time_delta
 
 
 # select a user
@@ -59,28 +60,28 @@ def load_visits(file_path):
             visit_id = int(raw_visit_id)
             user_id = int(raw_user_id)
             area_id = int(raw_area_id)
-            tasks = analysis.str_to_tasks(raw_tasks)
-            original_start = analysis.str_to_date_time(raw_original_start)
-            original_duration = analysis.str_to_time_delta(raw_original_duration)
-            planned_start = analysis.str_to_date_time(raw_planned_start)
-            planned_duration = analysis.str_to_time_delta(raw_planned_duration)
-            real_start = analysis.str_to_date_time(raw_real_start)
-            real_duration = analysis.str_to_time_delta(raw_real_duration)
+            tasks = str_to_tasks(raw_tasks)
+            original_start = str_to_date_time(raw_original_start)
+            original_duration = str_to_time_delta(raw_original_duration)
+            planned_start = str_to_date_time(raw_planned_start)
+            planned_duration = str_to_time_delta(raw_planned_duration)
+            real_start = str_to_date_time(raw_real_start)
+            real_duration = str_to_time_delta(raw_real_duration)
             carer_count = int(raw_carer_count)
             checkout_method = int(raw_checkout_method)
 
-            results.append(analysis.SimpleVisit(id=visit_id,
-                                                user=user_id,
-                                                area=area_id,
-                                                tasks=tasks,
-                                                original_start=original_start,
-                                                original_duration=original_duration,
-                                                planned_start=planned_start,
-                                                planned_duration=planned_duration,
-                                                real_start=real_start,
-                                                real_duration=real_duration,
-                                                carer_count=carer_count,
-                                                checkout_method=checkout_method))
+            results.append(SimpleVisit(id=visit_id,
+                                       user=user_id,
+                                       area=area_id,
+                                       tasks=tasks,
+                                       original_start=original_start,
+                                       original_duration=original_duration,
+                                       planned_start=planned_start,
+                                       planned_duration=planned_duration,
+                                       real_start=real_start,
+                                       real_duration=real_duration,
+                                       carer_count=carer_count,
+                                       checkout_method=checkout_method))
         return results
 
 
@@ -100,6 +101,12 @@ class Cluster:
     @property
     def items(self):
         return self.__items
+
+    @property
+    def user(self):
+        if self.__items:
+            return self.centroid().user
+        return None
 
     @staticmethod
     def __ordering(left, right):
@@ -179,8 +186,14 @@ def clear_time(value):
                              0)
 
 
-def plot_clusters(clusters, output_dir):
-    group_handles = []
+def get_series_name(group, cluster):
+    if cluster.label == -1:
+        return '{0} - outliers'.format(group[0].tasks)
+    centroid = cluster.centroid()
+    return '{0} - {1}'.format(group[0].tasks, centroid.original_start.time())
+
+
+def plot_clusters(clusters, user_id, output_dir):
     fig, ax = matplotlib.pyplot.subplots()
     __COLOR_MAP = 'tab10'
     matplotlib.pyplot.set_cmap(__COLOR_MAP)
@@ -191,6 +204,7 @@ def plot_clusters(clusters, output_dir):
     task_shapes = {}
     label_colors = {}
 
+    group_handles = []
     for cluster in clusters:
         task_groups = collections.defaultdict(list)
         for visit in cluster.items:
@@ -244,8 +258,8 @@ def plot_clusters(clusters, output_dir):
 
     group_handles.sort(key=lambda item: item[1])
 
-    legend = matplotlib.pylab.legend(map(lambda item: item[0], group_handles),
-                                     map(lambda item: item[1], group_handles),
+    legend = matplotlib.pylab.legend(list(map(lambda item: item[0], group_handles)),
+                                     list(map(lambda item: item[1], group_handles)),
                                      loc=9,
                                      bbox_to_anchor=(0.5, -0.30),
                                      ncol=2,
@@ -265,16 +279,10 @@ def cluster():
         user_counter[visit.user] += 1
     print('Loaded {0} users'.format(user_counter))
 
-    def get_series_name(group, cluster):
-        if cluster.label == -1:
-            return '{0} - outliers'.format(group[0].tasks)
-        centroid = cluster.centroid()
-        return '{0} - {1}'.format(group[0].tasks, centroid.original_start.time())
-
     # if more than 2 visits in the same day lower distance
     for user_id in user_counter:  # tqdm.tqdm(user_counter, unit='users', desc='Clustering', leave=False):
         visits_to_use = [v for v in visits if v.user == user_id]
-        raw_visits_to_use = np.array(visits_to_use)
+        raw_visits_to_use = numpy.array(visits_to_use)
 
         distances = calculate_distance(raw_visits_to_use, distance)
         eps_threshold = -1
@@ -393,7 +401,7 @@ def normalize(data_frame, last_date):
         data_set.extend(data_frame.loc[begin_offset:end_offset].values)
     return pandas.DataFrame(index=pandas.date_range(end=last_date, periods=len(data_set)),
                             data=data_set,
-                            columns=['Duration'])
+                            columns=data_frame.columns)
 
 
 def plot_time_series(training_frame, test_frame):
@@ -421,7 +429,67 @@ def plot_time_series(training_frame, test_frame):
     matplotlib.pyplot.show()
 
 
-if __name__ == '__main__':
+# class cluster - serializable, predict future values, contain data frame
+
+def compute_clusters(data_file):
+    results = []
+
+    visits = load_visits(data_file)
+    groups = []
+    for user_id, group in itertools.groupby(visits, lambda v: v.user):
+        groups.append((user_id, list(group)))
+
+    MAX_EPS, MIN_EPS = 6 * 15 + 1, 15 + 1
+    for user_id, visit_group in tqdm.tqdm(groups, unit='users', desc='Clustering', leave=False):
+        distances = calculate_distance(numpy.array(visit_group), distance)
+        eps_threshold = MAX_EPS
+        while True:
+            db = sklearn.cluster.DBSCAN(eps=eps_threshold, min_samples=8, metric='precomputed')
+            db.fit(distances)
+
+            labels = db.labels_
+            cluster_count = len(set(labels)) - (1 if -1 in labels else 0)
+            clusters = [Cluster(label) for label in range(-1, cluster_count, 1)]
+            for visit, label in zip(visit_group, labels):
+                clusters[label + 1].add(visit)
+
+            if eps_threshold == MIN_EPS:
+                break
+
+            separable_clusters = True
+            for cluster in clusters[1:]:
+                duplicate_counter = collections.Counter()
+                for item in cluster.items:
+                    duplicate_counter[item.original_start.date()] += 1
+                duplicate_percent = \
+                    sum(1 for _, freq in duplicate_counter.items() if freq > 1) / len(duplicate_counter.keys())
+                if duplicate_percent >= 0.1:
+                    item_index = {visit: visit_group.index(visit) for visit in visit_group}
+                    distance_counter = collections.Counter()
+                    for left, right in itertools.combinations(item_index.values(), 2):
+                        left_right_distance = int(numpy.ceil(distances[left][right]))
+                        if MIN_EPS < left_right_distance < eps_threshold:
+                            distance_counter[left_right_distance] += 1
+                    eps_candidates = [distances for distances, count in distance_counter.items()]
+                    if eps_candidates:
+                        eps_threshold = max(eps_candidates) - 1
+                        separable_clusters = False
+                        break
+            if separable_clusters:
+                break
+        results.append(clusters)
+    return results
+
+
+def save_clusters(clusters, output_directory):
+    pass
+
+
+def load_clusters(input_directory):
+    pass
+
+
+def test_clusters():
     root_dir = '/home/pmateusz/dev/cordia/data/clustering/'
     for file_name in os.listdir(root_dir):
         if not file_name.endswith('pickle'):
@@ -439,54 +507,22 @@ if __name__ == '__main__':
                 and data_frame_to_use.Duration.count() > 64:
             data_frame_to_use = data_frame_to_use.interpolate(method='linear')
 
-            for duration in data_frame_to_use.Duration:
-                if duration <= 0 or numpy.isnan(duration):
-                    print('here')
             training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame_to_use,
                                                                                   test_size=14,
                                                                                   shuffle=False)
-            try:
-                plot_time_series(training_frame, test_frame)
-            except Exception as ex:
-                print(ex)
-        # compare with average
+            plot_time_series(training_frame, test_frame)
 
-    #     nan_counter = collections.Counter()
-    #     day_counter = collections.Counter()
-    #     missing_days_counter = collections.Counter()
-    #     last_week_of_year = None
-    #     last_missing_days = 0
-    #     min_day = datetime.datetime.max
-    #     max_day = datetime.datetime.min
-    #     # TODO: stop iteration on last non-none day
-    #     for index, row in data_frame.iterrows():
-    #         min_day = min(index, min_day)
-    #         max_day = max(index, max_day)
-    #         week_of_year = index.date().isocalendar()[1]
-    #         if last_week_of_year != week_of_year:
-    #             if last_week_of_year:
-    #                 missing_days_counter[last_missing_days] += 1
-    #             last_week_of_year = week_of_year
-    #             last_missing_days = 0
-    #         if numpy.isnan(row.Duration):
-    #             nan_counter['nan'] += 1
-    #             last_missing_days += 1
-    #             day_counter[index.weekday()] += 1
-    #         else:
-    #             nan_counter['real'] += 1
-    #     # visit frequency, week completion
-    #     print(file_name)
-    #     visits = nan_counter['real']
-    #     visit_frequency = float(visits) / float(visits + nan_counter['nan'])
-    #     total_weeks = sum(value for _, value in missing_days_counter.items())
-    #     completed_weeks = sum(value for element, value in missing_days_counter.items() if element < 2)
-    #     week_completion = completed_weeks / total_weeks
-    #     print(visits, visit_frequency, week_completion)
-    #     print(min_day.date(), max_day.date(), nan_counter)
-    #     print(missing_days_counter)
-    #     print(day_counter)
 
-    # how to deal with missing data
-    # pad - forward
-    # fill - 0
-    # interpolate
+if __name__ == '__main__':
+    # TODO: put limit on maximum allowed date to use for clustering
+    # TODO: save clusters in the file system
+    # TODO: load clusters from file system
+    # TODO: compute models
+    # TODO: save models
+    # TODO: load models
+    # TODO: forecast
+    user_clusters = compute_clusters('/home/pmateusz/dev/cordia/output.csv')
+    for clusters in tqdm.tqdm(user_clusters, unit='users', desc='Saving cluster plots', leave=False):
+        if len(clusters) <= 1:
+            continue
+        plot_clusters(clusters, clusters[1].user, '/home/pmateusz/dev/cordia/data/clustering')
