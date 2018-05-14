@@ -257,7 +257,7 @@ def plot_clusters(clusters, output_dir):
     matplotlib.pyplot.close(fig)
 
 
-def analyze():
+def cluster():
     visits = load_visits('/home/pmateusz/dev/cordia/output.csv')
     output_dir = '/home/pmateusz/dev/cordia/data/clustering'
     user_counter = collections.Counter()
@@ -303,115 +303,188 @@ def analyze():
         print('User=({0}) Clusters=({1}) Threshold=({2})'.format(user_id, cluster_count, eps_threshold))
         # plot_clusters(clusters, output_dir)
 
-        cluster = clusters[1]
-        data_frame = pandas.DataFrame([(clear_time(visit.original_start), visit.real_duration.total_seconds() / 60.0)
-                                       for visit in cluster.items],
-                                      columns=['DateTime', 'Duration'])
+        for index in range(1, len(clusters), 1):
+            cluster = clusters[index]
+            data_frame = pandas.DataFrame(
+                [(clear_time(visit.original_start), visit.real_duration.total_seconds() / 60.0)
+                 for visit in cluster.items],
+                columns=['DateTime', 'Duration'])
 
-        data_frame.to_pickle(os.path.join(output_dir, 'u{0}_c{1}.pickle'.format(user_id, cluster.label)))
-        continue
+            data_frame.to_pickle(os.path.join(output_dir, 'u{0}_c{1}.pickle'.format(user_id, cluster.label)))
+    return
 
-        data_frame = data_frame \
-            .where((numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()) & (
-                data_frame.Duration > 0))
-        data_frame = data_frame.dropna()
-        data_frame.index = data_frame.DateTime
-        data_frame = data_frame.resample('D').mean()
-        data_frame = data_frame.interpolate(method='linear')
-        # decomposition_result = statsmodels.api.tsa.seasonal_decompose(data_frame.Duration)
-        # decomposition_result.plot()
-        # matplotlib.pyplot.show()
-        #
-        # result = statsmodels.api.tsa.stattools.adfuller(data_frame.Duration)
+    # data_frame = data_frame \
+    #     .where((numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()) & (
+    #         data_frame.Duration > 0))
+    # data_frame = data_frame.dropna()
+    # data_frame.index = data_frame.DateTime
+    # data_frame = data_frame.resample('D').mean()
+    # data_frame = data_frame.interpolate(method='linear')
+    # # decomposition_result = statsmodels.api.tsa.seasonal_decompose(data_frame.Duration)
+    # # decomposition_result.plot()
+    # # matplotlib.pyplot.show()
+    # #
+    # # result = statsmodels.api.tsa.stattools.adfuller(data_frame.Duration)
+    #
+    # training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame, test_size=0.2, shuffle=False)
+    #
+    # # compare with average
+    # ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
+    #                                                trend=None,
+    #                                                damped=False,
+    #                                                seasonal='add',
+    #                                                seasonal_periods=7)
+    #
+    # holt_winters = ets.fit(smoothing_level=0.15, use_boxcox='log', optimized=True, use_basinhopping=True)
+    #
+    # arima = statsmodels.api.tsa.statespace.SARIMAX(training_frame.Duration,
+    #                                                trend=None,
+    #                                                order=(1, 1, 4),
+    #                                                enforce_stationarity=True,
+    #                                                enforce_invertibility=True,
+    #                                                seasonal_order=(1, 1, 1, 7)).fit()
+    #
+    # test_frame_to_use = test_frame.copy()
+    # test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
+    # test_frame_to_use['ARIMA'] = arima.predict(start="2017-10-24", end="2017-12-31", dynamic=True)
+    # test_frame_to_use['Average'] = training_frame.Duration.mean()
+    # test_frame_to_use['MovingAverage'] = training_frame.Duration.rolling(10).mean().iloc[-1]
+    #
+    # matplotlib.pyplot.figure(figsize=(16, 8))
+    # matplotlib.pyplot.plot(training_frame.Duration, label='Train')
+    # matplotlib.pyplot.plot(test_frame_to_use.Duration, label='Test')
+    # matplotlib.pyplot.plot(test_frame_to_use['HoltWinters'], label='HoltWinters: {0:.3f}'.format(
+    #     numpy.sqrt(sklearn.metrics.mean_squared_error(
+    #         test_frame_to_use.Duration, test_frame_to_use['HoltWinters']))))
+    # matplotlib.pyplot.plot(test_frame_to_use['ARIMA'], label='ARIMA: {0:.3f}'.format(
+    #     numpy.sqrt(sklearn.metrics.mean_squared_error(
+    #         test_frame_to_use.Duration, test_frame_to_use['ARIMA']))))
+    # matplotlib.pyplot.plot(test_frame_to_use['Average'], label='Average: {0:.3f}'.format(
+    #     numpy.sqrt(sklearn.metrics.mean_squared_error(
+    #         test_frame_to_use.Duration, test_frame_to_use['Average']))))
+    # matplotlib.pyplot.plot(test_frame_to_use['MovingAverage'], label='MovingAverage: {0:.3f}'.format(
+    #     numpy.sqrt(sklearn.metrics.mean_squared_error(
+    #         test_frame_to_use.Duration, test_frame_to_use['MovingAverage']))))
+    # matplotlib.pyplot.legend(loc='best')
+    # matplotlib.pyplot.show()
 
-        training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame, test_size=0.2, shuffle=False)
 
-        # compare with average
-        ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
-                                                       trend=None,
-                                                       damped=False,
-                                                       seasonal='add',
-                                                       seasonal_periods=7)
+def normalize(data_frame, last_date):
+    first_valid_index = data_frame.first_valid_index()
+    last_valid_index = data_frame.last_valid_index()
+    duration_series_to_use = data_frame.truncate(first_valid_index, last_valid_index)
+    week_days_served = duration_series_to_use.Duration.groupby(by=lambda dt: dt.week).count()
+    non_zero_week_days_served = week_days_served.where(week_days_served > 0).dropna()
 
-        holt_winters = ets.fit(smoothing_level=0.15, use_boxcox='log', optimized=True, use_basinhopping=True)
+    weeks_to_use = non_zero_week_days_served.where(numpy.abs(
+        non_zero_week_days_served - non_zero_week_days_served.mean()) <= 1.96 * non_zero_week_days_served.std()) \
+        .dropna()
 
-        arima = statsmodels.api.tsa.statespace.SARIMAX(training_frame.Duration,
-                                                       trend=None,
-                                                       order=(1, 1, 4),
-                                                       enforce_stationarity=True,
-                                                       enforce_invertibility=True,
-                                                       seasonal_order=(1, 1, 1, 7)).fit()
+    data_set = []
+    for week_of_year, freq in weeks_to_use.iteritems():
+        begin_offset = datetime.datetime(2017, 1, 1)
+        end_offset = begin_offset
+        if int(week_of_year) > 0 and int(week_of_year) != 52:
+            # the first of January 2017 is recognized as the 52 week
+            begin_offset += datetime.timedelta(days=7 - begin_offset.weekday())
+            if int(week_of_year) > 1:
+                begin_offset += datetime.timedelta(weeks=int(week_of_year) - 1, days=0)
+            end_offset = begin_offset + datetime.timedelta(days=6)
+        data_set.extend(data_frame.loc[begin_offset:end_offset].values)
+    return pandas.DataFrame(index=pandas.date_range(end=last_date, periods=len(data_set)),
+                            data=data_set,
+                            columns=['Duration'])
 
-        test_frame_to_use = test_frame.copy()
-        test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
-        test_frame_to_use['ARIMA'] = arima.predict(start="2017-10-24", end="2017-12-31", dynamic=True)
-        test_frame_to_use['Average'] = training_frame.Duration.mean()
-        test_frame_to_use['MovingAverage'] = training_frame.Duration.rolling(10).mean().iloc[-1]
 
-        matplotlib.pyplot.figure(figsize=(16, 8))
-        matplotlib.pyplot.plot(training_frame.Duration, label='Train')
-        matplotlib.pyplot.plot(test_frame_to_use.Duration, label='Test')
-        matplotlib.pyplot.plot(test_frame_to_use['HoltWinters'], label='HoltWinters: {0:.3f}'.format(
-            numpy.sqrt(sklearn.metrics.mean_squared_error(
-                test_frame_to_use.Duration, test_frame_to_use['HoltWinters']))))
-        matplotlib.pyplot.plot(test_frame_to_use['ARIMA'], label='ARIMA: {0:.3f}'.format(
-            numpy.sqrt(sklearn.metrics.mean_squared_error(
-                test_frame_to_use.Duration, test_frame_to_use['ARIMA']))))
-        matplotlib.pyplot.plot(test_frame_to_use['Average'], label='Average: {0:.3f}'.format(
-            numpy.sqrt(sklearn.metrics.mean_squared_error(
-                test_frame_to_use.Duration, test_frame_to_use['Average']))))
-        matplotlib.pyplot.plot(test_frame_to_use['MovingAverage'], label='MovingAverage: {0:.3f}'.format(
-            numpy.sqrt(sklearn.metrics.mean_squared_error(
-                test_frame_to_use.Duration, test_frame_to_use['MovingAverage']))))
-        matplotlib.pyplot.legend(loc='best')
-        matplotlib.pyplot.show()
+def plot_time_series(training_frame, test_frame):
+    ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
+                                                   damped=False,
+                                                   seasonal='mul',
+                                                   seasonal_periods=7)
+
+    holt_winters = ets.fit(optimized=True, use_basinhopping=True, use_boxcox=True, remove_bias=True)
+
+    test_frame_to_use = test_frame.copy()
+    test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
+    test_frame_to_use['Average'] = training_frame.Duration.mean()
+
+    matplotlib.pyplot.figure(figsize=(16, 8))
+    matplotlib.pyplot.plot(training_frame.Duration, label='Train')
+    matplotlib.pyplot.plot(test_frame_to_use.Duration, label='Test')
+    matplotlib.pyplot.plot(test_frame_to_use['HoltWinters'], label='HoltWinters: {0:.3f}'.format(
+        numpy.sqrt(sklearn.metrics.mean_squared_error(
+            test_frame_to_use.Duration, test_frame_to_use['HoltWinters']))))
+    matplotlib.pyplot.plot(test_frame_to_use['Average'], label='Average: {0:.3f}'.format(
+        numpy.sqrt(sklearn.metrics.mean_squared_error(
+            test_frame_to_use.Duration, test_frame_to_use['Average']))))
+    matplotlib.pyplot.legend(loc='best')
+    matplotlib.pyplot.show()
 
 
 if __name__ == '__main__':
     root_dir = '/home/pmateusz/dev/cordia/data/clustering/'
     for file_name in os.listdir(root_dir):
+        if not file_name.endswith('pickle'):
+            continue
         data_frame = pandas.read_pickle(os.path.join(root_dir, file_name))
         data_frame = data_frame \
-            .where((numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()) & (
-                data_frame.Duration > 0))
-        data_frame = data_frame.dropna()
+            .where((numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std())
+                   & (data_frame.Duration > 0))
         data_frame.index = data_frame.DateTime
         data_frame = data_frame.resample('D').mean()
+        data_frame = data_frame.dropna()
+        data_frame_to_use = normalize(data_frame, datetime.datetime(2017, 10, 1))
 
-        nan_counter = collections.Counter()
-        day_counter = collections.Counter()
-        missing_days_counter = collections.Counter()
-        last_week_of_year = None
-        last_missing_days = 0
-        min_day = datetime.datetime.max
-        max_day = datetime.datetime.min
-        # TODO: stop iteration on last non-none day
-        for index, row in data_frame.iterrows():
-            min_day = min(index, min_day)
-            max_day = max(index, max_day)
-            week_of_year = index.date().isocalendar()[1]
-            if last_week_of_year != week_of_year:
-                if last_week_of_year:
-                    missing_days_counter[last_missing_days] += 1
-                last_week_of_year = week_of_year
-                last_missing_days = 0
-            if numpy.isnan(row.Duration):
-                nan_counter['nan'] += 1
-                last_missing_days += 1
-                day_counter[index.weekday()] += 1
-            else:
-                nan_counter['real'] += 1
-        # visit frequency, week completion
-        print(file_name)
-        visits = nan_counter['real']
-        visit_frequency = float(visits) / float(visits + nan_counter['nan'])
-        total_weeks = sum(value for _, value in missing_days_counter.items())
-        completed_weeks = sum(value for element, value in missing_days_counter.items() if element < 2)
-        week_completion = completed_weeks / total_weeks
-        print(visits, visit_frequency, week_completion)
-        print(min_day.date(), max_day.date(), nan_counter)
-        print(missing_days_counter)
-        print(day_counter)
+        if data_frame_to_use.Duration.count() / data_frame_to_use.size > 0.75 \
+                and data_frame_to_use.Duration.count() > 64:
+            data_frame_to_use = data_frame_to_use.interpolate(method='linear')
+
+            for duration in data_frame_to_use.Duration:
+                if duration <= 0 or numpy.isnan(duration):
+                    print('here')
+            training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame_to_use,
+                                                                                  test_size=14,
+                                                                                  shuffle=False)
+            try:
+                plot_time_series(training_frame, test_frame)
+            except Exception as ex:
+                print(ex)
+        # compare with average
+
+    #     nan_counter = collections.Counter()
+    #     day_counter = collections.Counter()
+    #     missing_days_counter = collections.Counter()
+    #     last_week_of_year = None
+    #     last_missing_days = 0
+    #     min_day = datetime.datetime.max
+    #     max_day = datetime.datetime.min
+    #     # TODO: stop iteration on last non-none day
+    #     for index, row in data_frame.iterrows():
+    #         min_day = min(index, min_day)
+    #         max_day = max(index, max_day)
+    #         week_of_year = index.date().isocalendar()[1]
+    #         if last_week_of_year != week_of_year:
+    #             if last_week_of_year:
+    #                 missing_days_counter[last_missing_days] += 1
+    #             last_week_of_year = week_of_year
+    #             last_missing_days = 0
+    #         if numpy.isnan(row.Duration):
+    #             nan_counter['nan'] += 1
+    #             last_missing_days += 1
+    #             day_counter[index.weekday()] += 1
+    #         else:
+    #             nan_counter['real'] += 1
+    #     # visit frequency, week completion
+    #     print(file_name)
+    #     visits = nan_counter['real']
+    #     visit_frequency = float(visits) / float(visits + nan_counter['nan'])
+    #     total_weeks = sum(value for _, value in missing_days_counter.items())
+    #     completed_weeks = sum(value for element, value in missing_days_counter.items() if element < 2)
+    #     week_completion = completed_weeks / total_weeks
+    #     print(visits, visit_frequency, week_completion)
+    #     print(min_day.date(), max_day.date(), nan_counter)
+    #     print(missing_days_counter)
+    #     print(day_counter)
 
     # how to deal with missing data
     # pad - forward
