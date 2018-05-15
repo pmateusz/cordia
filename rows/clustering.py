@@ -31,9 +31,9 @@ from analysis import VisitCSVSourceFile
 
 class Cluster:
 
-    def __init__(self, label):
+    def __init__(self, label, items=list()):
         self.__label = label
-        self.__items = []
+        self.__items = items
 
     def add(self, item):
         self.__items.append(item)
@@ -436,7 +436,27 @@ def save_clusters(clusters, output_directory):
 
 
 def load_clusters(input_directory):
-    pass
+    users_root_dir = os.path.join(input_directory, 'user')
+    user_dirs = list(filter(os.path.isdir, (os.path.join(users_root_dir, user_part)
+                                            for user_part in os.listdir(users_root_dir)
+                                            if user_part.isdigit())))
+    user_clusters = []
+    for user_dir in user_dirs:
+        clusters = []
+        clusters_root_dir = os.path.join(user_dir, 'cluster')
+        labels = [cluster_part for cluster_part in os.listdir(clusters_root_dir) if cluster_part.isdigit()]
+        for label in labels:
+            cluster_dir = os.path.join(clusters_root_dir, label)
+            if not os.path.isdir(cluster_dir):
+                continue
+            visit_file = os.path.join(cluster_dir, 'visits.csv')
+            if not os.path.isfile(visit_file):
+                continue
+            visit_source = VisitCSVSourceFile(visit_file)
+            visits = visit_source.read()
+            clusters.append(Cluster(int(label), visits))
+        user_clusters.append(clusters)
+    return user_clusters
 
 
 def test_clusters():
@@ -465,12 +485,11 @@ def test_clusters():
 
 if __name__ == '__main__':
     # TODO: put limit on maximum allowed date to use for clustering
-    # TODO: load clusters from file system
     # TODO: compute models
     # TODO: save models
     # TODO: load models
     # TODO: forecast
-    action = 'save_clusers'
+    action = 'load_clusters'
     if action == 'save_clusters':
         source_file = VisitCSVSourceFile('/home/pmateusz/dev/cordia/output.csv')
         visits = source_file.read()
@@ -480,5 +499,6 @@ if __name__ == '__main__':
                 continue
             save_clusters(clusters, '/home/pmateusz/dev/cordia/data/clustering')
     elif action == 'load_clusters':
-        pass
+        clusters = load_clusters('/home/pmateusz/dev/cordia/data/clustering')
+        print(len(clusters))
         # plot_clusters(clusters, clusters[1].user, '/home/pmateusz/dev/cordia/data/clustering')
