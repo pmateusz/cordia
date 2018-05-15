@@ -93,16 +93,20 @@ def distance(left, right):
     left_duration_min = left.original_duration_ord / 60
     right_duration_min = right.original_duration_ord / 60
 
+    penalty = 0.0
+    if left.original_start.date() == right.original_start.date():
+        penalty = 100.0
+
     if left.tasks == right.tasks \
             or left.tasks.tasks.issubset(right.tasks.tasks) \
             or right.tasks.tasks.issubset(left.tasks.tasks):
-        return abs(left_start_min - right_start_min) + abs(left_duration_min - right_duration_min)
+        return abs(left_start_min - right_start_min) + abs(left_duration_min - right_duration_min) + penalty
     else:
         left_task_price = left_duration_min / len(left.tasks.tasks)
         right_task_price = right_duration_min / len(right.tasks.tasks)
         return abs(left_start_min - right_start_min) \
                + left_task_price * len(left.tasks.tasks.difference(right.tasks.tasks)) \
-               + right_task_price * len(right.tasks.tasks.difference(left.tasks.tasks))
+               + right_task_price * len(right.tasks.tasks.difference(left.tasks.tasks)) + penalty
 
 
 def calculate_distance(records, metric):
@@ -434,7 +438,7 @@ def compute_clusters(visits):
 
     results = []
     groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    with concurrent.futures.ThreadPoolExecutor(os.cpu_count() * 2 * 5) as executor:
         futures_list = [executor.submit(compute_user_clusters, visit_group) for user_id, visit_group in groups]
         for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
                            total=len(futures_list), unit='users',
@@ -531,41 +535,55 @@ if __name__ == '__main__':
         save_clusters(user_clusters, '/home/pmateusz/dev/cordia/data/clustering')
     elif action == 'load_clusters':
         forecast_errors = []
-        user_clusters = load_clusters('/home/pmateusz/dev/cordia/data/clustering')
-        for clusters in user_clusters:
-            for cluster in clusters:
-                data_frame = cluster.data_frame()
-                if data_frame.empty:
-                    continue
-                fill_factor = float(data_frame.Duration.count()) / len(data_frame.index)
-                time_delta = data_frame.last_valid_index() - data_frame.first_valid_index()
-                if fill_factor >= 0.50 and time_delta.days > 60:
-                    data_frame.interpolate(method='linear', inplace=True)
-                    training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame,
-                                                                                          test_size=14,
-                                                                                          shuffle=False)
-                    ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
-                                                                   damped=False,
-                                                                   trend=None,
-                                                                   seasonal='add',
-                                                                   seasonal_periods=14)
+        cluster_groups = load_clusters('/home/pmateusz/dev/cordia/data/clustering')
+        clusters = [cluster for cluster_group in cluster_groups for cluster in cluster_group]
 
-                    holt_winters = ets.fit(optimized=True, use_basinhopping=True)
 
-                    test_frame_to_use = test_frame.copy()
-                    test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
-                    test_frame_to_use['Average'] = training_frame.Duration.mean()
+        def forecast_cluster(cluster):
+            data_frame = cluster.data_frame()
+            if data_frame.empty:
+                return None
 
-                    try:
-                        holt_winters_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
-                                                                                test_frame_to_use['HoltWinters'])
-                        average_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
-                                                                           test_frame_to_use['Average'])
-                        print(holt_winters_error, average_error)
-                    except ValueError as ex:
-                        logging.exception('Error')
-                    forecast_errors.append([holt_winters_error, average_error])
-                else:
-                    data_frame.dropna(inplace=True)
-                    data_frame.Duration.mean()
-        # plot_clusters(clusters, clusters[1].user, '/home/pmateusz/dev/cordia/data/clustering')
+            fill_factor = float(data_frame.Duration.count()) / len(data_frame.index)
+            if fill_factor < 0.50:
+                return None
+
+            time_delta = data_frame.last_valid_index() - data_frame.first_valid_index()
+            if time_delta.days < 32:
+                return None
+
+            data_frame.interpolate(method='linear', inplace=True)
+            training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame,
+                                                                                  test_size=14,
+                                                                                  shuffle=False)
+            ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
+                                                           damped=False,
+                                                           trend=None,
+                                                           seasonal='add',
+                                                           seasonal_periods=7)
+
+            holt_winters = ets.fit(optimized=True, remove_bias=True)
+
+            test_frame_to_use = test_frame.copy()
+            test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
+            test_frame_to_use['Average'] = training_frame.Duration.mean()
+
+            holt_winters_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
+                                                                    test_frame_to_use['HoltWinters'])
+            average_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
+                                                               test_frame_to_use['Average'])
+            return fill_factor, time_delta.days, holt_winters_error, average_error
+
+
+        results = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures_list = [executor.submit(forecast_cluster, cluster) for cluster in clusters[0:100]]
+            for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
+                               total=len(futures_list), unit='users',
+                               desc='Forecasting', leave=False):
+                result = f.result()
+                if result:
+                    results.append(result)
+        results_data_frame = pandas.DataFrame(data=results,
+                                              columns=['FillFactor', 'Days', 'HoltWintersError', 'AverageError'])
+        results_data_frame.to_pickle('forecast_errors.pickle')
