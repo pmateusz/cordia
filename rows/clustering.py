@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-
-import csv
+import concurrent.futures
 import collections
 import datetime
 import functools
 import itertools
+import logging
 import os
 
 import numpy
@@ -20,7 +20,7 @@ import matplotlib.pylab
 
 import statsmodels.api
 
-from analysis import VisitCSVSourceFile
+from analysis import VisitCSVSourceFile, time_to_seconds
 
 
 # select a user
@@ -31,9 +31,9 @@ from analysis import VisitCSVSourceFile
 
 class Cluster:
 
-    def __init__(self, label, items=list()):
+    def __init__(self, label, items=None):
         self.__label = label
-        self.__items = items
+        self.__items = items if items else []
 
     def add(self, item):
         self.__items.append(item)
@@ -49,8 +49,23 @@ class Cluster:
     @property
     def user(self):
         if self.__items:
-            return self.centroid().user
+            return self.__items[0].user
         return None
+
+    def data_frame(self):
+        data_frame = pandas.DataFrame(
+            index=pandas.DatetimeIndex(data=[clear_time(visit.original_start) for visit in self.items]),
+            data=[(time_to_seconds(visit.real_start.time()), visit.real_duration.total_seconds()) for visit in
+                  self.items],
+            columns=['Start', 'Duration'])
+        data_frame.sort_index(inplace=True)
+        # remove outliers and invalid values, resample, fill missing values
+        data_frame.where(
+            (numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()) & (
+                    data_frame.Duration > 0), inplace=True)
+        data_frame.dropna(inplace=True)
+        data_frame = data_frame.resample('D').mean()
+        return data_frame
 
     @staticmethod
     def __ordering(left, right):
@@ -184,7 +199,7 @@ def plot_clusters(clusters, user_id, output_dir):
             task_label_handle = ax.scatter(start_days,
                                            start_times,
                                            c=fill_color,
-                                           marker=shape,
+                                           marker='s',
                                            linewidth=edge_width,
                                            edgecolor=edge_color,
                                            alpha=0.7,
@@ -351,10 +366,11 @@ def normalize(data_frame, last_date):
 def plot_time_series(training_frame, test_frame):
     ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
                                                    damped=False,
-                                                   seasonal='mul',
-                                                   seasonal_periods=7)
+                                                   trend=None,
+                                                   seasonal='add',
+                                                   seasonal_periods=14)
 
-    holt_winters = ets.fit(optimized=True, use_basinhopping=True, use_boxcox=True, remove_bias=True)
+    holt_winters = ets.fit(optimized=True, use_boxcox=True, remove_bias=True)
 
     test_frame_to_use = test_frame.copy()
     test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
@@ -373,17 +389,14 @@ def plot_time_series(training_frame, test_frame):
     matplotlib.pyplot.show()
 
 
-# class cluster - serializable, predict future values, contain data frame
-
 def compute_clusters(visits):
-    MAX_EPS, MIN_EPS = 6 * 15 + 1, 15 + 1
+    visits.sort(key=lambda visit: visit.user)
 
-    groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
-    results = []
-    for user_id, visit_group in tqdm.tqdm(groups, unit='users', desc='Clustering', leave=False):
+    def compute_user_clusters(visit_group):
+        MAX_EPS, MIN_EPS = 6 * 15 + 1, 15 + 1
+
         distances = calculate_distance(numpy.array(visit_group), distance)
         eps_threshold = MAX_EPS
-
         while True:
             db = sklearn.cluster.DBSCAN(eps=eps_threshold, min_samples=8, metric='precomputed')
             db.fit(distances)
@@ -394,7 +407,7 @@ def compute_clusters(visits):
                 clusters[label + 1].add(visit)
 
             if eps_threshold == MIN_EPS:
-                break
+                return clusters
 
             separable_clusters = True
             for cluster in clusters[1:]:
@@ -415,24 +428,43 @@ def compute_clusters(visits):
                         eps_threshold = max(eps_candidates) - 1
                         separable_clusters = False
                         break
+
             if separable_clusters:
-                break
-        results.append(clusters)
+                return clusters
+
+    results = []
+    groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures_list = [executor.submit(compute_user_clusters, visit_group) for user_id, visit_group in groups]
+        for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
+                           total=len(futures_list), unit='users',
+                           desc='Clustering', leave=False):
+            results.append(f.result())
     return results
 
 
 def save_clusters(clusters, output_directory):
+    for user_clusters in tqdm.tqdm(clusters, total=len(clusters), leave=False):
+        if user_clusters:
+            plot_clusters(user_clusters, user_clusters[0].user, output_directory)
+
     def cluster_path(user, label):
         return os.path.join(output_directory, 'user', user, 'cluster', label)
 
-    for cluster in clusters:
-        if not cluster or cluster.label == -1 or not cluster.user:
-            continue
-        cluster_dir = cluster_path(str(cluster.user), str(cluster.label))
-        if not os.path.exists(cluster_dir):
-            os.makedirs(cluster_dir)
-        cluster_file = VisitCSVSourceFile(os.path.join(cluster_dir, 'visits.csv'))
-        cluster_file.write(cluster.items)
+    def save_user_clusters(clusters):
+        for cluster in clusters:
+            if not cluster or cluster.label == -1 or not cluster.user:
+                continue
+            cluster_dir = cluster_path(str(cluster.user), str(cluster.label))
+            if not os.path.exists(cluster_dir):
+                os.makedirs(cluster_dir)
+            cluster_file = VisitCSVSourceFile(os.path.join(cluster_dir, 'visits.csv'))
+            cluster_file.write(cluster.items)
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures_list = [executor.submit(save_user_clusters, user_clusters) for user_clusters in clusters]
+        for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list), total=len(futures_list), leave=False):
+            f.result()
 
 
 def load_clusters(input_directory):
@@ -484,6 +516,8 @@ def test_clusters():
 
 
 if __name__ == '__main__':
+    tqdm.tqdm.monitor_interval = 0
+
     # TODO: put limit on maximum allowed date to use for clustering
     # TODO: compute models
     # TODO: save models
@@ -494,11 +528,44 @@ if __name__ == '__main__':
         source_file = VisitCSVSourceFile('/home/pmateusz/dev/cordia/output.csv')
         visits = source_file.read()
         user_clusters = compute_clusters(visits)
-        for clusters in tqdm.tqdm(user_clusters, unit='users', desc='Saving cluster plots', leave=False):
-            if len(clusters) <= 1:
-                continue
-            save_clusters(clusters, '/home/pmateusz/dev/cordia/data/clustering')
+        save_clusters(user_clusters, '/home/pmateusz/dev/cordia/data/clustering')
     elif action == 'load_clusters':
-        clusters = load_clusters('/home/pmateusz/dev/cordia/data/clustering')
-        print(len(clusters))
+        forecast_errors = []
+        user_clusters = load_clusters('/home/pmateusz/dev/cordia/data/clustering')
+        for clusters in user_clusters:
+            for cluster in clusters:
+                data_frame = cluster.data_frame()
+                if data_frame.empty:
+                    continue
+                fill_factor = float(data_frame.Duration.count()) / len(data_frame.index)
+                time_delta = data_frame.last_valid_index() - data_frame.first_valid_index()
+                if fill_factor >= 0.50 and time_delta.days > 60:
+                    data_frame.interpolate(method='linear', inplace=True)
+                    training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame,
+                                                                                          test_size=14,
+                                                                                          shuffle=False)
+                    ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
+                                                                   damped=False,
+                                                                   trend=None,
+                                                                   seasonal='add',
+                                                                   seasonal_periods=14)
+
+                    holt_winters = ets.fit(optimized=True, use_basinhopping=True)
+
+                    test_frame_to_use = test_frame.copy()
+                    test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
+                    test_frame_to_use['Average'] = training_frame.Duration.mean()
+
+                    try:
+                        holt_winters_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
+                                                                                test_frame_to_use['HoltWinters'])
+                        average_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
+                                                                           test_frame_to_use['Average'])
+                        print(holt_winters_error, average_error)
+                    except ValueError as ex:
+                        logging.exception('Error')
+                    forecast_errors.append([holt_winters_error, average_error])
+                else:
+                    data_frame.dropna(inplace=True)
+                    data_frame.Duration.mean()
         # plot_clusters(clusters, clusters[1].user, '/home/pmateusz/dev/cordia/data/clustering')

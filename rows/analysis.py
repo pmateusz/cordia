@@ -382,63 +382,66 @@ class VisitCSVSourceFile:
             output_stream.flush()
 
     def read(self):
-        with open(self.__file_path, 'r') as input_stream:
-            reader = csv.reader(input_stream, dialect=csv.get_dialect('unix'))
-            header = next(reader, None)
-            if not header:
-                return []
-            if header != self.COLUMNS:
-                raise ValueError('Unexpected header: {0}'.format(', '.join(header)))
+        try:
+            with open(self.__file_path, 'r') as input_stream:
+                reader = csv.reader(input_stream, dialect=csv.get_dialect('unix'))
+                header = next(reader, None)
+                if not header:
+                    return []
+                if header != self.COLUMNS:
+                    raise ValueError('Unexpected header: {0}'.format(', '.join(header)))
 
-            visits = []
-            for row in reader:
-                raw_visit_id, \
-                raw_user_id, \
-                raw_area_id, \
-                raw_tasks, \
-                _start_date, \
-                raw_original_start, \
-                _original_start_ord, \
-                raw_original_duration, \
-                _original_duration_ord, \
-                raw_planned_start, \
-                _planned_start_ord, \
-                raw_planned_duration, \
-                _planned_duration_ord, \
-                raw_real_start, \
-                _real_start_ord, \
-                raw_real_duration, \
-                _real_duration_ord, \
-                raw_carer_count, \
-                raw_checkout_method = row
+                visits = []
+                for row in reader:
+                    raw_visit_id, \
+                    raw_user_id, \
+                    raw_area_id, \
+                    raw_tasks, \
+                    _start_date, \
+                    raw_original_start, \
+                    _original_start_ord, \
+                    raw_original_duration, \
+                    _original_duration_ord, \
+                    raw_planned_start, \
+                    _planned_start_ord, \
+                    raw_planned_duration, \
+                    _planned_duration_ord, \
+                    raw_real_start, \
+                    _real_start_ord, \
+                    raw_real_duration, \
+                    _real_duration_ord, \
+                    raw_carer_count, \
+                    raw_checkout_method = row
 
-                visit_id = int(raw_visit_id)
-                user_id = int(raw_user_id)
-                area_id = int(raw_area_id)
-                tasks = str_to_tasks(raw_tasks)
-                original_start = str_to_date_time(raw_original_start)
-                original_duration = str_to_time_delta(raw_original_duration)
-                planned_start = str_to_date_time(raw_planned_start)
-                planned_duration = str_to_time_delta(raw_planned_duration)
-                real_start = str_to_date_time(raw_real_start)
-                real_duration = str_to_time_delta(raw_real_duration)
-                carer_count = int(raw_carer_count)
-                checkout_method = int(raw_checkout_method)
+                    visit_id = int(raw_visit_id)
+                    user_id = int(raw_user_id)
+                    area_id = int(raw_area_id)
+                    tasks = str_to_tasks(raw_tasks)
+                    original_start = str_to_date_time(raw_original_start)
+                    original_duration = str_to_time_delta(raw_original_duration)
+                    planned_start = str_to_date_time(raw_planned_start)
+                    planned_duration = str_to_time_delta(raw_planned_duration)
+                    real_start = str_to_date_time(raw_real_start)
+                    real_duration = str_to_time_delta(raw_real_duration)
+                    carer_count = int(raw_carer_count)
+                    checkout_method = int(raw_checkout_method)
 
-                visits.append(SimpleVisit(id=visit_id,
-                                          user=user_id,
-                                          area=area_id,
-                                          tasks=tasks,
-                                          original_start=original_start,
-                                          original_duration=original_duration,
-                                          planned_start=planned_start,
-                                          planned_duration=planned_duration,
-                                          real_start=real_start,
-                                          real_duration=real_duration,
-                                          carer_count=carer_count,
-                                          checkout_method=checkout_method))
-            return visits
-        
+                    visits.append(SimpleVisit(id=visit_id,
+                                              user=user_id,
+                                              area=area_id,
+                                              tasks=tasks,
+                                              original_start=original_start,
+                                              original_duration=original_duration,
+                                              planned_start=planned_start,
+                                              planned_duration=planned_duration,
+                                              real_start=real_start,
+                                              real_duration=real_duration,
+                                              carer_count=carer_count,
+                                              checkout_method=checkout_method))
+                return visits
+        except ValueError:
+            logging.exception('Failed to save file: %s', self.__file_path)
+
 
 if __name__ == '__main__':
 
