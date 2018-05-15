@@ -331,61 +331,171 @@ class CompositeVisit(Visit):
         return self.__visits
 
 
-def row_to_visit(row):
-    visit_raw_id, \
-    user_raw_id, \
-    planned_carer_id, \
-    planned_start_raw_date_time, \
-    planned_end_raw_date_time, \
-    planned_duration, \
-    original_start_raw_date_time, \
-    original_end_raw_date_time, \
-    original_duration, \
-    check_in_date_raw_time, \
-    check_out_date_raw_time, \
-    real_duration, \
-    check_out_raw_method, \
-    raw_tasks, \
-    area = row
-    tasks = str_to_tasks(raw_tasks)
-    planned_start_date_time = str_to_date_time(planned_start_raw_date_time)
-    planned_end_date_time = str_to_date_time(planned_end_raw_date_time)
-    original_start_date_time = str_to_date_time(original_start_raw_date_time)
-    original_end_date_time = str_to_date_time(original_end_raw_date_time)
-    real_start_date_time = str_to_date_time(check_in_date_raw_time)
-    real_end_date_time = str_to_date_time(check_out_date_raw_time)
-    return SimpleVisit(id=int(visit_raw_id),
-                       user=int(user_raw_id),
-                       area=int(area),
-                       carer=int(planned_carer_id),
-                       tasks=tasks,
-                       planned_start=planned_start_date_time,
-                       planned_duration=(planned_end_date_time - planned_start_date_time),
-                       original_start=original_start_date_time,
-                       original_duration=(original_end_date_time - original_start_date_time),
-                       real_start=real_start_date_time,
-                       real_duration=(real_end_date_time - real_start_date_time),
-                       checkout_method=int(check_out_raw_method))
+class VisitCSVSourceFile:
+    COLUMNS = ['VisitId',
+               'UserId',
+               'AreaId',
+               'Tasks',
+               'StartDate',
+               'OriginalStart',
+               'OriginalStartOrd',
+               'OriginalDuration',
+               'OriginalDurationOrd',
+               'PlannedStart',
+               'PlannedStartOrd',
+               'PlannedDuration',
+               'PlannedDurationOrd',
+               'RealStart',
+               'RealStartOrd',
+               'RealDuration',
+               'RealDurationOrd',
+               'CarerCount',
+               'CheckoutMethod']
 
+    def __init__(self, file_path):
+        self.__file_path = file_path
 
-def load_data_csv():
-    # './data/visits_old_2017_anonymized.csv'
-    # './data/part_anonymized.csv'
-    file_path = './data/visits_old_2017_anonymized.csv'
-    with open(file_path, 'r') as input_stream:
-        sniffer = csv.Sniffer()
-        dialect = sniffer.sniff(input_stream.read(4096))
-        input_stream.seek(0)
-        with tqdm.tqdm(desc='Loading CSV data...',
-                       leave=False,
-                       unit='records',
-                       iterable=csv.reader(input_stream, dialect=dialect)) as progress_stream:
-            stream_it = iter(progress_stream)
-            next(stream_it)
-            return list(stream_it)
+    def write(self, visit_it):
+        with open(self.__file_path, 'w') as output_stream:
+            writer = csv.writer(output_stream, dialect=csv.get_dialect('unix'))
+            writer.writerow(self.COLUMNS)
+            for visit in visit_it:
+                writer.writerow([visit.id,
+                                 visit.user,
+                                 visit.area,
+                                 visit.tasks,
+                                 visit.original_start.date(),
+                                 visit.original_start,
+                                 visit.original_start_ord,
+                                 visit.original_duration,
+                                 visit.original_duration_ord,
+                                 visit.planned_start,
+                                 visit.planned_start_ord,
+                                 visit.planned_duration,
+                                 visit.planned_duration_ord,
+                                 visit.real_start,
+                                 visit.real_start_ord,
+                                 visit.real_duration,
+                                 visit.real_duration_ord,
+                                 visit.carer_count,
+                                 visit.checkout_method])
+            output_stream.flush()
 
+    def read(self):
+        with open(self.__file_path, 'r') as input_stream:
+            reader = csv.reader(input_stream, dialect=csv.get_dialect('unix'))
+            header = next(reader, None)
+            if not header:
+                return []
+            if header != self.COLUMNS:
+                raise ValueError('Unexpected header: {0}'.format(', '.join(header)))
+
+            visits = []
+            for row in reader:
+                raw_visit_id, \
+                raw_user_id, \
+                raw_area_id, \
+                raw_tasks, \
+                _start_date, \
+                raw_original_start, \
+                _original_start_ord, \
+                raw_original_duration, \
+                _original_duration_ord, \
+                raw_planned_start, \
+                _planned_start_ord, \
+                raw_planned_duration, \
+                _planned_duration_ord, \
+                raw_real_start, \
+                _real_start_ord, \
+                raw_real_duration, \
+                _real_duration_ord, \
+                raw_carer_count, \
+                raw_checkout_method = row
+
+                visit_id = int(raw_visit_id)
+                user_id = int(raw_user_id)
+                area_id = int(raw_area_id)
+                tasks = str_to_tasks(raw_tasks)
+                original_start = str_to_date_time(raw_original_start)
+                original_duration = str_to_time_delta(raw_original_duration)
+                planned_start = str_to_date_time(raw_planned_start)
+                planned_duration = str_to_time_delta(raw_planned_duration)
+                real_start = str_to_date_time(raw_real_start)
+                real_duration = str_to_time_delta(raw_real_duration)
+                carer_count = int(raw_carer_count)
+                checkout_method = int(raw_checkout_method)
+
+                visits.append(SimpleVisit(id=visit_id,
+                                          user=user_id,
+                                          area=area_id,
+                                          tasks=tasks,
+                                          original_start=original_start,
+                                          original_duration=original_duration,
+                                          planned_start=planned_start,
+                                          planned_duration=planned_duration,
+                                          real_start=real_start,
+                                          real_duration=real_duration,
+                                          carer_count=carer_count,
+                                          checkout_method=checkout_method))
+            return visits
+        
 
 if __name__ == '__main__':
+
+    def load_data_csv():
+        # './data/visits_old_2017_anonymized.csv'
+        # './data/part_anonymized.csv'
+        file_path = './data/visits_old_2017_anonymized.csv'
+        with open(file_path, 'r') as input_stream:
+            sniffer = csv.Sniffer()
+            dialect = sniffer.sniff(input_stream.read(4096))
+            input_stream.seek(0)
+            with tqdm.tqdm(desc='Loading CSV data...',
+                           leave=False,
+                           unit='records',
+                           iterable=csv.reader(input_stream, dialect=dialect)) as progress_stream:
+                stream_it = iter(progress_stream)
+                next(stream_it)
+                return list(stream_it)
+
+
+    def row_to_visit(row):
+        visit_raw_id, \
+        user_raw_id, \
+        planned_carer_id, \
+        planned_start_raw_date_time, \
+        planned_end_raw_date_time, \
+        planned_duration, \
+        original_start_raw_date_time, \
+        original_end_raw_date_time, \
+        original_duration, \
+        check_in_date_raw_time, \
+        check_out_date_raw_time, \
+        real_duration, \
+        check_out_raw_method, \
+        raw_tasks, \
+        area = row
+        tasks = str_to_tasks(raw_tasks)
+        planned_start_date_time = str_to_date_time(planned_start_raw_date_time)
+        planned_end_date_time = str_to_date_time(planned_end_raw_date_time)
+        original_start_date_time = str_to_date_time(original_start_raw_date_time)
+        original_end_date_time = str_to_date_time(original_end_raw_date_time)
+        real_start_date_time = str_to_date_time(check_in_date_raw_time)
+        real_end_date_time = str_to_date_time(check_out_date_raw_time)
+        return SimpleVisit(id=int(visit_raw_id),
+                           user=int(user_raw_id),
+                           area=int(area),
+                           carer=int(planned_carer_id),
+                           tasks=tasks,
+                           planned_start=planned_start_date_time,
+                           planned_duration=(planned_end_date_time - planned_start_date_time),
+                           original_start=original_start_date_time,
+                           original_duration=(original_end_date_time - original_start_date_time),
+                           real_start=real_start_date_time,
+                           real_duration=(real_end_date_time - real_start_date_time),
+                           checkout_method=int(check_out_raw_method))
+
+
     data_ = load_data_csv()
     visits_ = collections.defaultdict(list)
     with tqdm.tqdm(total=len(data_),
@@ -464,53 +574,10 @@ if __name__ == '__main__':
 
     restricted_visits_.sort(key=functools.cmp_to_key(visit_comp))
 
-    with tqdm.tqdm(total=len(restricted_visits_),
+    visit_file = VisitCSVSourceFile('output.csv')
+    with tqdm.tqdm(restricted_visits_,
                    desc='Saving results...',
                    unit='records',
                    leave=False,
                    unit_scale=True) as t:
-        with open('output.csv', 'w') as stream_writer:
-            writer = csv.writer(stream_writer)
-            headers = ['VisitId',
-                       'UserId',
-                       'AreaId',
-                       'Tasks',
-                       'StartDate',
-                       'OriginalStart',
-                       'OriginalStartOrd',
-                       'OriginalDuration',
-                       'OriginalDurationOrd',
-                       'PlannedStart',
-                       'PlannedStartOrd',
-                       'PlannedDuration',
-                       'PlannedDurationOrd',
-                       'RealStart',
-                       'RealStartOrd',
-                       'RealDuration',
-                       'RealDurationOrd',
-                       'CarerCount',
-                       'CheckoutMethod']
-
-            writer.writerow(headers)
-            for visit in restricted_visits_:
-                writer.writerow([visit.id,
-                                 visit.user,
-                                 visit.area,
-                                 visit.tasks,
-                                 visit.original_start.date(),
-                                 visit.original_start,
-                                 visit.original_start_ord,
-                                 visit.original_duration,
-                                 visit.original_duration_ord,
-                                 visit.planned_start,
-                                 visit.planned_start_ord,
-                                 visit.planned_duration,
-                                 visit.planned_duration_ord,
-                                 visit.real_start,
-                                 visit.real_start_ord,
-                                 visit.real_duration,
-                                 visit.real_duration_ord,
-                                 visit.carer_count,
-                                 visit.checkout_method])
-                t.update(1)
-            stream_writer.flush()
+        visit_file.write(t)

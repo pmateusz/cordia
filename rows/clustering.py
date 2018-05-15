@@ -20,69 +20,13 @@ import matplotlib.pylab
 
 import statsmodels.api
 
-from analysis import SimpleVisit, str_to_date_time, str_to_tasks, str_to_time_delta
+from analysis import VisitCSVSourceFile
 
 
 # select a user
 # develop a model with prediction
 # plot the model and errors
 # compare with errors that real humans do
-
-def load_visits(file_path):
-    with open(file_path, 'r') as stream_reader:
-        results = []
-        sniffer = csv.Sniffer()
-        dialect = sniffer.sniff(stream_reader.read(4096))
-        stream_reader.seek(0)
-        reader = csv.reader(stream_reader, dialect=dialect)
-        next(reader)
-        for row in reader:
-            raw_visit_id, \
-            raw_user_id, \
-            raw_area_id, \
-            raw_tasks, \
-            _start_date, \
-            raw_original_start, \
-            _original_start_ord, \
-            raw_original_duration, \
-            _original_duration_ord, \
-            raw_planned_start, \
-            _planned_start_ord, \
-            raw_planned_duration, \
-            _planned_duration_ord, \
-            raw_real_start, \
-            _real_start_ord, \
-            raw_real_duration, \
-            _real_duration_ord, \
-            raw_carer_count, \
-            raw_checkout_method = row
-
-            visit_id = int(raw_visit_id)
-            user_id = int(raw_user_id)
-            area_id = int(raw_area_id)
-            tasks = str_to_tasks(raw_tasks)
-            original_start = str_to_date_time(raw_original_start)
-            original_duration = str_to_time_delta(raw_original_duration)
-            planned_start = str_to_date_time(raw_planned_start)
-            planned_duration = str_to_time_delta(raw_planned_duration)
-            real_start = str_to_date_time(raw_real_start)
-            real_duration = str_to_time_delta(raw_real_duration)
-            carer_count = int(raw_carer_count)
-            checkout_method = int(raw_checkout_method)
-
-            results.append(SimpleVisit(id=visit_id,
-                                       user=user_id,
-                                       area=area_id,
-                                       tasks=tasks,
-                                       original_start=original_start,
-                                       original_duration=original_duration,
-                                       planned_start=planned_start,
-                                       planned_duration=planned_duration,
-                                       real_start=real_start,
-                                       real_duration=real_duration,
-                                       carer_count=carer_count,
-                                       checkout_method=checkout_method))
-        return results
 
 
 class Cluster:
@@ -431,22 +375,18 @@ def plot_time_series(training_frame, test_frame):
 
 # class cluster - serializable, predict future values, contain data frame
 
-def compute_clusters(data_file):
-    results = []
-
-    visits = load_visits(data_file)
-    groups = []
-    for user_id, group in itertools.groupby(visits, lambda v: v.user):
-        groups.append((user_id, list(group)))
-
+def compute_clusters(visits):
     MAX_EPS, MIN_EPS = 6 * 15 + 1, 15 + 1
+
+    groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
+    results = []
     for user_id, visit_group in tqdm.tqdm(groups, unit='users', desc='Clustering', leave=False):
         distances = calculate_distance(numpy.array(visit_group), distance)
         eps_threshold = MAX_EPS
+
         while True:
             db = sklearn.cluster.DBSCAN(eps=eps_threshold, min_samples=8, metric='precomputed')
             db.fit(distances)
-
             labels = db.labels_
             cluster_count = len(set(labels)) - (1 if -1 in labels else 0)
             clusters = [Cluster(label) for label in range(-1, cluster_count, 1)]
@@ -482,7 +422,17 @@ def compute_clusters(data_file):
 
 
 def save_clusters(clusters, output_directory):
-    pass
+    def cluster_path(user, label):
+        return os.path.join(output_directory, 'user', user, 'cluster', label)
+
+    for cluster in clusters:
+        if not cluster or cluster.label == -1 or not cluster.user:
+            continue
+        cluster_dir = cluster_path(str(cluster.user), str(cluster.label))
+        if not os.path.exists(cluster_dir):
+            os.makedirs(cluster_dir)
+        cluster_file = VisitCSVSourceFile(os.path.join(cluster_dir, 'visits.csv'))
+        cluster_file.write(cluster.items)
 
 
 def load_clusters(input_directory):
@@ -515,14 +465,20 @@ def test_clusters():
 
 if __name__ == '__main__':
     # TODO: put limit on maximum allowed date to use for clustering
-    # TODO: save clusters in the file system
     # TODO: load clusters from file system
     # TODO: compute models
     # TODO: save models
     # TODO: load models
     # TODO: forecast
-    user_clusters = compute_clusters('/home/pmateusz/dev/cordia/output.csv')
-    for clusters in tqdm.tqdm(user_clusters, unit='users', desc='Saving cluster plots', leave=False):
-        if len(clusters) <= 1:
-            continue
-        plot_clusters(clusters, clusters[1].user, '/home/pmateusz/dev/cordia/data/clustering')
+    action = 'save_clusers'
+    if action == 'save_clusters':
+        source_file = VisitCSVSourceFile('/home/pmateusz/dev/cordia/output.csv')
+        visits = source_file.read()
+        user_clusters = compute_clusters(visits)
+        for clusters in tqdm.tqdm(user_clusters, unit='users', desc='Saving cluster plots', leave=False):
+            if len(clusters) <= 1:
+                continue
+            save_clusters(clusters, '/home/pmateusz/dev/cordia/data/clustering')
+    elif action == 'load_clusters':
+        pass
+        # plot_clusters(clusters, clusters[1].user, '/home/pmateusz/dev/cordia/data/clustering')
