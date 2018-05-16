@@ -22,11 +22,11 @@ import statsmodels.api
 
 from analysis import VisitCSVSourceFile, time_to_seconds
 
-
 # select a user
 # develop a model with prediction
 # plot the model and errors
 # compare with errors that real humans do
+from mpl_toolkits.mplot3d import Axes3D
 
 
 class Cluster:
@@ -393,6 +393,63 @@ def plot_time_series(training_frame, test_frame):
     matplotlib.pyplot.show()
 
 
+def compute_kmeans_clusters(visits):
+    visits.sort(key=lambda visit: visit.user)
+
+    def compute_user_clusters(visit_group):
+        MIN_CLUSTER_SIZE = 8
+
+        day_visit_counter = collections.Counter()
+        for visit in visit_group:
+            day_visit_counter[visit.original_start.date()] += 1
+        _, n_clusters = day_visit_counter.most_common()[0]
+
+        visit_frequency_counter = collections.Counter()
+        for date, count in day_visit_counter.items():
+            visit_frequency_counter[count] += 1
+
+        n_clusters = 1
+        for count, freq in visit_frequency_counter.items():
+            if freq >= MIN_CLUSTER_SIZE:
+                n_clusters = max(n_clusters, count)
+
+        possible_dates = [date for date, count in day_visit_counter.items() if count == n_clusters]
+        centroid_candidates = []
+        for date in possible_dates:
+            centroids = [visit for visit in visit_group if visit.original_start.date() == date]
+            centroids.sort(key=lambda item: item.original_start)
+            centroid_candidates.append(centroids)
+
+        centroid_distances = [(centroid, numpy.mean(
+            [numpy.mean([distance(left, right) for left, right in zip(centroid, other)])
+             for other in centroid_candidates if centroid != other])) for centroid in centroid_candidates]
+        centroid_to_use = min(centroid_distances, key=lambda centroid_distance: centroid_distance[1])[0]
+        centroid_distances = [[distance(centroid, visit) for visit in visit_group] for centroid in centroid_to_use]
+        distances = calculate_distance(numpy.array(visit_group), distance)
+        db = sklearn.cluster.KMeans(n_init=1,
+                                    n_clusters=n_clusters,
+                                    precompute_distances=False,
+                                    init=numpy.array(centroid_distances))
+        db.fit(distances)
+        labels = db.labels_
+        cluster_count = len(set(labels)) - (1 if -1 in labels else 0)
+        clusters = [Cluster(label) for label in range(-1, cluster_count, 1)]
+        for visit, label in zip(visit_group, labels):
+            clusters[label + 1].add(visit)
+        return clusters
+
+    results = []
+    groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures_list = [executor.submit(compute_user_clusters, visit_group) for user_id, visit_group in groups]
+        for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
+                           total=len(futures_list),
+                           unit='users',
+                           desc='Clustering', leave=False):
+            results.append(f.result())
+    return results
+
+
 def compute_clusters(visits):
     visits.sort(key=lambda visit: visit.user)
 
@@ -438,7 +495,7 @@ def compute_clusters(visits):
 
     results = []
     groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
-    with concurrent.futures.ThreadPoolExecutor(os.cpu_count() * 2 * 5) as executor:
+    with concurrent.futures.ThreadPoolExecutor() as executor:
         futures_list = [executor.submit(compute_user_clusters, visit_group) for user_id, visit_group in groups]
         for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
                            total=len(futures_list), unit='users',
@@ -450,7 +507,9 @@ def compute_clusters(visits):
 def save_clusters(clusters, output_directory):
     for user_clusters in tqdm.tqdm(clusters, total=len(clusters), leave=False):
         if user_clusters:
-            plot_clusters(user_clusters, user_clusters[0].user, output_directory)
+            user = next((cluster.user for cluster in user_clusters if cluster.user != None), None)
+            if user:
+                plot_clusters(user_clusters, user, output_directory)
 
     def cluster_path(user, label):
         return os.path.join(output_directory, 'user', user, 'cluster', label)
@@ -527,11 +586,13 @@ if __name__ == '__main__':
     # TODO: save models
     # TODO: load models
     # TODO: forecast
-    action = 'load_clusters'
+    # action = 'load_clusters'
+    action = 'save_clusters'
+    # action = 'compare_forecasts'
     if action == 'save_clusters':
         source_file = VisitCSVSourceFile('/home/pmateusz/dev/cordia/output.csv')
         visits = source_file.read()
-        user_clusters = compute_clusters(visits)
+        user_clusters = compute_kmeans_clusters(visits)
         save_clusters(user_clusters, '/home/pmateusz/dev/cordia/data/clustering')
     elif action == 'load_clusters':
         forecast_errors = []
@@ -552,32 +613,40 @@ if __name__ == '__main__':
             if time_delta.days < 32:
                 return None
 
-            data_frame.interpolate(method='linear', inplace=True)
-            training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame,
-                                                                                  test_size=14,
-                                                                                  shuffle=False)
-            ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
-                                                           damped=False,
-                                                           trend=None,
-                                                           seasonal='add',
-                                                           seasonal_periods=7)
+            data_frame.where(
+                (numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()),
+                inplace=True)
 
-            holt_winters = ets.fit(optimized=True, remove_bias=True)
+            try:
+                data_frame.interpolate(method='linear', inplace=True)
+                training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame,
+                                                                                      test_size=14,
+                                                                                      shuffle=False)
+                ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
+                                                               damped=False,
+                                                               trend=None,
+                                                               seasonal='add',
+                                                               seasonal_periods=7)
 
-            test_frame_to_use = test_frame.copy()
-            test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
-            test_frame_to_use['Average'] = training_frame.Duration.mean()
+                holt_winters = ets.fit(optimized=True, remove_bias=True)
 
-            holt_winters_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
-                                                                    test_frame_to_use['HoltWinters'])
-            average_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
-                                                               test_frame_to_use['Average'])
-            return fill_factor, time_delta.days, holt_winters_error, average_error
+                test_frame_to_use = test_frame.copy()
+                test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
+                test_frame_to_use['Average'] = training_frame.Duration.mean()
+
+                holt_winters_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
+                                                                        test_frame_to_use['HoltWinters'])
+                average_error = sklearn.metrics.mean_squared_error(test_frame_to_use.Duration,
+                                                                   test_frame_to_use['Average'])
+                return fill_factor, time_delta.days, holt_winters_error, average_error
+            except:
+                logging.exception('Uncaught exception')
+                return None
 
 
         results = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures_list = [executor.submit(forecast_cluster, cluster) for cluster in clusters[0:100]]
+            futures_list = [executor.submit(forecast_cluster, cluster) for cluster in clusters]
             for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
                                total=len(futures_list), unit='users',
                                desc='Forecasting', leave=False):
@@ -587,3 +656,34 @@ if __name__ == '__main__':
         results_data_frame = pandas.DataFrame(data=results,
                                               columns=['FillFactor', 'Days', 'HoltWintersError', 'AverageError'])
         results_data_frame.to_pickle('forecast_errors.pickle')
+    elif action == 'compare_forecasts':
+        data_frame = pandas.read_pickle('/home/pmateusz/dev/cordia/forecast_errors.pickle')
+
+        fill_factors = list(set(data_frame.FillFactor))
+        fill_factors.sort()
+
+        days = list(set(data_frame.Days))
+        days.sort()
+
+        data_set = []
+        combinations = [(fill_factor, day) for fill_factor in fill_factors for day in days]
+        with tqdm.tqdm(combinations, total=len(combinations)) as t:
+            for fill_factor, day in t:
+                data_frame_query = data_frame.where((data_frame.FillFactor >= fill_factor))
+                average_error = data_frame_query.AverageError.mean()
+                holt_winters_error = data_frame_query.HoltWintersError.mean()
+                data_set.append((fill_factor, day, average_error, holt_winters_error))
+        error_data_frame = pandas.DataFrame(data=data_set,
+                                            columns=['FillFactor', 'Days', 'HoltWintersMeanError', 'AverageMeanError'])
+
+        fig = matplotlib.pyplot.figure()
+        ax = Axes3D(fig)
+        surf = ax.scatter(error_data_frame.FillFactor,
+                          error_data_frame.Days,
+                          error_data_frame.HoltWintersMeanError)
+        matplotlib.pyplot.show()
+
+        # data_frame = data_frame \
+        #     .where((numpy.abs(data_frame.HoltWintersError - data_frame.HoltWintersError.mean()) <= 3 * data_frame.HoltWintersError.std()))
+        # data_frame = data_frame \
+        #     .where((numpy.abs(data_frame.AverageError - data_frame.AverageError.mean()) <= 3 * data_frame.AverageError.std()))
