@@ -1105,10 +1105,11 @@ if __name__ == '__main__':
                            use_boxcox=use_boxcox, remove_bias=remove_bias)
 
 
-        users = ['164', '841', '517', '621', '911']
         clusters = []
         paths = Paths('/home/pmateusz/dev/cordia/data/clustering')
-        for user_id in users:
+        user_ids = list(user_id for user_id in os.listdir(paths.users_dir())
+                        if user_id.isdigit() and os.path.isdir(paths.user_dir(user_id)))
+        for user_id in user_ids:
             cluster_ids = [cluster_part for cluster_part in os.listdir(paths.clusters_dir(user_id)) if
                            cluster_part.isdigit()]
             for cluster_id in cluster_ids:
@@ -1124,77 +1125,105 @@ if __name__ == '__main__':
                     clusters.append(cluster)
 
         errors = []
+
+
+        def get_best(one, two, three):
+            minimum = min(one, two, three)
+            if minimum == one:
+                return '1'
+            if minimum == two:
+                return '2'
+            return '3'
+
+
         for cluster in clusters:
             data_frame = cluster.data_frame()
             data_frame.where(
                 (numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()),
                 inplace=True)
-            data_frame.Duration = data_frame.Duration / 60.0
             data_frame.dropna(inplace=True)
-            data_frame.interpolate(method='linear', inplace=True)
             training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame,
                                                                                   test_size=14,
                                                                                   shuffle=False)
 
-            decomposition_result = statsmodels.api.tsa.seasonal_decompose(data_frame.Duration, freq=30)
-            decomposition_result.plot()
-            matplotlib.pyplot.show()
+            if training_frame.Duration.count() < 64:
+                continue
 
-            ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
-                                                           damped=False,
+            data_frame = training_frame.copy()
+            data_frame.Duration = data_frame.Duration
+            data_frame = data_frame.resample('D').mean()
+            data_frame = normalize(data_frame, datetime.datetime(2017, 10, 1))
+            data_frame.dropna(inplace=True)
+            data_frame.interpolate(method='linear', inplace=True)
+            test_frame.interpolate(method='linear', inplace=True)
+
+            ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(data_frame.Duration),
                                                            trend=None,
                                                            seasonal='add',
                                                            seasonal_periods=7)
+
+            arima_model = statsmodels.api.tsa.statespace.SARIMAX(numpy.asarray(data_frame.Duration),
+                                                                 trend=None,
+                                                                 order=(1, 1, 2),
+                                                                 seasonal_order=(1, 1, 1, 52)) \
+                .fit(method='powell')
 
             if ets.nobs < 14:
                 # we are predicting for 2 weeks, so any smaller value does not make sense
                 # especially the number of observations cannot be 12 to avoid division by 0 in the AICC formula
                 continue
 
-            model = fit(ets)
+            model = fit(ets, smoothing_level=0.001, smoothing_seasonal=0.001)
             test_frame_to_use = test_frame.copy()
             test_frame_to_use['HoltWinters'] = model.forecast(len(test_frame))
+            test_frame_to_use['ARIMA'] = arima_model.forecast(len(test_frame))
             test_frame_to_use['Average'] = training_frame.Duration.mean()
             holt_winters_error = \
                 sklearn.metrics.mean_squared_error(test_frame_to_use.Duration, test_frame_to_use['HoltWinters'])
             average_error = \
                 sklearn.metrics.mean_squared_error(test_frame_to_use.Duration, test_frame_to_use['Average'])
-            print('{0:10.4f} {1:10.4f} {2}'.format(holt_winters_error,
-                                                   average_error,
-                                                   '+' if holt_winters_error < average_error else '-'))
-            errors.append((holt_winters_error, average_error))
-        errors_df = pandas.DataFrame(data=errors, columns=['HoltWinters', 'Average'])
-        print('Total score: {0:10.4f} {1:10.4f} {2}'.format(errors_df.HoltWinters.mean(),
-                                                            errors_df.Average.mean(),
-                                                            '+' if errors_df.HoltWinters.mean() < errors_df.Average.mean() else '-'))
+            arima_error = \
+                sklearn.metrics.mean_squared_error(test_frame_to_use.Duration, test_frame_to_use['ARIMA'])
+            print('{0:10.4f} {1:10.4f} {2:10.4f} {3}'.format(holt_winters_error,
+                                                             arima_error,
+                                                             average_error,
+                                                             get_best(holt_winters_error, arima_error, average_error)))
+            errors.append((holt_winters_error, arima_error, average_error))
+        errors_df = pandas.DataFrame(data=errors, columns=['HoltWinters', 'ARIMA', 'Average'])
+        print('Total score: {0:10.4f} {1:10.4f} {1:10.4f} {2}'.format(errors_df.HoltWinters.mean(),
+                                                                      errors_df.ARIMA.mean(),
+                                                                      errors_df.Average.mean(),
+                                                                      get_best(errors_df.HoltWinters.mean(),
+                                                                               errors_df.ARIMA.mean(),
+                                                                               errors_df.Average.mean())))
 
-    # data_frame = pandas.read_pickle('/home/pmateusz/dev/cordia/forecast_errors.pickle')
-    #
-    # fill_factors = list(set(data_frame.FillFactor))
-    # fill_factors.sort()
-    #
-    # days = list(set(data_frame.Days))
-    # days.sort()
-    #
-    # data_set = []
-    # combinations = [(fill_factor, day) for fill_factor in fill_factors for day in days]
-    # with tqdm.tqdm(combinations, total=len(combinations)) as t:
-    #     for fill_factor, day in t:
-    #         data_frame_query = data_frame.where((data_frame.FillFactor >= fill_factor))
-    #         average_error = data_frame_query.AverageError.mean()
-    #         holt_winters_error = data_frame_query.HoltWintersError.mean()
-    #         data_set.append((fill_factor, day, average_error, holt_winters_error))
-    # error_data_frame = pandas.DataFrame(data=data_set,
-    #                                     columns=['FillFactor', 'Days', 'HoltWintersMeanError', 'AverageMeanError'])
-    #
-    # fig = matplotlib.pyplot.figure()
-    # ax = Axes3D(fig)
-    # surf = ax.scatter(error_data_frame.FillFactor,
-    #                   error_data_frame.Days,
-    #                   error_data_frame.HoltWintersMeanError)
-    # matplotlib.pyplot.show()
+        # data_frame = pandas.read_pickle('/home/pmateusz/dev/cordia/forecast_errors.pickle')
+        #
+        # fill_factors = list(set(data_frame.FillFactor))
+        # fill_factors.sort()
+        #
+        # days = list(set(data_frame.Days))
+        # days.sort()
+        #
+        # data_set = []
+        # combinations = [(fill_factor, day) for fill_factor in fill_factors for day in days]
+        # with tqdm.tqdm(combinations, total=len(combinations)) as t:
+        #     for fill_factor, day in t:
+        #         data_frame_query = data_frame.where((data_frame.FillFactor >= fill_factor))
+        #         average_error = data_frame_query.AverageError.mean()
+        #         holt_winters_error = data_frame_query.HoltWintersError.mean()
+        #         data_set.append((fill_factor, day, average_error, holt_winters_error))
+        # error_data_frame = pandas.DataFrame(data=data_set,
+        #                                     columns=['FillFactor', 'Days', 'HoltWintersMeanError', 'AverageMeanError'])
+        #
+        # fig = matplotlib.pyplot.figure()
+        # ax = Axes3D(fig)
+        # surf = ax.scatter(error_data_frame.FillFactor,
+        #                   error_data_frame.Days,
+        #                   error_data_frame.HoltWintersMeanError)
+        # matplotlib.pyplot.show()
 
-    # data_frame = data_frame \
-    #     .where((numpy.abs(data_frame.HoltWintersError - data_frame.HoltWintersError.mean()) <= 3 * data_frame.HoltWintersError.std()))
-    # data_frame = data_frame \
-    #     .where((numpy.abs(data_frame.AverageError - data_frame.AverageError.mean()) <= 3 * data_frame.AverageError.std()))
+        # data_frame = data_frame \
+        #     .where((numpy.abs(data_frame.HoltWintersError - data_frame.HoltWintersError.mean()) <= 3 * data_frame.HoltWintersError.std()))
+        # data_frame = data_frame \
+        #     .where((numpy.abs(data_frame.AverageError - data_frame.AverageError.mean()) <= 3 * data_frame.AverageError.std()))
