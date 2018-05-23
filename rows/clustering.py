@@ -22,9 +22,13 @@ import tqdm
 import matplotlib.pyplot
 import matplotlib.pylab
 
+import statsmodels.graphics.tsaplots
 import statsmodels.api
+import statsmodels.stats.diagnostic
 import statsmodels.tsa.holtwinters
+import statsmodels.tsa.stattools
 import statsmodels.tsa.arima_model
+import statsmodels.stats
 import statsmodels.stats.stattools
 
 from analysis import VisitCSVSourceFile, time_to_seconds
@@ -61,10 +65,13 @@ class Cluster:
         return None
 
     def data_frame(self):
+        visits_to_use = [visit for visit in self.__items if visit.checkout_method == 1 or visit.checkout_method == 2]
+
         data_frame = pandas.DataFrame(
-            index=pandas.DatetimeIndex(data=[clear_time(visit.original_start) for visit in self.items]),
-            data=[(time_to_seconds(visit.real_start.time()), visit.real_duration.total_seconds()) for visit in
-                  self.items],
+            index=pandas.DatetimeIndex(data=[clear_time(visit.original_start)
+                                             for visit in visits_to_use]),
+            data=[(time_to_seconds(visit.real_start.time()), visit.real_duration.total_seconds())
+                  for visit in visits_to_use],
             columns=['Start', 'Duration'])
         data_frame.sort_index(inplace=True)
         # remove outliers and invalid values, resample, fill missing values
@@ -740,16 +747,64 @@ def parallel_map(function, iterable, max_workers=None):
         return [future.result() for future in futures_list]
 
 
+def find_repeating_component(series):
+    period_errors = []
+    for period in range(1, 8, 1):
+        errors = []
+        for nth_item in range(period):
+            items_to_consider = series[list(range(nth_item, len(series), period))]
+            errors.append(sklearn.metrics.mean_squared_error(items_to_consider,
+                                                             numpy.repeat(items_to_consider.mean(),
+                                                                          len(items_to_consider))))
+        period_errors.append((period, numpy.mean(errors), errors))
+
+    best_period = min(period_errors, key=lambda item: item[1])[0]
+    return [series[list(range(nth_item, len(series), best_period))].mean()
+            for nth_item in range(best_period)]
+
+
+def coalesce(data_frame, begin_range=None, end_range=None):
+    if data_frame.empty:
+        return data_frame.copy()
+
+    data_frame_to_use = data_frame.copy().dropna()
+    data_frame_to_use = data_frame_to_use.resample('D').mean()
+    data_frame_to_use.interpolate(method='linear', inplace=True)
+
+    if begin_range and data_frame_to_use.first_valid_index() > begin_range:
+        step = datetime.timedelta(days=1)
+        current_day = data_frame_to_use.first_valid_index() - step
+        prototype = [None for _ in range(len(data_frame_to_use.columns))]
+        while current_day >= begin_range:
+            data_frame_to_use.loc[current_day] = prototype
+            current_day -= step
+        data_frame_to_use.sort_index(inplace=True)
+        data_frame_to_use.fillna(method='bfill', inplace=True)
+
+    if end_range and data_frame_to_use.last_valid_index() < end_range:
+        step = datetime.timedelta(days=1)
+        current_day = data_frame_to_use.last_valid_index() + step
+        prototype = [None for _ in range(len(data_frame_to_use.columns))]
+        while current_day <= end_range:
+            data_frame_to_use.loc[current_day] = prototype
+            current_day += step
+        data_frame_to_use.fillna(method='ffill', inplace=True)
+
+    if data_frame_to_use.isnull().values.any():
+        raise ValueError('Null values left in the data frame')
+
+    return data_frame_to_use
+
+
 if __name__ == '__main__':
     tqdm.tqdm.monitor_interval = 0
 
-    # TODO: put limit on maximum allowed date to use for clustering
-    # TODO: forecast
     # action = 'save_forecasts'
     # action = 'save_clusters'
     # action = 'compare_forecasts'
     # action = 'test_models'
-    action = 'reproduce_error'
+    # action = 'reproduce_error'
+    action = 'improve'
     if action == 'save_clusters':
         source_file = VisitCSVSourceFile('/home/pmateusz/dev/cordia/output.csv')
         visits = source_file.read()
@@ -762,357 +817,6 @@ if __name__ == '__main__':
         cluster_groups = load_clusters('/home/pmateusz/dev/cordia/data/clustering')
         test_models(cluster_groups, 'prediction_errors.pickle')
     elif action == 'reproduce_error':
-
-        def fit(ets, smoothing_level=None, smoothing_slope=None, smoothing_seasonal=None,
-                damping_slope=None, optimized=True, use_boxcox=False, remove_bias=False,
-                use_basinhopping=False):
-            """
-            fit Holt Winter's Exponential Smoothing
-
-            Parameters
-            ----------
-            smoothing_level : float, optional
-                The alpha value of the simple exponential smoothing, if the value is
-                set then this value will be used as the value.
-            smoothing_slope :  float, optional
-                The beta value of the holts trend method, if the value is
-                set then this value will be used as the value.
-            smoothing_seasonal : float, optional
-                The gamma value of the holt winters seasonal method, if the value is
-                set then this value will be used as the value.
-            damping_slope : float, optional
-                The phi value of the damped method, if the value is
-                set then this value will be used as the value.
-            optimized : bool, optional
-                Should the values that have not been set above be optimized
-                automatically?
-            use_boxcox : {True, False, 'log', float}, optional
-                Should the boxcox tranform be applied to the data first? If 'log'
-                then apply the log. If float then use lambda equal to float.
-            remove_bias : bool, optional
-                Should the bias be removed from the forecast values and fitted values
-                before being returned? Does this by enforcing average residuals equal
-                to zero.
-            use_basinhopping : bool, optional
-                Should the opptimser try harder using basinhopping to find optimal
-                values?
-
-            Returns
-            -------
-            results : HoltWintersResults class
-                See statsmodels.tsa.holtwinters.HoltWintersResults
-
-            Notes
-            -----
-            This is a full implementation of the holt winters exponential smoothing as
-            per [1]. This includes all the unstable methods as well as the stable methods.
-            The implementation of the library covers the functionality of the R
-            library as much as possible whilst still being pythonic.
-
-            References
-            ----------
-            [1] Hyndman, Rob J., and George Athanasopoulos. Forecasting: principles and practice. OTexts, 2014.
-            """
-
-            def _holt_init(x, xi, p, y, l, b):
-                """Initialization for the Holt Models"""
-                p[xi] = x
-                alpha, beta, _, l0, b0, phi = p[:6]
-                alphac = 1 - alpha
-                betac = 1 - beta
-                y_alpha = alpha * y
-                l[:] = 0
-                b[:] = 0
-                l[0] = l0
-                b[0] = b0
-                return alpha, beta, phi, alphac, betac, y_alpha
-
-            def _holt__(x, xi, p, y, l, b, s, m, n, max_seen):
-                """
-                Simple Exponential Smoothing
-                Minimization Function
-                (,)
-                """
-                alpha, beta, phi, alphac, betac, y_alpha = _holt_init(x, xi, p, y, l, b)
-                for i in range(1, n):
-                    l[i] = (y_alpha[i - 1]) + (alphac * (l[i - 1]))
-                return scipy.spatial.distance.sqeuclidean(l, y)
-
-            def _holt_mul_dam(x, xi, p, y, l, b, s, m, n, max_seen):
-                """
-                Multiplicative and Multiplicative Damped
-                Minimization Function
-                (M,) & (Md,)
-                """
-                alpha, beta, phi, alphac, betac, y_alpha = _holt_init(x, xi, p, y, l, b)
-                if alpha == 0.0:
-                    return max_seen
-                if beta > alpha:
-                    return max_seen
-                for i in range(1, n):
-                    l[i] = (y_alpha[i - 1]) + (alphac * (l[i - 1] * b[i - 1] ** phi))
-                    b[i] = (beta * (l[i] / l[i - 1])) + (betac * b[i - 1] ** phi)
-                return scipy.spatial.distance.sqeuclidean(l * b ** phi, y)
-
-            def _holt_add_dam(x, xi, p, y, l, b, s, m, n, max_seen):
-                """
-                Additive and Additive Damped
-                Minimization Function
-                (A,) & (Ad,)
-                """
-                alpha, beta, phi, alphac, betac, y_alpha = _holt_init(x, xi, p, y, l, b)
-                if alpha == 0.0:
-                    return max_seen
-                if beta > alpha:
-                    return max_seen
-                for i in range(1, n):
-                    l[i] = (y_alpha[i - 1]) + (alphac * (l[i - 1] + phi * b[i - 1]))
-                    b[i] = (beta * (l[i] - l[i - 1])) + (betac * phi * b[i - 1])
-                return scipy.spatial.distance.sqeuclidean(l + phi * b, y)
-
-            def _holt_win_init(x, xi, p, y, l, b, s, m):
-                """Initialization for the Holt Winters Seasonal Models"""
-                p[xi] = x
-                alpha, beta, gamma, l0, b0, phi = p[:6]
-                s0 = p[6:]
-                alphac = 1 - alpha
-                betac = 1 - beta
-                gammac = 1 - gamma
-                y_alpha = alpha * y
-                y_gamma = gamma * y
-                l[:] = 0
-                b[:] = 0
-                s[:] = 0
-                l[0] = l0
-                b[0] = b0
-                s[:m] = s0
-                return alpha, beta, gamma, phi, alphac, betac, gammac, y_alpha, y_gamma
-
-            def _holt_win__mul(x, xi, p, y, l, b, s, m, n, max_seen):
-                """
-                Multiplicative Seasonal
-                Minimization Function
-                (,M)
-                """
-                alpha, beta, gamma, phi, alphac, betac, gammac, y_alpha, y_gamma = _holt_win_init(
-                    x, xi, p, y, l, b, s, m)
-                if alpha == 0.0:
-                    return max_seen
-                if gamma > 1 - alpha:
-                    return max_seen
-                for i in range(1, n):
-                    l[i] = (y_alpha[i - 1] / s[i - 1]) + (alphac * (l[i - 1]))
-                    s[i + m - 1] = (y_gamma[i - 1] / (l[i - 1])) + (gammac * s[i - 1])
-                return scipy.spatial.distance.sqeuclidean(l * s[:-(m - 1)], y)
-
-            def _holt_win__add(x, xi, p, y, l, b, s, m, n, max_seen):
-                """
-                Additive Seasonal
-                Minimization Function
-                (,A)
-                """
-                alpha, beta, gamma, phi, alphac, betac, gammac, y_alpha, y_gamma = _holt_win_init(
-                    x, xi, p, y, l, b, s, m)
-                if alpha == 0.0:
-                    return max_seen
-                if gamma > 1 - alpha:
-                    return max_seen
-                for i in range(1, n):
-                    l[i] = (y_alpha[i - 1]) - (alpha * s[i - 1]) + (alphac * (l[i - 1]))
-                    s[i + m - 1] = y_gamma[i - 1] - \
-                                   (gamma * (l[i - 1])) + (gammac * s[i - 1])
-                return scipy.spatial.distance.sqeuclidean(l + s[:-(m - 1)], y)
-
-            def _holt_win_add_mul_dam(x, xi, p, y, l, b, s, m, n, max_seen):
-                """
-                Additive and Additive Damped with Multiplicative Seasonal
-                Minimization Function
-                (A,M) & (Ad,M)
-                """
-                alpha, beta, gamma, phi, alphac, betac, gammac, y_alpha, y_gamma = _holt_win_init(
-                    x, xi, p, y, l, b, s, m)
-                if alpha * beta == 0.0:
-                    return max_seen
-                if beta > alpha or gamma > 1 - alpha:
-                    return max_seen
-                for i in range(1, n):
-                    l[i] = (y_alpha[i - 1] / s[i - 1]) + \
-                           (alphac * (l[i - 1] + phi * b[i - 1]))
-                    b[i] = (beta * (l[i] - l[i - 1])) + (betac * phi * b[i - 1])
-                    s[i + m - 1] = (y_gamma[i - 1] / (l[i - 1] + phi *
-                                                      b[i - 1])) + (gammac * s[i - 1])
-                return scipy.spatial.distance.sqeuclidean((l + phi * b) * s[:-(m - 1)], y)
-
-            def _holt_win_mul_mul_dam(x, xi, p, y, l, b, s, m, n, max_seen):
-                """
-                Multiplicative and Multiplicative Damped with Multiplicative Seasonal
-                Minimization Function
-                (M,M) & (Md,M)
-                """
-                alpha, beta, gamma, phi, alphac, betac, gammac, y_alpha, y_gamma = _holt_win_init(
-                    x, xi, p, y, l, b, s, m)
-                if alpha * beta == 0.0:
-                    return max_seen
-                if beta > alpha or gamma > 1 - alpha:
-                    return max_seen
-                for i in range(1, n):
-                    l[i] = (y_alpha[i - 1] / s[i - 1]) + \
-                           (alphac * (l[i - 1] * b[i - 1] ** phi))
-                    b[i] = (beta * (l[i] / l[i - 1])) + (betac * b[i - 1] ** phi)
-                    s[i + m - 1] = (y_gamma[i - 1] / (l[i - 1] *
-                                                      b[i - 1] ** phi)) + (gammac * s[i - 1])
-                return scipy.spatial.distance.sqeuclidean((l * b ** phi) * s[:-(m - 1)], y)
-
-            def _holt_win_add_add_dam(x, xi, p, y, l, b, s, m, n, max_seen):
-                """
-                Additive and Additive Damped with Additive Seasonal
-                Minimization Function
-                (A,A) & (Ad,A)
-                """
-                alpha, beta, gamma, phi, alphac, betac, gammac, y_alpha, y_gamma = _holt_win_init(
-                    x, xi, p, y, l, b, s, m)
-                if alpha * beta == 0.0:
-                    return max_seen
-                if beta > alpha or gamma > 1 - alpha:
-                    return max_seen
-                for i in range(1, n):
-                    l[i] = (y_alpha[i - 1]) - (alpha * s[i - 1]) + \
-                           (alphac * (l[i - 1] + phi * b[i - 1]))
-                    b[i] = (beta * (l[i] - l[i - 1])) + (betac * phi * b[i - 1])
-                    s[i + m - 1] = y_gamma[i - 1] - \
-                                   (gamma * (l[i - 1] + phi * b[i - 1])) + (gammac * s[i - 1])
-                return scipy.spatial.distance.sqeuclidean((l + phi * b) + s[:-(m - 1)], y)
-
-            def _holt_win_mul_add_dam(x, xi, p, y, l, b, s, m, n, max_seen):
-                """
-                Multiplicative and Multiplicative Damped with Additive Seasonal
-                Minimization Function
-                (M,A) & (M,Ad)
-                """
-                alpha, beta, gamma, phi, alphac, betac, gammac, y_alpha, y_gamma = _holt_win_init(
-                    x, xi, p, y, l, b, s, m)
-                if alpha * beta == 0.0:
-                    return max_seen
-                if beta > alpha or gamma > 1 - alpha:
-                    return max_seen
-                for i in range(1, n):
-                    l[i] = (y_alpha[i - 1]) - (alpha * s[i - 1]) + \
-                           (alphac * (l[i - 1] * b[i - 1] ** phi))
-                    b[i] = (beta * (l[i] / l[i - 1])) + (betac * b[i - 1] ** phi)
-                    s[i + m - 1] = y_gamma[i - 1] - \
-                                   (gamma * (l[i - 1] * b[i - 1] ** phi)) + (gammac * s[i - 1])
-                return scipy.spatial.distance.sqeuclidean((l * phi * b) + s[:-(m - 1)], y)
-
-            # Variable renames to alpha,beta, etc as this helps with following the
-            # mathematical notation in general
-            alpha = smoothing_level
-            beta = smoothing_slope
-            gamma = smoothing_seasonal
-            phi = damping_slope
-
-            data = ets.endog
-            damped = ets.damped
-            seasoning = ets.seasoning
-            trending = ets.trending
-            trend = ets.trend
-            seasonal = ets.seasonal
-            m = ets.seasonal_periods
-            opt = None
-            phi = phi if damped else 1.0
-            if use_boxcox == 'log':
-                lamda = 0.0
-                y = scipy.stats.boxcox(data, lamda)
-            elif isinstance(use_boxcox, float):
-                lamda = use_boxcox
-                y = scipy.stats.boxcox(data, lamda)
-            elif use_boxcox:
-                y, lamda = scipy.stats.boxcox(data)
-            else:
-                lamda = None
-                y = data.squeeze()
-            if numpy.ndim(y) != 1:
-                raise NotImplementedError('Only 1 dimensional data supported')
-            l = numpy.zeros((ets.nobs,))
-            b = numpy.zeros((ets.nobs,))
-            s = numpy.zeros((ets.nobs + m - 1,))
-            p = numpy.zeros(6 + m)
-            max_seen = numpy.finfo(numpy.double).max
-            if seasoning:
-                l0 = y[numpy.arange(ets.nobs) % m == 0].mean()
-                b0 = ((y[m:m + m] - y[:m]) / m).mean() if trending else None
-                s0 = list(y[:m] / l0) if seasonal == 'mul' else list(y[:m] - l0)
-            elif trending:
-                l0 = y[0]
-                b0 = y[1] / y[0] if trend == 'mul' else y[1] - y[0]
-                s0 = []
-            else:
-                l0 = y[0]
-                b0 = None
-                s0 = []
-            if optimized:
-                init_alpha = alpha if alpha is not None else 0.5 / max(m, 1)
-                init_beta = beta if beta is not None else 0.1 * init_alpha if trending else beta
-                init_gamma = None
-                init_phi = phi if phi is not None else 0.99
-                # Selection of functions to optimize for approporate parameters
-                func_dict = {('mul', 'add'): _holt_win_add_mul_dam,
-                             ('mul', 'mul'): _holt_win_mul_mul_dam,
-                             ('mul', None): _holt_win__mul,
-                             ('add', 'add'): _holt_win_add_add_dam,
-                             ('add', 'mul'): _holt_win_mul_add_dam,
-                             ('add', None): _holt_win__add,
-                             (None, 'add'): _holt_add_dam,
-                             (None, 'mul'): _holt_mul_dam,
-                             (None, None): _holt__}
-                if seasoning:
-                    init_gamma = gamma if gamma is not None else 0.05 * \
-                                                                 (1 - init_alpha)
-                    xi = numpy.array([alpha is None, beta is None, gamma is None,
-                                      True, trending, phi is None and damped] + [True] * m)
-                    func = func_dict[(seasonal, trend)]
-                elif trending:
-                    xi = numpy.array([alpha is None, beta is None, False,
-                                      True, True, phi is None and damped] + [False] * m)
-                    func = func_dict[(None, trend)]
-                else:
-                    xi = numpy.array([alpha is None, False, False,
-                                      True, False, False] + [False] * m)
-                    func = func_dict[(None, None)]
-                p[:] = [init_alpha, init_beta, init_gamma, l0, b0, init_phi] + s0
-
-                # txi [alpha, beta, gamma, l0, b0, phi, s0,..,s_(m-1)]
-                # Have a quick look in the region for a good starting place for alpha etc.
-                # using guestimates for the levels
-                txi = xi & numpy.array(
-                    [True, True, True, False, False, True] + [False] * m)
-                bounds = numpy.array([(0.0, 1.0), (0.0, 1.0), (0.0, 1.0),
-                                      (0.0, None), (0.0, None), (0.0, 1.0)] + [(None, None), ] * m)
-                res = scipy.optimize.brute(func, bounds[txi], (txi, p, y, l, b, s, m, ets.nobs, max_seen),
-                                           Ns=25, full_output=True, finish=None)
-                (p[txi], max_seen, grid, Jout) = res
-                [alpha, beta, gamma, l0, b0, phi] = p[:6]
-                s0 = p[6:]
-                # bounds = np.array([(0.0,1.0),(0.0,1.0),(0.0,1.0),(0.0,None),(0.0,None),(0.8,1.0)] + [(None,None),]*m)
-                if use_basinhopping:
-                    # Take a deeper look in the local minimum we are in to find the best
-                    # solution to parameters, maybe hop around to try escape the local
-                    # minimum we may be in.
-                    res = scipy.optimize.basinhopping(func, p[xi], minimizer_kwargs={'args': (
-                        xi, p, y, l, b, s, m, ets.nobs, max_seen), 'bounds': bounds[xi]}, stepsize=0.01)
-                else:
-                    # Take a deeper look in the local minimum we are in to find the best
-                    # solution to parameters
-                    res = scipy.optimize.minimize(func, p[xi], args=(
-                        xi, p, y, l, b, s, m, ets.nobs, max_seen), bounds=bounds[xi])
-                p[xi] = res.x
-                [alpha, beta, gamma, l0, b0, phi] = p[:6]
-                s0 = p[6:]
-                opt = res
-            return ets.fit(smoothing_level=alpha, smoothing_slope=beta,
-                           smoothing_seasonal=gamma, damping_slope=phi,
-                           use_boxcox=use_boxcox, remove_bias=remove_bias)
-
-
         clusters = []
         paths = Paths('/home/pmateusz/dev/cordia/data/clustering')
         # user_ids = list(user_id for user_id in os.listdir(paths.users_dir())
@@ -1143,55 +847,6 @@ if __name__ == '__main__':
             return '3'
 
 
-        def find_repeating_component(series):
-            period_errors = []
-            for period in range(1, 8, 1):
-                errors = []
-                for nth_item in range(period):
-                    items_to_consider = series[list(range(nth_item, len(series), period))]
-                    errors.append(sklearn.metrics.mean_squared_error(items_to_consider,
-                                                                     numpy.repeat(items_to_consider.mean(),
-                                                                                  len(items_to_consider))))
-                period_errors.append((period, numpy.mean(errors), errors))
-
-            best_period = min(period_errors, key=lambda item: item[1])[0]
-            return [series[list(range(nth_item, len(series), best_period))].mean()
-                    for nth_item in range(best_period)]
-
-
-        def coalesce(data_frame, begin_range=None, end_range=None):
-            if data_frame.empty:
-                return data_frame.copy()
-
-            data_frame_to_use = data_frame.dropna()
-            data_frame_to_use = data_frame_to_use.resample('D').mean()
-            data_frame_to_use.interpolate(method='linear', inplace=True)
-
-            if begin_range and data_frame_to_use.first_valid_index() > begin_range:
-                step = datetime.timedelta(days=1)
-                current_day = data_frame_to_use.first_valid_index() - step
-                prototype = [None for _ in range(len(data_frame_to_use.columns))]
-                while current_day >= begin_range:
-                    data_frame_to_use.loc[current_day] = prototype
-                    current_day -= step
-                data_frame_to_use.sort_index(inplace=True)
-                data_frame_to_use.fillna(method='bfill', inplace=True)
-
-            if end_range and data_frame_to_use.last_valid_index() < end_range:
-                step = datetime.timedelta(days=1)
-                current_day = data_frame_to_use.last_valid_index() + step
-                prototype = [None for _ in range(len(data_frame_to_use.columns))]
-                while current_day <= end_range:
-                    data_frame_to_use.loc[current_day] = prototype
-                    current_day += step
-                data_frame_to_use.fillna(method='ffill', inplace=True)
-
-            if data_frame_to_use.isnull().values.any():
-                raise ValueError('Null values left in the data frame')
-
-            return data_frame_to_use
-
-
         def process_cluster(cluster):
             data_frame = cluster.data_frame()
             data_frame.where(
@@ -1217,7 +872,7 @@ if __name__ == '__main__':
                                   begin_range=datetime.datetime(2017, 10, 1),
                                   end_range=datetime.datetime(2017, 10, 14))
 
-            data_frame = coalesce(data_frame, end_range=datetime.datetime(2017, 10, 14))
+            # data_frame = coalesce(data_frame, end_range=datetime.datetime(2017, 10, 14))
 
             decomposition = statsmodels.api.tsa.seasonal_decompose(training_frame.Duration, model='additive')
             seasonal_component = find_repeating_component(decomposition.seasonal)
@@ -1286,12 +941,14 @@ if __name__ == '__main__':
                 sklearn.metrics.mean_squared_error(test_frame_to_use.Duration, test_frame_to_use['Average'])
             arima_error = \
                 sklearn.metrics.mean_squared_error(test_frame_to_use.Duration, test_frame_to_use['ARIMA'])
-            print('{0:10.4f} {1:10.4f} {2:10.4f} {3}'.format(holt_winters_error,
-                                                             arima_error,
-                                                             average_error,
-                                                             get_min_label(holt_winters_error,
-                                                                           arima_error,
-                                                                           average_error)))
+            print('{0:10.4f} {1:10.4f} {2:10.4f} {3} {4} {5}'.format(holt_winters_error,
+                                                                     arima_error,
+                                                                     average_error,
+                                                                     get_min_label(holt_winters_error,
+                                                                                   arima_error,
+                                                                                   average_error),
+                                                                     cluster.user,
+                                                                     cluster.label))
             return holt_winters_error, arima_error, average_error
 
 
@@ -1396,33 +1053,118 @@ if __name__ == '__main__':
                                                                                     errors_df.ARIMA.mean(),
                                                                                     errors_df.Average.mean())))
 
-    # data_frame = pandas.read_pickle('/home/pmateusz/dev/cordia/forecast_errors.pickle')
-    #
-    # fill_factors = list(set(data_frame.FillFactor))
-    # fill_factors.sort()
-    #
-    # days = list(set(data_frame.Days))
-    # days.sort()
-    #
-    # data_set = []
-    # combinations = [(fill_factor, day) for fill_factor in fill_factors for day in days]
-    # with tqdm.tqdm(combinations, total=len(combinations)) as t:
-    #     for fill_factor, day in t:
-    #         data_frame_query = data_frame.where((data_frame.FillFactor >= fill_factor))
-    #         average_error = data_frame_query.AverageError.mean()
-    #         holt_winters_error = data_frame_query.HoltWintersError.mean()
-    #         data_set.append((fill_factor, day, average_error, holt_winters_error))
-    # error_data_frame = pandas.DataFrame(data=data_set,
-    #                                     columns=['FillFactor', 'Days', 'HoltWintersMeanError', 'AverageMeanError'])
-    #
-    # fig = matplotlib.pyplot.figure()
-    # ax = Axes3D(fig)
-    # surf = ax.scatter(error_data_frame.FillFactor,
-    #                   error_data_frame.Days,
-    #                   error_data_frame.HoltWintersMeanError)
-    # matplotlib.pyplot.show()
+    elif action == 'improve':
+        root_dir = '/home/pmateusz/dev/cordia/data/clustering'
+        clusters = load_clusters(root_dir)
+        items_to_process = list(itertools.chain.from_iterable(clusters))
+        for cluster in tqdm.tqdm(items_to_process, total=len(items_to_process)):
+            data_frame = cluster.data_frame()
+            training_frame = data_frame[:'2017-9-30']
+            if training_frame.Duration.count() < 64:
+                # we are predicting for 2 weeks, so any smaller value does not make sense
+                # especially the number of observations cannot be 12 to avoid division by 0 in the AICC formula
+                continue
 
-    # data_frame = data_frame \
-    #     .where((numpy.abs(data_frame.HoltWintersError - data_frame.HoltWintersError.mean()) <= 3 * data_frame.HoltWintersError.std()))
-    # data_frame = data_frame \
-    #     .where((numpy.abs(data_frame.AverageError - data_frame.AverageError.mean()) <= 3 * data_frame.AverageError.std()))
+            training_frame = coalesce(training_frame, None, datetime.datetime(2017, 10, 1)).copy()
+
+            test_frame = data_frame['2017-10-1':'2017-10-14']
+            test_frame = test_frame.dropna()
+            if test_frame.empty:
+                continue
+
+            data_frame_to_use = coalesce(data_frame)
+
+            correlation_test = statsmodels.stats.stattools.durbin_watson(data_frame_to_use.Duration)
+            stationary_test = statsmodels.tsa.stattools.adfuller(data_frame_to_use.Duration)
+
+            decomposition = statsmodels.api.tsa.seasonal_decompose(training_frame.Duration, model='additive')
+
+            seasonal_component = find_repeating_component(decomposition.seasonal)
+            seasons = int(numpy.ceil(365.0 / len(seasonal_component)))
+            season_df = pandas.DataFrame(
+                index=pandas.date_range(start=datetime.datetime(2017, 1, 1), periods=7 * seasons, freq='D'),
+                data=numpy.tile(seasonal_component, seasons),
+                columns=['Duration'])
+
+            no_season_df = training_frame.copy()
+            no_season_df.Duration = (no_season_df.Duration - season_df.Duration)
+            no_season_df = coalesce(no_season_df)
+
+            trend = coalesce(decomposition.trend[no_season_df.first_valid_index():no_season_df.last_valid_index()])
+
+            data_frame_to_use = no_season_df.copy()
+            data_frame_to_use.Duration = no_season_df.Duration - trend
+            data_frame_to_use = coalesce(data_frame_to_use)
+
+
+            def plot_acf_pacf(series):
+                fig = matplotlib.pyplot.figure(figsize=(12, 8))
+                ax1 = fig.add_subplot(211)
+                statsmodels.graphics.tsaplots.plot_acf(series.values.squeeze(), lags=40, ax=ax1)
+                ax2 = fig.add_subplot(212)
+                statsmodels.graphics.tsaplots.plot_pacf(series, lags=40, ax=ax2)
+                matplotlib.pyplot.show()
+
+
+            data_frame_to_use = coalesce(data_frame_to_use, end_range=datetime.datetime(2017, 9, 30))
+
+            arma_config = statsmodels.api.tsa.ARMA(data_frame_to_use.Duration, (1, 0), freq='D')
+            arma_model = arma_config.fit(disp=0)
+
+            ets_config = statsmodels.api.tsa.ExponentialSmoothing(data_frame_to_use.Duration, trend='add', freq='D')
+            ets_model = ets_config.fit(optimized=True, use_boxcox=False)
+
+            scipy.stats.normaltest(arma_model.resid)
+
+            r, q, p = statsmodels.tsa.stattools.acf(arma_model.resid.values, qstat=True, missing='drop')
+            data = numpy.c_[range(1, 41), r[1:], q, p]
+            ljung_box_df = pandas.DataFrame(data, columns=['lag', "AC", "Q", "Prob(>Q)"])
+
+            forecast_df = pandas.DataFrame(index=pandas.date_range(datetime.datetime(2017, 10, 1),
+                                                                   datetime.datetime(2017, 10, 14),
+                                                                   freq='D'))
+            arma_prediction = arma_model.forecast(14)
+            forecast_df['ARIMA'] = arma_prediction[0] \
+                                   + season_df.Duration[datetime.datetime(2017, 10, 1):datetime.datetime(2017, 10, 14)] \
+                                   + trend.mean()
+            forecast_df['HoltWinters'] = ets_model.forecast(14) \
+                                         + season_df.Duration[datetime.datetime(2017, 10, 1)
+                                                              :datetime.datetime(2017, 10, 14)] \
+                                         + trend.mean()
+            forecast_df['MEAN'] = training_frame.Duration.mean()
+
+            arima_error = \
+                sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['ARIMA'])
+            holt_winters_error = \
+                sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['HoltWinters'])
+            mean_error = \
+                sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['MEAN'])
+
+
+            def get_label(method, error):
+                return '{0:15} {1:.2}'.format(method, error)
+
+
+            import operator
+
+
+            def get_filename(cluster, user, errors):
+                errors_to_use = list(errors.items())
+                errors_to_use.sort(key=operator.itemgetter(1))
+                prefix = ''.join(map(lambda pair: pair[0][0], errors_to_use))
+                return '{0}_c{1}u{2}.png'.format(prefix, cluster, user)
+
+
+            figure = matplotlib.pyplot.figure(figsize=(12, 8))
+            matplotlib.pyplot.plot(data_frame.Duration.ix['2017-1-1':])
+            forecast_df.ARIMA.plot(style='r--', label=get_label('ARIMA', arima_error))
+            forecast_df.HoltWinters.plot(style='g--', label=get_label('Holt-Winters', holt_winters_error))
+            forecast_df.MEAN.plot(label=get_label('Mean', mean_error), style='b--')
+            matplotlib.pyplot.legend()
+
+            file_name = get_filename(cluster.label, cluster.user,
+                                     {'mean': mean_error,
+                                      'arima': arima_error,
+                                      'holtwinters': holt_winters_error})
+            matplotlib.pyplot.savefig(os.path.join(root_dir, file_name))
+            matplotlib.pyplot.close(figure)
