@@ -2,11 +2,14 @@ import logging
 import pathlib
 import statistics
 import collections
+import operator
 import math
 import itertools
 import datetime
 
 import pyodbc
+
+import pandas
 
 import scipy.stats
 
@@ -513,13 +516,14 @@ ORDER BY carer_visits.VisitID"""
                 self.__season_series = season_series
 
             def forecast(self, date):
-                days_since_training = (date - self.__last_date).days
+                date_to_use = datetime.datetime.combine(date, datetime.time())
+                days_since_training = (date_to_use - self.__last_date).days
 
-                if days_since_training < 0:
+                if days_since_training <= 0:
                     raise ValueError()
 
                 forecast = self.__model.forecast(days_since_training)
-                return forecast[-1] + self.__trend_mean + self.__season_series[date].Duration
+                return forecast[0][-1] + self.__trend_mean + self.__season_series.Duration[date_to_use]
 
         def __init__(self):
             super(SqlDataSource.ForecastEstimator, self).__init__()
@@ -530,11 +534,11 @@ ORDER BY carer_visits.VisitID"""
         def reload(self, console, connection_factory, area, start_date, end_date):
             from rows.analysis import str_to_tasks, SimpleVisit
 
-            cursor = connection_factory.cursor()
+            cursor = connection_factory().cursor()
             visits = []
 
-            for row in cursor.execute(SqlDataSource.LIST_PAST_VISITS_QUERY_WITH_CHECKOUT_INFO.format(area.code,
-                                                                                                     start_date.date())) \
+            for row in cursor.execute(
+                    SqlDataSource.LIST_PAST_VISITS_QUERY_WITH_CHECKOUT_INFO.format(area.code, start_date)) \
                     .fetchall():
                 visit_raw_id, \
                 user_raw_id, \
@@ -566,7 +570,7 @@ ORDER BY carer_visits.VisitID"""
                                           real_duration=(real_end_date_time - real_start_date_time),
                                           checkout_method=int(check_out_raw_method)))
 
-            from rows.clustering import compute_kmeans_clusters, coalesce, find_repeating_component
+            from rows.clustering import compute_kmeans_clusters, coalesce, find_repeating_component, distance
 
             import pandas
             import numpy
@@ -580,6 +584,8 @@ ORDER BY carer_visits.VisitID"""
             self.__user_clusters = collections.defaultdict(list)
             for cluster_group in cluster_groups:
                 for cluster in cluster_group:
+                    if cluster.empty:
+                        continue
                     self.__user_clusters[cluster.user].append(cluster)
 
             def compute_prediction_model(cluster):
@@ -589,7 +595,8 @@ ORDER BY carer_visits.VisitID"""
                     # especially the number of observations cannot be 12 to avoid division by 0 in the AICC formula
                     return SqlDataSource.ForecastEstimator.MeanModel(data_frame.Duration.mean())
 
-                last_past_visit_date = start_date - datetime.timedelta(days=1)
+                start_date_to_use = datetime.datetime.combine(start_date, datetime.time())
+                last_past_visit_date = start_date_to_use - datetime.timedelta(days=1)
                 data_frame = coalesce(data_frame, None, last_past_visit_date).copy()
                 first_index = data_frame.first_valid_index()
                 last_index = data_frame.last_valid_index()
@@ -604,7 +611,7 @@ ORDER BY carer_visits.VisitID"""
                         decomposition.trend[first_index:last_index],
                         columns=['Duration']),
                     begin_range=first_index,
-                    end_range=start_date)
+                    end_range=last_past_visit_date)
                 data_frame.Duration = data_frame.Duration - trend.Duration
 
                 seasonal_component = find_repeating_component(decomposition.seasonal)
@@ -637,8 +644,8 @@ ORDER BY carer_visits.VisitID"""
 
                 return SqlDataSource.ForecastEstimator.ARIMAModel(last_past_visit_date,
                                                                   arma_model,
-                                                                  season_df,
-                                                                  trend.Duration.mean())
+                                                                  trend.Duration.mean(),
+                                                                  season_df)
 
             self.__cluster_models = {}
             for user, clusters in self.__user_clusters.items():
@@ -650,6 +657,33 @@ ORDER BY carer_visits.VisitID"""
             return True
 
         def __call__(self, local_visit):
+            from rows.clustering import distance
+            from rows.analysis import SimpleVisit, str_to_tasks
+
+            if local_visit.service_user in self.__user_clusters:
+                user_clusters = self.__user_clusters[local_visit.service_user]
+                if not user_clusters:
+                    raise ValueError()
+
+                simple_visit = SimpleVisit(id=local_visit.key,
+                                           user=local_visit.service_user,
+                                           tasks=str_to_tasks(local_visit.tasks),
+                                           original_start=datetime.datetime.combine(local_visit.date, local_visit.time),
+                                           original_duration=datetime.timedelta(seconds=int(local_visit.duration)),
+                                           planned_start=datetime.datetime.combine(local_visit.date, local_visit.time),
+                                           planned_duration=datetime.timedelta(seconds=int(local_visit.duration)))
+                distances = []
+                for index in range(len(user_clusters)):
+                    cluster = user_clusters[index]
+                    cluster.centroid()
+                    distances.append((cluster, distance(simple_visit, cluster.centroid())))
+                cluster, time_distance = min(distances, key=operator.itemgetter(1))
+                if time_distance < 90:
+                    # visit is within 90 minutes time distance from the centroid
+                    return self.__cluster_models[cluster].forecast(simple_visit.original_start.date())
+                return local_visit.duration
+            else:
+                logging.warning('Failed to find a cluster for user %s', local_visit.service_user)
             return local_visit.duration
 
     class GlobalPercentileEstimator(IntervalEstimatorBase):

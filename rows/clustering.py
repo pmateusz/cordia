@@ -64,6 +64,10 @@ class Cluster:
             return self.__items[0].user
         return None
 
+    @property
+    def empty(self):
+        return not bool(self.__items)
+
     def data_frame(self):
         visits_to_use = [visit for visit in self.__items if visit.checkout_method == 1 or visit.checkout_method == 2]
 
@@ -481,8 +485,6 @@ def compute_kmeans_clusters(visits):
 
     results = []
     groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
-    # FIXME
-    groups = groups[:20]
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures_list = [executor.submit(compute_user_clusters, visit_group) for user_id, visit_group in groups]
         for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
