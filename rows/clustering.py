@@ -796,6 +796,131 @@ def coalesce(data_frame, begin_range=None, end_range=None):
     return data_frame_to_use
 
 
+def analyze_cluster(cluster):
+    data_frame = cluster.data_frame()
+    training_frame = data_frame[:'2017-9-30']
+    if training_frame.Duration.count() < 64:
+        # we are predicting for 2 weeks, so any smaller value does not make sense
+        # especially the number of observations cannot be 12 to avoid division by 0 in the AICC formula
+        return None
+
+    training_frame = coalesce(training_frame, None, datetime.datetime(2017, 10, 1)).copy()
+
+    test_frame = data_frame['2017-10-1':'2017-10-14']
+    test_frame = test_frame.dropna()
+    if test_frame.empty:
+        return None
+
+    data_frame_to_use = coalesce(data_frame)
+
+    correlation_test = statsmodels.stats.stattools.durbin_watson(data_frame_to_use.Duration)
+    stationary_test = statsmodels.tsa.stattools.adfuller(data_frame_to_use.Duration)
+
+    decomposition = statsmodels.api.tsa.seasonal_decompose(training_frame.Duration, model='additive')
+
+    seasonal_component = find_repeating_component(decomposition.seasonal)
+    seasons = int(numpy.ceil(365.0 / len(seasonal_component)))
+
+    seasonal_component_df = pandas.DataFrame(
+        index=pandas.date_range(start=datetime.datetime(2017, 1, 1), periods=7 * seasons, freq='D'),
+        data=numpy.tile(seasonal_component, seasons),
+        columns=['Duration'])
+
+    def seasonal_effect(x, a, b):
+        return a * numpy.asarray(x) + b
+
+    data_frame_to_use = training_frame.copy()
+
+    trend = coalesce(
+        pandas.DataFrame(
+            decomposition.trend[data_frame_to_use.first_valid_index():data_frame_to_use.last_valid_index()],
+            columns=['Duration']),
+        begin_range=data_frame_to_use.first_valid_index(),
+        end_range=data_frame_to_use.last_valid_index())
+
+    data_frame_to_use.Duration = data_frame_to_use.Duration - trend.Duration
+    popt, pcov = scipy.optimize.curve_fit(seasonal_effect,
+                                          seasonal_component_df[
+                                          training_frame.first_valid_index():training_frame.last_valid_index()].Duration,
+                                          data_frame_to_use.Duration)
+
+    season_df = seasonal_component_df.copy()
+    season_df.Duration = season_df.Duration * popt[0] + popt[1]
+    no_season_df = data_frame_to_use.copy()
+    no_season_df.Duration = no_season_df.Duration - season_df.Duration
+    data_frame_to_use = coalesce(no_season_df)
+
+    def plot_acf_pacf(series):
+        fig = matplotlib.pyplot.figure(figsize=(12, 8))
+        ax1 = fig.add_subplot(211)
+        statsmodels.graphics.tsaplots.plot_acf(series.values.squeeze(), lags=40, ax=ax1)
+        ax2 = fig.add_subplot(212)
+        statsmodels.graphics.tsaplots.plot_pacf(series, lags=40, ax=ax2)
+        matplotlib.pyplot.show()
+
+    data_frame_to_use = coalesce(data_frame_to_use, end_range=datetime.datetime(2017, 9, 30))[
+                        :datetime.datetime(2017, 9, 30)]
+
+    arma_config = statsmodels.api.tsa.ARMA(data_frame_to_use.Duration, (1, 0), freq='D')
+    arma_model = arma_config.fit(disp=0)
+
+    ets_config = statsmodels.api.tsa.ExponentialSmoothing(data_frame_to_use.Duration, trend='add', freq='D')
+    ets_model = ets_config.fit(optimized=True, use_boxcox=False)
+
+    scipy.stats.normaltest(arma_model.resid)
+
+    r, q, p = statsmodels.tsa.stattools.acf(arma_model.resid.values, qstat=True, missing='drop')
+    data = numpy.c_[range(1, 41), r[1:], q, p]
+    ljung_box_df = pandas.DataFrame(data, columns=['lag', "AC", "Q", "Prob(>Q)"])
+
+    forecast_df = pandas.DataFrame(index=pandas.date_range(datetime.datetime(2017, 10, 1),
+                                                           datetime.datetime(2017, 10, 14),
+                                                           freq='D'))
+    arma_prediction = arma_model.forecast(14)
+    forecast_df['ARIMA'] = arma_prediction[0] \
+                           + season_df.Duration[datetime.datetime(2017, 10, 1):datetime.datetime(2017, 10, 14)] \
+                           + trend.Duration.mean()
+    forecast_df['HoltWinters'] = ets_model.forecast(14) \
+                                 + season_df.Duration[datetime.datetime(2017, 10, 1)
+                                                      :datetime.datetime(2017, 10, 14)] \
+                                 + trend.Duration.mean()
+    forecast_df['MEAN'] = training_frame.Duration.mean()
+
+    arima_error = \
+        sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['ARIMA'])
+    holt_winters_error = \
+        sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['HoltWinters'])
+    mean_error = \
+        sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['MEAN'])
+
+    def get_label(method, error):
+        return '{0:15} {1:.2}'.format(method, error)
+
+    import operator
+
+    def get_filename(cluster, user, errors):
+        errors_to_use = list(errors.items())
+        errors_to_use.sort(key=operator.itemgetter(1))
+        prefix = ''.join(map(lambda pair: pair[0][0], errors_to_use))
+        return '{0}_c{1}u{2}.png'.format(prefix, cluster, user)
+
+    figure = matplotlib.pyplot.figure(figsize=(12, 8))
+    matplotlib.pyplot.plot(data_frame.Duration.ix['2017-1-1':])
+    forecast_df.ARIMA.plot(style='r--', label=get_label('ARIMA', arima_error))
+    forecast_df.HoltWinters.plot(style='g--', label=get_label('Holt-Winters', holt_winters_error))
+    forecast_df.MEAN.plot(label=get_label('Mean', mean_error), style='b--')
+    matplotlib.pyplot.legend()
+
+    file_name = get_filename(cluster.label, cluster.user,
+                             {'mean': mean_error,
+                              'arima': arima_error,
+                              'holtwinters': holt_winters_error})
+    matplotlib.pyplot.savefig(os.path.join(root_dir, file_name))
+    matplotlib.pyplot.close(figure)
+
+    return cluster.label, cluster.user, mean_error, holt_winters_error, arima_error
+
+
 if __name__ == '__main__':
     tqdm.tqdm.monitor_interval = 0
 
@@ -804,7 +929,9 @@ if __name__ == '__main__':
     # action = 'compare_forecasts'
     # action = 'test_models'
     # action = 'reproduce_error'
-    action = 'improve'
+    # action = 'improve'
+    action = 'plot_error'
+    # action = 'inspect'
     if action == 'save_clusters':
         source_file = VisitCSVSourceFile('/home/pmateusz/dev/cordia/output.csv')
         visits = source_file.read()
@@ -1054,117 +1181,169 @@ if __name__ == '__main__':
                                                                                     errors_df.Average.mean())))
 
     elif action == 'improve':
+        error_data_set = []
+
         root_dir = '/home/pmateusz/dev/cordia/data/clustering'
         clusters = load_clusters(root_dir)
         items_to_process = list(itertools.chain.from_iterable(clusters))
         for cluster in tqdm.tqdm(items_to_process, total=len(items_to_process)):
-            data_frame = cluster.data_frame()
-            training_frame = data_frame[:'2017-9-30']
-            if training_frame.Duration.count() < 64:
-                # we are predicting for 2 weeks, so any smaller value does not make sense
-                # especially the number of observations cannot be 12 to avoid division by 0 in the AICC formula
-                continue
+            result = analyze_cluster(cluster)
+            if result:
+                error_data_set.append(result)
 
-            training_frame = coalesce(training_frame, None, datetime.datetime(2017, 10, 1)).copy()
+        errors_df = pandas.DataFrame(error_data_set,
+                                     columns=['Cluster', 'User', 'MeanError', 'HoltWintersError', 'ARIMAError'])
+        errors_df.to_pickle('forecast_errors.pickle')
 
-            test_frame = data_frame['2017-10-1':'2017-10-14']
-            test_frame = test_frame.dropna()
-            if test_frame.empty:
-                continue
+    elif action == 'plot_error':
+        errors_df = pandas.read_pickle('forecast_errors.pickle')
+        mean_errors = list(errors_df.MeanError)
+        mean_errors.sort(reverse=True)
+        arima_errors = list(errors_df.ARIMAError)
+        arima_errors.sort(reverse=True)
 
-            data_frame_to_use = coalesce(data_frame)
+        indices = numpy.arange(len(mean_errors))
+        width = 0.10
+        matplotlib.pyplot.bar(indices, mean_errors, width, color='y')
+        matplotlib.pyplot.bar(indices + width, arima_errors, width, color='g')
+        matplotlib.pyplot.show()
+    elif action == 'inspect':
+        user_id = '8205'
+        cluster_id = '0'
+        root_dir = '/home/pmateusz/dev/cordia/data/clustering'
+        paths = Paths(root_dir)
+        visit_source = VisitCSVSourceFile(paths.visit_file(user_id, cluster_id))
+        cluster = Cluster(int(cluster_id), items=visit_source.read(), dir_path=paths.cluster_dir(user_id, cluster_id))
+        paths.cluster_dir('865', '0')
+        data_frame = cluster.data_frame()
+        training_frame = data_frame[:'2017-9-30']
+        if training_frame.Duration.count() < 64:
+            # we are predicting for 2 weeks, so any smaller value does not make sense
+            # especially the number of observations cannot be 12 to avoid division by 0 in the AICC formula
+            raise ValueError()
 
-            correlation_test = statsmodels.stats.stattools.durbin_watson(data_frame_to_use.Duration)
-            stationary_test = statsmodels.tsa.stattools.adfuller(data_frame_to_use.Duration)
+        training_frame = coalesce(training_frame, None, datetime.datetime(2017, 10, 1)).copy()
 
-            decomposition = statsmodels.api.tsa.seasonal_decompose(training_frame.Duration, model='additive')
+        test_frame = data_frame['2017-10-1':'2017-10-14']
+        test_frame = test_frame.dropna()
+        if test_frame.empty:
+            raise ValueError()
 
-            seasonal_component = find_repeating_component(decomposition.seasonal)
-            seasons = int(numpy.ceil(365.0 / len(seasonal_component)))
-            season_df = pandas.DataFrame(
-                index=pandas.date_range(start=datetime.datetime(2017, 1, 1), periods=7 * seasons, freq='D'),
-                data=numpy.tile(seasonal_component, seasons),
-                columns=['Duration'])
+        data_frame_to_use = coalesce(data_frame)
 
-            no_season_df = training_frame.copy()
-            no_season_df.Duration = (no_season_df.Duration - season_df.Duration)
-            no_season_df = coalesce(no_season_df)
+        correlation_test = statsmodels.stats.stattools.durbin_watson(data_frame_to_use.Duration)
+        stationary_test = statsmodels.tsa.stattools.adfuller(data_frame_to_use.Duration)
 
-            trend = coalesce(decomposition.trend[no_season_df.first_valid_index():no_season_df.last_valid_index()])
+        decomposition = statsmodels.api.tsa.seasonal_decompose(training_frame.Duration, model='additive')
 
-            data_frame_to_use = no_season_df.copy()
-            data_frame_to_use.Duration = no_season_df.Duration - trend
-            data_frame_to_use = coalesce(data_frame_to_use)
+        decomposition.plot()
+        matplotlib.pyplot.show()
 
+        seasonal_component = find_repeating_component(decomposition.seasonal)
+        seasons = int(numpy.ceil(365.0 / len(seasonal_component)))
 
-            def plot_acf_pacf(series):
-                fig = matplotlib.pyplot.figure(figsize=(12, 8))
-                ax1 = fig.add_subplot(211)
-                statsmodels.graphics.tsaplots.plot_acf(series.values.squeeze(), lags=40, ax=ax1)
-                ax2 = fig.add_subplot(212)
-                statsmodels.graphics.tsaplots.plot_pacf(series, lags=40, ax=ax2)
-                matplotlib.pyplot.show()
-
-
-            data_frame_to_use = coalesce(data_frame_to_use, end_range=datetime.datetime(2017, 9, 30))
-
-            arma_config = statsmodels.api.tsa.ARMA(data_frame_to_use.Duration, (1, 0), freq='D')
-            arma_model = arma_config.fit(disp=0)
-
-            ets_config = statsmodels.api.tsa.ExponentialSmoothing(data_frame_to_use.Duration, trend='add', freq='D')
-            ets_model = ets_config.fit(optimized=True, use_boxcox=False)
-
-            scipy.stats.normaltest(arma_model.resid)
-
-            r, q, p = statsmodels.tsa.stattools.acf(arma_model.resid.values, qstat=True, missing='drop')
-            data = numpy.c_[range(1, 41), r[1:], q, p]
-            ljung_box_df = pandas.DataFrame(data, columns=['lag', "AC", "Q", "Prob(>Q)"])
-
-            forecast_df = pandas.DataFrame(index=pandas.date_range(datetime.datetime(2017, 10, 1),
-                                                                   datetime.datetime(2017, 10, 14),
-                                                                   freq='D'))
-            arma_prediction = arma_model.forecast(14)
-            forecast_df['ARIMA'] = arma_prediction[0] \
-                                   + season_df.Duration[datetime.datetime(2017, 10, 1):datetime.datetime(2017, 10, 14)] \
-                                   + trend.mean()
-            forecast_df['HoltWinters'] = ets_model.forecast(14) \
-                                         + season_df.Duration[datetime.datetime(2017, 10, 1)
-                                                              :datetime.datetime(2017, 10, 14)] \
-                                         + trend.mean()
-            forecast_df['MEAN'] = training_frame.Duration.mean()
-
-            arima_error = \
-                sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['ARIMA'])
-            holt_winters_error = \
-                sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['HoltWinters'])
-            mean_error = \
-                sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['MEAN'])
+        seasonal_component_df = pandas.DataFrame(
+            index=pandas.date_range(start=datetime.datetime(2017, 1, 1), periods=7 * seasons, freq='D'),
+            data=numpy.tile(seasonal_component, seasons),
+            columns=['Duration'])
 
 
-            def get_label(method, error):
-                return '{0:15} {1:.2}'.format(method, error)
+        def seasonal_effect(x, a, b):
+            return a * numpy.asarray(x) + b
 
 
-            import operator
+        data_frame_to_use = training_frame.copy()
+
+        trend = coalesce(
+            pandas.DataFrame(
+                decomposition.trend[data_frame_to_use.first_valid_index():data_frame_to_use.last_valid_index()],
+                columns=['Duration']),
+            begin_range=data_frame_to_use.first_valid_index(),
+            end_range=data_frame_to_use.last_valid_index())
+
+        data_frame_to_use.Duration = data_frame_to_use.Duration - trend.Duration
+        popt, pcov = scipy.optimize.curve_fit(seasonal_effect,
+                                              seasonal_component_df[
+                                              training_frame.first_valid_index():training_frame.last_valid_index()].Duration,
+                                              data_frame_to_use.Duration)
+
+        season_df = seasonal_component_df.copy()
+        season_df.Duration = season_df.Duration * popt[0] + popt[1]
+        no_season_df = data_frame_to_use.copy()
+        no_season_df.Duration = no_season_df.Duration - season_df.Duration
+        data_frame_to_use = coalesce(no_season_df)
 
 
-            def get_filename(cluster, user, errors):
-                errors_to_use = list(errors.items())
-                errors_to_use.sort(key=operator.itemgetter(1))
-                prefix = ''.join(map(lambda pair: pair[0][0], errors_to_use))
-                return '{0}_c{1}u{2}.png'.format(prefix, cluster, user)
+        def plot_acf_pacf(series):
+            fig = matplotlib.pyplot.figure(figsize=(12, 8))
+            ax1 = fig.add_subplot(211)
+            statsmodels.graphics.tsaplots.plot_acf(series.values.squeeze(), lags=40, ax=ax1)
+            ax2 = fig.add_subplot(212)
+            statsmodels.graphics.tsaplots.plot_pacf(series, lags=40, ax=ax2)
+            matplotlib.pyplot.show()
 
 
-            figure = matplotlib.pyplot.figure(figsize=(12, 8))
-            matplotlib.pyplot.plot(data_frame.Duration.ix['2017-1-1':])
-            forecast_df.ARIMA.plot(style='r--', label=get_label('ARIMA', arima_error))
-            forecast_df.HoltWinters.plot(style='g--', label=get_label('Holt-Winters', holt_winters_error))
-            forecast_df.MEAN.plot(label=get_label('Mean', mean_error), style='b--')
-            matplotlib.pyplot.legend()
+        data_frame_to_use = coalesce(data_frame_to_use, end_range=datetime.datetime(2017, 9, 30))[
+                            :datetime.datetime(2017, 9, 30)]
 
-            file_name = get_filename(cluster.label, cluster.user,
-                                     {'mean': mean_error,
-                                      'arima': arima_error,
-                                      'holtwinters': holt_winters_error})
-            matplotlib.pyplot.savefig(os.path.join(root_dir, file_name))
-            matplotlib.pyplot.close(figure)
+        arma_config = statsmodels.api.tsa.ARMA(data_frame_to_use.Duration, (1, 0), freq='D')
+        arma_model = arma_config.fit(disp=0)
+
+        ets_config = statsmodels.api.tsa.ExponentialSmoothing(data_frame_to_use.Duration, trend='add', freq='D')
+        ets_model = ets_config.fit(optimized=True, use_boxcox=False)
+
+        scipy.stats.normaltest(arma_model.resid)
+
+        r, q, p = statsmodels.tsa.stattools.acf(arma_model.resid.values, qstat=True, missing='drop')
+        data = numpy.c_[range(1, 41), r[1:], q, p]
+        ljung_box_df = pandas.DataFrame(data, columns=['lag', "AC", "Q", "Prob(>Q)"])
+
+        forecast_df = pandas.DataFrame(index=pandas.date_range(datetime.datetime(2017, 10, 1),
+                                                               datetime.datetime(2017, 10, 14),
+                                                               freq='D'))
+        arma_prediction = arma_model.forecast(14)
+        forecast_df['ARIMA'] = arma_prediction[0] \
+                               + season_df.Duration[datetime.datetime(2017, 10, 1):datetime.datetime(2017, 10, 14)] \
+                               + trend.Duration.mean()
+        forecast_df['HoltWinters'] = ets_model.forecast(14) \
+                                     + season_df.Duration[datetime.datetime(2017, 10, 1)
+                                                          :datetime.datetime(2017, 10, 14)] \
+                                     + trend.Duration.mean()
+        forecast_df['MEAN'] = training_frame.Duration.mean()
+
+        arima_error = \
+            sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['ARIMA'])
+        holt_winters_error = \
+            sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['HoltWinters'])
+        mean_error = \
+            sklearn.metrics.mean_squared_error(test_frame.Duration, forecast_df.ix[test_frame.index]['MEAN'])
+
+
+        def get_label(method, error):
+            return '{0:15} {1:.2}'.format(method, error)
+
+
+        import operator
+
+
+        def get_filename(cluster, user, errors):
+            errors_to_use = list(errors.items())
+            errors_to_use.sort(key=operator.itemgetter(1))
+            prefix = ''.join(map(lambda pair: pair[0][0], errors_to_use))
+            return '{0}_c{1}u{2}.png'.format(prefix, cluster, user)
+
+
+        figure = matplotlib.pyplot.figure(figsize=(12, 8))
+        matplotlib.pyplot.plot(data_frame.Duration.ix['2017-1-1':])
+        forecast_df.ARIMA.plot(style='r--', label=get_label('ARIMA', arima_error))
+        forecast_df.HoltWinters.plot(style='g--', label=get_label('Holt-Winters', holt_winters_error))
+        forecast_df.MEAN.plot(label=get_label('Mean', mean_error), style='b--')
+        matplotlib.pyplot.legend()
+        matplotlib.pyplot.show()
+
+        file_name = get_filename(cluster.label, cluster.user,
+                                 {'mean': mean_error,
+                                  'arima': arima_error,
+                                  'holtwinters': holt_winters_error})
+        matplotlib.pyplot.savefig(os.path.join(root_dir, file_name))
+        matplotlib.pyplot.close(figure)
