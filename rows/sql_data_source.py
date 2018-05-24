@@ -166,6 +166,42 @@ FROM (
 ) visit
 GROUP BY visit.visit_id, visit.service_user_id, vdate, vtime, vduration"""
 
+    LIST_PAST_VISITS_QUERY_WITH_CHECKOUT_INFO = """
+SELECT carer_visits.VisitID, visit_tasks.[User], carer_visits.PlannedCarerID,
+carer_visits.PlannedStartDateTime, carer_visits.PlannedEndDateTime,
+dbo.CalculateDuration(carer_visits.PlannedStartDateTime, carer_visits.PlannedEndDateTime) as PlannedDuration, 
+COALESCE(carer_visits.OriginalStartDateTime, carer_visits.PlannedStartDateTime) as OriginalStartDateTime,
+COALESCE(carer_visits.OriginalEndDateTime, carer_visits.PlannedEndDateTime) as OriginalEndDateTime,
+dbo.CalculateDuration(COALESCE(carer_visits.OriginalStartDateTime, carer_visits.PlannedStartDateTime), COALESCE(carer_visits.OriginalEndDateTime, carer_visits.PlannedEndDateTime)) as OriginalDuration,
+carer_visits.CheckInDateTime,
+carer_visits.CheckOutDateTime,
+dbo.CalculateDuration(carer_visits.CheckInDateTime,carer_visits.CheckOutDateTime) as RealDuration,
+carer_visits.CheckOutMethod,
+visit_tasks.Tasks, visit_tasks.Area
+FROM dbo.ListCarerVisits carer_visits
+INNER JOIN (
+    SELECT visit_orders.visit_id as 'VisitID',
+    MIN(service_user_id) as 'User',
+    MIN(area_code) as 'Area',
+    STRING_AGG(visit_orders.task, '-') WITHIN GROUP (ORDER BY visit_orders.task) as 'Tasks'
+    FROM (
+        SELECT DISTINCT visit_window.visit_id as visit_id,
+            CONVERT(int, visit_window.task_no) as task,
+            MIN(visit_window.service_user_id) as service_user_id, 
+            MIN(visit_window.requested_visit_time) as visit_time,
+            MIN(visit_window.requested_visit_duration) as visit_duration,
+            MIN(aom.area_code) as area_code
+        FROM dbo.ListVisitsWithinWindow visit_window
+        INNER JOIN dbo.ListAom aom
+        ON aom.aom_id = visit_window.aom_code
+        WHERE area_code = '{0}' AND visit_window.visit_date < '{1}'
+        GROUP BY visit_window.visit_id, visit_window.task_no
+    ) visit_orders
+    GROUP BY visit_orders.visit_id
+) visit_tasks
+ON visit_tasks.VisitID = carer_visits.VisitID
+"""
+
     LIST_CARER_AOM_QUERY = """SELECT employee.carer_id, employee.position_hours, aom.aom_id, aom.area_code
 FROM dbo.ListEmployees employee
 INNER JOIN dbo.ListAom aom
@@ -457,6 +493,164 @@ ORDER BY carer_visits.VisitID"""
             if value:
                 return value
             return super(SqlDataSource.IntervalEstimatorBase, self).__call__(local_visit)
+
+    class ForecastEstimator(object):
+
+        NAME = 'forecast'
+
+        class MeanModel:
+            def __init__(self, mean):
+                self.__mean = mean
+
+            def forecast(self, date):
+                return self.__mean
+
+        class ARIMAModel:
+            def __init__(self, last_date, model, trend_mean, season_series):
+                self.__last_date = last_date
+                self.__model = model
+                self.__trend_mean = trend_mean
+                self.__season_series = season_series
+
+            def forecast(self, date):
+                days_since_training = (date - self.__last_date).days
+
+                if days_since_training < 0:
+                    raise ValueError()
+
+                forecast = self.__model.forecast(days_since_training)
+                return forecast[-1] + self.__trend_mean + self.__season_series[date].Duration
+
+        def __init__(self):
+            super(SqlDataSource.ForecastEstimator, self).__init__()
+
+            self.__cluster_models = {}
+            self.__user_clusters = collections.defaultdict(list)
+
+        def reload(self, console, connection_factory, area, start_date, end_date):
+            from rows.analysis import str_to_tasks, SimpleVisit
+
+            cursor = connection_factory.cursor()
+            visits = []
+
+            for row in cursor.execute(SqlDataSource.LIST_PAST_VISITS_QUERY_WITH_CHECKOUT_INFO.format(area.code,
+                                                                                                     start_date.date())) \
+                    .fetchall():
+                visit_raw_id, \
+                user_raw_id, \
+                planned_carer_id, \
+                planned_start_date_time, \
+                planned_end_date_time, \
+                planned_duration, \
+                original_start_date_time, \
+                original_end_date_time, \
+                original_duration, \
+                real_start_date_time, \
+                real_end_date_time, \
+                real_duration, \
+                check_out_raw_method, \
+                raw_tasks, \
+                area_code = row
+
+                tasks = str_to_tasks(raw_tasks)
+                visits.append(SimpleVisit(id=int(visit_raw_id),
+                                          user=int(user_raw_id),
+                                          area=area.key,
+                                          carer=int(planned_carer_id),
+                                          tasks=tasks,
+                                          planned_start=planned_start_date_time,
+                                          planned_duration=(planned_end_date_time - planned_start_date_time),
+                                          original_start=original_start_date_time,
+                                          original_duration=(original_end_date_time - original_start_date_time),
+                                          real_start=real_start_date_time,
+                                          real_duration=(real_end_date_time - real_start_date_time),
+                                          checkout_method=int(check_out_raw_method)))
+
+            from rows.clustering import compute_kmeans_clusters, coalesce, find_repeating_component
+
+            import pandas
+            import numpy
+            import statsmodels.stats.stattools
+            import statsmodels.tsa.stattools
+            import statsmodels.api
+            import scipy.optimize
+
+            cluster_groups = compute_kmeans_clusters(visits)
+
+            self.__user_clusters = collections.defaultdict(list)
+            for cluster_group in cluster_groups:
+                for cluster in cluster_group:
+                    self.__user_clusters[cluster.user].append(cluster)
+
+            def compute_prediction_model(cluster):
+                data_frame = cluster.data_frame()
+                if data_frame.Duration.count() < 64:
+                    # we are predicting for 2 weeks, so any smaller value does not make sense
+                    # especially the number of observations cannot be 12 to avoid division by 0 in the AICC formula
+                    return SqlDataSource.ForecastEstimator.MeanModel(data_frame.Duration.mean())
+
+                last_past_visit_date = start_date - datetime.timedelta(days=1)
+                data_frame = coalesce(data_frame, None, last_past_visit_date).copy()
+                first_index = data_frame.first_valid_index()
+                last_index = data_frame.last_valid_index()
+
+                correlation_test = statsmodels.stats.stattools.durbin_watson(data_frame.Duration)
+                stationary_test = statsmodels.tsa.stattools.adfuller(data_frame.Duration)
+
+                decomposition = statsmodels.api.tsa.seasonal_decompose(data_frame.Duration, model='additive')
+
+                trend = coalesce(
+                    pandas.DataFrame(
+                        decomposition.trend[first_index:last_index],
+                        columns=['Duration']),
+                    begin_range=first_index,
+                    end_range=start_date)
+                data_frame.Duration = data_frame.Duration - trend.Duration
+
+                seasonal_component = find_repeating_component(decomposition.seasonal)
+                seasons = int(numpy.ceil(365.0 / len(seasonal_component)))
+                seasonal_component_df = pandas.DataFrame(
+                    index=pandas.date_range(start=datetime.datetime(2017, 1, 1), periods=7 * seasons, freq='D'),
+                    data=numpy.tile(seasonal_component, seasons),
+                    columns=['Duration'])
+
+                def seasonal_effect(x, a, b):
+                    return a * numpy.asarray(x) + b
+
+                popt, pcov = scipy.optimize.curve_fit(seasonal_effect,
+                                                      seasonal_component_df[first_index:last_index].Duration,
+                                                      data_frame.Duration)
+                season_df = seasonal_component_df.copy()
+                season_df.Duration = season_df.Duration * popt[0] + popt[1]
+                data_frame.Duration = data_frame.Duration - season_df.Duration
+                data_frame = coalesce(data_frame)
+
+                data_frame = coalesce(data_frame, end_range=last_past_visit_date)[:last_past_visit_date]
+                arma_config = statsmodels.api.tsa.ARMA(data_frame.Duration, (1, 0), freq='D')
+                arma_model = arma_config.fit(disp=0)
+
+                normal_test = scipy.stats.normaltest(arma_model.resid)
+
+                r, q, p = statsmodels.tsa.stattools.acf(arma_model.resid.values, qstat=True, missing='drop')
+                data = numpy.c_[range(1, 41), r[1:], q, p]
+                ljung_box_df = pandas.DataFrame(data, columns=['lag', "AC", "Q", "Prob(>Q)"])
+
+                return SqlDataSource.ForecastEstimator.ARIMAModel(last_past_visit_date,
+                                                                  arma_model,
+                                                                  season_df,
+                                                                  trend.Duration.mean())
+
+            self.__cluster_models = {}
+            for user, clusters in self.__user_clusters.items():
+                for cluster in clusters:
+                    self.__cluster_models[cluster] = compute_prediction_model(cluster)
+
+        @property
+        def should_reload(self):
+            return True
+
+        def __call__(self, local_visit):
+            return local_visit.duration
 
     class GlobalPercentileEstimator(IntervalEstimatorBase):
 
@@ -1102,7 +1296,7 @@ ORDER BY carer_visits.VisitID"""
         return self.__connection
 
     def __enter__(self):
-        self.__get_connection()
+        return self.__get_connection()
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.__connection:

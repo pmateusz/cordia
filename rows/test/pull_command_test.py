@@ -7,6 +7,7 @@ import os
 import unittest
 import tempfile
 
+from rows.sql_data_source import SqlDataSource
 from rows.application import Application
 from rows.model.problem import Problem
 from rows.parser import ValueHolder
@@ -23,14 +24,28 @@ class HandlerTestCase(unittest.TestCase):
 
         self.example_begin_date = datetime.datetime(2017, 2, 1).date()
         self.example_end_date = datetime.datetime(2017, 2, 7).date()
-        self.application = Application(output_file_mode='w')
-        self.application.load()
+
+        install_dir = os.path.expanduser('~/dev/cordia')
+        self.application = Application(install_dir, output_file_mode='w')
+
+        args = []
+        self.application.load(args)
         self.example_area = self.application.create_parser().parse_area('C050')
 
     def tearDown(self):
         """Tear down application"""
 
         self.application.dispose()
+
+    def test_pull_with_forecast(self):
+        """Test pull method with forecast"""
+        with self.application.data_source as local_connection:
+            estimator = SqlDataSource.ForecastEstimator()
+            estimator.reload(self.application.console,
+                             local_connection,
+                             self.example_area,
+                             datetime.datetime(2017, 10, 1),
+                             datetime.datetime(2017, 10, 14))
 
     def test_pull_example(self):
         """Test example pull method call"""

@@ -81,7 +81,8 @@ class Parser:
     DURATION_ESTIMATORS = {rows.sql_data_source.SqlDataSource.GlobalPercentileEstimator.NAME,
                            rows.sql_data_source.SqlDataSource.GlobalTaskConfidenceIntervalEstimator.NAME,
                            rows.sql_data_source.SqlDataSource.PlannedDurationEstimator.NAME,
-                           rows.sql_data_source.SqlDataSource.PastDurationEstimator.NAME}
+                           rows.sql_data_source.SqlDataSource.PastDurationEstimator.NAME,
+                           rows.sql_data_source.SqlDataSource.ForecastEstimator.NAME}
 
     class PullFromArgAction(argparse.Action):
         """Validate the 'from' argument"""

@@ -31,7 +31,7 @@ import statsmodels.tsa.arima_model
 import statsmodels.stats
 import statsmodels.stats.stattools
 
-from analysis import VisitCSVSourceFile, time_to_seconds
+from rows.analysis import VisitCSVSourceFile, time_to_seconds
 
 # select a user
 # develop a model with prediction
@@ -112,6 +112,14 @@ class Cluster:
         sorted_items.sort(key=functools.cmp_to_key(self.__ordering))
         position = float(len(sorted_items)) / 2
         return sorted_items[int(position)]
+
+    def __eq__(self, other):
+        if isinstance(other, Cluster):
+            return self.items == other.items
+        return False
+
+    def __hash__(self):
+        return (str(self.user) + str(self.label)).__hash__()
 
 
 def distance(left, right):
@@ -473,6 +481,8 @@ def compute_kmeans_clusters(visits):
 
     results = []
     groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
+    # FIXME
+    groups = groups[:20]
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures_list = [executor.submit(compute_user_clusters, visit_group) for user_id, visit_group in groups]
         for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
