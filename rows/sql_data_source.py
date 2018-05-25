@@ -156,8 +156,6 @@ FROM (
     window_visits.requested_visit_duration as vduration,
     CONVERT(int, task_no) as task_id
   FROM dbo.ListVisitsWithinWindow window_visits
-  LEFT OUTER JOIN dbo.UserVisits user_visits
-  ON user_visits.visit_id = window_visits.visit_id
   WHERE window_visits.visit_date BETWEEN '{0}' AND '{1}' AND window_visits.aom_code = {2}
   GROUP BY window_visits.service_user_id,
     window_visits.visit_date,
@@ -224,8 +222,6 @@ FROM (
   FROM dbo.ListVisitsWithinWindow window_visits
   LEFT OUTER JOIN dbo.ListCarerVisits carer_visits
   ON window_visits.visit_id = carer_visits.VisitID
-  LEFT OUTER JOIN dbo.UserVisits user_visits
-  ON window_visits.visit_id = user_visits.visit_id
   WHERE window_visits.visit_date BETWEEN '{0}' AND '{1}'
     AND window_visits.aom_code = {2}
     AND carer_visits.VisitAssignmentID IS NOT NULL
@@ -954,7 +950,7 @@ ORDER BY carer_visits.VisitID"""
         return [Area(key=row[0], code=row[1]) for row in cursor.fetchall()]
 
     def get_visits(self, area, begin_date, end_date, duration_estimator):
-        duration_estimator.reload(self.__console, self.__get_connection)
+        duration_estimator.reload(self.__console, self.__get_connection, area, begin_date, end_date)
 
         carer_counts = {}
         for row in self.__get_connection().cursor() \
