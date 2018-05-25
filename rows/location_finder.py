@@ -80,7 +80,16 @@ def is_within_range(location):
     return local_distance <= 1.0
 
 
-class WebLocationFinder:
+class UserLocationFinder:
+
+    def __init__(self, use_geo_tagging_file):
+        pass
+
+    def find(self, user_id):
+        pass
+
+
+class AddressLocationFinder:
     """Finds longitude and latitude for an address"""
 
     DEFAULT_TIMEOUT = 1.0
@@ -107,8 +116,8 @@ class WebLocationFinder:
             return Result(exception=ex)
 
     def __get_url(self, address):
-        WebLocationFinder.__precondition_not_none(address.road, Address.ROAD)
-        WebLocationFinder.__precondition_not_none(address.city, Address.CITY)
+        AddressLocationFinder.__precondition_not_none(address.road, Address.ROAD)
+        AddressLocationFinder.__precondition_not_none(address.city, Address.CITY)
 
         url_chunks = [self.__endpoint]
 
@@ -221,23 +230,32 @@ class FileSystemCache:
             return False
 
 
-class RobustLocationFinder:
+class MultiModeLocationFinder:
     """Location finder with fallback if the primary address cannot be found by the external service"""
 
-    def __init__(self, cache, timeout=WebLocationFinder.DEFAULT_TIMEOUT):
+    def __init__(self, cache, user_tagging_finder, timeout=AddressLocationFinder.DEFAULT_TIMEOUT):
         self.__cache = cache
-        self.__web_service = WebLocationFinder(timeout=timeout)
+        self.__user_tagging_finder = user_tagging_finder
+        self.__web_service = AddressLocationFinder(timeout=timeout)
 
-    def find(self, address):
+    def find(self, user_id, address):
         """Returns location for an address"""
 
-        location = self.__cache.find(address)
-        if not location:
-            location = self.__find(address)
-            if location:
-                self.__cache.insert_or_update(address, location)
+        location = self.__user_tagging_finder.find(user_id)
 
-        if location and not is_within_range(location):
+        if not location:
+            location = self.__cache.find(address)
+
+            if not location:
+                location = self.__find(address)
+                if location:
+                    self.__cache.insert_or_update(address, location)
+
+        if not location:
+            logging.error('Failed to find location of the address {0}'.format(address))
+            return None
+
+        if not is_within_range(location):
             logging.error('Location {0}:{1} is too far from Glasgow'.format(address, location))
             return None
 
@@ -277,12 +295,12 @@ class RobustLocationFinder:
 
                 fallback_result = self.__web_service.find(address_to_use)
                 if not fallback_result.is_faulted:
-                    return RobustLocationFinder.__extract_location(fallback_result, address_to_use)
+                    return MultiModeLocationFinder.__extract_location(fallback_result, address_to_use)
 
             logging.error("Failed to find an address '%s' due to the error: %s", address, result.exception)
             return None
 
-        return RobustLocationFinder.__extract_location(result, address)
+        return MultiModeLocationFinder.__extract_location(result, address)
 
     @staticmethod
     def __extract_location(result, address):

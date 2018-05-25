@@ -107,7 +107,7 @@ ORDER BY user_visit.service_user_id, care_continuity DESC''').fetchall():
         settings = rows.settings.Settings()
         console = rows.console.Console()
         location_cache = rows.location_finder.FileSystemCache(settings)
-        location_finder = rows.location_finder.RobustLocationFinder(location_cache, timeout=5.0)
+        location_finder = rows.location_finder.MultiModeLocationFinder(location_cache, timeout=5.0)
         data_source = rows.sql_data_source.SqlDataSource(settings, console, location_finder)
 
         area = next((a for a in data_source.get_areas() if a.code == 'C050'), None)

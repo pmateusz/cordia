@@ -9,8 +9,6 @@ import datetime
 
 import pyodbc
 
-import pandas
-
 import scipy.stats
 
 from rows.model.metadata import Metadata
@@ -1241,10 +1239,9 @@ ORDER BY carer_visits.VisitID"""
         for row in self.__get_connection().cursor().execute(
                 SqlDataSource.LIST_SERVICE_USER_QUERY.format(begin_date, end_date, area.key)).fetchall():
             service_user, raw_address = row
-
             if service_user not in location_by_service_user:
                 address = Address.parse(raw_address)
-                location = self.__location_finder.find(address)
+                location = self.__location_finder.find(service_user, address)
                 if location is None:
                     logging.error("Failed to find location of the address '%s'", location)
                 location_by_service_user[service_user] = location

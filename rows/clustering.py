@@ -33,12 +33,6 @@ import statsmodels.stats.stattools
 
 from rows.analysis import VisitCSVSourceFile, time_to_seconds
 
-# select a user
-# develop a model with prediction
-# plot the model and errors
-# compare with errors that real humans do
-from mpl_toolkits.mplot3d import Axes3D
-
 
 class Cluster:
 
@@ -322,61 +316,6 @@ def cluster():
 
             data_frame.to_pickle(os.path.join(output_dir, 'u{0}_c{1}.pickle'.format(user_id, cluster.label)))
     return
-
-    # data_frame = data_frame \
-    #     .where((numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()) & (
-    #         data_frame.Duration > 0))
-    # data_frame = data_frame.dropna()
-    # data_frame.index = data_frame.DateTime
-    # data_frame = data_frame.resample('D').mean()
-    # data_frame = data_frame.interpolate(method='linear')
-    # # decomposition_result = statsmodels.api.tsa.seasonal_decompose(data_frame.Duration)
-    # # decomposition_result.plot()
-    # # matplotlib.pyplot.show()
-    # #
-    # # result = statsmodels.api.tsa.stattools.adfuller(data_frame.Duration)
-    #
-    # training_frame, test_frame = sklearn.model_selection.train_test_split(data_frame, test_size=0.2, shuffle=False)
-    #
-    # # compare with average
-    # ets = statsmodels.api.tsa.ExponentialSmoothing(numpy.asarray(training_frame.Duration),
-    #                                                trend=None,
-    #                                                damped=False,
-    #                                                seasonal='add',
-    #                                                seasonal_periods=7)
-    #
-    # holt_winters = ets.fit(smoothing_level=0.15, use_boxcox='log', optimized=True, use_basinhopping=True)
-    #
-    # arima = statsmodels.api.tsa.statespace.SARIMAX(training_frame.Duration,
-    #                                                trend=None,
-    #                                                order=(1, 1, 4),
-    #                                                enforce_stationarity=True,
-    #                                                enforce_invertibility=True,
-    #                                                seasonal_order=(1, 1, 1, 7)).fit()
-    #
-    # test_frame_to_use = test_frame.copy()
-    # test_frame_to_use['HoltWinters'] = holt_winters.forecast(len(test_frame))
-    # test_frame_to_use['ARIMA'] = arima.predict(start="2017-10-24", end="2017-12-31", dynamic=True)
-    # test_frame_to_use['Average'] = training_frame.Duration.mean()
-    # test_frame_to_use['MovingAverage'] = training_frame.Duration.rolling(10).mean().iloc[-1]
-    #
-    # matplotlib.pyplot.figure(figsize=(16, 8))
-    # matplotlib.pyplot.plot(training_frame.Duration, label='Train')
-    # matplotlib.pyplot.plot(test_frame_to_use.Duration, label='Test')
-    # matplotlib.pyplot.plot(test_frame_to_use['HoltWinters'], label='HoltWinters: {0:.3f}'.format(
-    #     numpy.sqrt(sklearn.metrics.mean_squared_error(
-    #         test_frame_to_use.Duration, test_frame_to_use['HoltWinters']))))
-    # matplotlib.pyplot.plot(test_frame_to_use['ARIMA'], label='ARIMA: {0:.3f}'.format(
-    #     numpy.sqrt(sklearn.metrics.mean_squared_error(
-    #         test_frame_to_use.Duration, test_frame_to_use['ARIMA']))))
-    # matplotlib.pyplot.plot(test_frame_to_use['Average'], label='Average: {0:.3f}'.format(
-    #     numpy.sqrt(sklearn.metrics.mean_squared_error(
-    #         test_frame_to_use.Duration, test_frame_to_use['Average']))))
-    # matplotlib.pyplot.plot(test_frame_to_use['MovingAverage'], label='MovingAverage: {0:.3f}'.format(
-    #     numpy.sqrt(sklearn.metrics.mean_squared_error(
-    #         test_frame_to_use.Duration, test_frame_to_use['MovingAverage']))))
-    # matplotlib.pyplot.legend(loc='best')
-    # matplotlib.pyplot.show()
 
 
 def normalize(data_frame, last_date):

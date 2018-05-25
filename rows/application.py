@@ -28,8 +28,13 @@ class Application:
         self.__console = rows.console.Console()
 
         self.__settings = rows.settings.Settings(install_directory)
+
+        self.__user_tag_finder = rows.location_finder.UserLocationFinder(self.__settings)
         self.__location_cache = rows.location_finder.FileSystemCache(self.__settings)
-        self.__location_finder = rows.location_finder.RobustLocationFinder(self.__location_cache, timeout=5.0)
+        self.__location_finder = rows.location_finder.MultiModeLocationFinder(self.__location_cache,
+                                                                              self.__user_tag_finder,
+                                                                              timeout=5.0)
+
         self.__data_source = rows.sql_data_source.SqlDataSource(self.settings,
                                                                 self.console,
                                                                 self.__location_finder)
