@@ -53,6 +53,7 @@ class Application:
 
         self.__settings.reload()
         self.__data_source.reload()
+        self.__user_tag_finder.reload()
         self.__location_cache.reload()
 
         return parser.parse_database_objects(intermediate_args)

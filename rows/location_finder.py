@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import sys
+import csv
 import urllib.parse
 import os.path
 
@@ -82,11 +83,28 @@ def is_within_range(location):
 
 class UserLocationFinder:
 
-    def __init__(self, use_geo_tagging_file):
-        pass
+    def __init__(self, settings):
+        self.__user_geo_tagging_file_path = settings.user_geo_tagging_path
+        self.__user_locations = {}
 
     def find(self, user_id):
-        pass
+        if user_id in self.__user_locations:
+            return self.__user_locations[user_id]
+        return None
+
+    def reload(self):
+        try:
+            self.__user_locations = {}
+            with open(self.__user_geo_tagging_file_path, 'r') as input_stream:
+                dialect = csv.Sniffer().sniff(input_stream.read(4096))
+                input_stream.seek(0)
+                reader = csv.reader(input_stream, dialect=dialect)
+                for row in reader:
+                    raw_user_id, raw_latitude, raw_longitude = row
+                    self.__user_locations[int(raw_user_id)] = Location(longitude=float(raw_longitude),
+                                                                       latitude=float(raw_latitude))
+        except RuntimeError:
+            logging.exception('Failed to reload the user geo tagging file: %s', self.__user_geo_tagging_file_path)
 
 
 class AddressLocationFinder:
