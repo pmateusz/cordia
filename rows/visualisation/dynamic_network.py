@@ -1,25 +1,17 @@
+import simplekml
 import dateutil.parser as parser
 from datetime import datetime, timedelta
 import xml.etree.ElementTree as ET
 import numpy as np
 import random
 
-#add namespace
-#registering namespaces
-nsm = {"":  "http://www.gexf.net/1.1draft", "viz": "http://www.gexf.net/1.2draft/viz"}
-for i in nsm.keys():
-    ET.register_namespace(i,nsm[i])
-
-tree = ET.parse('solution.gexf')
-root = tree.getroot()
+## Read from solution file
 tag = '{http://www.gexf.net/1.1draft}'
+tree = ET.parse('solution.gexf')
+sh = tree.find(tag+'graph') 
 
-#convert to dynamic
-sh= tree.find(tag+'graph') 
-sh.set('mode','dynamic')
-
-dict_att={}
 #create dictionary of attributes - IDs
+dict_att={}
 for atts in sh.findall(tag+'attributes'):
     for att in atts.findall(tag+'attribute'):
         dict_att[att.attrib['title']]=att.attrib['id']
@@ -34,11 +26,6 @@ work_relative = dict_att['work_relative']
 lon = dict_att['longitude']
 lat = dict_att['latitude']
 
-#add timeformat 
-timeformat = ET.Element(tag+'graph')
-for timeformat in root:
-    timeformat.set('timeformat', 'datetime')
-    
 #retrieve date of scheduling
 Value=""
 for eleme in sh.findall(tag+'nodes'):
@@ -54,10 +41,6 @@ for eleme in sh.findall(tag+'nodes'):
             Value=""
 #set default time
 day = date1.isoformat()[0:10]    
-date_default = day+"T00:00:00"
-for elem in root.getiterator():
-    if elem.text:
-        elem.text= elem.text.replace('2000-Jan-01 00:00:00',date_default)
 
 #retrieve information about carers and visits (which carer service which visit and when the carer is ending the visits serviced)
 dict_carer={}
@@ -66,6 +49,7 @@ dict_carer_endtime={}
 dict_carer_starttime={}
 dict_carer_firstvisit_pos={}
 dict_carer_firstvisit_id={}
+dict_carer_color={}
 for nodes in sh.findall(tag+'nodes'):
     for node in nodes.findall(tag+'node'):
         for attvalues in node.findall(tag+'attvalues'):
@@ -106,72 +90,24 @@ for nodes in sh.findall(tag+'nodes'):
                     dict_carer_firstvisit_pos[SAP_number][1] = float(attributes[lat])
                     dict_carer_firstvisit_id[SAP_number] = id_visit        
 
-print dict_carer
+#create palette of colors for carers
+number_of_colors = len(dict_carer.keys())
+color = ["#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)])
+             for i in range(number_of_colors)]
+i = 0
+for carer_SAP in dict_carer.keys():
+    dict_carer_color[carer_SAP]=color[i]
+    i = i+1
 
-#setting up size and colors and endtime in the graph
-
-#create palette of colors
-n_carers = len(dict_carer.keys())
-colors_dict = {}
-for i in dict_carer.keys():
-    colors_dict[i] = list(np.random.choice(range(256), size=3)) 
-colors_dict['dropped'] = [0, 0, 0] #setting color of dropped visits to black
-
-#set size and colors
-for nodes in sh.findall(tag+'nodes'):
-    for node in nodes.findall(tag+'node'):
-        for attvalues in node.findall(tag+'attvalues'):
-            attributes = {}            
-            for att in attvalues.findall(tag+'attvalue'):
-                attributes[att.attrib['for']] = att.attrib['value']  
-        if attributes[type_id] == 'carer':
-            child_size = ET.SubElement(node, ET.QName(nsm['viz'], "size"), value='0.0')
-            child_col = ET.SubElement(node, ET.QName(nsm['viz'], "color"))
-            # setting start and end time for carers
-            size_c = attributes[work_relative] 
-            child_size.set('value', str(float(size_c)+1))
-            SAP_number = attributes[sap_number_id] 
-            color = colors_dict[SAP_number] 
-            child_col.set('r', str(color[0]))                          
-            child_col.set('g', str(color[1]))
-            child_col.set('b', str(color[2]))
-            node.set('end', dict_carer_endtime[SAP_number])
-            node.set('start', dict_carer_starttime[SAP_number])
-            lon_el = ET.SubElement(attvalues, ET.QName(nsm[""],"attvalue"))
-            lat_el = ET.SubElement(attvalues, ET.QName(nsm[""],"attvalue"))
-	    lon_el.set('for' , lon)
-            lat_el.set('for' , lat)
-	    lon_el.set('value' ,str(dict_carer_firstvisit_pos[SAP_number][0] -0.001+0.002*random.uniform(0, 1)) )
-            lat_el.set('value' ,str(dict_carer_firstvisit_pos[SAP_number][1] -0.001+0.002*random.uniform(0, 1)) )
-        elif attributes[type_id]=='visit':
-            child_size = ET.SubElement(node, ET.QName(nsm['viz'], "size"), value='0.0')
-            child_col = ET.SubElement(node, ET.QName(nsm['viz'], "color"))
-            size_c = '0.5' 
-            child_size.set('value', size_c)        
-            if assigned_carer_id in attributes.keys():    
-                SAP_number = attributes[assigned_carer_id] 
-                color = colors_dict[SAP_number] 
-                child_col.set('r', str(color[0]))                          
-                child_col.set('g', str(color[1]))
-                child_col.set('b', str(color[2]))
-                node.set('end', dict_carer_endtime[SAP_number])
-            else:
-                color = colors_dict['dropped'] 
-                child_col.set('r', str(color[0]))                          
-                child_col.set('g', str(color[1]))
-                child_col.set('b', str(color[2]))   
-        elif attributes[type_id]=='user':
-            nodes.remove(node)
-
-for edges in sh.findall(tag+'edges'):
-    for edge in edges.findall(tag+'edge'):
-        if 'u' in edge.attrib['source']:
-            edges.remove(edge)
-        if 'c' in edge.attrib['source']:
-            carer_id = edge.attrib['source']
-            carer_SAP = dict_carer_id[carer_id]
-            if edge.attrib['target'] != dict_carer_firstvisit_id[carer_SAP]:
-                edges.remove(edge)
-
-#write final xml to file
-tree.write('solution_modified.gexf')           
+kml = simplekml.Kml()
+for carer_SAP in dict_carer:
+    pnt = kml.newpoint(name="Carer " + carer_SAP, coords=[dict_carer_firstvisit_pos[carer_SAP]])  
+    pnt.extendeddata.newdata(name='work_relative', value=1, displayname="Work relative")
+    pnt.extendeddata.newdata(name='work_relative', value=1, displayname="Work relative")
+    pnt.extendeddata.newdata(name='work_relative', value=1, displayname="Work relative")
+    pnt.extendeddata.newdata(name='work_relative', value=1, displayname="Work relative")
+    pnt.extendeddata.newdata(name='work_relative', value=1, displayname="Work relative")
+    #pnt.style.iconstyle.icon.href='http://maps.google.com/mapfiles/kml/shapes/man.png'
+    #pnt.style.iconstyle.color=dict_carer_color[carer_SAP]
+    #pnt.style.balloonstyle.text="bla bla bla"
+kml.save("schedule.kml")
