@@ -99,6 +99,8 @@ DEFINE_string(scheduling_date,
               "day to compute schedule for. By default it is the day of the earliest requested visit in the problem");
 DEFINE_validator(scheduling_date, &util::date::IsNullOrPositive);
 
+DEFINE_bool(solve_all, false, "solve the scheduling problem for all instances")
+
 void ParseArgs(int argc, char **argv) {
     gflags::SetVersionString("0.0.1");
     gflags::SetUsageMessage("Robust Optimization for Workforce Scheduling\n"
@@ -123,17 +125,19 @@ void ParseArgs(int argc, char **argv) {
                              "scheduling-date: %4%\n"
                              "output: %5%\n"
                              "time-limit: %6%\n"
-                             "solutions-limit: %7%")
+                             "solutions-limit: %7%\n"
+                             "solve-all: %8%")
                % FLAGS_problem
                % FLAGS_maps
                % FLAGS_solution
                % (FLAGS_scheduling_date.empty() ? "not set" : FLAGS_scheduling_date)
                % FLAGS_output
                % (FLAGS_time_limit.empty() ? "no" : FLAGS_time_limit)
-               % FLAGS_solutions_limit;
+               % FLAGS_solutions_limit
+               % (FLAGS_solve_all ? "yes" : "no");
 }
 
-rows::Problem LoadReducedProblem(std::shared_ptr<rows::Printer> printer) {
+rows::Problem LoadProblem(std::shared_ptr<rows::Printer> printer) {
     boost::filesystem::path problem_file(boost::filesystem::canonical(FLAGS_problem));
     std::ifstream problem_stream;
     problem_stream.open(problem_file.c_str());
@@ -151,17 +155,19 @@ rows::Problem LoadReducedProblem(std::shared_ptr<rows::Printer> printer) {
                                      util::ErrorCode::ERROR);
     }
 
-    rows::Problem problem;
     try {
         rows::Problem::JsonLoader json_loader;
-        problem = json_loader.Load(problem_json);
+        return json_loader.Load(problem_json);
     } catch (const std::domain_error &ex) {
         throw util::ApplicationError(
                 (boost::format("Failed to parse the file %1% due to error: '%2%'") % problem_file %
                  ex.what()).str(),
                 util::ErrorCode::ERROR);
     }
+}
 
+rows::Problem LoadReducedProblem(std::shared_ptr<rows::Printer> printer) {
+    const auto problem = LoadProblem(printer);
 
     const std::pair<boost::posix_time::ptime, boost::posix_time::ptime> timespan_pair = problem.Timespan();
     const auto begin_date = timespan_pair.first.date();
@@ -207,10 +213,6 @@ osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
     }
 
     return config;
-}
-
-void FailureInterceptor() {
-    LOG(WARNING) << "here";
 }
 
 void ChatBot(rows::SchedulingWorker &worker) {
@@ -379,7 +381,6 @@ int RunExperimentalSchedulingWorker() {
     return worker.ReturnCode();
 }
 
-// TODO: enforce only percentage of constraints
 // TODO: restart 5 times before stopping
 // TODO: register previous and current lower bound and number of dropped visits
 
@@ -387,79 +388,11 @@ int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
 
-//    operations_research::Solver solver("repro-all-distinct");
-//
-//    std::vector<operations_research::IntVar *> start_times{
-//            solver.MakeIntVar(0, 0, "start-0"),
-//            solver.MakeIntVar(27000, 30779, "start-1"),
-//            solver.MakeIntVar(27000, 30915, "start-2"),
-//            solver.MakeIntVar(27000, 31904, "start-3"),
-//            solver.MakeIntVar(27000, 34200, "start-4"),
-//            solver.MakeIntVar(27000, 37277, "start-5"),
-//            solver.MakeIntVar(28800, 38133, "start-6"),
-//            solver.MakeIntVar(30083, 39416, "start-7"),
-//            solver.MakeIntVar(30421, 39600, "start-8"),
-//            solver.MakeIntVar(36000, 49498, "start-9"),
-//            solver.MakeIntVar(37802, 43048, "start-10"),
-//            solver.MakeIntVar(38700, 38700, "start-11"),
-//            solver.MakeIntVar(43244, 43691, "start-12"),
-//            solver.MakeIntVar(45523, 45970, "start-13"),
-//            solver.MakeIntVar(46353, 46800, "start-14"),
-//            solver.MakeIntVar(51300, 51300, "start-15")
-//    };
-//
-//    std::vector<operations_research::IntervalVar *> intervals{
-//            solver.MakeFixedDurationIntervalVar(start_times[0], 27000, "interval-0"),
-//            solver.MakeFixedDurationIntervalVar(start_times[1], 136, "interval-1"),
-//            solver.MakeFixedDurationIntervalVar(start_times[2], 989, "interval-2"),
-//            solver.MakeFixedDurationIntervalVar(start_times[3], 2296, "interval-3"),
-//            solver.MakeFixedDurationIntervalVar(start_times[4], 1800, "interval-4"),
-//            solver.MakeFixedDurationIntervalVar(start_times[5], 856, "interval-5"),
-//            solver.MakeFixedDurationIntervalVar(start_times[6], 1283, "interval-6"),
-//            solver.MakeFixedDurationIntervalVar(start_times[7], 184, "interval-7"),
-//            solver.MakeFixedDurationIntervalVar(start_times[8], 3557, "interval-8"),
-//            solver.MakeFixedDurationIntervalVar(start_times[9], 1802, "interval-9"),
-//            solver.MakeFixedDurationIntervalVar(start_times[10], 643, "interval-10"),
-//            solver.MakeFixedDurationIntervalVar(start_times[11], 4500, "interval-11"),
-//            solver.MakeFixedDurationIntervalVar(start_times[12], 2279, "interval-12"),
-//            solver.MakeFixedDurationIntervalVar(start_times[13], 830, "interval-13"),
-//            solver.MakeFixedDurationIntervalVar(start_times[14], 2132, "interval-14"),
-//            solver.MakeFixedDurationIntervalVar(start_times[15], 35100, "interval-15")
-//    };
-//
-//    solver.AddConstraint(solver.MakeDisjunctiveConstraint(intervals, "disjunctive_intervals"));
-//    operations_research::SolutionCollector *const collector = solver.MakeLastSolutionCollector();
-//    collector->Add(start_times);
-//    operations_research::DecisionBuilder *const db = solver.MakePhase(start_times,
-//                                                                      operations_research::Solver::CHOOSE_FIRST_UNBOUND,
-//                                                                      operations_research::Solver::ASSIGN_MAX_VALUE);
-//    operations_research::OptimizeVar *const start_times_to_use
-//            = solver.MakeMaximize(start_times[start_times.size() - 1], 1);
-//    const auto solved = solver.Solve(db, collector, start_times_to_use);
-//    CHECK(solved);
-
-    return RunTwoStepSchedulingWorker();
-
-//    std::shared_ptr<std::atomic_bool> cancellation_token = std::make_shared<std::atomic_bool>(false);
-//    std::shared_ptr<rows::Printer> printer = CreatePrinter();
-//    auto problem = LoadReducedProblem(printer);
-//    auto routing_params = CreateEngineConfig(FLAGS_maps);
-//    auto search_params = rows::SolverWrapper::CreateSearchParameters();
-//    std::unique_ptr<rows::SolverWrapper> solver_wrapper
-//            = std::make_unique<rows::TwoStepSolver>(problem, routing_params, search_params);
-//
-//    std::unique_ptr<operations_research::RoutingModel> model
-//            = std::make_unique<operations_research::RoutingModel>(solver_wrapper->nodes(),
-//                                                                  solver_wrapper->vehicles(),
-//                                                                  rows::SolverWrapper::DEPOT);
-//    solver_wrapper->ConfigureModel(*model, printer, cancellation_token);
-//    auto assignment = model->ReadAssignment("/home/pmateusz/dev/cordia/solution68_15_23.pb");
-//    CHECK(model->solver()->CheckAssignment(assignment));
-//
-//    auto solution = model->SolveFromAssignmentWithParameters(assignment, search_params);
-//    CHECK(solution);
-//
-//    operations_research::Assignment solution_to_validate{solution};
-//    CHECK(model->solver()->CheckAssignment(&solution_to_validate));
-    return 0;
+    if (FLAGS_solve_all) {
+        std::shared_ptr<rows::Printer> printer = CreatePrinter();
+        const auto problem = LoadProblem(printer);
+        return 0;
+    } else {
+        return RunTwoStepSchedulingWorker();
+    }
 }
