@@ -798,7 +798,6 @@ namespace rows {
                 }
             }
         }
-
         return max_distance / 6;
     }
 

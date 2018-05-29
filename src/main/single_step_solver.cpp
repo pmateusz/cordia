@@ -169,7 +169,7 @@ namespace rows {
             }
         }
 
-        const int64 kPenalty = max_distance / 6;
+        const int64 kPenalty = max_distance;
         for (const auto &visit_bundle : visit_index_) {
             std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
                                                                                   std::cend(visit_bundle.second)};
