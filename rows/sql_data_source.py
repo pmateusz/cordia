@@ -6,6 +6,9 @@ import operator
 import math
 import itertools
 import datetime
+import pdb
+
+import numpy
 
 import pyodbc
 
@@ -497,6 +500,9 @@ ORDER BY carer_visits.VisitID"""
 
         class MeanModel:
             def __init__(self, mean):
+                if not isinstance(mean, float) or math.isnan(mean):
+                    raise ValueError()
+
                 self.__mean = mean
 
             def forecast(self, date):
@@ -578,12 +584,16 @@ ORDER BY carer_visits.VisitID"""
             self.__user_clusters = collections.defaultdict(list)
             for cluster_group in cluster_groups:
                 for cluster in cluster_group:
-                    if cluster.empty:
+                    if cluster.empty or cluster.data_frame().empty:
+                        # now even clusters of size 1 are important
                         continue
                     self.__user_clusters[cluster.user].append(cluster)
 
             def compute_prediction_model(cluster):
                 data_frame = cluster.data_frame()
+                if data_frame.empty:
+                    raise ValueError()
+
                 if data_frame.Duration.count() < 64:
                     # we are predicting for 2 weeks, so any smaller value does not make sense
                     # especially the number of observations cannot be 12 to avoid division by 0 in the AICC formula
@@ -669,8 +679,8 @@ ORDER BY carer_visits.VisitID"""
                 distances = []
                 for index in range(len(user_clusters)):
                     cluster = user_clusters[index]
-                    cluster.centroid()
-                    distances.append((cluster, distance(simple_visit, cluster.centroid())))
+                    centroid_distance = distance(simple_visit, cluster.centroid())
+                    distances.append((cluster, centroid_distance))
                 cluster, time_distance = min(distances, key=operator.itemgetter(1))
                 if time_distance < 90:
                     # visit is within 90 minutes time distance from the centroid
@@ -1105,7 +1115,17 @@ ORDER BY carer_visits.VisitID"""
         time_change = []
         for visit in raw_visits:
             original_duration = int(float(visit.duration))
-            visit.duration = duration_estimator(visit)
+            suggested_duration = duration_estimator(visit)
+
+            if isinstance(suggested_duration, str):
+                if not suggested_duration.isdigit():
+                    raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+            elif isinstance(suggested_duration, numpy.float):
+                if math.isnan(suggested_duration) or numpy.isnan(suggested_duration):
+                    raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+            else:
+                raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+            visit.duration = suggested_duration
             duration_to_use = int(float(visit.duration))
             time_change.append(duration_to_use - original_duration)
 

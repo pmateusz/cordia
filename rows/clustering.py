@@ -72,10 +72,13 @@ class Cluster:
                   for visit in visits_to_use],
             columns=['Start', 'Duration'])
         data_frame.sort_index(inplace=True)
-        # remove outliers and invalid values, resample, fill missing values
-        data_frame.where(
-            (numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()) & (
-                    data_frame.Duration > 0), inplace=True)
+
+        if len(data_frame) > 1:
+            # remove outliers and invalid values, resample, fill missing values
+            data_frame.where(
+                (numpy.abs(data_frame.Duration - data_frame.Duration.mean()) <= 1.96 * data_frame.Duration.std()) & (
+                        data_frame.Duration > 0), inplace=True)
+
         data_frame.dropna(inplace=True)
         data_frame = data_frame.resample('D').mean()
         return data_frame
@@ -118,6 +121,9 @@ class Cluster:
 
     def __hash__(self):
         return (str(self.user) + str(self.label)).__hash__()
+
+    def __len__(self):
+        return self.__items.__len__()
 
 
 def distance(left, right):
@@ -375,52 +381,66 @@ def compute_kmeans_clusters(visits):
     visits.sort(key=lambda visit: visit.user)
 
     def compute_user_clusters(visit_group):
-        if not visit_group:
-            return None
+        try:
+            if not visit_group:
+                return None
 
-        MIN_CLUSTER_SIZE = 8
+            MIN_CLUSTER_SIZE = 8
 
-        day_visit_counter = collections.Counter()
-        for visit in visit_group:
-            day_visit_counter[visit.original_start.date()] += 1
-        _, n_clusters = day_visit_counter.most_common()[0]
+            day_visit_counter = collections.Counter()
+            for visit in visit_group:
+                day_visit_counter[visit.original_start.date()] += 1
+            _, n_clusters = day_visit_counter.most_common()[0]
 
-        visit_frequency_counter = collections.Counter()
-        for date, count in day_visit_counter.items():
-            visit_frequency_counter[count] += 1
+            visit_frequency_counter = collections.Counter()
+            for date, count in day_visit_counter.items():
+                visit_frequency_counter[count] += 1
 
-        n_cluster_candidates = [count for count, freq in visit_frequency_counter.items() if freq >= MIN_CLUSTER_SIZE]
-        if not n_cluster_candidates:
-            logging.warning('User %s has not enough visits to distinguish clusters', visit_group[0].user)
-            return None
+            n_cluster_candidates = [count for count, freq in visit_frequency_counter.items() if
+                                    freq >= MIN_CLUSTER_SIZE]
+            if not n_cluster_candidates:
+                logging.warning('User %s has not enough visits to distinguish clusters', visit_group[0].user)
+                return None
 
-        n_clusters = max(count for count, freq in visit_frequency_counter.items() if freq >= MIN_CLUSTER_SIZE)
-        possible_dates = [date for date, count in day_visit_counter.items() if count == n_clusters]
-        centroid_candidates = []
-        for date in possible_dates:
-            centroids = [visit for visit in visit_group if visit.original_start.date() == date]
-            centroids.sort(key=lambda item: item.original_start)
-            centroid_candidates.append(centroids)
+            n_clusters = max(count for count, freq in visit_frequency_counter.items() if freq >= MIN_CLUSTER_SIZE)
+            possible_dates = [date for date, count in day_visit_counter.items() if count == n_clusters]
+            centroid_candidates = []
+            for date in possible_dates:
+                centroids = [visit for visit in visit_group if visit.original_start.date() == date]
+                centroids.sort(key=lambda item: item.original_start)
+                centroid_candidates.append(centroids)
 
-        centroid_distances = [(centroid,
-                               numpy.sum([numpy.power(
-                                   numpy.sum([distance(left, right) for left, right in zip(centroid, other)]), 2.0)
-                                   for other in centroid_candidates if centroid != other])) for centroid in
-                              centroid_candidates]
-        centroid_to_use = min(centroid_distances, key=lambda centroid_distance: centroid_distance[1])[0]
-        centroid_distances = [[distance(centroid, visit) for visit in visit_group] for centroid in centroid_to_use]
-        distances = calculate_distance(numpy.array(visit_group), distance)
-        db = sklearn.cluster.KMeans(n_init=1,
-                                    n_clusters=n_clusters,
-                                    precompute_distances=False,
-                                    init=numpy.array(centroid_distances))
-        db.fit(distances)
-        labels = db.labels_
-        cluster_count = len(set(labels)) - (1 if -1 in labels else 0)
-        clusters = [Cluster(label) for label in range(-1, cluster_count, 1)]
-        for visit, label in zip(visit_group, labels):
-            clusters[label + 1].add(visit)
-        return clusters
+            centroid_distances = [(centroid,
+                                   numpy.sum([numpy.power(
+                                       numpy.sum([distance(left, right) for left, right in zip(centroid, other)]), 2.0)
+                                       for other in centroid_candidates if centroid != other])) for centroid in
+                                  centroid_candidates]
+            centroid_to_use = min(centroid_distances, key=lambda centroid_distance: centroid_distance[1])[0]
+            centroid_distances = [[distance(centroid, visit) for visit in visit_group] for centroid in centroid_to_use]
+            distances = calculate_distance(numpy.array(visit_group), distance)
+            db = sklearn.cluster.KMeans(n_init=1,
+                                        n_clusters=n_clusters,
+                                        precompute_distances=False,
+                                        init=numpy.array(centroid_distances))
+            db.fit(distances)
+            labels = db.labels_
+
+            distinct_labels = set(labels)
+            if -1 in distinct_labels:
+                distinct_labels.remove(-1)
+            distinct_labels = list(distinct_labels)
+            distinct_labels.sort()
+
+            label_index = dict(zip(distinct_labels, range(len(distinct_labels))))
+            clusters = [Cluster(label) for label in range(len(distinct_labels))]
+            for visit, label in zip(visit_group, labels):
+                if label == -1:
+                    continue
+                clusters[label_index[label]].add(visit)
+            return clusters
+        except BaseException:
+            logging.exception('Unhandled exception while computing clusters')
+            raise
 
     results = []
     groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
@@ -430,9 +450,9 @@ def compute_kmeans_clusters(visits):
                            total=len(futures_list),
                            unit='users',
                            desc='Clustering', leave=False):
-            clusters = f.result()
-            if clusters:
-                results.append(clusters)
+            partial_result = f.result()
+            if partial_result:
+                results.append(partial_result)
     return results
 
 
