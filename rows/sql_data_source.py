@@ -1108,12 +1108,12 @@ ORDER BY carer_visits.VisitID"""
                                                      int((end_date_time - start_date_time).total_seconds())),
                                                  tasks=tasks,
                                                  carer_count=carer_count))
-            marked_visit_ids.add(visit_key)
 
+        distinct_visits = self.__remove_duplicates(raw_visits)
         visits_by_service_user = collections.defaultdict(list)
 
         time_change = []
-        for visit in raw_visits:
+        for visit in distinct_visits:
             original_duration = int(float(visit.duration))
             suggested_duration = duration_estimator(visit)
 
@@ -1128,7 +1128,6 @@ ORDER BY carer_visits.VisitID"""
             visit.duration = suggested_duration
             duration_to_use = int(float(visit.duration))
             time_change.append(duration_to_use - original_duration)
-
             visits_by_service_user[visit.service_user].append(visit)
 
         if time_change:
@@ -1350,6 +1349,31 @@ ORDER BY carer_visits.VisitID"""
             self.__connection.close()
             del self.__connection
             self.__connection = None
+
+    def __remove_duplicates(self, visits):
+        from rows.analysis import str_to_tasks
+
+        user_index = collections.defaultdict(lambda: collections.defaultdict(dict))
+        for visit in visits:
+            user_date_slot = user_index[visit.service_user][visit.date]
+            if visit.time in user_date_slot:
+                previous_visit = user_date_slot[visit.time]
+                previous_tasks = str_to_tasks(previous_visit.tasks)
+                current_tasks = str_to_tasks(visit.tasks)
+                if previous_tasks.issubset(current_tasks):
+                    user_date_slot[visit.time] = visit
+                elif not current_tasks.issubset(previous_tasks):
+                    raise ValueError(
+                        'Two visits happen at the same time {0} and both contain different tasks {1} vs {2}'
+                            .format(visit.time, previous_tasks, current_tasks))
+            else:
+                user_date_slot[visit.time] = visit
+
+        results = []
+        for user in user_index:
+            for date in user_index[user]:
+                results.extend(user_index[user][date].values())
+        return results
 
     def __load_credentials(self):
         path = pathlib.Path(real_path(self.__settings.database_credentials_path))

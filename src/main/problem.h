@@ -11,6 +11,7 @@
 #include <glog/logging.h>
 #include <boost/optional.hpp>
 #include <boost/date_time.hpp>
+#include <nlohmann/json.hpp>
 
 #include "carer.h"
 #include "calendar_visit.h"
@@ -185,7 +186,17 @@ namespace rows {
                 auto date_time = datetime_loader.Load(visit_json);
                 const auto duration_it = visit_json.find("duration");
                 if (duration_it == std::end(visit_json)) { throw OnKeyNotFound("duration"); }
-                auto duration = boost::posix_time::seconds(std::stol(duration_it.value().template get<std::string>()));
+
+                boost::posix_time::seconds duration{0};
+                if (duration_it.value().is_string()) {
+                    duration = boost::posix_time::seconds(std::stol(duration_it.value().template get<std::string>()));
+                } else if (duration_it.value().is_number()) {
+                    duration = boost::posix_time::seconds(duration_it.value().template get<int>());
+                } else {
+                    throw std::domain_error(
+                            (boost::format("Unknown format of duration %s") % duration_it.value()).str());
+                }
+
                 const auto carer_count_it = visit_json.find("carer_count");
                 if (duration_it == std::end(visit_json)) { throw OnKeyNotFound("carer_count"); }
                 auto carer_count = carer_count_it.value().template get<int>();

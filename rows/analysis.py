@@ -72,6 +72,9 @@ class Tasks:
     def __str__(self):
         return self.__raw_tasks
 
+    def issubset(self, other):
+        return self.__tasks.issubset(other.tasks)
+
     @property
     def tasks(self):
         return self.__tasks
