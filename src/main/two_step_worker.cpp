@@ -215,6 +215,8 @@ void rows::TwoStepSchedulingWorker::Run() {
     const auto is_second_solution_correct = second_stage_model->solver()->CheckAssignment(&second_validation_copy);
     DCHECK(is_second_solution_correct);
 
+    // TODO: third stage - with maximum number of violated visits
+
     rows::GexfWriter solution_writer;
     solution_writer.Write(output_file_, *second_stage_wrapper, *second_stage_model, *second_stage_assignment);
 

@@ -61,7 +61,7 @@ namespace rows {
                 gexf.SetNodeValue(visit_id, DROPPED, TRUE_VALUE);
             }
 
-            const auto start_time_sec = solution.Value(time_dim->CumulVar(model.NodeToIndex(visit_index)));
+            const auto start_time_sec = solution.Min(time_dim->CumulVar(model.NodeToIndex(visit_index)));
             gexf.SetNodeValue(visit_id,
                               START_TIME,
                               boost::posix_time::ptime{visit.datetime().date(),

@@ -6,6 +6,8 @@
 
 #include <glog/logging.h>
 
+#include "util/routing.h"
+
 rows::SolutionDumper::SolutionDumper(boost::filesystem::path export_directory,
                                      std::string file_name_pattern,
                                      const operations_research::RoutingModel &model)
@@ -14,7 +16,7 @@ rows::SolutionDumper::SolutionDumper(boost::filesystem::path export_directory,
           file_name_pattern_(std::move(file_name_pattern)) {}
 
 bool rows::SolutionDumper::AtSolution() {
-    const auto dropped_visits = DroppedVisits();
+    const auto dropped_visits = util::GetDroppedVisitCount(model());
     const auto solutions = solver()->solutions();
 
 //    if (dropped_visits <= 72) {

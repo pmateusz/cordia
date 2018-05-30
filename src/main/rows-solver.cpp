@@ -99,7 +99,7 @@ DEFINE_string(scheduling_date,
               "day to compute schedule for. By default it is the day of the earliest requested visit in the problem");
 DEFINE_validator(scheduling_date, &util::date::IsNullOrPositive);
 
-DEFINE_bool(solve_all, false, "solve the scheduling problem for all instances")
+DEFINE_bool(solve_all, false, "solve the scheduling problem for all instances");
 
 void ParseArgs(int argc, char **argv) {
     gflags::SetVersionString("0.0.1");
