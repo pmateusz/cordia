@@ -159,6 +159,8 @@ namespace rows {
 
         std::string GetModelStatus(int status);
 
+        int64 GetDroppedVisitPenalty(const operations_research::RoutingModel &model);
+
     protected:
         SolverWrapper(const rows::Problem &problem,
                       const std::vector<rows::Location> &locations,
@@ -195,8 +197,6 @@ namespace rows {
                                const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > &validation_errors) const;
 
         static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
-
-        int64 GetDroppedVisitPenalty(const operations_research::RoutingModel &model);
 
         const rows::Problem problem_;
         const Location depot_;

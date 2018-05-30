@@ -4,12 +4,13 @@
 #include "break_constraint.h"
 #include "progress_printer_monitor.h"
 #include "cancel_search_limit.h"
-#include "solution_dumper.h"
 
 rows::TwoStepSolver::TwoStepSolver(const rows::Problem &problem,
                                    osrm::EngineConfig &config,
-                                   const operations_research::RoutingSearchParameters &search_parameters)
-        : SolverWrapper(problem, config, search_parameters) {}
+                                   const operations_research::RoutingSearchParameters &search_parameters,
+                                   int64 dropped_visit_penalty)
+        : SolverWrapper(problem, config, search_parameters),
+          dropped_visit_penalty_(dropped_visit_penalty) {}
 
 void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &model,
                                          const std::shared_ptr<Printer> &printer,
@@ -112,18 +113,13 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
 
     printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
 
-    const int64 kPenalty = GetDroppedVisitPenalty(model);
     for (const auto &visit_bundle : visit_index_) {
         std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
                                                                               std::cend(visit_bundle.second)};
-        model.AddDisjunction(visit_nodes, kPenalty, static_cast<int64>(visit_nodes.size()));
+        model.AddDisjunction(visit_nodes, dropped_visit_penalty_, static_cast<int64>(visit_nodes.size()));
     }
 
     model.CloseModelWithParameters(parameters_);
-    model.AddSearchMonitor(
-            solver_ptr->RevAlloc(new SolutionDumper(boost::filesystem::path("/home/pmateusz/dev/cordia/"),
-                                                    "solution%1%.pb",
-                                                    model)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 }
