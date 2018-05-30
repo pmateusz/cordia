@@ -4,15 +4,18 @@
 #include <ortools/constraint_solver/constraint_solveri.h>
 #include <ortools/constraint_solver/routing.h>
 
-#include <vector>
+#include <memory>
 
 #include <boost/circular_buffer.hpp>
+
+#include "solution_repository.h"
 
 namespace rows {
 
     class SolutionLogMonitor : public operations_research::SearchLimit {
     public:
-        explicit SolutionLogMonitor(operations_research::RoutingModel const *model);
+        SolutionLogMonitor(operations_research::RoutingModel const *model,
+                           std::shared_ptr<rows::SolutionRepository> solution_repository);
 
         bool Check() override;
 
@@ -26,11 +29,11 @@ namespace rows {
 
     private:
         operations_research::RoutingModel const *model_;
+        std::shared_ptr<rows::SolutionRepository> solution_repository_;
 
         int min_dropped_visits_;
         int cut_off_threshold_;
         boost::circular_buffer<int> dropped_visits_buffer_;
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > min_dropped_routes_;
 
         bool stop_search_;
     };

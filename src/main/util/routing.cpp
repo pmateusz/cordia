@@ -23,13 +23,12 @@ std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > util::Ge
 
 std::unordered_set<operations_research::RoutingModel::NodeIndex> util::GetVisitedNodes(
         const std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes,
-        const operations_research::RoutingModel &model) {
+        const operations_research::RoutingModel::NodeIndex depot_index) {
     std::unordered_set<operations_research::RoutingModel::NodeIndex> visited_nodes;
-    const auto depot_node = model.IndexToNode(model.GetDepot());
     for (const auto &route : routes) {
         for (const auto &node : route) {
             const auto inserted_pair = visited_nodes.insert(node);
-            CHECK(inserted_pair.second || node != depot_node);
+            CHECK(inserted_pair.second || node != depot_index);
         }
     }
     return visited_nodes;

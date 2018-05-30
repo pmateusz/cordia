@@ -1,7 +1,11 @@
 #ifndef ROWS_TWO_STEP_SOLVER_H
 #define ROWS_TWO_STEP_SOLVER_H
 
+#include <memory>
+#include <atomic>
+
 #include "solver_wrapper.h"
+#include "solution_repository.h"
 
 namespace rows {
 
@@ -16,14 +20,11 @@ namespace rows {
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 
-        // TODO: add log search monitor and investigate if penalty should be increased
-        // TODO: solve scheduling for multiple days
-        // TODO: compare schedules with humans
-        // TODO: increase cost of using carers (number of carers, cost of carers, travel time)
-        // TODO: have a percentage value reflecting cost
+        std::shared_ptr<rows::SolutionRepository> solution_repository();
 
     private:
         int64 dropped_visit_penalty_;
+        std::shared_ptr<rows::SolutionRepository> solution_repository_;
     };
 }
 

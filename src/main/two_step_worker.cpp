@@ -1,4 +1,6 @@
+#include <util/routing.h>
 #include "two_step_worker.h"
+#include "third_step_solver.h"
 #include "gexf_writer.h"
 
 rows::TwoStepSchedulingWorker::CarerTeam::CarerTeam(std::pair<rows::Carer, rows::Diary> member)
@@ -131,7 +133,7 @@ void rows::TwoStepSchedulingWorker::Run() {
 //    auto dropped_visit_penalty = GetMaxDistance(*first_stage_wrapper, first_step_solution);
     auto dropped_visit_penalty = first_stage_wrapper->GetDroppedVisitPenalty(*first_step_model);
     auto second_step_search_params = rows::SolverWrapper::CreateSearchParameters(); // operations_research::RoutingModel::DefaultSearchParameters();
-    std::unique_ptr<rows::SolverWrapper> second_stage_wrapper
+    std::unique_ptr<rows::TwoStepSolver> second_stage_wrapper
             = std::make_unique<rows::TwoStepSolver>(problem_,
                                                     routing_parameters_,
                                                     second_step_search_params,
@@ -211,14 +213,39 @@ void rows::TwoStepSchedulingWorker::Run() {
         throw util::ApplicationError("No second stage solution found.", util::ErrorCode::ERROR);
     }
 
-    operations_research::Assignment second_validation_copy{second_stage_assignment};
-    const auto is_second_solution_correct = second_stage_model->solver()->CheckAssignment(&second_validation_copy);
-    DCHECK(is_second_solution_correct);
+    const auto routes = second_stage_wrapper->solution_repository()->GetSolution();
+    second_stage_model.release();
 
-    // TODO: third stage - with maximum number of violated visits
+    std::unique_ptr<operations_research::RoutingModel> third_stage_model
+            = std::make_unique<operations_research::RoutingModel>(second_stage_wrapper->nodes(),
+                                                                  second_stage_wrapper->vehicles(),
+                                                                  rows::SolverWrapper::DEPOT);
+
+    std::unique_ptr<rows::ThirdStepSolver> third_step_solver
+            = std::make_unique<rows::ThirdStepSolver>(problem_,
+                                                      routing_parameters_,
+                                                      dropped_visit_penalty,
+                                                      util::GetVisitedNodes(routes, rows::SolverWrapper::DEPOT).size(),
+                                                      second_step_search_params);
+
+    third_step_solver->ConfigureModel(*third_stage_model, printer_, CancelToken());
+    const auto third_stage_preassignment = third_stage_model->ReadAssignmentFromRoutes(routes, true);
+    DCHECK(third_stage_preassignment);
+
+
+    operations_research::Assignment const *third_stage_assignment
+            = third_stage_model->SolveFromAssignmentWithParameters(third_stage_preassignment,
+                                                                    second_step_search_params);
+    if (third_stage_assignment == nullptr) {
+        throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
+    }
+
+    operations_research::Assignment third_validation_copy{third_stage_assignment};
+    const auto is_third_solution_correct = third_stage_assignment->solver()->CheckAssignment(&third_validation_copy);
+    DCHECK(is_third_solution_correct);
 
     rows::GexfWriter solution_writer;
-    solution_writer.Write(output_file_, *second_stage_wrapper, *second_stage_model, *second_stage_assignment);
+    solution_writer.Write(output_file_, *third_step_solver, *third_stage_model, *third_stage_assignment);
 
     SetReturnCode(0);
 }

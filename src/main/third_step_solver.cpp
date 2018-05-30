@@ -1,4 +1,4 @@
-#include "two_step_solver.h"
+#include "third_step_solver.h"
 
 #include "util/aplication_error.h"
 #include "break_constraint.h"
@@ -6,17 +6,18 @@
 #include "cancel_search_limit.h"
 #include "solution_log_monitor.h"
 
-rows::TwoStepSolver::TwoStepSolver(const rows::Problem &problem,
-                                   osrm::EngineConfig &config,
-                                   const operations_research::RoutingSearchParameters &search_parameters,
-                                   int64 dropped_visit_penalty)
+rows::ThirdStepSolver::ThirdStepSolver(const rows::Problem &problem,
+                                       osrm::EngineConfig &config,
+                                       int64 dropped_visit_penalty,
+                                       int64 max_dropped_visits,
+                                       const operations_research::RoutingSearchParameters &search_parameters)
         : SolverWrapper(problem, config, search_parameters),
-          dropped_visit_penalty_(dropped_visit_penalty),
-          solution_repository_{std::make_shared<rows::SolutionRepository>()} {}
+          dropped_visit_penalty_{dropped_visit_penalty},
+          max_dropped_visits_{max_dropped_visits} {}
 
-void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &model,
-                                         const std::shared_ptr<Printer> &printer,
-                                         std::shared_ptr<const std::atomic<bool> > cancel_token) {
+void rows::ThirdStepSolver::ConfigureModel(operations_research::RoutingModel &model,
+                                           const std::shared_ptr<Printer> &printer,
+                                           std::shared_ptr<const std::atomic<bool> > cancel_token) {
     OnConfigureModel(model);
 
     printer->operator<<("Loading the model");
@@ -115,18 +116,22 @@ void rows::TwoStepSolver::ConfigureModel(operations_research::RoutingModel &mode
 
     printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
 
-    for (const auto &visit_bundle : visit_index_) {
-        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
-                                                                              std::cend(visit_bundle.second)};
-        model.AddDisjunction(visit_nodes, dropped_visit_penalty_, static_cast<int64>(visit_nodes.size()));
+    if (max_dropped_visits_ > 0) {
+        for (const auto &visit_bundle : visit_index_) {
+            std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
+                                                                                  std::cend(visit_bundle.second)};
+            model.AddDisjunction(visit_nodes, dropped_visit_penalty_, static_cast<int64>(visit_nodes.size()));
+        }
+
+        std::vector<operations_research::IntVar *> visit_nodes;
+        for (const auto &visit_bundle : visit_index_) {
+            const auto visit_node = *std::begin(visit_bundle.second);
+            visit_nodes.push_back(model.VehicleVar(model.NodeToIndex(visit_node)));
+        }
+        solver->AddConstraint(solver->MakeAtMost(visit_nodes, -1, max_dropped_visits_));
     }
 
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
-    model.AddSearchMonitor(solver_ptr->RevAlloc(new SolutionLogMonitor(&model, solution_repository_)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
-}
-
-std::shared_ptr<rows::SolutionRepository> rows::TwoStepSolver::solution_repository() {
-    return solution_repository_;
 }
