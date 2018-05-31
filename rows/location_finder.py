@@ -103,6 +103,10 @@ class UserLocationFinder:
                     raw_user_id, raw_latitude, raw_longitude = row
                     self.__user_locations[int(raw_user_id)] = Location(longitude=float(raw_longitude),
                                                                        latitude=float(raw_latitude))
+        except FileNotFoundError:
+            logging.warning('Failed to reload the user geo tagging file: %s.'
+                            ' GPS coordinates of service users may be inaccurate',
+                            self.__user_geo_tagging_file_path)
         except RuntimeError:
             logging.exception('Failed to reload the user geo tagging file: %s', self.__user_geo_tagging_file_path)
 
