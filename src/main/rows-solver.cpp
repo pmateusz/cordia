@@ -12,6 +12,7 @@
 
 #include <boost/exception/diagnostic_information.hpp>
 #include <boost/date_time.hpp>
+#include <boost/date_time/gregorian/gregorian.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/optional.hpp>
@@ -52,10 +53,10 @@
 #include "gexf_writer.h"
 #include "single_step_solver.h"
 #include "instant_transfer_solver.h"
-#include "two_step_solver.h"
+#include "second_step_solver.h"
 #include "multiple_carer_visit_constraint.h"
 #include "scheduling_worker.h"
-#include "two_step_worker.h"
+#include "three_step_worker.h"
 #include "single_step_worker.h"
 #include "incremental_worker.h"
 #include "experimental_enforcement_worker.h"
@@ -85,9 +86,6 @@ DEFINE_validator(console_format, &ValidateConsoleFormat);
 DEFINE_string(output, "solution.gexf", "a file path to save the solution");
 DEFINE_validator(output, &util::file::IsNullOrNotExists);
 
-DEFINE_string(time_limit, "", "total time dedicated for computation");
-DEFINE_validator(time_limit, &util::time_duration::IsNullOrPositive);
-
 static const auto DEFAULT_SOLUTION_LIMIT = std::numeric_limits<int64>::max();
 DEFINE_int64(solutions_limit,
              DEFAULT_SOLUTION_LIMIT,
@@ -99,7 +97,56 @@ DEFINE_string(scheduling_date,
               "day to compute schedule for. By default it is the day of the earliest requested visit in the problem");
 DEFINE_validator(scheduling_date, &util::date::IsNullOrPositive);
 
+DEFINE_string(preopt_noprogress_time_limit,
+              "00:01:00",
+              "Stop pre-optimization if no better solution was found after given time");
+DEFINE_validator(preopt_noprogress_time_limit, &util::time_duration::IsNullOrPositive);
+
+DEFINE_string(opt_noprogress_time_limit,
+              "00:05:00",
+              "Stop optimization if no better solution was found after given time");
+DEFINE_validator(opt_noprogress_time_limit, &util::time_duration::IsNullOrPositive);
+
+DEFINE_string(postopt_noprogress_time_limit,
+              "00:05:00",
+              "Stop post-optimization if no better solution was found after given time");
+DEFINE_validator(postopt_noprogress_time_limit, &util::time_duration::IsNullOrPositive);
+
+DEFINE_string(break_time_window,
+              "00:120:00",
+              "Time window for breaks");
+DEFINE_validator(break_time_window, &util::time_duration::IsNullOrPositive);
+
+DEFINE_string(visit_time_window, "00:120:00", "Time window for visits");
+DEFINE_validator(visit_time_window, &util::time_duration::IsNullOrPositive);
+
+DEFINE_string(begin_end_shift_time_extension,
+              "00:15:00",
+              "Extra time added to the shift before and after working day");
+DEFINE_validator(begin_end_shift_time_extension, &util::time_duration::IsNullOrPositive);
+
 DEFINE_bool(solve_all, false, "solve the scheduling problem for all instances");
+
+inline std::string FlagOrDefaultValue(const std::string &flag_value, const std::string &default_value) {
+    if (flag_value.empty()) { return default_value; }
+    return flag_value;
+}
+
+inline boost::posix_time::time_duration GetTimeDurationOrDefault(const std::string &text,
+                                                                 boost::posix_time::time_duration default_value) {
+    if (text.empty()) {
+        return default_value;
+    }
+    return boost::posix_time::duration_from_string(text);
+}
+
+const std::string YES_OPTION{"yes"};
+const std::string NO_OPTION{"no"};
+
+inline const std::string &GetYesOrNoOption(bool value) {
+    if (value) { return YES_OPTION; }
+    return NO_OPTION;
+}
 
 void ParseArgs(int argc, char **argv) {
     gflags::SetVersionString("0.0.1");
@@ -124,17 +171,27 @@ void ParseArgs(int argc, char **argv) {
                              "solution: %3%\n"
                              "scheduling-date: %4%\n"
                              "output: %5%\n"
-                             "time-limit: %6%\n"
-                             "solutions-limit: %7%\n"
-                             "solve-all: %8%")
+                             "visit-time-window: %6%\n"
+                             "break-time-window: %7%\n"
+                             "begin-end-shift-time-adjustment: %8%\n"
+                             "pre-opt-time-limit: %9%\n"
+                             "opt-time-limit: %10%\n"
+                             "post-opt-time-limit: %11%\n"
+                             "solutions-limit: %12%\n"
+                             "solve-all: %13%")
                % FLAGS_problem
                % FLAGS_maps
                % FLAGS_solution
-               % (FLAGS_scheduling_date.empty() ? "not set" : FLAGS_scheduling_date)
+               % FlagOrDefaultValue(FLAGS_scheduling_date, "not set")
                % FLAGS_output
-               % (FLAGS_time_limit.empty() ? "no" : FLAGS_time_limit)
+               % FlagOrDefaultValue(FLAGS_visit_time_window, "no")
+               % FlagOrDefaultValue(FLAGS_break_time_window, "no")
+               % FlagOrDefaultValue(FLAGS_begin_end_shift_time_extension, "no")
+               % FlagOrDefaultValue(FLAGS_preopt_noprogress_time_limit, "no")
+               % FlagOrDefaultValue(FLAGS_opt_noprogress_time_limit, "no")
+               % FlagOrDefaultValue(FLAGS_postopt_noprogress_time_limit, "no")
                % FLAGS_solutions_limit
-               % (FLAGS_solve_all ? "yes" : "no");
+               % GetYesOrNoOption(FLAGS_solve_all);
 }
 
 rows::Problem LoadProblem(std::shared_ptr<rows::Printer> printer) {
@@ -310,8 +367,8 @@ int RunSingleStepSchedulingWorker() {
         search_parameters.set_solution_limit(FLAGS_solutions_limit);
     }
 
-    if (!FLAGS_time_limit.empty()) {
-        const auto duration_limit = boost::posix_time::duration_from_string(FLAGS_time_limit);
+    if (!FLAGS_opt_noprogress_time_limit.empty()) {
+        const auto duration_limit = boost::posix_time::duration_from_string(FLAGS_opt_noprogress_time_limit);
         search_parameters.set_time_limit_ms(duration_limit.total_milliseconds());
     }
 
@@ -331,11 +388,25 @@ int RunSingleStepSchedulingWorker() {
     return worker.ReturnCode();
 }
 
-int RunTwoStepSchedulingWorker() {
+int RunThreeStepSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = CreatePrinter();
 
-    rows::TwoStepSchedulingWorker worker{printer};
-    if (worker.Init(LoadReducedProblem(printer), CreateEngineConfig(FLAGS_maps), FLAGS_output)) {
+    rows::ThreeStepSchedulingWorker worker{printer};
+    if (worker.Init(LoadReducedProblem(printer),
+                    CreateEngineConfig(FLAGS_maps),
+                    FLAGS_output,
+                    GetTimeDurationOrDefault(FLAGS_visit_time_window,
+                                             boost::posix_time::not_a_date_time),
+                    GetTimeDurationOrDefault(FLAGS_break_time_window,
+                                             boost::posix_time::not_a_date_time),
+                    GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
+                                             boost::posix_time::not_a_date_time),
+                    GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
+                                             boost::posix_time::not_a_date_time),
+                    GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
+                                             boost::posix_time::not_a_date_time),
+                    GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
+                                             boost::posix_time::not_a_date_time))) {
         worker.Start();
         std::thread chat_thread(ChatBot, std::ref(worker));
         chat_thread.detach();
@@ -381,8 +452,7 @@ int RunExperimentalSchedulingWorker() {
     return worker.ReturnCode();
 }
 
-// TODO: restart 5 times before stopping
-// TODO: register previous and current lower bound and number of dropped visits
+// TODO compute scheduling for all days
 
 int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
@@ -393,6 +463,6 @@ int main(int argc, char **argv) {
         const auto problem = LoadProblem(printer);
         return 0;
     } else {
-        return RunTwoStepSchedulingWorker();
+        return RunThreeStepSchedulingWorker();
     }
 }

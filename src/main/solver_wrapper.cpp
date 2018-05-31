@@ -72,33 +72,36 @@ namespace rows {
                             config,
                             search_parameters,
                             boost::posix_time::minutes(120),
-                            true) {}
+                            boost::posix_time::minutes(120),
+                            boost::posix_time::not_a_date_time) {}
 
     SolverWrapper::SolverWrapper(const rows::Problem &problem, osrm::EngineConfig &config,
                                  const operations_research::RoutingSearchParameters &search_parameters,
+                                 boost::posix_time::time_duration visit_time_window,
                                  boost::posix_time::time_duration break_time_window,
-                                 bool begin_end_work_day_adjustment_enabled)
+                                 boost::posix_time::time_duration begin_end_work_day_adjustment)
             : SolverWrapper(problem,
                             DistinctLocations(problem),
                             config,
                             search_parameters,
+                            visit_time_window,
                             break_time_window,
-                            begin_end_work_day_adjustment_enabled) {}
+                            begin_end_work_day_adjustment) {}
 
     SolverWrapper::SolverWrapper(const rows::Problem &problem,
                                  const std::vector<rows::Location> &locations,
                                  osrm::EngineConfig &config,
                                  const operations_research::RoutingSearchParameters &search_parameters,
+                                 boost::posix_time::time_duration visit_time_window,
                                  boost::posix_time::time_duration break_time_window,
-                                 bool begin_end_work_day_adjustment_enabled)
+                                 boost::posix_time::time_duration begin_end_work_day_adjustment)
             : problem_(problem),
               depot_(Location::GetCentralLocation(std::cbegin(locations), std::cend(locations))),
               depot_service_user_(),
-              visit_time_window_(boost::posix_time::minutes(120)),
+              visit_time_window_(visit_time_window),
               break_time_window_(break_time_window),
-              out_office_hours_breaks_enabled_(true),
-              begin_end_work_day_adjustment_enabled_(begin_end_work_day_adjustment_enabled),
-              begin_end_work_day_adjustment_(boost::posix_time::minutes(30)),
+              begin_end_work_day_adjustment_(begin_end_work_day_adjustment),
+              out_office_hours_breaks_enabled_(true), // TODO: remove this
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(search_parameters),
               visit_index_(),
@@ -733,20 +736,18 @@ namespace rows {
     }
 
     int64 SolverWrapper::GetAdjustedWorkdayStart(boost::posix_time::time_duration start_time) const {
-        if (begin_end_work_day_adjustment_enabled_) {
-            return std::max((start_time - begin_end_work_day_adjustment_).total_seconds(), 0);
+        if (begin_end_work_day_adjustment_.is_special()) {
+            return start_time.total_seconds();
         }
-
-        return start_time.total_seconds();
+        return std::max((start_time - begin_end_work_day_adjustment_).total_seconds(), 0);
     }
 
     int64 SolverWrapper::GetAdjustedWorkdayFinish(boost::posix_time::time_duration finish_time) const {
-        if (begin_end_work_day_adjustment_enabled_) {
-            return std::min(static_cast<int64>((finish_time + begin_end_work_day_adjustment_).total_seconds()),
-                            SECONDS_IN_DAY);
+        if (begin_end_work_day_adjustment_.is_special()) {
+            return finish_time.total_seconds();
         }
-
-        return finish_time.total_seconds();
+        return std::min(static_cast<int64>((finish_time + begin_end_work_day_adjustment_).total_seconds()),
+                        SECONDS_IN_DAY);
     }
 
     void SolverWrapper::OnConfigureModel(const operations_research::RoutingModel &model) {
@@ -776,11 +777,10 @@ namespace rows {
     }
 
     boost::posix_time::time_duration SolverWrapper::GetAdjustment() const {
-        if (begin_end_work_day_adjustment_enabled_) {
-            return begin_end_work_day_adjustment_;
+        if (begin_end_work_day_adjustment_.is_special()) {
+            return {};
         }
-
-        return {};
+        return begin_end_work_day_adjustment_;
     }
 
     boost::gregorian::date SolverWrapper::GetScheduleDate() const {

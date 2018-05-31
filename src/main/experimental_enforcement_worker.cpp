@@ -14,13 +14,15 @@
 rows::ExperimentalEnforcementWorker::Solver::Solver(const rows::Problem &problem,
                                                     osrm::EngineConfig &config,
                                                     const operations_research::RoutingSearchParameters &search_parameters,
+                                                    boost::posix_time::time_duration visit_time_window,
                                                     boost::posix_time::time_duration break_time_window,
-                                                    bool begin_end_work_day_adjustment_enabled)
+                                                    boost::posix_time::time_duration begin_end_work_day_adjustment_time_window)
         : SolverWrapper(problem,
                         config,
                         search_parameters,
+                        std::move(visit_time_window),
                         std::move(break_time_window),
-                        begin_end_work_day_adjustment_enabled) {}
+                        std::move(begin_end_work_day_adjustment_time_window)) {}
 
 void rows::ExperimentalEnforcementWorker::Solver::ConfigureModel(operations_research::RoutingModel &model,
                                                                  const std::shared_ptr<rows::Printer> &printer,
@@ -184,7 +186,8 @@ void rows::ExperimentalEnforcementWorker::Run() {
                                            routing_params_,
                                            search_params_,
                                            boost::posix_time::minutes(120),
-                                           true);
+                                           boost::posix_time::minutes(120),
+                                           boost::posix_time::minutes(15));
 
         std::unique_ptr<operations_research::RoutingModel> model
                 = std::make_unique<operations_research::RoutingModel>(solver_wrapper->nodes(),

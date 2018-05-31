@@ -86,8 +86,9 @@ namespace rows {
         SolverWrapper(const rows::Problem &problem,
                       osrm::EngineConfig &config,
                       const operations_research::RoutingSearchParameters &search_parameters,
+                      boost::posix_time::time_duration visit_time_window,
                       boost::posix_time::time_duration break_time_window,
-                      bool begin_end_work_day_adjustment_enabled);
+                      boost::posix_time::time_duration begin_end_work_day_adjustment);
 
         virtual void ConfigureModel(operations_research::RoutingModel &model,
                                     const std::shared_ptr<Printer> &printer,
@@ -166,8 +167,9 @@ namespace rows {
                       const std::vector<rows::Location> &locations,
                       osrm::EngineConfig &config,
                       const operations_research::RoutingSearchParameters &search_parameters,
+                      boost::posix_time::time_duration visit_time_window,
                       boost::posix_time::time_duration break_time_window,
-                      bool begin_end_work_day_adjustment_enabled);
+                      boost::posix_time::time_duration begin_end_work_day_adjustment);
 
         void OnConfigureModel(const operations_research::RoutingModel &model);
 
@@ -203,7 +205,6 @@ namespace rows {
         const LocalServiceUser depot_service_user_;
 
         bool out_office_hours_breaks_enabled_;
-        bool begin_end_work_day_adjustment_enabled_;
 
         boost::posix_time::time_duration visit_time_window_;
         boost::posix_time::time_duration break_time_window_;

@@ -5,13 +5,24 @@
 #include "progress_printer_monitor.h"
 #include "cancel_search_limit.h"
 #include "solution_log_monitor.h"
+#include "stalled_search_limit.h"
 
 rows::ThirdStepSolver::ThirdStepSolver(const rows::Problem &problem,
                                        osrm::EngineConfig &config,
+                                       const operations_research::RoutingSearchParameters &search_parameters,
+                                       boost::posix_time::time_duration visit_time_window,
+                                       boost::posix_time::time_duration break_time_window,
+                                       boost::posix_time::time_duration begin_end_work_day_adjustment,
+                                       boost::posix_time::time_duration no_progress_time_limit,
                                        int64 dropped_visit_penalty,
-                                       int64 max_dropped_visits,
-                                       const operations_research::RoutingSearchParameters &search_parameters)
-        : SolverWrapper(problem, config, search_parameters),
+                                       int64 max_dropped_visits)
+        : SolverWrapper(problem,
+                        config,
+                        search_parameters,
+                        std::move(visit_time_window),
+                        std::move(break_time_window),
+                        std::move(begin_end_work_day_adjustment)),
+          no_progress_time_limit_{std::move(no_progress_time_limit)},
           dropped_visit_penalty_{dropped_visit_penalty},
           max_dropped_visits_{max_dropped_visits} {}
 
@@ -133,5 +144,13 @@ void rows::ThirdStepSolver::ConfigureModel(operations_research::RoutingModel &mo
 
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+
+    if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
+        model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(
+                no_progress_time_limit_.total_milliseconds(),
+                model.solver()
+        )));
+    }
+
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 }

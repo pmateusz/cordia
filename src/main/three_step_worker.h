@@ -10,17 +10,18 @@
 #include <glog/logging.h>
 
 #include <boost/algorithm/string/join.hpp>
+#include <boost/date_time.hpp>
 
 #include "scheduling_worker.h"
 #include "printer.h"
 #include "carer.h"
 #include "diary.h"
-#include "two_step_solver.h"
+#include "second_step_solver.h"
 #include "single_step_solver.h"
 
 namespace rows {
 
-    class TwoStepSchedulingWorker : public rows::SchedulingWorker {
+    class ThreeStepSchedulingWorker : public rows::SchedulingWorker {
     public:
 
         class CarerTeam {
@@ -46,11 +47,19 @@ namespace rows {
             std::vector<std::pair<rows::Carer, rows::Diary> > members_;
         };
 
-        explicit TwoStepSchedulingWorker(std::shared_ptr<rows::Printer> printer);
+        explicit ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer);
 
         void Run() override;
 
-        bool Init(rows::Problem problem, osrm::EngineConfig routing_config, std::string output_file);
+        bool Init(rows::Problem problem,
+                  osrm::EngineConfig routing_config,
+                  std::string output_file,
+                  boost::posix_time::time_duration visit_time_window,
+                  boost::posix_time::time_duration break_time_window,
+                  boost::posix_time::time_duration begin_end_shift_time_extension,
+                  boost::posix_time::time_duration pre_opt_time_limit,
+                  boost::posix_time::time_duration opt_time_limit,
+                  boost::posix_time::time_duration post_opt_time_limit);
 
     private:
         std::vector<CarerTeam> GetCarerTeams(const rows::Problem &problem);
@@ -62,6 +71,13 @@ namespace rows {
 
         osrm::EngineConfig routing_parameters_;
         rows::Problem problem_;
+
+        boost::posix_time::time_duration visit_time_window_;
+        boost::posix_time::time_duration break_time_window_;
+        boost::posix_time::time_duration begin_end_shift_time_extension_;
+        boost::posix_time::time_duration pre_opt_time_limit_;
+        boost::posix_time::time_duration opt_time_limit_;
+        boost::posix_time::time_duration post_opt_time_limit_;
     };
 }
 

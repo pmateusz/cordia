@@ -13,6 +13,7 @@
 #include "break_constraint.h"
 #include "progress_printer_monitor.h"
 #include "cancel_search_limit.h"
+#include "stalled_search_limit.h"
 
 namespace rows {
 
@@ -22,19 +23,18 @@ namespace rows {
 
     SingleStepSolver::SingleStepSolver(const rows::Problem &problem,
                                        osrm::EngineConfig &config,
-                                       const operations_research::RoutingSearchParameters &search_parameters)
-            : SingleStepSolver(problem, config, search_parameters, boost::posix_time::minutes(90), true) {}
-
-    SingleStepSolver::SingleStepSolver(const rows::Problem &problem,
-                                       osrm::EngineConfig &config,
                                        const operations_research::RoutingSearchParameters &search_parameters,
+                                       boost::posix_time::time_duration visit_time_window,
                                        boost::posix_time::time_duration break_time_window,
-                                       bool begin_end_work_day_adjustment_enabled)
+                                       boost::posix_time::time_duration begin_end_work_day_adjustment,
+                                       boost::posix_time::time_duration no_progress_time_limit)
             : SolverWrapper(problem,
                             config,
                             search_parameters,
+                            std::move(visit_time_window),
                             std::move(break_time_window),
-                            begin_end_work_day_adjustment_enabled),
+                            std::move(begin_end_work_day_adjustment)),
+              no_progress_time_limit_(no_progress_time_limit),
               care_continuity_enabled_(false),
               care_continuity_(),
               care_continuity_metrics_() {
@@ -43,6 +43,17 @@ namespace rows {
             care_continuity_.insert(std::make_pair(service_user, nullptr));
         }
     }
+
+    SingleStepSolver::SingleStepSolver(const rows::Problem &problem,
+                                       osrm::EngineConfig &config,
+                                       const operations_research::RoutingSearchParameters &search_parameters)
+            : SingleStepSolver(problem,
+                               config,
+                               search_parameters,
+                               boost::posix_time::minutes(120),
+                               boost::posix_time::minutes(0),
+                               boost::posix_time::minutes(0),
+                               boost::posix_time::not_a_date_time) {}
 
     operations_research::IntVar const *SingleStepSolver::CareContinuityVar(
             const rows::ExtendedServiceUser &service_user) const {
@@ -237,6 +248,13 @@ namespace rows {
 
         model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
         model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
+
+        if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
+            model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(
+                    no_progress_time_limit_.total_milliseconds(),
+                    model.solver()
+            )));
+        }
     }
 
     std::string SingleStepSolver::GetDescription(const operations_research::RoutingModel &model,
@@ -263,7 +281,6 @@ namespace rows {
 
         return description;
     }
-
 
     SingleStepSolver::CareContinuityMetrics::CareContinuityMetrics(const SingleStepSolver &solver,
                                                                    const rows::Carer &carer)

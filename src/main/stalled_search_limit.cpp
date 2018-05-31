@@ -1,6 +1,6 @@
 #include "stalled_search_limit.h"
 
-rows::StalledSearchLimit::StalledSearchLimit(int time_limit_ms, operations_research::Solver *const solver)
+rows::StalledSearchLimit::StalledSearchLimit(int64 time_limit_ms, operations_research::Solver *const solver)
         : SearchLimit(solver),
           time_limit_ms_(time_limit_ms) {}
 
