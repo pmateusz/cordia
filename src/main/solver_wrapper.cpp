@@ -101,7 +101,8 @@ namespace rows {
               visit_time_window_(visit_time_window),
               break_time_window_(break_time_window),
               begin_end_work_day_adjustment_(begin_end_work_day_adjustment),
-              out_office_hours_breaks_enabled_(true), // TODO: remove this
+            // time when carer is out of office is considered as a break
+              out_office_hours_breaks_enabled_(true),
               location_container_(std::cbegin(locations), std::cend(locations), config),
               parameters_(search_parameters),
               visit_index_(),
