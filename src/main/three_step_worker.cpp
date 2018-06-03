@@ -100,6 +100,8 @@ void rows::ThreeStepSchedulingWorker::Run() {
         }
     }
 
+    // TODO: some days have no multiple carer visits -> causes solver to crash
+
     // some visits in the test problem are duplicated
     rows::Problem sub_problem{team_visits, team_carers, problem_.service_users()};
     const auto search_params = rows::SolverWrapper::CreateSearchParameters();
@@ -265,16 +267,23 @@ rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows:
 std::vector<rows::ThreeStepSchedulingWorker::CarerTeam>
 rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
     std::vector<std::pair<rows::Carer, rows::Diary> > carer_diaries;
-    for (const auto &carer_diary_pair : problem_.carers()) {
+    for (const auto &carer_diary_pair : problem.carers()) {
         CHECK_EQ(carer_diary_pair.second.size(), 1);
-        carer_diaries.emplace_back(carer_diary_pair.first, carer_diary_pair.second.front());
+        carer_diaries.push_back(std::make_pair(carer_diary_pair.first, carer_diary_pair.second[0]));
+    }
+
+    LOG(INFO) << "Get carer teams";
+    for (const auto &pair : carer_diaries) {
+        LOG(INFO) << pair.first;
+        for (const auto &event : pair.second.events()) {
+            LOG(INFO) << event;
+        }
     }
 
     std::sort(std::begin(carer_diaries), std::end(carer_diaries),
               [](const std::pair<rows::Carer, rows::Diary> &left,
                  const std::pair<rows::Carer, rows::Diary> &right) -> bool {
-
-                  return left.second.duration() >= right.second.duration();
+                  return left.second.duration() > right.second.duration();
               });
 
     std::vector<CarerTeam> teams;
