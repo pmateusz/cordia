@@ -13,8 +13,7 @@ rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
                                          boost::posix_time::time_duration visit_time_window,
                                          boost::posix_time::time_duration break_time_window,
                                          boost::posix_time::time_duration begin_end_work_day_adjustment,
-                                         boost::posix_time::time_duration no_progress_time_limit,
-                                         int64 dropped_visit_penalty)
+                                         boost::posix_time::time_duration no_progress_time_limit)
         : SolverWrapper(problem,
                         config,
                         search_parameters,
@@ -22,13 +21,15 @@ rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
                         std::move(break_time_window),
                         std::move(begin_end_work_day_adjustment)),
           no_progress_time_limit_(std::move(no_progress_time_limit)),
-          dropped_visit_penalty_(dropped_visit_penalty),
+          last_dropped_visit_penalty_(0),
           solution_repository_{std::make_shared<rows::SolutionRepository>()} {}
 
 void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &model,
                                             const std::shared_ptr<Printer> &printer,
                                             std::shared_ptr<const std::atomic<bool> > cancel_token) {
     OnConfigureModel(model);
+
+    last_dropped_visit_penalty_ = GetDroppedVisitPenalty(model);
 
     printer->operator<<("Loading the model");
     model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
@@ -129,7 +130,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     for (const auto &visit_bundle : visit_index_) {
         std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
                                                                               std::cend(visit_bundle.second)};
-        model.AddDisjunction(visit_nodes, dropped_visit_penalty_, static_cast<int64>(visit_nodes.size()));
+        model.AddDisjunction(visit_nodes, last_dropped_visit_penalty_, static_cast<int64>(visit_nodes.size()));
     }
 
     model.CloseModelWithParameters(parameters_);
@@ -148,4 +149,8 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
 
 std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolver::solution_repository() {
     return solution_repository_;
+}
+
+int64 rows::SecondStepSolver::LastDroppedVisitPenalty() const {
+    return last_dropped_visit_penalty_;
 }

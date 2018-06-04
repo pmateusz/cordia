@@ -12,7 +12,8 @@
 namespace rows {
 
     Diary::Diary()
-            : date_(boost::date_time::not_a_date_time) {}
+            : date_(boost::date_time::not_a_date_time),
+              events_() {}
 
     Diary::Diary(boost::gregorian::date date, std::vector<rows::Event> events)
             : date_(date),
