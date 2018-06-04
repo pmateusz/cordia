@@ -553,10 +553,6 @@ int main(int argc, char **argv) {
                 continue;
             }
 
-            if (problem_count <= 12) {
-                continue;
-            }
-
             const auto scheduling_date = sub_problem.visits().begin()->datetime().date();
             const std::string output_file = (boost::format("%1%_%2%.gexf")
                                              % FLAGS_output_prefix
@@ -585,6 +581,7 @@ int main(int argc, char **argv) {
 
             compute_tasks.push_back(compute_schedule.get_future());
         }
+        DCHECK_EQ(compute_tasks.size(), sub_problems.size());
 
         for (auto task_index = 0u; task_index < sub_problems.size(); ++task_index) {
             const auto return_code = compute_tasks[task_index].get();
