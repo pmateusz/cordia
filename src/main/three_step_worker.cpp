@@ -102,7 +102,6 @@ void rows::ThreeStepSchedulingWorker::Run() {
         }
     }
 
-
     std::unique_ptr<rows::SecondStepSolver> second_step_wrapper
             = std::make_unique<rows::SecondStepSolver>(problem_,
                                                        routing_parameters_,
