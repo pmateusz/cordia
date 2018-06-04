@@ -77,6 +77,8 @@ int64 GetMaxDistance(rows::SolverWrapper &solver,
 }
 
 void rows::ThreeStepSchedulingWorker::Run() {
+    const auto search_params = rows::SolverWrapper::CreateSearchParameters();
+
     std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
     std::unordered_map<rows::Carer, CarerTeam> teams;
     int id = 0;
@@ -100,110 +102,109 @@ void rows::ThreeStepSchedulingWorker::Run() {
         }
     }
 
-    // TODO: some days have no multiple carer visits -> causes solver to crash
 
-    // some visits in the test problem are duplicated
-    rows::Problem sub_problem{team_visits, team_carers, problem_.service_users()};
-    const auto search_params = rows::SolverWrapper::CreateSearchParameters();
-    std::unique_ptr<rows::SolverWrapper> first_stage_wrapper
-            = std::make_unique<rows::SingleStepSolver>(sub_problem,
-                                                       routing_parameters_,
-                                                       search_params,
-                                                       visit_time_window_,
-                    // break time window is 0 for teams, because their breaks have to be synchronized
-                                                       boost::posix_time::minutes(0),
-                                                       boost::posix_time::not_a_date_time,
-                                                       pre_opt_time_limit_);
-    std::unique_ptr<operations_research::RoutingModel> first_step_model
-            = std::make_unique<operations_research::RoutingModel>(first_stage_wrapper->nodes(),
-                                                                  first_stage_wrapper->vehicles(),
-                                                                  rows::SolverWrapper::DEPOT);
-    first_stage_wrapper->ConfigureModel(*first_step_model, printer_, CancelToken());
-    operations_research::Assignment const *first_step_assignment = first_step_model->SolveWithParameters(search_params);
-
-    if (first_step_assignment == nullptr) {
-        throw util::ApplicationError("No first stage solution found.", util::ErrorCode::ERROR);
-    }
-
-    operations_research::Assignment first_validation_copy{first_step_assignment};
-    const auto is_first_solution_correct = first_step_model->solver()->CheckAssignment(&first_validation_copy);
-    DCHECK(is_first_solution_correct);
-
-    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > first_step_solution;
-    first_step_model->AssignmentToRoutes(*first_step_assignment, &first_step_solution);
-
-    // TODO: penalty extracted in a weird way
-    auto dropped_visit_penalty = first_stage_wrapper->GetDroppedVisitPenalty(*first_step_model);
-    std::unique_ptr<rows::SecondStepSolver> second_stage_wrapper
+    std::unique_ptr<rows::SecondStepSolver> second_step_wrapper
             = std::make_unique<rows::SecondStepSolver>(problem_,
                                                        routing_parameters_,
                                                        search_params,
                                                        visit_time_window_,
                                                        break_time_window_,
                                                        begin_end_shift_time_extension_,
-                                                       opt_time_limit_,
-                                                       dropped_visit_penalty);
+                                                       opt_time_limit_);
 
     std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
-            static_cast<std::size_t>(second_stage_wrapper->vehicles())};
-    auto time_dim = first_step_model->GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
-    auto route_number = 0;
-    for (const auto &route : first_step_solution) {
-        const auto &team_carer = first_stage_wrapper->Carer(route_number);
-        const auto team_carer_find_it = teams.find(team_carer);
-        DCHECK(team_carer_find_it != std::end(teams));
+            static_cast<std::size_t>(second_step_wrapper->vehicles())};
 
-        for (const auto node : route) {
-            const auto &visit = first_stage_wrapper->NodeToVisit(node);
+    if (!team_visits.empty()) {
+        // some visits in the test problem are duplicated
+        rows::Problem sub_problem{team_visits, team_carers, problem_.service_users()};
+        std::unique_ptr<rows::SolverWrapper> first_stage_wrapper
+                = std::make_unique<rows::SingleStepSolver>(sub_problem,
+                                                           routing_parameters_,
+                                                           search_params,
+                                                           visit_time_window_,
+                        // break time window is 0 for teams, because their breaks have to be synchronized
+                                                           boost::posix_time::minutes(0),
+                                                           boost::posix_time::not_a_date_time,
+                                                           pre_opt_time_limit_);
+        std::unique_ptr<operations_research::RoutingModel> first_step_model
+                = std::make_unique<operations_research::RoutingModel>(first_stage_wrapper->nodes(),
+                                                                      first_stage_wrapper->vehicles(),
+                                                                      rows::SolverWrapper::DEPOT);
+        first_stage_wrapper->ConfigureModel(*first_step_model, printer_, CancelToken());
+        operations_research::Assignment const *first_step_assignment = first_step_model->SolveWithParameters(
+                search_params);
 
-            std::vector<int> vehicle_numbers;
-            boost::posix_time::ptime visit_start_time{
-                    team_carer_find_it->second.Diary().date(),
-                    boost::posix_time::seconds(
-                            first_step_assignment->Min(time_dim->CumulVar(first_step_model->NodeToIndex(node))))
-            };
-
-            for (const auto &carer : team_carer_find_it->second.AvailableMembers(visit_start_time,
-                                                                                 first_stage_wrapper->GetAdjustment())) {
-                vehicle_numbers.push_back(second_stage_wrapper->Vehicle(carer));
-            }
-
-            DCHECK_EQ(vehicle_numbers.size(), 2);
-            DCHECK_NE(vehicle_numbers[0], vehicle_numbers[1]);
-
-            const auto visit_nodes = second_stage_wrapper->GetNodes(visit);
-            std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes_to_use{
-                    std::begin(visit_nodes),
-                    std::end(visit_nodes)};
-            DCHECK_EQ(visit_nodes_to_use.size(), vehicle_numbers.size());
-
-
-            auto first_vehicle_to_use = vehicle_numbers[0];
-            auto second_vehicle_to_use = vehicle_numbers[1];
-            if (first_vehicle_to_use > second_vehicle_to_use) {
-                std::swap(first_vehicle_to_use, second_vehicle_to_use);
-            }
-
-            auto first_visit_to_use = visit_nodes_to_use[0];
-            auto second_visit_to_use = visit_nodes_to_use[1];
-            if (first_visit_to_use > second_visit_to_use) {
-                std::swap(first_visit_to_use, second_visit_to_use);
-            }
-
-            second_step_locks[first_vehicle_to_use].push_back(first_visit_to_use);
-            second_step_locks[second_vehicle_to_use].push_back(second_visit_to_use);
+        if (first_step_assignment == nullptr) {
+            throw util::ApplicationError("No first stage solution found.", util::ErrorCode::ERROR);
         }
 
-        ++route_number;
+        operations_research::Assignment first_validation_copy{first_step_assignment};
+        const auto is_first_solution_correct = first_step_model->solver()->CheckAssignment(&first_validation_copy);
+        DCHECK(is_first_solution_correct);
+
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > first_step_solution;
+        first_step_model->AssignmentToRoutes(*first_step_assignment, &first_step_solution);
+
+        auto time_dim = first_step_model->GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
+        auto route_number = 0;
+        for (const auto &route : first_step_solution) {
+            const auto &team_carer = first_stage_wrapper->Carer(route_number);
+            const auto team_carer_find_it = teams.find(team_carer);
+            DCHECK(team_carer_find_it != std::end(teams));
+
+            for (const auto node : route) {
+                const auto &visit = first_stage_wrapper->NodeToVisit(node);
+
+                std::vector<int> vehicle_numbers;
+                boost::posix_time::ptime visit_start_time{
+                        team_carer_find_it->second.Diary().date(),
+                        boost::posix_time::seconds(
+                                first_step_assignment->Min(time_dim->CumulVar(first_step_model->NodeToIndex(node))))
+                };
+
+                for (const auto &carer : team_carer_find_it->second.AvailableMembers(visit_start_time,
+                                                                                     first_stage_wrapper->GetAdjustment())) {
+                    vehicle_numbers.push_back(second_step_wrapper->Vehicle(carer));
+                }
+
+                DCHECK_EQ(vehicle_numbers.size(), 2);
+                DCHECK_NE(vehicle_numbers[0], vehicle_numbers[1]);
+
+                const auto visit_nodes = second_step_wrapper->GetNodes(visit);
+                std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes_to_use{
+                        std::begin(visit_nodes),
+                        std::end(visit_nodes)};
+                DCHECK_EQ(visit_nodes_to_use.size(), vehicle_numbers.size());
+
+
+                auto first_vehicle_to_use = vehicle_numbers[0];
+                auto second_vehicle_to_use = vehicle_numbers[1];
+                if (first_vehicle_to_use > second_vehicle_to_use) {
+                    std::swap(first_vehicle_to_use, second_vehicle_to_use);
+                }
+
+                auto first_visit_to_use = visit_nodes_to_use[0];
+                auto second_visit_to_use = visit_nodes_to_use[1];
+                if (first_visit_to_use > second_visit_to_use) {
+                    std::swap(first_visit_to_use, second_visit_to_use);
+                }
+
+                second_step_locks[first_vehicle_to_use].push_back(first_visit_to_use);
+                second_step_locks[second_vehicle_to_use].push_back(second_visit_to_use);
+            }
+
+            ++route_number;
+        }
+
+        first_step_model.release();
     }
 
-    first_step_model.release();
-
     std::unique_ptr<operations_research::RoutingModel> second_stage_model
-            = std::make_unique<operations_research::RoutingModel>(second_stage_wrapper->nodes(),
-                                                                  second_stage_wrapper->vehicles(),
+            = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
+                                                                  second_step_wrapper->vehicles(),
                                                                   rows::SolverWrapper::DEPOT);
-    second_stage_wrapper->ConfigureModel(*second_stage_model, printer_, CancelToken());
+    second_step_wrapper->ConfigureModel(*second_stage_model, printer_, CancelToken());
     const auto computed_assignment = second_stage_model->ReadAssignmentFromRoutes(second_step_locks, true);
     DCHECK(computed_assignment);
     if (lock_partial_paths_) {
@@ -218,12 +219,10 @@ void rows::ThreeStepSchedulingWorker::Run() {
         throw util::ApplicationError("No second stage solution found.", util::ErrorCode::ERROR);
     }
 
-    const auto routes = second_stage_wrapper->solution_repository()->GetSolution();
-    second_stage_model.release();
-
+    const auto routes = second_step_wrapper->solution_repository()->GetSolution();
     std::unique_ptr<operations_research::RoutingModel> third_stage_model
-            = std::make_unique<operations_research::RoutingModel>(second_stage_wrapper->nodes(),
-                                                                  second_stage_wrapper->vehicles(),
+            = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
+                                                                  second_step_wrapper->vehicles(),
                                                                   rows::SolverWrapper::DEPOT);
     std::unique_ptr<rows::ThirdStepSolver> third_step_solver
             = std::make_unique<rows::ThirdStepSolver>(problem_,
@@ -233,8 +232,10 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                       break_time_window_,
                                                       begin_end_shift_time_extension_,
                                                       post_opt_time_limit_,
-                                                      dropped_visit_penalty,
+                                                      second_step_wrapper->LastDroppedVisitPenalty(),
                                                       util::GetVisitedNodes(routes, rows::SolverWrapper::DEPOT).size());
+
+    second_stage_model.release();
 
     third_step_solver->ConfigureModel(*third_stage_model, printer_, CancelToken());
     const auto third_stage_preassignment = third_stage_model->ReadAssignmentFromRoutes(routes, true);
@@ -269,15 +270,7 @@ rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
     std::vector<std::pair<rows::Carer, rows::Diary> > carer_diaries;
     for (const auto &carer_diary_pair : problem.carers()) {
         CHECK_EQ(carer_diary_pair.second.size(), 1);
-        carer_diaries.push_back(std::make_pair(carer_diary_pair.first, carer_diary_pair.second[0]));
-    }
-
-    LOG(INFO) << "Get carer teams";
-    for (const auto &pair : carer_diaries) {
-        LOG(INFO) << pair.first;
-        for (const auto &event : pair.second.events()) {
-            LOG(INFO) << event;
-        }
+        carer_diaries.emplace_back(carer_diary_pair.first, carer_diary_pair.second[0]);
     }
 
     std::sort(std::begin(carer_diaries), std::end(carer_diaries),

@@ -23,8 +23,6 @@ namespace rows {
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 
-        // TODO: solve scheduling for multiple days
-
         // TODO: compare schedules with humans
         // TODO: increase cost of using carers (number of carers, cost of carers, travel time)
         // TODO: have a percentage value reflecting cost

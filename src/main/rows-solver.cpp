@@ -427,6 +427,34 @@ int RunExperimentalSchedulingWorker() {
     return worker.ReturnCode();
 }
 
+int RunCancellableThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer,
+                                            const rows::Problem &problem,
+                                            const std::string &output,
+                                            const osrm::EngineConfig &engine_config,
+                                            const boost::posix_time::time_duration visit_time_window,
+                                            const boost::posix_time::time_duration break_time_window,
+                                            const boost::posix_time::time_duration begin_end_shift_time_extension,
+                                            const boost::posix_time::time_duration pre_opt_noprogress_time_limit,
+                                            const boost::posix_time::time_duration opt_noprogress_time_limit,
+                                            const boost::posix_time::time_duration post_opt_noprogress_time_limit) {
+    rows::ThreeStepSchedulingWorker worker{printer};
+    if (worker.Init(problem,
+                    engine_config,
+                    output,
+                    visit_time_window,
+                    break_time_window,
+                    begin_end_shift_time_extension,
+                    pre_opt_noprogress_time_limit,
+                    opt_noprogress_time_limit,
+                    post_opt_noprogress_time_limit)) {
+        worker.Start();
+        std::thread chat_thread(ChatBot, std::ref(worker));
+        chat_thread.detach();
+        worker.Join();
+    }
+    return worker.ReturnCode();
+}
+
 int RunThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                  const rows::Problem &problem,
                                  const std::string &output,
@@ -447,32 +475,29 @@ int RunThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                     pre_opt_noprogress_time_limit,
                     opt_noprogress_time_limit,
                     post_opt_noprogress_time_limit)) {
-        worker.Start();
-        std::thread chat_thread(ChatBot, std::ref(worker));
-        chat_thread.detach();
-        worker.Join();
+        worker.Run();
     }
     return worker.ReturnCode();
 }
 
 int RunThreeStepSchedulingWorkerEx() {
     std::shared_ptr<rows::Printer> printer = CreatePrinter();
-    return RunThreeStepSchedulingWorker(printer,
-                                        LoadReducedProblem(printer),
-                                        FLAGS_output,
-                                        CreateEngineConfig(FLAGS_maps),
-                                        GetTimeDurationOrDefault(FLAGS_visit_time_window,
-                                                                 boost::posix_time::not_a_date_time),
-                                        GetTimeDurationOrDefault(FLAGS_break_time_window,
-                                                                 boost::posix_time::not_a_date_time),
-                                        GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
-                                                                 boost::posix_time::not_a_date_time),
-                                        GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
-                                                                 boost::posix_time::not_a_date_time),
-                                        GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
-                                                                 boost::posix_time::not_a_date_time),
-                                        GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
-                                                                 boost::posix_time::not_a_date_time));
+    return RunCancellableThreeStepSchedulingWorker(printer,
+                                                   LoadReducedProblem(printer),
+                                                   FLAGS_output,
+                                                   CreateEngineConfig(FLAGS_maps),
+                                                   GetTimeDurationOrDefault(FLAGS_visit_time_window,
+                                                                            boost::posix_time::not_a_date_time),
+                                                   GetTimeDurationOrDefault(FLAGS_break_time_window,
+                                                                            boost::posix_time::not_a_date_time),
+                                                   GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
+                                                                            boost::posix_time::not_a_date_time),
+                                                   GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
+                                                                            boost::posix_time::not_a_date_time),
+                                                   GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
+                                                                            boost::posix_time::not_a_date_time),
+                                                   GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
+                                                                            boost::posix_time::not_a_date_time));
 }
 
 int main(int argc, char **argv) {
@@ -545,19 +570,20 @@ int main(int argc, char **argv) {
                                    const boost::posix_time::time_duration,
                                    const boost::posix_time::time_duration,
                                    const boost::posix_time::time_duration,
-                                   const boost::posix_time::time_duration)> task(RunThreeStepSchedulingWorker);
-            task(printer,
-                 sub_problem,
-                 output_file,
-                 engine_config,
-                 visit_time_window,
-                 break_time_window,
-                 begin_end_shift_time_extension,
-                 pre_opt_no_progress_time_limit,
-                 opt_no_progress_time_limit,
-                 post_opt_no_progress_time_limit);
+                                   const boost::posix_time::time_duration)> compute_schedule(
+                    RunThreeStepSchedulingWorker);
+            compute_schedule(printer,
+                             sub_problem,
+                             output_file,
+                             engine_config,
+                             visit_time_window,
+                             break_time_window,
+                             begin_end_shift_time_extension,
+                             pre_opt_no_progress_time_limit,
+                             opt_no_progress_time_limit,
+                             post_opt_no_progress_time_limit);
 
-            compute_tasks.push_back(task.get_future());
+            compute_tasks.push_back(compute_schedule.get_future());
         }
 
         for (auto task_index = 0u; task_index < sub_problems.size(); ++task_index) {
