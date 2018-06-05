@@ -1,6 +1,9 @@
 """Details a visit in the past"""
 
 import rows.model.object
+import rows.model.json
+import rows.model.carer
+import rows.model.visit
 
 
 class PastVisit(rows.model.object.DatabaseObject):  # pylint: disable=too-many-instance-attributes
@@ -38,6 +41,54 @@ class PastVisit(rows.model.object.DatabaseObject):  # pylint: disable=too-many-i
         bundle[PastVisit.CHECK_IN] = self.__check_in
         bundle[PastVisit.CHECK_OUT] = self.__check_out
         return bundle
+
+    @staticmethod
+    def from_json(json):
+        date = None
+        json_date = json.get('date')
+        if json_date:
+            date = rows.model.json.parse_date(json_date)
+
+        time = None
+        json_time = json.get('time')
+        if json_time:
+            time = rows.model.json.parse_time(json_time)
+
+        duration = None
+        json_duration = json.get('duration')
+        if json_duration:
+            duration = rows.model.json.parse_timedelta(json_duration)
+
+        cancelled = json.get('cancelled')
+
+        carer = None
+        json_carer = json.get('carer')
+        if json_carer:
+            carer = rows.model.carer.Carer.from_json(json_carer)
+
+        visit = None
+        json_visit = json.get('visit')
+        if json_visit:
+            visit = rows.model.visit.Visit.from_json(json_visit)
+
+        check_in = None
+        json_check_in = json.get('check_in')
+        if json_check_in:
+            check_in = rows.model.json.parse_datetime(json_check_in)
+
+        check_out = None
+        json_check_out = json.get('check_out')
+        if json_check_out:
+            check_out = rows.model.json.parse_datetime(json_check_out)
+
+        return PastVisit(visit=visit,
+                         date=date,
+                         time=time,
+                         duration=duration,
+                         carer=carer,
+                         cancelled=cancelled,
+                         check_in=check_in,
+                         check_out=check_out)
 
     @property
     def visit(self):

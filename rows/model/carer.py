@@ -67,9 +67,3 @@ class Carer(rows.model.object.DatabaseObject):
         """Return a property"""
 
         return self.__mobility
-
-    @property
-    def external(self):
-        """Return a property"""
-
-        return self.__external

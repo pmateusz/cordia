@@ -2,17 +2,23 @@
 # TODO calculate travel distance for a schedule in gexf
 
 import argparse
-import sys
-import os
-import json
+import collections
 import datetime
+import json
 import logging
+import os
+import operator
+import sys
 
 import rows.settings
 import rows.console
 import rows.location_finder
 import rows.sql_data_source
+
 import rows.model.area
+import rows.model.metadata
+import rows.model.schedule
+import rows.model.past_visit
 import rows.model.json
 
 
@@ -50,7 +56,7 @@ def configure_parser():
     pull_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT_PREFIX_ARG)
 
     info_parser = subparsers.add_parser('info')
-    info_parser.add_argument(__OPTIONAL_ARG_PREFIX + __FILE_ARG)
+    info_parser.add_argument(__FILE_ARG)
 
     return parser
 
@@ -98,6 +104,28 @@ def pull(args, install_directory):
         current_date_time += datetime.timedelta(days=1)
 
 
+def info(args):
+    # calculate distance
+
+    schedule_file = get_or_raise(args, __FILE_ARG)
+    with open(schedule_file, 'r') as input_stream:
+        schedule_dict = json.load(input_stream)
+        metadata = rows.model.metadata.Metadata.from_json(schedule_dict['metadata'])
+        visits = [rows.model.past_visit.PastVisit.from_json(raw_visit) for raw_visit in schedule_dict['visits']]
+        schedule = rows.model.schedule.Schedule(metadata=metadata, visits=visits)
+
+    routes = collections.defaultdict(list)
+    for past_visit in schedule.visits:
+        routes[past_visit.carer].append(past_visit)
+    for carer in routes:
+        routes[carer].sort(key=operator.attrgetter('time'))
+
+    for carer in routes:
+        print(carer.sap_number, carer.mobility)
+        for visit in routes[carer]:
+            print('\t', visit.time, visit.visit.service_user)
+
+
 if __name__ == '__main__':
     sys.excepthook = handle_exception
 
@@ -109,6 +137,6 @@ if __name__ == '__main__':
     if __command == __PULL_COMMAND:
         pull(__args, __install_dir)
     elif __command == __INFO_COMMAND:
-        pass
+        info(__args)
     else:
         raise ValueError('Unknown command: ' + __command)
