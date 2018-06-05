@@ -16,17 +16,17 @@ endif ()
 set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/or-tools)
 
 set(default_build_type "RELEASE")
-if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
-  set(default_build_type "DEBUG")
-endif()
- 
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  message(STATUS "Setting build type to '${default_build_type}' as none was specified.")
-  set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE
-      STRING "Choose the type of build." FORCE)
-  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
-    "DEBUG" "RELEASE")
-endif()
+if (EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    set(default_build_type "DEBUG")
+endif ()
+
+if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "Setting build type to '${default_build_type}' as none was specified.")
+    set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE
+            STRING "Choose the type of build." FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+            "DEBUG" "RELEASE")
+endif ()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/dependencies/cmake/modules/")
 
@@ -117,6 +117,12 @@ target_include_directories(rows-fast PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-fast rows ${LIBRARY_DEP})
 target_compile_definitions(rows-fast PUBLIC ${ORTOOLS_COMPILER_DEFINITIONS} -D_GLIBCXX_USE_CXX11_ABI=1)
 set_property(TARGET rows-fast PROPERTY CXX_STANDARD 14)
+
+add_executable(rows-routing-server "${CMAKE_SOURCE_DIR}/src/main/rows-routing-server.cpp")
+target_include_directories(rows-routing-server PUBLIC ${HEADERS} ${HEADER_DEP})
+target_link_libraries(rows-routing-server rows ${LIBRARY_DEP})
+target_compile_definitions(rows-routing-server PUBLIC ${ORTOOLS_COMPILER_DEFINITIONS} -D_GLIBCXX_USE_CXX11_ABI=1)
+set_property(TARGET rows-routing-server PROPERTY CXX_STANDARD 14)
 
 get_filename_component(TEST_HEADERS "${CMAKE_SOURCE_DIR}/src/test" REALPATH)
 
