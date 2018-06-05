@@ -140,6 +140,8 @@ void rows::ThirdStepSolver::ConfigureModel(operations_research::RoutingModel &mo
             visit_nodes.push_back(model.VehicleVar(model.NodeToIndex(visit_node)));
         }
         solver->AddConstraint(solver->MakeAtMost(visit_nodes, -1, max_dropped_visits_));
+    } else {
+        model.AddAllActive();
     }
 
     model.CloseModelWithParameters(parameters_);

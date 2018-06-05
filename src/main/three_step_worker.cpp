@@ -223,6 +223,9 @@ void rows::ThreeStepSchedulingWorker::Run() {
             = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
                                                                   second_step_wrapper->vehicles(),
                                                                   rows::SolverWrapper::DEPOT);
+
+    const auto max_dropped_visits_count =
+            third_stage_model->nodes() - util::GetVisitedNodes(routes, rows::SolverWrapper::DEPOT).size() - 1;
     std::unique_ptr<rows::ThirdStepSolver> third_step_solver
             = std::make_unique<rows::ThirdStepSolver>(problem_,
                                                       routing_parameters_,
@@ -232,7 +235,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                       begin_end_shift_time_extension_,
                                                       post_opt_time_limit_,
                                                       second_step_wrapper->LastDroppedVisitPenalty(),
-                                                      util::GetVisitedNodes(routes, rows::SolverWrapper::DEPOT).size());
+                                                      max_dropped_visits_count);
 
     second_stage_model.release();
 
