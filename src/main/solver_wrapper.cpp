@@ -789,17 +789,29 @@ namespace rows {
     }
 
     int64 SolverWrapper::GetDroppedVisitPenalty(const operations_research::RoutingModel &model) {
-        auto max_distance = std::numeric_limits<int64>::min();
-        const auto max_node = model.nodes() - 1;
+        std::vector<int64> distances;
+        distances.reserve(static_cast<std::size_t>((model.nodes() - 1) * model.nodes()));
+
+        const auto depot_node = model.IndexToNode(model.GetDepot());
+        const auto max_node = model.nodes();
         for (operations_research::RoutingModel::NodeIndex source{0}; source < max_node; ++source) {
-            for (auto destination = source + 1; destination < max_node; ++destination) {
-                const auto distance = Distance(source, destination);
-                if (max_distance < distance) {
-                    max_distance = distance;
+            for (operations_research::RoutingModel::NodeIndex destination{0}; destination < max_node; ++destination) {
+                if (source == destination || source == depot_node || destination == depot_node) {
+                    continue;
                 }
+
+                distances.push_back(Distance(source, destination));
             }
         }
-        return max_distance / 6;
+
+        if (distances.empty()) {
+            return std::numeric_limits<int64>::max();
+        }
+
+        std::sort(std::begin(distances), std::end(distances));
+        const auto distance_pos = static_cast<std::size_t>(distances.size() * 0.6);
+        CHECK_LT(distance_pos, distances.size());
+        return distances.at(distance_pos);
     }
 
     std::string rows::SolverWrapper::GetModelStatus(int status) {

@@ -107,3 +107,7 @@ class Visit(rows.model.object.DatabaseObject):
         """Return a property"""
 
         return self.__address
+
+    @address.setter
+    def address(self, value):
+        self.__address = value

@@ -25,7 +25,6 @@ namespace rows {
 
         // TODO: compare schedules with humans
         // TODO: increase cost of using carers (number of carers, cost of carers, travel time)
-        // TODO: have a percentage value reflecting cost
 
     private:
         boost::posix_time::time_duration no_progress_time_limit_;
