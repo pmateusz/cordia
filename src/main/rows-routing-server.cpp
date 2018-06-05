@@ -21,6 +21,7 @@ DEFINE_string(maps, "../data/scotland-latest.osrm", "a file path to the map");
 DEFINE_validator(maps, &util::file::Exists);
 
 nlohmann::json route(nlohmann::json args, rows::LocationContainer &location_container) {
+    static const auto INFINITE_DISTANCE = std::numeric_limits<int64>::max();
     static const rows::Location::JsonLoader LOCATION_LOADER{};
 
     const auto source_it = args.find("source");
@@ -37,7 +38,15 @@ nlohmann::json route(nlohmann::json args, rows::LocationContainer &location_cont
 
     const auto source = LOCATION_LOADER.Load(*source_it);
     const auto destination = LOCATION_LOADER.Load(*destination_it);
-    return {};
+    const auto distance = location_container.Distance(source, destination);
+
+    if (distance == INFINITE_DISTANCE) {
+        return {{"status",  "error"},
+                {"message", "Internal error"}};
+    }
+
+    return {{"status",   "ok"},
+            {"distance", distance}};
 }
 
 int main(int argc, char **argv) {
@@ -78,8 +87,10 @@ int main(int argc, char **argv) {
                 std::cout << "{'status':'ok'}" << std::endl;
                 return 0;
             } else if (command == "route") {
-                // { "command": "route", "source": {"latitude": 55.8619711, "longitude": -4.2474694}, "destination": {"latitude": 55.862913, "longitude": -4.2599106} }
-                std::cout << route(args, location_container);
+                // { "command": "route", "source": {"latitude": "55.8619711", "longitude": "-4.2474694"}, "destination": {"latitude": "55.862913", "longitude": "-4.2599106"} }
+                std::cout << route(args, location_container) << std::endl;
+            } else {
+                std::cout << "{'status':'error','message':'Unknown command'}" << std::endl;
             }
         } catch (const std::invalid_argument &ex) {
             LOG(ERROR) << ex.what();

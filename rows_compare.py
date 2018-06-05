@@ -6,8 +6,10 @@ import collections
 import datetime
 import json
 import logging
-import os
 import operator
+import os
+import os.path
+import subprocess
 import sys
 
 import rows.settings
@@ -73,16 +75,13 @@ def get_date_time(value):
     return date_time
 
 
-def pull(args, install_directory):
+def pull(args, settings):
     area_code = get_or_raise(args, __AREA_ARG)
     from_raw_date = get_or_raise(args, __FROM_ARG)
     to_raw_date = get_or_raise(args, __TO_ARG)
     output_prefix = get_or_raise(args, __OUTPUT_PREFIX_ARG)
 
     console = rows.console.Console()
-    settings = rows.settings.Settings(install_directory)
-    settings.reload()
-
     user_tag_finder = rows.location_finder.UserLocationFinder(settings)
     location_cache = rows.location_finder.FileSystemCache(settings)
     location_finder = rows.location_finder.MultiModeLocationFinder(location_cache, user_tag_finder, timeout=5.0)
@@ -104,11 +103,61 @@ def pull(args, install_directory):
         current_date_time += datetime.timedelta(days=1)
 
 
-def info(args):
+class RoutingServer:
+    class Session:
+        ENCODING = 'ascii'
+        MESSAGE_TIMEOUT = 1
+        EXIT_TIMEOUT = 5
+
+        def __init__(self):
+            self.__process = subprocess.Popen(['./build/rows-routing-server', '--maps=./data/scotland-latest.osrm'],
+                                              stdin=subprocess.PIPE,
+                                              stdout=subprocess.PIPE,
+                                              stderr=subprocess.PIPE)
+
+        def distance(self, source, destination):
+            self.__process.stdin.write(
+                json.dumps({'command': 'route',
+                            'source': source.as_dict(),
+                            'destination': destination.as_dict()}).encode(self.ENCODING))
+            self.__process.stdin.write(os.linesep.encode(self.ENCODING))
+            self.__process.stdin.flush()
+            stdout_msg = self.__process.stdout.readline()
+            if stdout_msg:
+                message = json.loads(stdout_msg.decode(self.ENCODING))
+                return message.get('distance', None)
+            return None
+
+        def close(self, exc, value, tb):
+            stdout_msg, error_msg = self.__process.communicate('{"message":"shutdown"}'.encode(self.ENCODING),
+                                                               timeout=self.MESSAGE_TIMEOUT)
+            if error_msg:
+                logging.error(error_msg)
+
+            try:
+                self.__process.wait(self.EXIT_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                logging.exception('Failed to shutdown the routing server')
+                self.__process.kill()
+                self.__process.__exit__(exc, value, tb)
+
+    def __enter__(self):
+        self.__session = RoutingServer.Session()
+        return self.__session
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.__session.close(exc_type, exc_val, exc_tb)
+
+
+def info(args, settings):
     # calculate distance
 
+    user_tag_finder = rows.location_finder.UserLocationFinder(settings)
+    user_tag_finder.reload()
+
     schedule_file = get_or_raise(args, __FILE_ARG)
-    with open(schedule_file, 'r') as input_stream:
+    schedule_file_to_use = os.path.realpath(os.path.expandvars(schedule_file))
+    with open(schedule_file_to_use, 'r') as input_stream:
         schedule_dict = json.load(input_stream)
         metadata = rows.model.metadata.Metadata.from_json(schedule_dict['metadata'])
         visits = [rows.model.past_visit.PastVisit.from_json(raw_visit) for raw_visit in schedule_dict['visits']]
@@ -120,23 +169,38 @@ def info(args):
     for carer in routes:
         routes[carer].sort(key=operator.attrgetter('time'))
 
-    for carer in routes:
-        print(carer.sap_number, carer.mobility)
-        for visit in routes[carer]:
-            print('\t', visit.time, visit.visit.service_user)
+    with RoutingServer() as session:
+        for carer in routes:
+            print(carer.sap_number, carer.mobility)
+            visit_it = iter(routes[carer])
+
+            current_visit = next(visit_it, None)
+            current_location = user_tag_finder.find(int(current_visit.visit.service_user))
+            while current_visit:
+                prev_location = current_location
+                current_visit = next(visit_it, None)
+
+                if not current_visit:
+                    break
+
+                current_location = user_tag_finder.find(int(current_visit.visit.service_user))
+                print(session.distance(prev_location, current_location))
 
 
 if __name__ == '__main__':
     sys.excepthook = handle_exception
 
     __script_file = os.path.realpath(__file__)
-    __install_dir = os.path.dirname(__script_file)
+    __install_directory = os.path.dirname(__script_file)
+    __settings = rows.settings.Settings(__install_directory)
+    __settings.reload()
+
     __parser = configure_parser()
     __args = __parser.parse_args(sys.argv[1:])
     __command = getattr(__args, __COMMAND)
     if __command == __PULL_COMMAND:
-        pull(__args, __install_dir)
+        pull(__args, __settings)
     elif __command == __INFO_COMMAND:
-        info(__args)
+        info(__args, __settings)
     else:
         raise ValueError('Unknown command: ' + __command)
