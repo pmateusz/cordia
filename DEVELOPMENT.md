@@ -12,14 +12,13 @@ The documented in opened by the [Prerequisites](#prerequisites) section which pr
 
 ###Visualisation Module
 The visualisation module is build upon the following external dependencies
-* [Gephi](https://gephi.org/users/download/) version >= 0.9.2 
-    Including plugins: GeoLayout, ExportToEarth
 * [Google Earth](https://www.google.com/intl/en_uk/earth/desktop/) Desktop version
 * MS Excel 
 * Python modules: 
     ```shell
-    pip install pandas
-    pip install XlsxWriter
+    pip3 install simplekml
+    pip3 install pandas
+    pip3 install XlsxWriter
     ```
 
 ### Operating System
