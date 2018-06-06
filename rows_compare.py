@@ -1,5 +1,4 @@
-# TODO calculate travel distance for a schedule in json
-# TODO calculate travel distance for a schedule in gexf
+# TODO create histogram
 
 import argparse
 import collections
@@ -12,14 +11,20 @@ import os.path
 import subprocess
 import sys
 
+import bs4
+
 import rows.settings
 import rows.console
 import rows.location_finder
 import rows.sql_data_source
 
+import rows.model.carer
 import rows.model.area
+import rows.model.service_user
+import rows.model.location
 import rows.model.metadata
 import rows.model.schedule
+import rows.model.visit
 import rows.model.past_visit
 import rows.model.json
 
@@ -129,7 +134,7 @@ class RoutingServer:
             return None
 
         def close(self, exc, value, tb):
-            stdout_msg, error_msg = self.__process.communicate('{"message":"shutdown"}'.encode(self.ENCODING),
+            stdout_msg, error_msg = self.__process.communicate('{"command":"shutdown"}'.encode(self.ENCODING),
                                                                timeout=self.MESSAGE_TIMEOUT)
             if error_msg:
                 logging.error(error_msg)
@@ -149,29 +154,16 @@ class RoutingServer:
         self.__session.close(exc_type, exc_val, exc_tb)
 
 
-def info(args, settings):
-    # calculate distance
-
-    user_tag_finder = rows.location_finder.UserLocationFinder(settings)
-    user_tag_finder.reload()
-
-    schedule_file = get_or_raise(args, __FILE_ARG)
-    schedule_file_to_use = os.path.realpath(os.path.expandvars(schedule_file))
-    with open(schedule_file_to_use, 'r') as input_stream:
-        schedule_dict = json.load(input_stream)
-        metadata = rows.model.metadata.Metadata.from_json(schedule_dict['metadata'])
-        visits = [rows.model.past_visit.PastVisit.from_json(raw_visit) for raw_visit in schedule_dict['visits']]
-        schedule = rows.model.schedule.Schedule(metadata=metadata, visits=visits)
-
+def get_travel_time(schedule, user_tag_finder):
     routes = collections.defaultdict(list)
     for past_visit in schedule.visits:
         routes[past_visit.carer].append(past_visit)
     for carer in routes:
         routes[carer].sort(key=operator.attrgetter('time'))
 
+    total_travel_time = datetime.timedelta()
     with RoutingServer() as session:
         for carer in routes:
-            print(carer.sap_number, carer.mobility)
             visit_it = iter(routes[carer])
 
             current_visit = next(visit_it, None)
@@ -184,7 +176,108 @@ def info(args, settings):
                     break
 
                 current_location = user_tag_finder.find(int(current_visit.visit.service_user))
-                print(session.distance(prev_location, current_location))
+                travel_time_sec = session.distance(prev_location, current_location)
+                if travel_time_sec:
+                    total_travel_time += datetime.timedelta(seconds=travel_time_sec)
+    return total_travel_time
+
+
+def load_schedule_from_json(file_path):
+    with open(file_path, 'r') as input_stream:
+        schedule_dict = json.load(input_stream)
+        metadata = rows.model.metadata.Metadata.from_json(schedule_dict['metadata'])
+        visits = [rows.model.past_visit.PastVisit.from_json(raw_visit) for raw_visit in schedule_dict['visits']]
+        return rows.model.schedule.Schedule(metadata=metadata, visits=visits)
+
+
+def load_schedule_from_gexf(file_path):
+    with open(file_path, 'r') as input_stream:
+        soup = bs4.BeautifulSoup(input_stream, "html5lib")
+        attributes = {}
+        for node in soup.find_all('attribute'):
+            attributes[node['title']] = node['id']
+
+        type_id = attributes['type']
+        sap_number_id = attributes['sap_number']
+        id_id = attributes['id']
+        user_id = attributes['user']
+        start_time_id = attributes['start_time']
+        duration_id = attributes['duration']
+        longitude_id = attributes['longitude']
+        latitude_id = attributes['latitude']
+
+        carers_by_id = {}
+        users_by_id = {}
+        visits_by_id = {}
+        for node in soup.find_all('node'):
+            attributes = node.find('attvalues')
+            type_attr = attributes.find('attvalue', attrs={'for': type_id})
+            if type_attr['value'] == 'carer':
+                id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
+                sap_number_attr = attributes.find('attvalue', attrs={'for': sap_number_id})
+                carers_by_id[node['id']] = rows.model.carer.Carer(key=id_number_attr['value'],
+                                                                  sap_number=sap_number_attr['value'])
+            elif type_attr['value'] == 'user':
+                id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
+                longitude_attr = attributes.find('attvalue', attrs={'for': longitude_id})
+                latitude_attr = attributes.find('attvalue', attrs={'for': latitude_id})
+                user = rows.model.service_user.ServiceUser(key=id_number_attr['value'],
+                                                           location=rows.model.location.Location(
+                                                               latitude=latitude_attr['value'],
+                                                               longitude=longitude_attr['value']))
+                users_by_id[node['id']] = user
+            elif type_attr['value'] == 'visit':
+                user_attr = attributes.find('attvalue', attrs={'for': user_id})
+                start_time_attr = attributes.find('attvalue', attrs={'for': start_time_id})
+                duration_attr = attributes.find('attvalue', attrs={'for': duration_id})
+                start_time = datetime.datetime.strptime(start_time_attr['value'], '%Y-%b-%d %H:%M:%S')
+                duration = datetime.datetime.strptime(duration_attr['value'], '%H:%M:%S').time()
+                visits_by_id[node['id']] = rows.model.visit.Visit(date=start_time.date(),
+                                                                  time=start_time.time(),
+                                                                  duration=datetime.timedelta(hours=duration.hour,
+                                                                                              minutes=duration.minute,
+                                                                                              seconds=duration.second),
+                                                                  service_user=int(user_attr['value']))
+
+        routes = collections.defaultdict(list)
+        # iterate over edges
+        for edge in soup.find_all('edge'):
+            source_id = edge['source']
+            target_id = edge['target']
+            if source_id in carers_by_id and target_id in visits_by_id:
+                routes[carers_by_id[source_id]].append(visits_by_id[target_id])
+
+        past_visits = []
+        for carer in routes:
+            for visit in routes[carer]:
+                past_visits.append(rows.model.past_visit.PastVisit(visit=visit,
+                                                                   date=visit.date,
+                                                                   time=visit.time,
+                                                                   duration=visit.duration,
+                                                                   carer=carer))
+        past_visits.sort(key=operator.attrgetter('time'))
+        return rows.model.schedule.Schedule(metadata=rows.model.metadata.Metadata(
+            begin=min(past_visits, key=operator.attrgetter('date')),
+            end=max(past_visits, key=operator.attrgetter('date'))),
+            visits=past_visits)
+
+
+def info(args, settings):
+    # calculate distance
+
+    user_tag_finder = rows.location_finder.UserLocationFinder(settings)
+    user_tag_finder.reload()
+
+    schedule_file = get_or_raise(args, __FILE_ARG)
+    schedule_file_to_use = os.path.realpath(os.path.expandvars(schedule_file))
+    file_name, file_ext = os.path.splitext(schedule_file_to_use)
+    if file_ext == '.json':
+        schedule = load_schedule_from_json(schedule_file_to_use)
+    elif file_ext == '.gexf':
+        schedule = load_schedule_from_gexf(schedule_file_to_use)
+    else:
+        raise ValueError('Not recognized file format: ' + file_ext)
+    print(get_travel_time(schedule, user_tag_finder))
 
 
 if __name__ == '__main__':

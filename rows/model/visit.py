@@ -68,6 +68,12 @@ class Visit(rows.model.object.DatabaseObject):
 
         return self.__service_user
 
+    @service_user.setter
+    def service_user(self, value):
+        """Set a property"""
+
+        self.__service_user = value
+
     @property
     def carer_count(self):
         """Return a property"""
