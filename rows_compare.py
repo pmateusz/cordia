@@ -1,8 +1,7 @@
-# TODO create histogram
-
 import argparse
 import collections
 import datetime
+import glob
 import json
 import logging
 import operator
@@ -12,6 +11,14 @@ import subprocess
 import sys
 
 import bs4
+
+import pandas
+
+import numpy
+
+import matplotlib
+import matplotlib.dates
+import matplotlib.pyplot
 
 import rows.settings
 import rows.console
@@ -41,12 +48,15 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 __COMMAND = 'command'
 __PULL_COMMAND = 'pull'
 __INFO_COMMAND = 'info'
+__COMPARE_COMMAND = 'compare'
 __AREA_ARG = 'area'
 __FROM_ARG = 'from'
 __TO_ARG = 'to'
 __FILE_ARG = 'file'
 __OUTPUT_PREFIX_ARG = 'output_prefix'
 __OPTIONAL_ARG_PREFIX = '--'
+__LEFT_SCHEDULE_PATTERN_ARG = 'left_schedule_pattern'
+__RIGHT_SCHEDULE_PATTERN_ARG = 'right_schedule_pattern'
 
 
 def configure_parser():
@@ -62,8 +72,12 @@ def configure_parser():
     pull_parser.add_argument(__OPTIONAL_ARG_PREFIX + __TO_ARG)
     pull_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT_PREFIX_ARG)
 
-    info_parser = subparsers.add_parser('info')
+    info_parser = subparsers.add_parser(__INFO_COMMAND)
     info_parser.add_argument(__FILE_ARG)
+
+    compare_parser = subparsers.add_parser(__COMPARE_COMMAND)
+    compare_parser.add_argument(__LEFT_SCHEDULE_PATTERN_ARG)
+    compare_parser.add_argument(__RIGHT_SCHEDULE_PATTERN_ARG)
 
     return parser
 
@@ -257,27 +271,71 @@ def load_schedule_from_gexf(file_path):
                                                                    carer=carer))
         past_visits.sort(key=operator.attrgetter('time'))
         return rows.model.schedule.Schedule(metadata=rows.model.metadata.Metadata(
-            begin=min(past_visits, key=operator.attrgetter('date')),
-            end=max(past_visits, key=operator.attrgetter('date'))),
+            begin=min(past_visits, key=operator.attrgetter('date')).date,
+            end=max(past_visits, key=operator.attrgetter('date')).date),
             visits=past_visits)
 
 
+def load_schedule(file_path):
+    file_name, file_ext = os.path.splitext(file_path)
+    if file_ext == '.json':
+        return load_schedule_from_json(file_path)
+    elif file_ext == '.gexf':
+        return load_schedule_from_gexf(file_path)
+    else:
+        raise ValueError('Unrecognized extension ' + file_ext)
+
+
 def info(args, settings):
-    # calculate distance
+    user_tag_finder = rows.location_finder.UserLocationFinder(settings)
+    user_tag_finder.reload()
+    schedule_file = get_or_raise(args, __FILE_ARG)
+    schedule_file_to_use = os.path.realpath(os.path.expandvars(schedule_file))
+    schedule = load_schedule(schedule_file_to_use)
+    print(get_travel_time(schedule, user_tag_finder))
+
+
+def compare(args, settings):
+    if os.path.exists('distance_histogram.pickle'):
+        data_frame = pandas.read_pickle('distance_histogram.pickle')
+        indices = numpy.array(list(map(matplotlib.dates.date2num, data_frame.index)))
+        width = 0.35
+        zero = datetime.datetime(2018, 1, 1)
+        zero_num = matplotlib.dates.date2num(zero)
+        figure, axis = matplotlib.pyplot.subplots()
+        human_handle = axis.bar(indices,
+                                [matplotlib.dates.date2num(zero + duration) - zero_num
+                                 for duration in data_frame.HumanPlanners], width, bottom=zero)
+        cp_handle = axis.bar(indices + width,
+                             [matplotlib.dates.date2num(zero + duration) - zero_num for duration in
+                              data_frame.ConstraintProgramming], width, bottom=zero)
+        axis.xaxis_date()
+        axis.yaxis_date()
+        axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d,%H:%M:%S"))
+        axis.legend((human_handle, cp_handle), ('Human Planners', 'Constraint Programming'), loc='upper right')
+        matplotlib.pyplot.show()
+
+    left_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __LEFT_SCHEDULE_PATTERN_ARG))]
+    left_series.sort(key=operator.attrgetter('metadata.begin'))
+    right_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __RIGHT_SCHEDULE_PATTERN_ARG))]
+    right_series.sort(key=operator.attrgetter('metadata.begin'))
 
     user_tag_finder = rows.location_finder.UserLocationFinder(settings)
     user_tag_finder.reload()
+    left_results = [(schedule.metadata.begin, get_travel_time(schedule, user_tag_finder)) for schedule in left_series]
+    right_results = [(schedule.metadata.begin, get_travel_time(schedule, user_tag_finder)) for schedule in right_series]
 
-    schedule_file = get_or_raise(args, __FILE_ARG)
-    schedule_file_to_use = os.path.realpath(os.path.expandvars(schedule_file))
-    file_name, file_ext = os.path.splitext(schedule_file_to_use)
-    if file_ext == '.json':
-        schedule = load_schedule_from_json(schedule_file_to_use)
-    elif file_ext == '.gexf':
-        schedule = load_schedule_from_gexf(schedule_file_to_use)
-    else:
-        raise ValueError('Not recognized file format: ' + file_ext)
-    print(get_travel_time(schedule, user_tag_finder))
+    dates = list(map(operator.itemgetter(0), left_results))
+    dates.extend(map(operator.itemgetter(0), right_results))
+    data_frame = pandas.DataFrame(columns=['HumanPlanners', 'ConstraintProgramming'],
+                                  index=numpy.arange(min(dates),
+                                                     max(dates) + datetime.timedelta(days=1),
+                                                     dtype='datetime64[D]'))
+    for data, duration in left_results:
+        data_frame.HumanPlanners[data] = duration
+    for data, duration in right_results:
+        data_frame.ConstraintProgramming[data] = duration
+    data_frame.to_pickle('distance_histogram.pickle')
 
 
 if __name__ == '__main__':
@@ -295,5 +353,7 @@ if __name__ == '__main__':
         pull(__args, __settings)
     elif __command == __INFO_COMMAND:
         info(__args, __settings)
+    elif __command == __COMPARE_COMMAND:
+        compare(__args, __settings)
     else:
         raise ValueError('Unknown command: ' + __command)
