@@ -28,20 +28,17 @@ class Schedule(rows.model.object.DataObject):
             self.__carer = kwargs.get(self.CARER, None)
             self.__visits = kwargs.get(self.VISITS, None)
 
-        def segments(self):
-            segments = []
+        def edges(self):
+            if not self.__visits:
+                return []
 
+            result = []
             visit_it = iter(self.__visits)
-            current_visit = next(visit_it, None)
-            while current_visit:
+            prev_visit = next(visit_it)
+            for current_visit in visit_it:
+                result.append((prev_visit, current_visit))
                 prev_visit = current_visit
-                current_visit = next(visit_it, None)
-
-                if not current_visit:
-                    break
-
-                segments.append((prev_visit, current_visit))
-            return segments
+            return result
 
         @property
         def carer(self):

@@ -286,18 +286,51 @@ def debug(args, settings):
     problem = load_problem(problem_file)
 
     schedule_date = schedule.metadata.begin
-    carer_dairies = [
-        (carer_shift.carer, next((diary for diary in carer_shift.diaries if diary.date == schedule_date), None))
-        for carer_shift in problem.carers]
-    carer_availability = {}
-    for carer, diary in carer_dairies:
-        if not diary:
-            continue
-        carer_availability[carer] = functools.reduce(operator.add, (event.duration for event in diary.events))
-    routes = schedule.routes()
+    carer_dairies = {
+        carer_shift.carer.sap_number:
+            next((diary for diary in carer_shift.diaries if diary.date == schedule_date), None)
+        for carer_shift in problem.carers}
 
-    # list carers
-    # get carers available time
+    location_finder = rows.location_finder.UserLocationFinder(settings)
+    location_finder.reload()
+    data_set = []
+    with RoutingServer() as session:
+        for route in schedule.routes():
+            travel_time = datetime.timedelta()
+            for source, destination in route.edges():
+                source_loc = location_finder.find(source.visit.service_user)
+                if not source_loc:
+                    logging.error('Failed to resolve location of %s', source.visit.service_user)
+                    continue
+                destination_loc = location_finder.find(destination.visit.service_user)
+                if not destination_loc:
+                    logging.error('Failed to resolve location of %s', destination.visit.service_user)
+                    continue
+                distance = session.distance(source_loc, destination_loc)
+                if distance is None:
+                    logging.error('Distance cannot be estimated between %s and %s', source_loc, destination_loc)
+                    continue
+                travel_time += datetime.timedelta(seconds=distance)
+            service_time = functools.reduce(operator.add, (visit.duration for visit in route.visits))
+            available_time = functools.reduce(operator.add, (event.duration
+                                                             for event in carer_dairies[route.carer.sap_number].events))
+            data_set.append([route.carer.sap_number,
+                             available_time,
+                             service_time,
+                             travel_time,
+                             float(service_time.total_seconds() + travel_time.total_seconds())
+                             / available_time.total_seconds()])
+    data_set.sort(key=operator.itemgetter(4))
+    data_frame = pandas.DataFrame(columns=['Carer', 'Availability', 'Travel', 'Service', 'Usage'], data=data_set)
+
+    figure, axis = matplotlib.pyplot.subplots()
+    indices = numpy.arange(len(data_frame.index))
+    width = 0.35
+    service_handle = axis.bar(indices, data_frame.Service, width)
+    travel_handle = axis.bar(indices, data_frame.Travel, width, bottom=data_frame.Service)
+    idle_handle = axis.bar(indices, [max(element, datetime.timedelta()) for element in
+                                     data_frame.Availability - data_frame.Travel - data_frame.Service])
+    matplotlib.pyplot.show()
 
 
 if __name__ == '__main__':
