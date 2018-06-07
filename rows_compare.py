@@ -292,29 +292,11 @@ def info(args, settings):
     schedule_file = get_or_raise(args, __FILE_ARG)
     schedule_file_to_use = os.path.realpath(os.path.expandvars(schedule_file))
     schedule = load_schedule(schedule_file_to_use)
-    print(get_travel_time(schedule, user_tag_finder))
+    carers = {visit.carer for visit in schedule.visits}
+    print(get_travel_time(schedule, user_tag_finder), len(carers), len(schedule.visits))
 
 
 def compare(args, settings):
-    if os.path.exists('distance_histogram.pickle'):
-        data_frame = pandas.read_pickle('distance_histogram.pickle')
-        indices = numpy.array(list(map(matplotlib.dates.date2num, data_frame.index)))
-        width = 0.35
-        zero = datetime.datetime(2018, 1, 1)
-        zero_num = matplotlib.dates.date2num(zero)
-        figure, axis = matplotlib.pyplot.subplots()
-        human_handle = axis.bar(indices,
-                                [matplotlib.dates.date2num(zero + duration) - zero_num
-                                 for duration in data_frame.HumanPlanners], width, bottom=zero)
-        cp_handle = axis.bar(indices + width,
-                             [matplotlib.dates.date2num(zero + duration) - zero_num for duration in
-                              data_frame.ConstraintProgramming], width, bottom=zero)
-        axis.xaxis_date()
-        axis.yaxis_date()
-        axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d,%H:%M:%S"))
-        axis.legend((human_handle, cp_handle), ('Human Planners', 'Constraint Programming'), loc='upper right')
-        matplotlib.pyplot.show()
-
     left_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __LEFT_SCHEDULE_PATTERN_ARG))]
     left_series.sort(key=operator.attrgetter('metadata.begin'))
     right_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __RIGHT_SCHEDULE_PATTERN_ARG))]
@@ -335,7 +317,23 @@ def compare(args, settings):
         data_frame.HumanPlanners[data] = duration
     for data, duration in right_results:
         data_frame.ConstraintProgramming[data] = duration
-    data_frame.to_pickle('distance_histogram.pickle')
+
+    indices = numpy.array(list(map(matplotlib.dates.date2num, data_frame.index)))
+    width = 0.35
+    zero = datetime.datetime(2018, 1, 1)
+    zero_num = matplotlib.dates.date2num(zero)
+    figure, axis = matplotlib.pyplot.subplots()
+    human_handle = axis.bar(indices,
+                            [matplotlib.dates.date2num(zero + duration) - zero_num
+                             for duration in data_frame.HumanPlanners], width, bottom=zero)
+    cp_handle = axis.bar(indices + width,
+                         [matplotlib.dates.date2num(zero + duration) - zero_num for duration in
+                          data_frame.ConstraintProgramming], width, bottom=zero)
+    axis.xaxis_date()
+    axis.yaxis_date()
+    axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d,%H:%M:%S"))
+    axis.legend((human_handle, cp_handle), ('Human Planners', 'Constraint Programming'), loc='upper right')
+    matplotlib.pyplot.show()
 
 
 if __name__ == '__main__':

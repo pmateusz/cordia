@@ -1,6 +1,8 @@
 #include <util/routing.h>
+
 #include "three_step_worker.h"
 #include "third_step_solver.h"
+#include "third_step_reduction_solver.h"
 #include "gexf_writer.h"
 
 rows::ThreeStepSchedulingWorker::CarerTeam::CarerTeam(std::pair<rows::Carer, rows::Diary> member)
@@ -77,6 +79,7 @@ int64 GetMaxDistance(rows::SolverWrapper &solver,
 }
 
 void rows::ThreeStepSchedulingWorker::Run() {
+    static const SolutionValidator solution_validator{};
     const auto search_params = rows::SolverWrapper::CreateSearchParameters();
 
     std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
@@ -224,20 +227,44 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                                   second_step_wrapper->vehicles(),
                                                                   rows::SolverWrapper::DEPOT);
 
+    std::unique_ptr<operations_research::RoutingModel> intermediate_model
+            = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
+                                                                  second_step_wrapper->vehicles(),
+                                                                  rows::SolverWrapper::DEPOT);
+    second_step_wrapper->ConfigureModel(*intermediate_model, printer_, CancelToken());
+    const auto restored_second_assignment = intermediate_model->ReadAssignmentFromRoutes(routes, true);
+    if (restored_second_assignment == nullptr) {
+        throw util::ApplicationError("No second assignment restored.", util::ErrorCode::ERROR);
+    }
+
     const auto max_dropped_visits_count =
             third_stage_model->nodes() - util::GetVisitedNodes(routes, rows::SolverWrapper::DEPOT).size() - 1;
-    std::unique_ptr<rows::ThirdStepSolver> third_step_solver
-            = std::make_unique<rows::ThirdStepSolver>(problem_,
-                                                      routing_parameters_,
-                                                      search_params,
-                                                      visit_time_window_,
-                                                      break_time_window_,
-                                                      begin_end_shift_time_extension_,
-                                                      post_opt_time_limit_,
-                                                      second_step_wrapper->LastDroppedVisitPenalty(),
-                                                      max_dropped_visits_count);
+
+    std::vector<rows::RouteValidatorBase::Metrics> vehicle_metrics;
+    for (int vehicle = 0; vehicle < second_stage_model->vehicles(); ++vehicle) {
+        const auto validation_result
+                = solution_validator.Validate(vehicle,
+                                              *restored_second_assignment,
+                                              *intermediate_model,
+                                              *second_step_wrapper);
+        CHECK(validation_result.error() == nullptr);
+        vehicle_metrics.emplace_back(validation_result.metrics());
+    }
+
+    std::unique_ptr<rows::ThirdStepReductionSolver> third_step_solver
+            = std::make_unique<rows::ThirdStepReductionSolver>(problem_,
+                                                               routing_parameters_,
+                                                               search_params,
+                                                               visit_time_window_,
+                                                               break_time_window_,
+                                                               begin_end_shift_time_extension_,
+                                                               post_opt_time_limit_,
+                                                               second_step_wrapper->LastDroppedVisitPenalty(),
+                                                               max_dropped_visits_count,
+                                                               vehicle_metrics);
 
     second_stage_model.release();
+    intermediate_model.release();
 
     third_step_solver->ConfigureModel(*third_stage_model, printer_, CancelToken());
     const auto third_stage_preassignment = third_stage_model->ReadAssignmentFromRoutes(routes, true);

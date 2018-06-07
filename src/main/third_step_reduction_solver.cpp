@@ -1,4 +1,4 @@
-#include "third_step_solver.h"
+#include "third_step_reduction_solver.h"
 
 #include "util/aplication_error.h"
 #include "break_constraint.h"
@@ -7,16 +7,16 @@
 #include "solution_log_monitor.h"
 #include "stalled_search_limit.h"
 
-rows::ThirdStepSolver::ThirdStepSolver(const rows::Problem &problem,
-                                       osrm::EngineConfig &config,
-                                       const operations_research::RoutingSearchParameters &search_parameters,
-                                       boost::posix_time::time_duration visit_time_window,
-                                       boost::posix_time::time_duration break_time_window,
-                                       boost::posix_time::time_duration begin_end_work_day_adjustment,
-                                       boost::posix_time::time_duration no_progress_time_limit,
-                                       int64 dropped_visit_penalty,
-                                       int64 max_dropped_visits,
-                                       std::vector<RouteValidatorBase::Metrics> vehicle_metrics)
+rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const rows::Problem &problem,
+                                                         osrm::EngineConfig &config,
+                                                         const operations_research::RoutingSearchParameters &search_parameters,
+                                                         boost::posix_time::time_duration visit_time_window,
+                                                         boost::posix_time::time_duration break_time_window,
+                                                         boost::posix_time::time_duration begin_end_work_day_adjustment,
+                                                         boost::posix_time::time_duration no_progress_time_limit,
+                                                         int64 dropped_visit_penalty,
+                                                         int64 max_dropped_visits,
+                                                         std::vector<RouteValidatorBase::Metrics> vehicle_metrics)
         : SolverWrapper(problem,
                         config,
                         search_parameters,
@@ -25,11 +25,12 @@ rows::ThirdStepSolver::ThirdStepSolver(const rows::Problem &problem,
                         std::move(begin_end_work_day_adjustment)),
           no_progress_time_limit_{std::move(no_progress_time_limit)},
           dropped_visit_penalty_{dropped_visit_penalty},
-          max_dropped_visits_{max_dropped_visits} {}
+          max_dropped_visits_{max_dropped_visits},
+          vehicle_metrics_{std::move(vehicle_metrics)} {}
 
-void rows::ThirdStepSolver::ConfigureModel(operations_research::RoutingModel &model,
-                                           const std::shared_ptr<Printer> &printer,
-                                           std::shared_ptr<const std::atomic<bool> > cancel_token) {
+void rows::ThirdStepReductionSolver::ConfigureModel(operations_research::RoutingModel &model,
+                                                    const std::shared_ptr<Printer> &printer,
+                                                    std::shared_ptr<const std::atomic<bool> > cancel_token) {
     OnConfigureModel(model);
 
     printer->operator<<("Loading the model");
@@ -41,6 +42,20 @@ void rows::ThirdStepSolver::ConfigureModel(operations_research::RoutingModel &mo
                        SECONDS_IN_DAY,
                        START_FROM_ZERO_TIME,
                        TIME_DIMENSION);
+
+    const auto FIXED_COST = 5 * 3600;
+    int max_available_time = 0;
+    for (const auto &metric : vehicle_metrics_) {
+        max_available_time = std::max(max_available_time, metric.available_time().total_seconds());
+    }
+    CHECK_GT(max_available_time, 0);
+    for (auto vehicle_number = 0; vehicle_number < vehicle_metrics_.size(); ++vehicle_number) {
+        const auto working_time_fraction =
+                static_cast<double>(vehicle_metrics_[vehicle_number].available_time().total_seconds())
+                / max_available_time;
+        const auto vehicle_cost = static_cast<int64>(FIXED_COST / working_time_fraction);
+        model.SetFixedCostOfVehicle(vehicle_cost, vehicle_number);
+    }
 
     operations_research::RoutingDimension *time_dimension
             = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
@@ -54,7 +69,6 @@ void rows::ThirdStepSolver::ConfigureModel(operations_research::RoutingModel &mo
     for (const auto &visit_index_pair : visit_index_) {
         const auto visit_start = visit_index_pair.first.datetime().time_of_day();
 
-        // TODO: sort visit indices
         std::vector<int64> visit_indices;
         for (const auto &visit_node : visit_index_pair.second) {
             const auto visit_index = model.NodeToIndex(visit_node);

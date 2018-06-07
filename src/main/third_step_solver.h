@@ -17,7 +17,8 @@ namespace rows {
                         boost::posix_time::time_duration begin_end_work_day_adjustment,
                         boost::posix_time::time_duration no_progress_time_limit,
                         int64 dropped_visit_penalty,
-                        int64 max_dropped_visits);
+                        int64 max_dropped_visits,
+                        std::vector<RouteValidatorBase::Metrics> vehicle_metrics);
 
         void ConfigureModel(operations_research::RoutingModel &model,
                             const std::shared_ptr<Printer> &printer,
