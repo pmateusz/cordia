@@ -1,6 +1,7 @@
 import argparse
 import collections
 import datetime
+import functools
 import glob
 import json
 import logging
@@ -28,6 +29,7 @@ import rows.sql_data_source
 import rows.model.carer
 import rows.model.area
 import rows.model.service_user
+import rows.model.problem
 import rows.model.location
 import rows.model.metadata
 import rows.model.schedule
@@ -49,10 +51,13 @@ __COMMAND = 'command'
 __PULL_COMMAND = 'pull'
 __INFO_COMMAND = 'info'
 __COMPARE_COMMAND = 'compare'
+__DEBUG_COMMAND = 'debug'
 __AREA_ARG = 'area'
 __FROM_ARG = 'from'
 __TO_ARG = 'to'
 __FILE_ARG = 'file'
+__SOLUTION_FILE_ARG = 'solution'
+__PROBLEM_FILE_ARG = 'problem'
 __OUTPUT_PREFIX_ARG = 'output_prefix'
 __OPTIONAL_ARG_PREFIX = '--'
 __LEFT_SCHEDULE_PATTERN_ARG = 'left_schedule_pattern'
@@ -78,6 +83,10 @@ def configure_parser():
     compare_parser = subparsers.add_parser(__COMPARE_COMMAND)
     compare_parser.add_argument(__LEFT_SCHEDULE_PATTERN_ARG)
     compare_parser.add_argument(__RIGHT_SCHEDULE_PATTERN_ARG)
+
+    debug_parser = subparsers.add_parser(__DEBUG_COMMAND)
+    debug_parser.add_argument(__PROBLEM_FILE_ARG)
+    debug_parser.add_argument(__SOLUTION_FILE_ARG)
 
     return parser
 
@@ -169,11 +178,7 @@ class RoutingServer:
 
 
 def get_travel_time(schedule, user_tag_finder):
-    routes = collections.defaultdict(list)
-    for past_visit in schedule.visits:
-        routes[past_visit.carer].append(past_visit)
-    for carer in routes:
-        routes[carer].sort(key=operator.attrgetter('time'))
+    routes = schedule.routes()
 
     total_travel_time = datetime.timedelta()
     with RoutingServer() as session:
@@ -198,82 +203,14 @@ def get_travel_time(schedule, user_tag_finder):
 
 def load_schedule_from_json(file_path):
     with open(file_path, 'r') as input_stream:
-        schedule_dict = json.load(input_stream)
-        metadata = rows.model.metadata.Metadata.from_json(schedule_dict['metadata'])
-        visits = [rows.model.past_visit.PastVisit.from_json(raw_visit) for raw_visit in schedule_dict['visits']]
-        return rows.model.schedule.Schedule(metadata=metadata, visits=visits)
+        schedule_json = json.load(input_stream)
+        return rows.model.schedule.Schedule.from_json(schedule_json)
 
 
 def load_schedule_from_gexf(file_path):
     with open(file_path, 'r') as input_stream:
-        soup = bs4.BeautifulSoup(input_stream, "html5lib")
-        attributes = {}
-        for node in soup.find_all('attribute'):
-            attributes[node['title']] = node['id']
-
-        type_id = attributes['type']
-        sap_number_id = attributes['sap_number']
-        id_id = attributes['id']
-        user_id = attributes['user']
-        start_time_id = attributes['start_time']
-        duration_id = attributes['duration']
-        longitude_id = attributes['longitude']
-        latitude_id = attributes['latitude']
-
-        carers_by_id = {}
-        users_by_id = {}
-        visits_by_id = {}
-        for node in soup.find_all('node'):
-            attributes = node.find('attvalues')
-            type_attr = attributes.find('attvalue', attrs={'for': type_id})
-            if type_attr['value'] == 'carer':
-                id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
-                sap_number_attr = attributes.find('attvalue', attrs={'for': sap_number_id})
-                carers_by_id[node['id']] = rows.model.carer.Carer(key=id_number_attr['value'],
-                                                                  sap_number=sap_number_attr['value'])
-            elif type_attr['value'] == 'user':
-                id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
-                longitude_attr = attributes.find('attvalue', attrs={'for': longitude_id})
-                latitude_attr = attributes.find('attvalue', attrs={'for': latitude_id})
-                user = rows.model.service_user.ServiceUser(key=id_number_attr['value'],
-                                                           location=rows.model.location.Location(
-                                                               latitude=latitude_attr['value'],
-                                                               longitude=longitude_attr['value']))
-                users_by_id[node['id']] = user
-            elif type_attr['value'] == 'visit':
-                user_attr = attributes.find('attvalue', attrs={'for': user_id})
-                start_time_attr = attributes.find('attvalue', attrs={'for': start_time_id})
-                duration_attr = attributes.find('attvalue', attrs={'for': duration_id})
-                start_time = datetime.datetime.strptime(start_time_attr['value'], '%Y-%b-%d %H:%M:%S')
-                duration = datetime.datetime.strptime(duration_attr['value'], '%H:%M:%S').time()
-                visits_by_id[node['id']] = rows.model.visit.Visit(date=start_time.date(),
-                                                                  time=start_time.time(),
-                                                                  duration=datetime.timedelta(hours=duration.hour,
-                                                                                              minutes=duration.minute,
-                                                                                              seconds=duration.second),
-                                                                  service_user=int(user_attr['value']))
-
-        routes = collections.defaultdict(list)
-        # iterate over edges
-        for edge in soup.find_all('edge'):
-            source_id = edge['source']
-            target_id = edge['target']
-            if source_id in carers_by_id and target_id in visits_by_id:
-                routes[carers_by_id[source_id]].append(visits_by_id[target_id])
-
-        past_visits = []
-        for carer in routes:
-            for visit in routes[carer]:
-                past_visits.append(rows.model.past_visit.PastVisit(visit=visit,
-                                                                   date=visit.date,
-                                                                   time=visit.time,
-                                                                   duration=visit.duration,
-                                                                   carer=carer))
-        past_visits.sort(key=operator.attrgetter('time'))
-        return rows.model.schedule.Schedule(metadata=rows.model.metadata.Metadata(
-            begin=min(past_visits, key=operator.attrgetter('date')).date,
-            end=max(past_visits, key=operator.attrgetter('date')).date),
-            visits=past_visits)
+        soup = bs4.BeautifulSoup(input_stream, 'html5lib')
+        return rows.model.schedule.Schedule.from_gexf(soup)
 
 
 def load_schedule(file_path):
@@ -294,6 +231,12 @@ def info(args, settings):
     schedule = load_schedule(schedule_file_to_use)
     carers = {visit.carer for visit in schedule.visits}
     print(get_travel_time(schedule, user_tag_finder), len(carers), len(schedule.visits))
+
+
+def load_problem(problem_file):
+    with open(problem_file, 'r') as input_stream:
+        problem_json = json.load(input_stream)
+        return rows.model.problem.Problem.from_json(problem_json)
 
 
 def compare(args, settings):
@@ -336,6 +279,27 @@ def compare(args, settings):
     matplotlib.pyplot.show()
 
 
+def debug(args, settings):
+    problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
+    solution_file = get_or_raise(args, __SOLUTION_FILE_ARG)
+    schedule = load_schedule(solution_file)
+    problem = load_problem(problem_file)
+
+    schedule_date = schedule.metadata.begin
+    carer_dairies = [
+        (carer_shift.carer, next((diary for diary in carer_shift.diaries if diary.date == schedule_date), None))
+        for carer_shift in problem.carers]
+    carer_availability = {}
+    for carer, diary in carer_dairies:
+        if not diary:
+            continue
+        carer_availability[carer] = functools.reduce(operator.add, (event.duration for event in diary.events))
+    routes = schedule.routes()
+
+    # list carers
+    # get carers available time
+
+
 if __name__ == '__main__':
     sys.excepthook = handle_exception
 
@@ -353,5 +317,7 @@ if __name__ == '__main__':
         info(__args, __settings)
     elif __command == __COMPARE_COMMAND:
         compare(__args, __settings)
+    elif __command == __DEBUG_COMMAND:
+        debug(__args, __settings)
     else:
         raise ValueError('Unknown command: ' + __command)

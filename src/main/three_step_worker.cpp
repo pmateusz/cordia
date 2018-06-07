@@ -4,6 +4,7 @@
 #include "third_step_solver.h"
 #include "third_step_reduction_solver.h"
 #include "gexf_writer.h"
+#include "third_step_fulfill.h"
 
 rows::ThreeStepSchedulingWorker::CarerTeam::CarerTeam(std::pair<rows::Carer, rows::Diary> member)
         : diary_{member.second} {
@@ -251,17 +252,17 @@ void rows::ThreeStepSchedulingWorker::Run() {
         vehicle_metrics.emplace_back(validation_result.metrics());
     }
 
-    std::unique_ptr<rows::ThirdStepReductionSolver> third_step_solver
-            = std::make_unique<rows::ThirdStepReductionSolver>(problem_,
-                                                               routing_parameters_,
-                                                               search_params,
-                                                               visit_time_window_,
-                                                               break_time_window_,
-                                                               begin_end_shift_time_extension_,
-                                                               post_opt_time_limit_,
-                                                               second_step_wrapper->LastDroppedVisitPenalty(),
-                                                               max_dropped_visits_count,
-                                                               vehicle_metrics);
+    std::unique_ptr<rows::ThirdStepFulfillSolver> third_step_solver
+            = std::make_unique<rows::ThirdStepFulfillSolver>(problem_,
+                                                             routing_parameters_,
+                                                             search_params,
+                                                             visit_time_window_,
+                                                             break_time_window_,
+                                                             begin_end_shift_time_extension_,
+                                                             post_opt_time_limit_,
+                                                             second_step_wrapper->LastDroppedVisitPenalty(),
+                                                             max_dropped_visits_count,
+                                                             vehicle_metrics);
 
     second_stage_model.release();
     intermediate_model.release();

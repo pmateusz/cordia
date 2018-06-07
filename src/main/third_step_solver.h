@@ -24,9 +24,6 @@ namespace rows {
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 
-        // TODO: compare schedules with humans
-        // TODO: increase cost of using carers (number of carers, cost of carers, travel time)
-
     private:
         boost::posix_time::time_duration no_progress_time_limit_;
         int64 dropped_visit_penalty_;
