@@ -50,7 +50,8 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 __COMMAND = 'command'
 __PULL_COMMAND = 'pull'
 __INFO_COMMAND = 'info'
-__COMPARE_COMMAND = 'compare'
+__COMPARE_DISTANCE_COMMAND = 'compare-distance'
+__COMPARE_WORKLOAD_COMMAND = 'compare-workload'
 __DEBUG_COMMAND = 'debug'
 __AREA_ARG = 'area'
 __FROM_ARG = 'from'
@@ -60,8 +61,8 @@ __SOLUTION_FILE_ARG = 'solution'
 __PROBLEM_FILE_ARG = 'problem'
 __OUTPUT_PREFIX_ARG = 'output_prefix'
 __OPTIONAL_ARG_PREFIX = '--'
-__LEFT_SCHEDULE_PATTERN_ARG = 'left_schedule_pattern'
-__RIGHT_SCHEDULE_PATTERN_ARG = 'right_schedule_pattern'
+__BASE_SCHEDULE_PATTERN = 'base_schedule_pattern'
+__CANDIDATE_SCHEDULE_PATTERN = 'candidate_schedule_pattern'
 
 
 def configure_parser():
@@ -80,9 +81,14 @@ def configure_parser():
     info_parser = subparsers.add_parser(__INFO_COMMAND)
     info_parser.add_argument(__FILE_ARG)
 
-    compare_parser = subparsers.add_parser(__COMPARE_COMMAND)
-    compare_parser.add_argument(__LEFT_SCHEDULE_PATTERN_ARG)
-    compare_parser.add_argument(__RIGHT_SCHEDULE_PATTERN_ARG)
+    compare_distance_parser = subparsers.add_parser(__COMPARE_DISTANCE_COMMAND)
+    compare_distance_parser.add_argument(__BASE_SCHEDULE_PATTERN)
+    compare_distance_parser.add_argument(__CANDIDATE_SCHEDULE_PATTERN)
+
+    compare_workload_parser = subparsers.add_parser(__COMPARE_WORKLOAD_COMMAND)
+    compare_workload_parser.add_argument(__PROBLEM_FILE_ARG)
+    compare_workload_parser.add_argument(__BASE_SCHEDULE_PATTERN)
+    compare_workload_parser.add_argument(__CANDIDATE_SCHEDULE_PATTERN)
 
     debug_parser = subparsers.add_parser(__DEBUG_COMMAND)
     debug_parser.add_argument(__PROBLEM_FILE_ARG)
@@ -239,10 +245,28 @@ def load_problem(problem_file):
         return rows.model.problem.Problem.from_json(problem_json)
 
 
-def compare(args, settings):
-    left_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __LEFT_SCHEDULE_PATTERN_ARG))]
+class TimeDeltaConverter:
+
+    def __init__(self):
+        self.__zero = datetime.datetime(2018, 1, 1)
+        self.__zero_num = matplotlib.dates.date2num(self.__zero)
+
+    @property
+    def zero(self):
+        return self.__zero
+
+    @property
+    def zero_num(self):
+        return self.__zero_num
+
+    def __call__(self, series):
+        return [matplotlib.dates.date2num(self.__zero + value) - self.__zero_num for value in series]
+
+
+def compare_distance(args, settings):
+    left_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __BASE_SCHEDULE_PATTERN))]
     left_series.sort(key=operator.attrgetter('metadata.begin'))
-    right_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __RIGHT_SCHEDULE_PATTERN_ARG))]
+    right_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __CANDIDATE_SCHEDULE_PATTERN))]
     right_series.sort(key=operator.attrgetter('metadata.begin'))
 
     user_tag_finder = rows.location_finder.UserLocationFinder(settings)
@@ -261,29 +285,119 @@ def compare(args, settings):
     for data, duration in right_results:
         data_frame.ConstraintProgramming[data] = duration
 
+    time_delta_convert = TimeDeltaConverter()
     indices = numpy.array(list(map(matplotlib.dates.date2num, data_frame.index)))
     width = 0.35
-    zero = datetime.datetime(2018, 1, 1)
-    zero_num = matplotlib.dates.date2num(zero)
+
     figure, axis = matplotlib.pyplot.subplots()
     human_handle = axis.bar(indices,
-                            [matplotlib.dates.date2num(zero + duration) - zero_num
-                             for duration in data_frame.HumanPlanners], width, bottom=zero)
+                            time_delta_convert(data_frame.HumanPlanners), width, bottom=time_delta_convert.zero)
     cp_handle = axis.bar(indices + width,
-                         [matplotlib.dates.date2num(zero + duration) - zero_num for duration in
-                          data_frame.ConstraintProgramming], width, bottom=zero)
+                         time_delta_convert(data_frame.ConstraintProgramming), width, bottom=time_delta_convert.zero)
     axis.xaxis_date()
     axis.yaxis_date()
-    axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d,%H:%M:%S"))
+    axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M:%S"))
     axis.legend((human_handle, cp_handle), ('Human Planners', 'Constraint Programming'), loc='upper right')
     matplotlib.pyplot.show()
 
 
+def get_schedule_data_frame(schedule, routing_session, location_finder, carer_diaries, visit_durations):
+    data_set = []
+    for route in schedule.routes():
+        travel_time = datetime.timedelta()
+        for source, destination in route.edges():
+            source_loc = location_finder.find(source.visit.service_user)
+            if not source_loc:
+                logging.error('Failed to resolve location of %s', source.visit.service_user)
+                continue
+            destination_loc = location_finder.find(destination.visit.service_user)
+            if not destination_loc:
+                logging.error('Failed to resolve location of %s', destination.visit.service_user)
+                continue
+            distance = routing_session.distance(source_loc, destination_loc)
+            if distance is None:
+                logging.error('Distance cannot be estimated between %s and %s', source_loc, destination_loc)
+                continue
+            travel_time += datetime.timedelta(seconds=distance)
+        # TODO: search for the closest time distance...
+        service_time = functools.reduce(operator.add,
+                                        (visit_durations[(visit.visit.service_user, visit.visit.time)]
+                                         for visit in route.visits))
+        available_time = functools.reduce(operator.add, (event.duration
+                                                         for event in carer_diaries[route.carer.sap_number].events))
+        data_set.append([route.carer.sap_number,
+                         available_time,
+                         service_time,
+                         travel_time,
+                         float(service_time.total_seconds() + travel_time.total_seconds())
+                         / available_time.total_seconds()])
+    data_set.sort(key=operator.itemgetter(4))
+    return pandas.DataFrame(columns=['Carer', 'Availability', 'Service', 'Travel', 'Usage'], data=data_set)
+
+
+def compare_workload(args, settings):
+    problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+    diary_by_date_by_carer = collections.defaultdict(dict)
+    for carer_shift in problem.carers:
+        for diary in carer_shift.diaries:
+            diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
+    base_schedules = [load_schedule(file_path)
+                      for file_path in glob.glob(getattr(args, __BASE_SCHEDULE_PATTERN))]
+    base_schedule_by_date = {schedule.metadata.begin: schedule for schedule in base_schedules}
+    candidate_schedules = [load_schedule(file_path)
+                           for file_path in glob.glob(getattr(args, __CANDIDATE_SCHEDULE_PATTERN))]
+    candidate_schedule_by_date = {schedule.metadata.begin: schedule for schedule in candidate_schedules}
+    location_finder = rows.location_finder.UserLocationFinder(settings)
+    location_finder.reload()
+
+    dates = set(candidate_schedule_by_date.keys())
+    for date in base_schedule_by_date.keys():
+        dates.add(date)
+    dates = list(dates)
+    dates.sort()
+
+    with RoutingServer() as routing_session:
+        for date in dates:
+            print(date)
+            base_schedule = base_schedule_by_date.get(date, None)
+            if not base_schedule:
+                logging.error('No base schedule is available for %s', date)
+                continue
+
+            observed_duration_by_visit = {}
+            for past_visit in base_schedule.visits:
+                if past_visit.check_in and past_visit.check_out:
+                    observed_duration = past_visit.check_out - past_visit.check_in
+                    if observed_duration.days < 0:
+                        logging.error('Observed duration %s is negative', observed_duration)
+                else:
+                    logging.warning('Visit %s is not supplied with information on check-in and check-out information',
+                                    past_visit.visit.key)
+                    observed_duration = past_visit.duration
+                observed_duration_by_visit[(past_visit.visit.service_user, past_visit.visit.time)] = observed_duration
+
+            candidate_schedule = candidate_schedule_by_date.get(date, None)
+            if not candidate_schedule:
+                logging.error('No candidate schedule is available for %s', date)
+                continue
+
+            base_schedule_data_frame = get_schedule_data_frame(base_schedule,
+                                                               routing_session,
+                                                               location_finder,
+                                                               diary_by_date_by_carer[date],
+                                                               observed_duration_by_visit)
+
+            candidate_schedule_data_frame = get_schedule_data_frame(candidate_schedule,
+                                                                    routing_session,
+                                                                    location_finder,
+                                                                    diary_by_date_by_carer[date],
+                                                                    observed_duration_by_visit)
+
+
 def debug(args, settings):
-    problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
+    problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
     solution_file = get_or_raise(args, __SOLUTION_FILE_ARG)
     schedule = load_schedule(solution_file)
-    problem = load_problem(problem_file)
 
     schedule_date = schedule.metadata.begin
     carer_dairies = {
@@ -311,7 +425,18 @@ def debug(args, settings):
                     logging.error('Distance cannot be estimated between %s and %s', source_loc, destination_loc)
                     continue
                 travel_time += datetime.timedelta(seconds=distance)
-            service_time = functools.reduce(operator.add, (visit.duration for visit in route.visits))
+            service_time = datetime.timedelta()
+            for visit in route.visits:
+                if visit.check_in and visit.check_out:
+                    observed_duration = visit.check_out - visit.check_in
+                    if observed_duration.days < 0:
+                        logging.error('Observed duration %s is negative', observed_duration)
+                    service_time += observed_duration
+                else:
+                    logging.warning('Visit %s is not supplied with information on check-in and check-out information',
+                                    visit.key)
+                    service_time += visit.duration
+
             available_time = functools.reduce(operator.add, (event.duration
                                                              for event in carer_dairies[route.carer.sap_number].events))
             data_set.append([route.carer.sap_number,
@@ -321,16 +446,36 @@ def debug(args, settings):
                              float(service_time.total_seconds() + travel_time.total_seconds())
                              / available_time.total_seconds()])
     data_set.sort(key=operator.itemgetter(4))
-    data_frame = pandas.DataFrame(columns=['Carer', 'Availability', 'Travel', 'Service', 'Usage'], data=data_set)
+    data_frame = pandas.DataFrame(columns=['Carer', 'Availability', 'Service', 'Travel', 'Usage'], data=data_set)
 
     figure, axis = matplotlib.pyplot.subplots()
     indices = numpy.arange(len(data_frame.index))
+    time_delta_converter = TimeDeltaConverter()
     width = 0.35
-    service_handle = axis.bar(indices, data_frame.Service, width)
-    travel_handle = axis.bar(indices, data_frame.Travel, width, bottom=data_frame.Service)
-    idle_handle = axis.bar(indices, [max(element, datetime.timedelta()) for element in
-                                     data_frame.Availability - data_frame.Travel - data_frame.Service])
+
+    travel_series = numpy.array(time_delta_converter(data_frame.Travel))
+    service_series = numpy.array(time_delta_converter(data_frame.Service))
+    idle_overtime_series = list(data_frame.Availability - data_frame.Travel - data_frame.Service)
+    idle_series = numpy.array(time_delta_converter(
+        map(lambda value: value if value.days >= 0 else datetime.timedelta(), idle_overtime_series)))
+    overtime_series = numpy.array(time_delta_converter(
+        map(lambda value: datetime.timedelta(
+            seconds=abs(value.total_seconds())) if value.days < 0 else datetime.timedelta(), idle_overtime_series)))
+
+    service_handle = axis.bar(indices, service_series, width, bottom=time_delta_converter.zero)
+    travel_handle = axis.bar(indices, travel_series, width,
+                             bottom=service_series + time_delta_converter.zero_num)
+    idle_handle = axis.bar(indices, idle_series, width,
+                           bottom=service_series + travel_series + time_delta_converter.zero_num)
+    overtime_handle = axis.bar(indices, overtime_series, width,
+                               bottom=idle_series + service_series + travel_series + time_delta_converter.zero_num)
+
+    axis.yaxis_date()
+    axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M:%S"))
+    axis.legend((travel_handle, service_handle, idle_handle, overtime_handle),
+                ('Travel', 'Service', 'Idle', 'Overtime'), loc='upper right')
     matplotlib.pyplot.show()
+    pass
 
 
 if __name__ == '__main__':
@@ -348,8 +493,10 @@ if __name__ == '__main__':
         pull(__args, __settings)
     elif __command == __INFO_COMMAND:
         info(__args, __settings)
-    elif __command == __COMPARE_COMMAND:
-        compare(__args, __settings)
+    elif __command == __COMPARE_DISTANCE_COMMAND:
+        compare_distance(__args, __settings)
+    elif __command == __COMPARE_WORKLOAD_COMMAND:
+        compare_workload(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:

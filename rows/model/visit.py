@@ -40,7 +40,7 @@ class Visit(rows.model.object.DatabaseObject):
     def from_json(json):
         """Create object from dictionary"""
 
-        user = json.get(Visit.SERVICE_USER, None)
+        user_id = int(json.get(Visit.SERVICE_USER, None))
 
         address_json = json.get(Visit.ADDRESS, None)
         address = Address.from_json(address_json) if address_json else None
@@ -55,7 +55,7 @@ class Visit(rows.model.object.DatabaseObject):
         duration = rows.model.datetime.try_parse_duration(duration_json) if duration_json else None
 
         return Visit(**{Visit.KEY: json.get(Visit.KEY, None),
-                        Visit.SERVICE_USER: user,
+                        Visit.SERVICE_USER: user_id,
                         Visit.DATE: date,
                         Visit.TIME: time,
                         Visit.DURATION: duration,
