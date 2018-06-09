@@ -10,6 +10,17 @@ The documented in opened by the [Prerequisites](#prerequisites) section which pr
 * System locale set to `en-US` - for initializing the database driver
 * User account in SQL Server - for accessing the database
 
+###Visualisation Module
+The visualisation module is build upon the following external dependencies
+* [Google Earth](https://www.google.com/intl/en_uk/earth/desktop/) Desktop version
+* MS Excel 
+* Python modules: 
+    ```shell
+    pip3 install simplekml
+    pip3 install pandas
+    pip3 install XlsxWriter
+    ```
+
 ### Operating System
 The recommended operating systems for development are Debian Stretch and Ubuntu Trusty. As of this writing are no known compatibility issues that could prevent using or developing the project in a different environment, though you do it at your own risk.
 
