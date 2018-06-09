@@ -301,6 +301,41 @@ def compare_distance(args, settings):
     matplotlib.pyplot.show()
 
 
+class VisitDict:
+    def __init__(self):
+        self.__dict = {}
+
+    def __getitem__(self, item):
+        if item in self.__dict:
+            return self.__dict.get(item)
+        if item.key:
+            same_id_items = [visit for visit in self.__dict if visit.key == item.key]
+            if same_id_items:
+                if len(same_id_items) > 1:
+                    logging.warning('More than one visit with id %s', item.key)
+                return self.__dict[same_id_items[0]]
+
+        visits_with_time_offset = [(visit, abs(self.__time_diff(visit.time, item.time).total_seconds()))
+                                   for visit in self.__dict if visit.service_user == item.service_user]
+        if visits_with_time_offset:
+            visit, time_offset = min(visits_with_time_offset, key=operator.itemgetter(1))
+            if time_offset > 2 * 3600:
+                logging.warning('Suspiciously high time offset %s while finding a key of the visit %s',
+                                time_offset,
+                                visit)
+            return self.__dict[visit]
+
+        raise KeyError(item)
+
+    def __setitem__(self, key, value):
+        self.__dict[key] = value
+
+    @staticmethod
+    def __time_diff(left_time, right_time):
+        __REF_DATE = datetime.date(2018, 1, 1)
+        return datetime.datetime.combine(__REF_DATE, left_time) - datetime.datetime.combine(__REF_DATE, right_time)
+
+
 def get_schedule_data_frame(schedule, routing_session, location_finder, carer_diaries, visit_durations):
     data_set = []
     for route in schedule.routes():
@@ -319,10 +354,7 @@ def get_schedule_data_frame(schedule, routing_session, location_finder, carer_di
                 logging.error('Distance cannot be estimated between %s and %s', source_loc, destination_loc)
                 continue
             travel_time += datetime.timedelta(seconds=distance)
-        # TODO: search for the closest time distance...
-        service_time = functools.reduce(operator.add,
-                                        (visit_durations[(visit.visit.service_user, visit.visit.time)]
-                                         for visit in route.visits))
+        service_time = functools.reduce(operator.add, (visit_durations[visit.visit] for visit in route.visits))
         available_time = functools.reduce(operator.add, (event.duration
                                                          for event in carer_diaries[route.carer.sap_number].events))
         data_set.append([route.carer.sap_number,
@@ -335,17 +367,53 @@ def get_schedule_data_frame(schedule, routing_session, location_finder, carer_di
     return pandas.DataFrame(columns=['Carer', 'Availability', 'Service', 'Travel', 'Usage'], data=data_set)
 
 
+def save_workforce_histogram(data_frame, file_path):
+    figure, axis = matplotlib.pyplot.subplots()
+    try:
+        indices = numpy.arange(len(data_frame.index))
+        time_delta_converter = TimeDeltaConverter()
+        width = 0.35
+
+        travel_series = numpy.array(time_delta_converter(data_frame.Travel))
+        service_series = numpy.array(time_delta_converter(data_frame.Service))
+        idle_overtime_series = list(data_frame.Availability - data_frame.Travel - data_frame.Service)
+        idle_series = numpy.array(time_delta_converter(
+            map(lambda value: value if value.days >= 0 else datetime.timedelta(), idle_overtime_series)))
+        overtime_series = numpy.array(time_delta_converter(
+            map(lambda value: datetime.timedelta(
+                seconds=abs(value.total_seconds())) if value.days < 0 else datetime.timedelta(),
+                idle_overtime_series)))
+
+        service_handle = axis.bar(indices, service_series, width, bottom=time_delta_converter.zero)
+        travel_handle = axis.bar(indices, travel_series, width,
+                                 bottom=service_series + time_delta_converter.zero_num)
+        idle_handle = axis.bar(indices, idle_series, width,
+                               bottom=service_series + travel_series + time_delta_converter.zero_num)
+        overtime_handle = axis.bar(indices, overtime_series, width,
+                                   bottom=idle_series + service_series + travel_series + time_delta_converter.zero_num)
+
+        axis.yaxis_date()
+        axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M:%S"))
+        axis.legend((travel_handle, service_handle, idle_handle, overtime_handle),
+                    ('Travel', 'Service', 'Idle', 'Overtime'), loc='upper right')
+        matplotlib.pyplot.savefig(file_path)
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
+
+
 def compare_workload(args, settings):
+    __PLOT_EXT = '.png'
     problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
     diary_by_date_by_carer = collections.defaultdict(dict)
     for carer_shift in problem.carers:
         for diary in carer_shift.diaries:
             diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
-    base_schedules = [load_schedule(file_path)
-                      for file_path in glob.glob(getattr(args, __BASE_SCHEDULE_PATTERN))]
+    base_schedules = {load_schedule(file_path): file_path
+                      for file_path in glob.glob(getattr(args, __BASE_SCHEDULE_PATTERN))}
     base_schedule_by_date = {schedule.metadata.begin: schedule for schedule in base_schedules}
-    candidate_schedules = [load_schedule(file_path)
-                           for file_path in glob.glob(getattr(args, __CANDIDATE_SCHEDULE_PATTERN))]
+    candidate_schedules = {load_schedule(file_path): file_path
+                           for file_path in glob.glob(getattr(args, __CANDIDATE_SCHEDULE_PATTERN))}
     candidate_schedule_by_date = {schedule.metadata.begin: schedule for schedule in candidate_schedules}
     location_finder = rows.location_finder.UserLocationFinder(settings)
     location_finder.reload()
@@ -358,13 +426,12 @@ def compare_workload(args, settings):
 
     with RoutingServer() as routing_session:
         for date in dates:
-            print(date)
             base_schedule = base_schedule_by_date.get(date, None)
             if not base_schedule:
                 logging.error('No base schedule is available for %s', date)
                 continue
 
-            observed_duration_by_visit = {}
+            observed_duration_by_visit = VisitDict()
             for past_visit in base_schedule.visits:
                 if past_visit.check_in and past_visit.check_out:
                     observed_duration = past_visit.check_out - past_visit.check_in
@@ -374,24 +441,31 @@ def compare_workload(args, settings):
                     logging.warning('Visit %s is not supplied with information on check-in and check-out information',
                                     past_visit.visit.key)
                     observed_duration = past_visit.duration
-                observed_duration_by_visit[(past_visit.visit.service_user, past_visit.visit.time)] = observed_duration
+                observed_duration_by_visit[past_visit.visit] = observed_duration
 
             candidate_schedule = candidate_schedule_by_date.get(date, None)
             if not candidate_schedule:
                 logging.error('No candidate schedule is available for %s', date)
                 continue
 
+            base_schedule_file = base_schedules[base_schedule]
             base_schedule_data_frame = get_schedule_data_frame(base_schedule,
                                                                routing_session,
                                                                location_finder,
                                                                diary_by_date_by_carer[date],
                                                                observed_duration_by_visit)
 
+            base_schedule_stem, base_schedule_ext = os.path.splitext(base_schedule_file)
+            save_workforce_histogram(base_schedule_data_frame, base_schedule_stem + __PLOT_EXT)
+
+            candidate_schedule_file = candidate_schedules[candidate_schedule]
             candidate_schedule_data_frame = get_schedule_data_frame(candidate_schedule,
                                                                     routing_session,
                                                                     location_finder,
                                                                     diary_by_date_by_carer[date],
                                                                     observed_duration_by_visit)
+            candidate_schedule_stem, candidate_schedule_ext = os.path.splitext(candidate_schedule_file)
+            save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem + __PLOT_EXT)
 
 
 def debug(args, settings):

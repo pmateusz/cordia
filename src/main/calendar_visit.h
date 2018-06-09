@@ -22,14 +22,16 @@ namespace rows {
     public:
         CalendarVisit();
 
-        CalendarVisit(ServiceUser service_user,
+        CalendarVisit(std::size_t id,
+                      ServiceUser service_user,
                       Address address,
                       boost::optional<Location> location,
                       boost::posix_time::ptime date_time,
                       boost::posix_time::time_duration duration,
                       int carer_count);
 
-        CalendarVisit(ServiceUser service_user,
+        CalendarVisit(std::size_t id,
+                      ServiceUser service_user,
                       Address address,
                       boost::posix_time::ptime date_time,
                       boost::posix_time::time_duration duration,
@@ -52,6 +54,8 @@ namespace rows {
         bool operator!=(const CalendarVisit &other) const;
 
         void location(Location location);
+
+        std::size_t id() const;
 
         const ServiceUser &service_user() const;
 
@@ -82,6 +86,7 @@ namespace rows {
         };
 
     private:
+        std::size_t id_;
         ServiceUser service_user_;
         Address address_;
         boost::optional<Location> location_;
@@ -168,6 +173,12 @@ namespace rows {
         static const Location::JsonLoader location_loader{};
         static const DateTime::JsonLoader datetime_loader{};
 
+        std::size_t key;
+        const auto key_it = document.find("key");
+        if (key_it != std::end(document)) {
+            key = key_it.value().template get<std::size_t>();
+        }
+
         const auto datetime = datetime_loader.Load(document);
         const auto duration_it = document.find("duration");
         if (duration_it == std::end(document)) { throw OnKeyNotFound("duration"); }
@@ -198,7 +209,7 @@ namespace rows {
             carer_count = carer_count_it.value().template get<int>();
         }
 
-        CalendarVisit visit(service_user, address, datetime, duration, carer_count);
+        CalendarVisit visit(key, service_user, address, datetime, duration, carer_count);
         if (location) {
             visit.location(location.get());
         }

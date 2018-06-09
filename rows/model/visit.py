@@ -17,7 +17,7 @@ class Visit(rows.model.object.DatabaseObject):
     CARER_COUNT = 'carer_count'
 
     def __init__(self, **kwargs):  # pylint: disable=useless-super-delegation
-        super(Visit, self).__init__()
+        super(Visit, self).__init__(**kwargs)
 
         self.__service_user = kwargs.get(Visit.SERVICE_USER, None)
         self.__date = kwargs.get(Visit.DATE, None)

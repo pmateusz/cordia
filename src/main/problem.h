@@ -183,6 +183,11 @@ namespace rows {
             const auto visits_it = group_visits_json.find("visits");
             if (visits_it == std::end(group_visits_json)) { throw OnKeyNotFound("visits"); }
             for (const auto &visit_json : visits_it.value()) {
+                std::size_t key;
+                const auto key_it = visit_json.find("key");
+                if (key_it == std::end(visit_json)) { throw OnKeyNotFound("key"); }
+                key = key_it.value().template get<std::size_t>();
+
                 auto date_time = datetime_loader.Load(visit_json);
                 const auto duration_it = visit_json.find("duration");
                 if (duration_it == std::end(visit_json)) { throw OnKeyNotFound("duration"); }
@@ -200,7 +205,8 @@ namespace rows {
                 const auto carer_count_it = visit_json.find("carer_count");
                 if (duration_it == std::end(visit_json)) { throw OnKeyNotFound("carer_count"); }
                 auto carer_count = carer_count_it.value().template get<int>();
-                result.emplace_back(service_user,
+                result.emplace_back(key,
+                                    service_user,
                                     address,
                                     boost::make_optional(location),
                                     date_time,

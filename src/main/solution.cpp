@@ -311,6 +311,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                                                              boost::none,
                                                              boost::none,
                                                              rows::CalendarVisit{
+                                                                     0,
                                                                      rows::ServiceUser::DEFAULT,
                                                                      rows::Address::DEFAULT,
                                                                      rows::Location(

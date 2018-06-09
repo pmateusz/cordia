@@ -52,6 +52,7 @@ namespace rows {
             const auto &visit = solver.NodeToVisit(visit_index);
 
             gexf.AddNode(visit_id, (boost::format("visit %1%") % visit_index.value()).str());
+            gexf.SetNodeValue(visit_id, ID, visit.id());
             gexf.SetNodeValue(visit_id, TYPE, VISIT_NODE);
             if (visit.location()) {
                 gexf.SetNodeValue(visit_id, LATITUDE, visit.location().get().latitude());
@@ -87,9 +88,6 @@ namespace rows {
             const auto &location = service_user.location();
             gexf.SetNodeValue(user_id, LONGITUDE, location.longitude());
             gexf.SetNodeValue(user_id, LATITUDE, location.latitude());
-//            gexf.SetNodeValue(user_id,
-//                              SATISFACTION,
-//                              std::to_string(solution.Min(solver.CareContinuityVar(service_user))));
             gexf.SetNodeValue(user_id,
                               UTIL_VISITS_COUNT,
                               std::to_string(solver.User(service_user).visit_count()));
@@ -293,6 +291,12 @@ namespace rows {
                                                           const GexfWriter::GephiAttributeMeta &attribute,
                                                           const osrm::util::FixedLatitude &value) {
         SetNodeValue(node_id, attribute, util::to_simple_string(osrm::util::toFloating(value)));
+    }
+
+    void GexfWriter::GexfEnvironmentWrapper::SetNodeValue(const std::string &node_id,
+                                                          const GexfWriter::GephiAttributeMeta &attribute,
+                                                          std::size_t value) {
+        SetNodeValue(node_id, attribute, std::to_string(value));
     }
 
     void GexfWriter::GexfEnvironmentWrapper::SetNodeValue(const std::string &node_id,

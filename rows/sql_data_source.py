@@ -1291,6 +1291,7 @@ ORDER BY carer_visits.VisitID"""
                 cancelled=False,
                 carer=Carer(sap_number=str(carer_id)),
                 visit=Visit(
+                    key=visit_id,
                     service_user=str(service_user),
                     address=Address.parse(raw_address),
                     date=date,

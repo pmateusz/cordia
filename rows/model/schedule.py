@@ -52,6 +52,11 @@ class Schedule(rows.model.object.DataObject):
         self.__metadata = kwargs.get(Schedule.METADATA, None)
         self.__visits = kwargs.get(Schedule.VISITS, [])
 
+    def __hash__(self):
+        if self.__visits:
+            return hash(tuple((hash(visit) for visit in self.__visits)))
+        return 0
+
     def as_dict(self):
         bundle = super(Schedule, self).as_dict()
 
