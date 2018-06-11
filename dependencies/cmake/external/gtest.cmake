@@ -45,6 +45,7 @@ if (NOT __GOOGLETEST_INCLUDED)
 
         set(GTEST_FOUND TRUE)
         set(GTEST_INCLUDE_DIRS ${gtest_INSTALL}/include)
+	set(GTEST_INCLUDE_DIR ${GTEST_INCLUDE_DIRS})
         set(GTEST_LIBRARIES ${gtest_INSTALL}/lib/libgtest.a ${gtest_INSTALL}/lib/libgmock.a)
         set(GTEST_MAIN_LIBRARIES ${gtest_INSTALL}/lib/libgtest_main.a ${gtest_INSTALL}/lib/libgmock_main.a)
         set(GTEST_BOTH_LIBRARIES ${GTEST_LIBRARIES} ${GTEST_MAIN_LIBRARIES})
