@@ -740,7 +740,7 @@ namespace rows {
         if (begin_end_work_day_adjustment_.is_special()) {
             return start_time.total_seconds();
         }
-        return std::max((start_time - begin_end_work_day_adjustment_).total_seconds(), 0);
+        return std::max(static_cast<int>((start_time - begin_end_work_day_adjustment_).total_seconds()), 0);
     }
 
     int64 SolverWrapper::GetAdjustedWorkdayFinish(boost::posix_time::time_duration finish_time) const {
