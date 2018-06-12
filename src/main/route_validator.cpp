@@ -988,6 +988,7 @@ namespace rows {
         // build intervals where carer may not work
         std::vector<boost::posix_time::time_period> idle_periods;
 
+        LOG(INFO) << "Vehicle: " << vehicle;
         const auto &time_dim = model.GetDimensionOrDie(SolverWrapper::TIME_DIMENSION);
         auto last_node = SolverWrapper::DEPOT;
         boost::posix_time::ptime last_visit_finish = ptime(date, seconds(0));
@@ -1000,11 +1001,11 @@ namespace rows {
             const ptime latest_arrival{date, seconds(solver.GetEndVisitWindow(visit.datetime().time_of_day()))};
             const ptime arrival{date, seconds(solution.Min(time_dim.CumulVar(visit_index)))};
 
-            VLOG(2) << boost::format("Visit [%1%,%2%] arrival: %3% busy until %4%")
-                       % fastest_arrival
-                       % latest_arrival
-                       % arrival
-                       % (arrival + visit.duration());
+            LOG(INFO) << boost::format("Visit [%1%,%2%] arrival: %3% busy until %4%")
+                         % fastest_arrival
+                         % latest_arrival
+                         % arrival
+                         % (arrival + visit.duration());
 
             const time_period arrival_period{fastest_arrival, latest_arrival};
             if (!arrival_period.contains(arrival)) {
@@ -1071,6 +1072,10 @@ namespace rows {
                 for (const auto &period : idle_periods) {
                     LOG(ERROR) << boost::format("(%1%,%2%)") % period.begin() % period.end();
                 }
+
+                LOG(ERROR) << "Verbose information";
+                LOG(ERROR) << "Vehicle: " << vehicle;
+
 
                 std::unique_ptr<rows::RouteValidatorBase::ValidationError> error_ptr
                         = std::make_unique<rows::RouteValidatorBase::ScheduledVisitError>(

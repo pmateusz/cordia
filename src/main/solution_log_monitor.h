@@ -19,6 +19,8 @@ namespace rows {
 
         bool Check() override;
 
+        void EnterSearch() override;
+
         bool AtSolution() override;
 
         void Init() override;

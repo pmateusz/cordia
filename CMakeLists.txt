@@ -69,6 +69,12 @@ find_package(EXPAT REQUIRED)
 find_package(Json)
 find_package(Gexf)
 
+include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBGet.cmake)
+include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBBuild.cmake)
+tbb_get(TBB_ROOT tbb_root SOURCE_CODE)
+tbb_build(TBB_ROOT ${tbb_root} CONFIG_DIR TBB_DIR)
+find_package(TBB REQUIRED)
+
 find_package(Boost REQUIRED COMPONENTS filesystem system thread iostreams regex)
 
 if (${OSRM_EXTERNAL})

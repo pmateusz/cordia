@@ -6,6 +6,7 @@
 #include "cancel_search_limit.h"
 #include "solution_log_monitor.h"
 #include "stalled_search_limit.h"
+#include "min_dropped_visits_collector.h"
 
 rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
                                          osrm::EngineConfig &config,
@@ -22,6 +23,7 @@ rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
                         std::move(begin_end_work_day_adjustment)),
           no_progress_time_limit_(std::move(no_progress_time_limit)),
           last_dropped_visit_penalty_(0),
+          solution_collector_{nullptr},
           solution_repository_{std::make_shared<rows::SolutionRepository>()} {}
 
 void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &model,
@@ -105,6 +107,10 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
     for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+        if (vehicle == 7) {
+            LOG(INFO) << "HERE";
+        }
+
         const auto &carer = Carer(vehicle);
         const auto &diary_opt = problem_.diary(carer, schedule_day);
 
@@ -117,6 +123,13 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
             end_time = GetAdjustedWorkdayFinish(diary.end_time());
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
+            for (const auto &break_item : breaks) {
+                LOG(INFO) << "break: " << break_item->StartMin()
+                          << " " << break_item->StartMax()
+                          << " " << break_item->DebugString()
+                          << " " << break_item->DurationMin();
+            }
+
             solver_ptr->AddConstraint(
                     solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
         }
@@ -136,6 +149,8 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new SolutionLogMonitor(&model, solution_repository_)));
+    solution_collector_ = solver_ptr->RevAlloc(new MinDroppedVisitsSolutionCollector(&model));
+    model.AddSearchMonitor(solution_collector_);
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(
@@ -153,4 +168,9 @@ std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolver::solution_repos
 
 int64 rows::SecondStepSolver::LastDroppedVisitPenalty() const {
     return last_dropped_visit_penalty_;
+}
+
+operations_research::Assignment *rows::SecondStepSolver::min_dropped_visit_solution() const {
+    CHECK(solution_collector_);
+    return solution_collector_->solution(0);
 }

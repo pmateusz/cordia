@@ -23,6 +23,7 @@ bool rows::SolutionLogMonitor::AtSolution() {
     if (dropped_visits_count <= min_dropped_visits_) {
         min_dropped_visits_ = dropped_visits_count;
         solution_repository_->Store(routes);
+        solution_repository_->Store(model_);
     }
     dropped_visits_buffer_.push_back(dropped_visits_count);
 
@@ -44,6 +45,14 @@ bool rows::SolutionLogMonitor::AtSolution() {
     return stop_search_;
 }
 
+void rows::SolutionLogMonitor::EnterSearch() {
+    SearchLimit::EnterSearch();
+
+    stop_search_ = false;
+    min_dropped_visits_ = std::numeric_limits<int>::max();
+    dropped_visits_buffer_.clear();
+}
+
 bool rows::SolutionLogMonitor::Check() {
     return stop_search_;
 }
@@ -63,5 +72,3 @@ void rows::SolutionLogMonitor::Copy(const operations_research::SearchLimit *limi
 operations_research::SearchLimit *rows::SolutionLogMonitor::MakeClone() const {
     return solver()->RevAlloc(new SolutionLogMonitor(model_, solution_repository_));
 }
-
-

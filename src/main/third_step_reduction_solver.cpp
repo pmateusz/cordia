@@ -50,11 +50,14 @@ void rows::ThirdStepReductionSolver::ConfigureModel(operations_research::Routing
     }
     CHECK_GT(max_available_time, 0);
     for (auto vehicle_number = 0; vehicle_number < vehicle_metrics_.size(); ++vehicle_number) {
-        const auto working_time_fraction =
-                static_cast<double>(vehicle_metrics_[vehicle_number].available_time().total_seconds())
-                / max_available_time;
-        const auto vehicle_cost = static_cast<int64>(FIXED_COST / working_time_fraction);
-        model.SetFixedCostOfVehicle(vehicle_cost, vehicle_number);
+        const auto vehicle_metrics = vehicle_metrics_[vehicle_number];
+        if (vehicle_metrics.available_time().total_seconds() > 0) {
+            const auto working_time_fraction =
+                    static_cast<double>(vehicle_metrics.available_time().total_seconds()) / max_available_time;
+            CHECK_GT(working_time_fraction, 0.0);
+            const auto vehicle_cost = static_cast<int64>(FIXED_COST / working_time_fraction);
+            model.SetFixedCostOfVehicle(vehicle_cost, vehicle_number);
+        }
     }
 
     operations_research::RoutingDimension *time_dimension
