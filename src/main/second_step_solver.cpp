@@ -7,6 +7,7 @@
 #include "solution_log_monitor.h"
 #include "stalled_search_limit.h"
 #include "min_dropped_visits_collector.h"
+#include "solution_dumper.h"
 
 rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
                                          osrm::EngineConfig &config,
@@ -74,6 +75,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
             } else {
                 time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
             }
+            model.AddToAssignment(time_dimension->CumulVar(visit_index));
             model.AddToAssignment(time_dimension->SlackVar(visit_index));
         }
 
@@ -160,6 +162,8 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     }
 
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
+    model.AddSearchMonitor(solver_ptr->RevAlloc(
+            new SolutionDumper("/home/pmateusz/dev/cordia", "second_level_dropped%1%_acc.pb", model)));
 }
 
 std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolver::solution_repository() {

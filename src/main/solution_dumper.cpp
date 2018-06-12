@@ -19,23 +19,14 @@ bool rows::SolutionDumper::AtSolution() {
     const auto dropped_visits = util::GetDroppedVisitCount(model());
     const auto solutions = solver()->solutions();
 
-//    if (dropped_visits <= 72) {
-//        const auto time_point_now = std::chrono::system_clock::now();
-//        std::time_t time = std::chrono::system_clock::to_time_t(time_point_now);
-//        const auto tm = std::gmtime(&time);
-//        const auto solution_file
-//                = export_directory_ / (boost::format(file_name_pattern_)
-//                                       % (boost::format("%1%_%2%_%3%")
-//                                          % dropped_visits
-//                                          % tm->tm_hour
-//                                          % tm->tm_min)).str();
-//        LOG(INFO) << "Dumping assignment: " << solution_file;
-//
-//        const auto solution_saved = model().WriteAssignment(solution_file.string());
-//        if (!solution_saved) {
-//            LOG(WARNING) << "Failed to save the solution";
-//        }
-//    }
+    if (dropped_visits == 10) {
+        const auto solution_file
+                = export_directory_ / (boost::format(file_name_pattern_) % dropped_visits).str();
+        const auto solution_saved = model().WriteAssignment(solution_file.string());
+        if (!solution_saved) {
+            LOG(WARNING) << "Failed to save the solution";
+        }
+    }
 
     return true;
 }
