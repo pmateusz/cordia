@@ -132,7 +132,7 @@ get_filename_component(TEST_HEADERS "${CMAKE_SOURCE_DIR}/src/test" REALPATH)
 
 file(GLOB_RECURSE TEST_SOURCES "${CMAKE_SOURCE_DIR}/src/test/*.cpp")
 add_library(rows-test STATIC ${TEST_SOURCES})
-target_include_directories(rows-test PUBLIC ${TEST_HEADERS} ${HEADERS} ${HEADER_DEP})
+target_include_directories(rows-test PUBLIC ${TEST_HEADERS} ${HEADERS} ${HEADER_DEP} ${GTEST_INCLUDE_DIR})
 target_compile_definitions(rows-test PUBLIC ${ORTOOLS_COMPILER_DEFINITIONS} -D_GLIBCXX_USE_CXX11_ABI=1)
 add_dependencies(rows-test rows)
 
