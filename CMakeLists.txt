@@ -52,12 +52,9 @@ set(GEXF_ROOT_DIR ${_GEXF_ROOT})
 
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBGet.cmake)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBBuild.cmake)
-tbb_get(TBB_ROOT tbb_root LATEST SAVE_TO ${CMAKE_BINARY_DIR}/tbb-prefix SYSTEM_NAME Linuks SOURCE_CODE)
-tbb_build(TBB_ROOT ${tbb_root} CONFIG_DIR TBB_DIR tbb_build_prefix=tbb-install
-        MAKE_ARGS tbb_build_dir=${CMAKE_BINARY_DIR}/external/tbb-prefix
-        tbb_build_prefix=${CMAKE_BINARY_DIR}/external/tbb-install)
+tbb_get(TBB_ROOT tbb_root RELEASE_TAG 2017_U7 SOURCE_CODE)
+tbb_build(TBB_ROOT ${tbb_root} CONFIG_DIR TBB_DIR MAKE_ARGS tbb_build_dir=${tbb_root}/build)
 find_package(TBB REQUIRED)
-set(TBB_INSTALL_DIR ${CMAKE_BINARY_DIR}/tbb_cmake_build/tbb_cmake_build_subdir_release)
 
 include(ExternalProject)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/osrm.cmake)
