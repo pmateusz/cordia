@@ -576,7 +576,7 @@ namespace rows {
 
     int64 SolverWrapper::GetBeginWindow(boost::posix_time::time_duration value,
                                         boost::posix_time::time_duration window_size) const {
-        return std::max((value - window_size).total_seconds(), 0);
+        return std::max(static_cast<int64>((value - window_size).total_seconds()), static_cast<int64>(0));
     }
 
     int64 SolverWrapper::GetEndWindow(boost::posix_time::time_duration value,
