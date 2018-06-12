@@ -46,7 +46,8 @@ void rows::ThirdStepReductionSolver::ConfigureModel(operations_research::Routing
     const auto FIXED_COST = 5 * 3600;
     int max_available_time = 0;
     for (const auto &metric : vehicle_metrics_) {
-        max_available_time = std::max(max_available_time, metric.available_time().total_seconds());
+        max_available_time = std::max(static_cast<int64>(max_available_time),
+                                      static_cast<int64>(metric.available_time().total_seconds()));
     }
     CHECK_GT(max_available_time, 0);
     for (auto vehicle_number = 0; vehicle_number < vehicle_metrics_.size(); ++vehicle_number) {
