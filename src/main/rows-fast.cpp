@@ -11,8 +11,6 @@
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
 
-#include <gtest/gtest.h>
-
 #include <glog/logging.h>
 
 #include <ortools/constraint_solver/routing.h>

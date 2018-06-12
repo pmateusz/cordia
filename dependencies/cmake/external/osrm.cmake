@@ -10,7 +10,7 @@ if (NOT __OSRM_INCLUDED) # guard against multiple includes
         set(osrm_PREFIX ${CMAKE_BINARY_DIR}/external/osrm-prefix)
         # install directory
         set(osrm_INSTALL ${CMAKE_BINARY_DIR}/external/osrm-install)
-            
+
         ExternalProject_Add(osrm
                 PREFIX ${osrm_PREFIX}
                 URL https://github.com/Project-OSRM/osrm-backend/archive/v5.13.0.zip
