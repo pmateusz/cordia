@@ -49,7 +49,15 @@ set(SPARSEHASH_ROOT_DIR ${_SPARSEHASH_ROOT_DIR})
 set(OSRM_ROOT_DIR ${CMAKE_BINARY_DIR}/external/osrm-install)
 set(JSON_ROOT_DIR ${_JSON_ROOT})
 set(GEXF_ROOT_DIR ${_GEXF_ROOT})
-set(TBB_INSTALL_DIR /usr/lib64)
+
+include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBGet.cmake)
+include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBBuild.cmake)
+tbb_get(TBB_ROOT tbb_root LATEST SAVE_TO ${CMAKE_BINARY_DIR}/tbb-prefix SYSTEM_NAME Linuks SOURCE_CODE)
+tbb_build(TBB_ROOT ${tbb_root} CONFIG_DIR TBB_DIR tbb_build_prefix=tbb-install
+        MAKE_ARGS tbb_build_dir=${CMAKE_BINARY_DIR}/external/tbb-prefix
+        tbb_build_prefix=${CMAKE_BINARY_DIR}/external/tbb-install)
+find_package(TBB REQUIRED)
+set(TBB_INSTALL_DIR ${CMAKE_BINARY_DIR}/tbb_cmake_build/tbb_cmake_build_subdir_release)
 
 include(ExternalProject)
 include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/osrm.cmake)
@@ -68,12 +76,6 @@ find_package(ZLIB REQUIRED)
 find_package(EXPAT REQUIRED)
 find_package(Json)
 find_package(Gexf)
-
-include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBGet.cmake)
-include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBBuild.cmake)
-tbb_get(TBB_ROOT tbb_root SOURCE_CODE)
-tbb_build(TBB_ROOT ${tbb_root} CONFIG_DIR TBB_DIR)
-find_package(TBB REQUIRED)
 
 find_package(Boost REQUIRED COMPONENTS filesystem system thread iostreams regex)
 
