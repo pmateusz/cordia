@@ -581,7 +581,7 @@ namespace rows {
 
     int64 SolverWrapper::GetEndWindow(boost::posix_time::time_duration value,
                                       boost::posix_time::time_duration window_size) const {
-        return std::min((value + window_size).total_seconds(), static_cast<int>(SECONDS_IN_DAY));
+        return std::min(static_cast<int64>((value + window_size).total_seconds()), SECONDS_IN_DAY);
     }
 
     const Problem &SolverWrapper::problem() const {
