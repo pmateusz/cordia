@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_THREAD_PREFER_PTHREAD ON)
 
 set(CMAKE_VERBOSE_MAKEFILE FALSE)
 
@@ -182,7 +183,7 @@ macro(m_add_executable GOAL SOURCE)
             rows
             ${LIBRARY_DEP})
     target_include_directories(${GOAL} PUBLIC ${TEST_HEADERS} ${HEADERS} ${HEADER_DEP} ${GTEST_INCLUDE_DIR})
-    set_property(TARGET ${GOAL} PROPERTY CXX_STANDARD 14)
+    set_property(TARGET ${GOAL} PROPERTY CXX_STANDARD 11)
     add_dependencies(${GOAL} rows-test)
 endmacro()
 
