@@ -113,24 +113,24 @@ target_include_directories(rows PUBLIC ${HEADERS} ${HEADER_DEP})
 add_executable(rows-main "${CMAKE_SOURCE_DIR}/src/main/rows-solver.cpp")
 target_include_directories(rows-main PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-main rows ${LIBRARY_DEP})
-set_property(TARGET rows-main PROPERTY CXX_STANDARD 11)
+set_property(TARGET rows-main PROPERTY CXX_STANDARD 14)
 
 add_executable(rows-fast "${CMAKE_SOURCE_DIR}/src/main/rows-fast.cpp")
 target_include_directories(rows-fast PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-fast rows ${LIBRARY_DEP})
-set_property(TARGET rows-fast PROPERTY CXX_STANDARD 11)
+set_property(TARGET rows-fast PROPERTY CXX_STANDARD 14)
 
 add_executable(rows-routing-server "${CMAKE_SOURCE_DIR}/src/main/rows-routing-server.cpp")
 target_include_directories(rows-routing-server PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-routing-server rows ${LIBRARY_DEP})
-set_property(TARGET rows-routing-server PROPERTY CXX_STANDARD 11)
+set_property(TARGET rows-routing-server PROPERTY CXX_STANDARD 14)
 
 get_filename_component(TEST_HEADERS "${CMAKE_SOURCE_DIR}/src/test" REALPATH)
 
 file(GLOB_RECURSE TEST_SOURCES "${CMAKE_SOURCE_DIR}/src/test/*.cpp")
 add_library(rows-test STATIC ${TEST_SOURCES})
 target_include_directories(rows-test PUBLIC ${TEST_HEADERS} ${HEADERS} ${HEADER_DEP} ${GTEST_INCLUDE_DIR})
-set_property(TARGET rows-test PROPERTY CXX_STANDARD 11)
+set_property(TARGET rows-test PROPERTY CXX_STANDARD 14)
 add_dependencies(rows-test rows)
 
 if (${OSRM_EXTERNAL})
@@ -179,7 +179,7 @@ macro(m_add_executable GOAL SOURCE)
             rows
             ${LIBRARY_DEP})
     target_include_directories(${GOAL} PUBLIC ${TEST_HEADERS} ${HEADERS} ${HEADER_DEP} ${GTEST_INCLUDE_DIR})
-    set_property(TARGET ${GOAL} PROPERTY CXX_STANDARD 11)
+    set_property(TARGET ${GOAL} PROPERTY CXX_STANDARD 14)
     add_dependencies(${GOAL} rows-test)
 endmacro()
 
