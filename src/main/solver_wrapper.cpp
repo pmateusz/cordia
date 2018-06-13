@@ -54,7 +54,7 @@ std::vector<rows::Location> DistinctLocations(const rows::Problem &problem) {
         }
     }
 
-    return {std::cbegin(locations), std::cend(locations)};
+    return {std::begin(locations), std::end(locations)};
 }
 
 namespace rows {
@@ -96,14 +96,14 @@ namespace rows {
                                  boost::posix_time::time_duration break_time_window,
                                  boost::posix_time::time_duration begin_end_work_day_adjustment)
             : problem_(problem),
-              depot_(Location::GetCentralLocation(std::cbegin(locations), std::cend(locations))),
+              depot_(Location::GetCentralLocation(std::begin(locations), std::end(locations))),
               depot_service_user_(),
               visit_time_window_(visit_time_window),
               break_time_window_(break_time_window),
               begin_end_work_day_adjustment_(begin_end_work_day_adjustment),
             // time when carer is out of office is considered as a break
               out_office_hours_breaks_enabled_(true),
-              location_container_(std::cbegin(locations), std::cend(locations), config),
+              location_container_(std::begin(locations), std::end(locations), config),
               parameters_(search_parameters),
               visit_index_(),
               visit_by_node_(),
@@ -134,8 +134,8 @@ namespace rows {
         DCHECK_EQ(current_visit_node.value(), visit_by_node_.size());
 
         for (const auto &service_user : problem_.service_users()) {
-            const auto visit_count = std::count_if(std::cbegin(problem_.visits()),
-                                                   std::cend(problem_.visits()),
+            const auto visit_count = std::count_if(std::begin(problem_.visits()),
+                                                   std::end(problem_.visits()),
                                                    [&service_user](const rows::CalendarVisit &visit) -> bool {
                                                        return visit.service_user() == service_user;
                                                    });
@@ -179,12 +179,12 @@ namespace rows {
 
     boost::optional<rows::Diary>
     FindDiaryOrNone(const std::vector<rows::Diary> &diaries, boost::gregorian::date date) {
-        const auto find_date_it = std::find_if(std::cbegin(diaries),
-                                               std::cend(diaries),
+        const auto find_date_it = std::find_if(std::begin(diaries),
+                                               std::end(diaries),
                                                [&date](const rows::Diary &diary) -> bool {
                                                    return diary.date() == date;
                                                });
-        if (find_date_it != std::cend(diaries)) {
+        if (find_date_it != std::end(diaries)) {
             return boost::make_optional(*find_date_it);
         }
         return boost::none;
@@ -402,7 +402,7 @@ namespace rows {
                 const auto &visit_nodes = GetNodes(visit);
                 auto inserted = false;
                 for (const auto &node : visit_nodes) {
-                    if (used_nodes.find(node) != std::cend(used_nodes)) {
+                    if (used_nodes.find(node) != std::end(used_nodes)) {
                         continue;
                     }
 
@@ -454,11 +454,11 @@ namespace rows {
             static const auto &is_assigned = [](const rows::ScheduledVisit &visit) -> bool {
                 return visit.carer().is_initialized();
             };
-            const auto initial_size = std::count_if(std::cbegin(solution.visits()),
-                                                    std::cend(solution.visits()),
+            const auto initial_size = std::count_if(std::begin(solution.visits()),
+                                                    std::end(solution.visits()),
                                                     is_assigned);
-            const auto reduced_size = std::count_if(std::cbegin(solution_to_use.visits()),
-                                                    std::cend(solution_to_use.visits()),
+            const auto reduced_size = std::count_if(std::begin(solution_to_use.visits()),
+                                                    std::end(solution_to_use.visits()),
                                                     is_assigned);
             VLOG_IF(1, initial_size != reduced_size)
             << boost::format("Removed %1% visit assignments due to constrain violations.")
@@ -712,13 +712,13 @@ namespace rows {
     }
 
     bool SolverWrapper::Contains(const CalendarVisit &visit) const {
-        return visit_index_.find(visit) != std::cend(visit_index_);
+        return visit_index_.find(visit) != std::end(visit_index_);
     }
 
     const std::unordered_set<operations_research::RoutingModel::NodeIndex> &
     SolverWrapper::GetNodes(const CalendarVisit &visit) const {
         const auto find_it = visit_index_.find(visit);
-        CHECK(find_it != std::cend(visit_index_));
+        CHECK(find_it != std::end(visit_index_));
         CHECK(!find_it->second.empty());
         return find_it->second;
     }

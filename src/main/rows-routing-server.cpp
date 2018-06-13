@@ -76,7 +76,7 @@ int main(int argc, char **argv) {
         try {
             const auto args = nlohmann::json::parse(current_line);
             const auto command_it = args.find("command");
-            if (command_it == std::cend(args)) {
+            if (command_it == std::end(args)) {
                 LOG(ERROR) << "Key 'command' not found";
                 continue;
             }

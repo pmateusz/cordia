@@ -74,8 +74,8 @@ TEST(TestLocationContainer, CanCalculateTravelTimes) {
 
     std::unordered_map<rows::Location, std::size_t> location_index;
     std::size_t index = 0;
-    const auto location_end_it = std::cend(locations);
-    for (auto location_it = std::cbegin(locations); location_it != location_end_it; ++location_it, ++index) {
+    const auto location_end_it = std::end(locations);
+    for (auto location_it = std::begin(locations); location_it != location_end_it; ++location_it, ++index) {
         location_index.insert(std::make_pair(*location_it, index));
     }
     std::vector<std::vector<int64> > distance_matrix(locations.size(), std::vector<int64>(locations.size(), -1));
@@ -97,7 +97,7 @@ TEST(TestLocationContainer, CanCalculateTravelTimes) {
     // calculate minimum and maximum distance
     int64 min = std::numeric_limits<int64>::max(), max = std::numeric_limits<int64>::min();
     for (const auto &row : distance_matrix) {
-        const auto pair = std::minmax(std::cbegin(row), std::cend(row));
+        const auto pair = std::minmax(std::begin(row), std::end(row));
         if (*pair.first > 0) {
             min = std::min(*pair.first, min);
         }

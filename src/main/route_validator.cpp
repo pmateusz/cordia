@@ -294,7 +294,7 @@ namespace rows {
 
                 for (const auto &visit_route_pair : visit_bundle.second) {
                     const auto &route = visit_route_pair.second;
-                    if (selected_bundles.find(route.carer()) == std::cend(selected_bundles)) {
+                    if (selected_bundles.find(route.carer()) == std::end(selected_bundles)) {
                         continue;
                     }
 
@@ -668,7 +668,7 @@ namespace rows {
         const auto earliest_arrival = static_cast<boost::posix_time::time_duration>(
                 boost::posix_time::seconds(solver_.GetBeginVisitWindow(visit.datetime().time_of_day())));
         const auto find_it = latest_arrival_times_.find(visit.calendar_visit().get());
-        if (find_it != std::cend(latest_arrival_times_)) {
+        if (find_it != std::end(latest_arrival_times_)) {
             return std::max(earliest_arrival, find_it->second);
         }
         return earliest_arrival;
@@ -939,7 +939,7 @@ namespace rows {
     }
 
     operations_research::RoutingModel::NodeIndex ValidationSession::GetNode(const ScheduledVisit &visit) const {
-        return *std::cbegin(solver_.GetNodes(visit));
+        return *std::begin(solver_.GetNodes(visit));
     }
 
     bool ValidationSession::error() const {

@@ -125,8 +125,8 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
     // Adding penalty costs to allow skipping orders.
     const int64 kPenalty = 10000000;
     for (const auto &visit_bundle : visit_index_) {
-        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
-                                                                              std::cend(visit_bundle.second)};
+        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
+                                                                              std::end(visit_bundle.second)};
         model.AddDisjunction(visit_nodes, kPenalty, static_cast<int64>(visit_nodes.size()));
     }
 

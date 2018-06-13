@@ -175,7 +175,7 @@ namespace rows {
             const ServiceUser service_user{service_user_it.value().template get<std::string>()};
 
             const auto service_user_index_it = service_user_index.find(service_user);
-            DCHECK(service_user_index_it != std::cend(service_user_index));
+            DCHECK(service_user_index_it != std::end(service_user_index));
 
             const Address address{service_user_index_it->second.first};
             const Location location{service_user_index_it->second.second};

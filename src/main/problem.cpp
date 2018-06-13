@@ -56,7 +56,7 @@ namespace rows {
             times.push_back(visit.datetime());
         }
 
-        const auto pair_it = std::minmax_element(std::cbegin(times), std::cend(times));
+        const auto pair_it = std::minmax_element(std::begin(times), std::end(times));
         return std::make_pair(*pair_it.first, *pair_it.second);
     }
 

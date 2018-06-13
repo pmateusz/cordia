@@ -101,8 +101,8 @@ TEST(TestOSRM, CanCalculateDistanceMatrix) {
         }
 
         std::vector<std::string> text_distances;
-        std::transform(std::cbegin(distances),
-                       std::cend(distances),
+        std::transform(std::begin(distances),
+                       std::end(distances),
                        std::back_inserter(text_distances),
                        [](double value) -> std::string {
                            return std::to_string(static_cast<int>(std::ceil(value)));

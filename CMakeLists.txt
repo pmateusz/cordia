@@ -109,32 +109,24 @@ set(LIBRARY_DEP ${ORTOOLS_LIBRARY}
 file(GLOB_RECURSE SOURCES "${CMAKE_SOURCE_DIR}/src/main/*.cpp")
 add_library(rows STATIC ${SOURCES})
 target_include_directories(rows PUBLIC ${HEADERS} ${HEADER_DEP})
-set_property(TARGET rows PROPERTY CXX_STANDARD 14)
 
 add_executable(rows-main "${CMAKE_SOURCE_DIR}/src/main/rows-solver.cpp")
 target_include_directories(rows-main PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-main rows ${LIBRARY_DEP})
-target_compile_definitions(rows-main PUBLIC ${ORTOOLS_COMPILER_DEFINITIONS} -D_GLIBCXX_USE_CXX11_ABI=1)
-set_property(TARGET rows-main PROPERTY CXX_STANDARD 14)
 
 add_executable(rows-fast "${CMAKE_SOURCE_DIR}/src/main/rows-fast.cpp")
 target_include_directories(rows-fast PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-fast rows ${LIBRARY_DEP})
-target_compile_definitions(rows-fast PUBLIC ${ORTOOLS_COMPILER_DEFINITIONS} -D_GLIBCXX_USE_CXX11_ABI=1)
-set_property(TARGET rows-fast PROPERTY CXX_STANDARD 14)
 
 add_executable(rows-routing-server "${CMAKE_SOURCE_DIR}/src/main/rows-routing-server.cpp")
 target_include_directories(rows-routing-server PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-routing-server rows ${LIBRARY_DEP})
-target_compile_definitions(rows-routing-server PUBLIC ${ORTOOLS_COMPILER_DEFINITIONS} -D_GLIBCXX_USE_CXX11_ABI=1)
-set_property(TARGET rows-routing-server PROPERTY CXX_STANDARD 14)
 
 get_filename_component(TEST_HEADERS "${CMAKE_SOURCE_DIR}/src/test" REALPATH)
 
 file(GLOB_RECURSE TEST_SOURCES "${CMAKE_SOURCE_DIR}/src/test/*.cpp")
 add_library(rows-test STATIC ${TEST_SOURCES})
 target_include_directories(rows-test PUBLIC ${TEST_HEADERS} ${HEADERS} ${HEADER_DEP} ${GTEST_INCLUDE_DIR})
-target_compile_definitions(rows-test PUBLIC ${ORTOOLS_COMPILER_DEFINITIONS} -D_GLIBCXX_USE_CXX11_ABI=1)
 add_dependencies(rows-test rows)
 
 if (${OSRM_EXTERNAL})

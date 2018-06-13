@@ -430,8 +430,8 @@ TEST(TestBreaksViolation, FindsValidSolution) {
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             std::vector<boost::posix_time::time_period> break_periods;
             const auto &vehicle_breaks = data_set.Breaks.at(static_cast<std::size_t>(vehicle));
-            std::transform(std::cbegin(vehicle_breaks),
-                           std::cend(vehicle_breaks),
+            std::transform(std::begin(vehicle_breaks),
+                           std::end(vehicle_breaks),
                            std::back_inserter(break_periods),
                            [&reference_date](const Break &vehicle_break) -> boost::posix_time::time_period {
                                return boost::posix_time::time_period(

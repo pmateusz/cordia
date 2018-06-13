@@ -12,10 +12,10 @@ rows::ThreeStepSchedulingWorker::CarerTeam::CarerTeam(std::pair<rows::Carer, row
 }
 
 void rows::ThreeStepSchedulingWorker::CarerTeam::Add(std::pair<rows::Carer, rows::Diary> member) {
-    DCHECK(std::find_if(std::cbegin(members_), std::cend(members_),
+    DCHECK(std::find_if(std::begin(members_), std::end(members_),
                         [&member](const std::pair<rows::Carer, rows::Diary> &local_member) -> bool {
                             return local_member.first == member.first;
-                        }) == std::cend(members_));
+                        }) == std::end(members_));
 
     diary_ = diary_.Intersect(member.second);
     members_.emplace_back(std::move(member));
