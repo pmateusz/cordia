@@ -20,7 +20,7 @@ class Settings:
     DEFAULT_DATABASE_USER_KEY = 'database_user'
     DEFAULT_DATABASE_DRIVER_KEY = 'database_driver'
 
-    DEFAULT_DATABASE_DRIVER = 'Microsoft ODBC Driver 17 for SQL Server'
+    DEFAULT_DATABASE_DRIVER = 'ODBC Driver 17 for SQL Server'
     DEFAULT_DATABASE_SERVER = '192.168.56.1'
     DEFAULT_DATABASE = 'StrathClyde'
     DEFAULT_DATABASE_USER = 'dev'
