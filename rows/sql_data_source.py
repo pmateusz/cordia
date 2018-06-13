@@ -1387,7 +1387,7 @@ ORDER BY carer_visits.VisitID"""
                 " Create the file in the specified location and try again.".format(path), ex)
 
     def __build_connection_string(self):
-        config = {'Driver': '{ODBC Driver 13 for SQL Server}',
+        config = {'Driver': '{' + self.__settings.database_driver + '}',
                   'Server': self.__settings.database_server,
                   'Database': self.__settings.database_name,
                   'UID': self.__settings.database_user,

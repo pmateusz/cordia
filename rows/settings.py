@@ -18,7 +18,9 @@ class Settings:
     DEFAULT_DATABASE_SERVER_KEY = 'database_server'
     DEFAULT_DATABASE_NAME_KEY = 'database_name'
     DEFAULT_DATABASE_USER_KEY = 'database_user'
+    DEFAULT_DATABASE_DRIVER_KEY = 'database_driver'
 
+    DEFAULT_DATABASE_DRIVER = 'Microsoft ODBC Driver 17 for SQL Server'
     DEFAULT_DATABASE_SERVER = '192.168.56.1'
     DEFAULT_DATABASE = 'StrathClyde'
     DEFAULT_DATABASE_USER = 'dev'
@@ -32,6 +34,7 @@ class Settings:
         self.__difficult_locations_path = None
         self.__user_geo_tagging_path = None
         self.__solver_dir = None
+        self.__database_driver = None
         self.__database_credentials_path = None
         self.__database_server = None
         self.__database_name = None
@@ -59,6 +62,8 @@ class Settings:
                                                     Settings.DEFAULT_DATABASE)
                 self.__database_user = settings.get(Settings.DEFAULT_DATABASE_USER_KEY,
                                                     Settings.DEFAULT_DATABASE_USER)
+                self.__database_driver = settings.get(Settings.DEFAULT_DATABASE_DRIVER_KEY,
+                                                      Settings.DEFAULT_DATABASE_DRIVER)
 
         except FileNotFoundError:
             self.__set_default_settings()
@@ -141,6 +146,10 @@ class Settings:
     @property
     def user_geo_tagging_path(self):
         return self.__user_geo_tagging_path
+
+    @property
+    def database_driver(self):
+        return self.__database_driver
 
     @property
     def database_credentials_path(self):
