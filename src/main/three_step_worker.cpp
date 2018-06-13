@@ -115,7 +115,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                        begin_end_shift_time_extension_,
                                                        opt_time_limit_);
 
-    std::vector <std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
+    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
             static_cast<std::size_t>(second_step_wrapper->vehicles())};
 
     if (!team_visits.empty()) {
@@ -235,6 +235,17 @@ void rows::ThreeStepSchedulingWorker::Run() {
             = second_stage_model->SolveFromAssignmentWithParameters(computed_assignment, search_params);
     if (second_stage_assignment == nullptr) {
         throw util::ApplicationError("No second stage solution found.", util::ErrorCode::ERROR);
+    }
+
+    auto variable_store_ptr = second_step_wrapper->variable_store();
+    for (int vehicle = 0; vehicle < second_stage_model->vehicles(); ++vehicle) {
+        const auto validation_result
+                = solution_validator.Validate(vehicle,
+                                              *second_stage_assignment,
+                                              *second_stage_model,
+                                              *second_step_wrapper,
+                                              *variable_store_ptr);
+        CHECK(validation_result.error() == nullptr);
     }
 
     std::unique_ptr<operations_research::RoutingModel> third_stage_model

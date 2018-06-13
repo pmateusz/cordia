@@ -15,6 +15,7 @@
 #include "calendar_visit.h"
 #include "scheduled_visit.h"
 #include "route.h"
+#include "routing_variables_store.h"
 
 namespace rows {
 
@@ -321,6 +322,12 @@ namespace rows {
                                                       const operations_research::Assignment &solution,
                                                       const operations_research::RoutingModel &model,
                                                       rows::SolverWrapper &solver) const;
+
+        RouteValidatorBase::ValidationResult Validate(int vehicle,
+                                                      const operations_research::Assignment &solution,
+                                                      const operations_research::RoutingModel &model,
+                                                      rows::SolverWrapper &solver,
+                                                      rows::RoutingVariablesStore &variable_store) const;
     };
 
     class SimpleRouteValidatorWithTimeWindows : public RouteValidatorBase {
