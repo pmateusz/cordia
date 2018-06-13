@@ -187,3 +187,23 @@ Start calculations from the last solution.
 ```shell
 ./rows_cli.py solve problem.json --start solution.gexf 
 ```
+
+### Test Deployment
+
+```shell
+./rows_cli.py pull C240 -f 2017-10-1 -t 2017-10-14 --duration-estimator=global_percentile --resource-estimator=planned
+Pulling information on tasks...: 0 [00:00, ?/s]/home/pmateusz/.local/lib/python3.5/site-packages/tqdm/_monitor.py:89: TqdmSynchronisationWarning: Set changed size during iteration (see https://github.com/tqdm/tqdm/issues/481)
+  TqdmSynchronisationWarning)
+Change in visit duration: mean -0:11:57, median: -0:11:52, stddev +0:12:54 
+```
+
+```shell
+/rows_cli.py solve problem.json 
+Problem contains records from several days. The computed solution will be reduced to a single day: '2017-Oct-01'
+Loading the model
+problem definition:	time_window=02:00:00 | visits=58 | carers=11 | covered_visits=0
+            Cost |   Dropped Visits |  Solutions |     Branches |     Memory Usage | Wall Time
+           12647 |                0 |          1 |         1126 |     1048576.0 MB | 00:00:00
+           12464 |                0 |          2 |         1129 |     1048576.0 MB | 00:00:00
+           12262 |                0 |          3 |         1133 |     1048576.0 MB | 00:00:00
+```
