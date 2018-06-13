@@ -112,11 +112,11 @@ namespace rows {
         return visit_;
     }
 
-    std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>>
+    std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> >
     RouteValidatorBase::ValidateAll(const std::vector<rows::Route> &routes,
                                     const rows::Problem &problem,
                                     SolverWrapper &solver) const {
-        std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>> validation_errors;
+        std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > validation_errors;
 
         // find visits with incomplete information
         for (const auto &route: routes) {
@@ -156,7 +156,7 @@ namespace rows {
                     visit_index_it->second.emplace_back(visit, route);
                 } else {
                     visit_index.insert({calendar_visit.get(),
-                                        std::vector<std::pair<rows::ScheduledVisit, rows::Route >>{
+                                        std::vector<std::pair<rows::ScheduledVisit, rows::Route > >{
                                                 std::make_pair(visit, route)}
                                        });
                 }

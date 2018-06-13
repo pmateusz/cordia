@@ -383,9 +383,9 @@ namespace rows {
         return depot_;
     }
 
-    std::vector<std::vector<operations_research::RoutingModel::NodeIndex>>
+    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
     SolverWrapper::GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const {
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex>> routes;
+        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > routes;
         std::unordered_set<operations_research::RoutingModel::NodeIndex> used_nodes;
 
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
@@ -428,7 +428,7 @@ namespace rows {
         const auto start_error_resolution = std::chrono::high_resolution_clock::now();
         rows::Solution solution_to_use{solution};
         while (true) {
-            std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>> validation_errors;
+            std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > validation_errors;
             std::vector<rows::Route> routes;
             for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
                 const auto carer = Carer(vehicle);
@@ -472,7 +472,7 @@ namespace rows {
     }
 
     rows::Solution SolverWrapper::Resolve(const rows::Solution &solution,
-                                          const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>> &validation_errors) const {
+                                          const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > &validation_errors) const {
         std::unordered_set<ScheduledVisit> visits_to_ignore;
         std::unordered_set<ScheduledVisit> visits_to_release;
         std::unordered_set<ScheduledVisit> visits_to_move;
@@ -612,7 +612,7 @@ namespace rows {
         boost::posix_time::time_duration total_work_time;
 
         auto total_errors = 0;
-        std::vector<std::pair<rows::Route, RouteValidatorBase::ValidationResult>> route_pairs;
+        std::vector<std::pair<rows::Route, RouteValidatorBase::ValidationResult> > route_pairs;
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             auto carer = Carer(vehicle);
             std::vector<rows::ScheduledVisit> carer_visits;

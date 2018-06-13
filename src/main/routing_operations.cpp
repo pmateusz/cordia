@@ -2,7 +2,7 @@
 
 #include <boost/algorithm/string/join.hpp>
 
-int rows::RoutingOperations::Remove(std::vector<std::vector<operations_research::RoutingModel::NodeIndex>> &routes,
+int rows::RoutingOperations::Remove(std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes,
                                     operations_research::RoutingModel::NodeIndex node) const {
     auto changes = 0;
     for (auto &route : routes) {
@@ -19,7 +19,7 @@ int rows::RoutingOperations::Remove(std::vector<std::vector<operations_research:
     return changes;
 }
 
-int rows::RoutingOperations::Swap(std::vector<std::vector<operations_research::RoutingModel::NodeIndex>> &routes,
+int rows::RoutingOperations::Swap(std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes,
                                   operations_research::RoutingModel::NodeIndex left,
                                   operations_research::RoutingModel::NodeIndex right) const {
     auto changed = 0;
@@ -38,7 +38,7 @@ int rows::RoutingOperations::Swap(std::vector<std::vector<operations_research::R
     changed;
 }
 
-int rows::RoutingOperations::Replace(std::vector<std::vector<operations_research::RoutingModel::NodeIndex>> &routes,
+int rows::RoutingOperations::Replace(std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes,
                                      operations_research::RoutingModel::NodeIndex from,
                                      operations_research::RoutingModel::NodeIndex to, std::size_t route_index) const {
     auto changed = 0;
@@ -54,7 +54,7 @@ int rows::RoutingOperations::Replace(std::vector<std::vector<operations_research
 }
 
 void rows::RoutingOperations::PrintRoutes(std::shared_ptr<rows::Printer> printer,
-                                          const std::vector<std::vector<operations_research::RoutingModel::NodeIndex>> &routes) const {
+                                          const std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes) const {
     for (const auto &route : routes) {
         std::vector<std::string> node_strings;
         for (const auto node : route) {

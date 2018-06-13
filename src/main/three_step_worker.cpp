@@ -115,7 +115,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                        begin_end_shift_time_extension_,
                                                        opt_time_limit_);
 
-    std::vector <std::vector<operations_research::RoutingModel::NodeIndex>> second_step_locks{
+    std::vector <std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
             static_cast<std::size_t>(second_step_wrapper->vehicles())};
 
     if (!team_visits.empty()) {
@@ -146,7 +146,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
         const auto is_first_solution_correct = first_step_model->solver()->CheckAssignment(&first_validation_copy);
         DCHECK(is_first_solution_correct);
 
-        std::vector <std::vector<operations_research::RoutingModel::NodeIndex>> first_step_solution;
+        std::vector <std::vector<operations_research::RoutingModel::NodeIndex> > first_step_solution;
         first_step_model->AssignmentToRoutes(*first_step_assignment, &first_step_solution);
 
         auto time_dim = first_step_model->GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
@@ -337,7 +337,7 @@ rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
         CarerTeam team{*carer_diary_it};
 
         // while there is available space and are free carers continue looking for a suitable match
-        boost::optional<std::pair<rows::Carer, rows::Diary>> best_match = boost::none;
+        boost::optional<std::pair<rows::Carer, rows::Diary> > best_match = boost::none;
         boost::optional<rows::Diary> best_match_diary = boost::none;
         for (auto possible_match_it = std::next(carer_diary_it);
              possible_match_it != carer_diary_it_end;
