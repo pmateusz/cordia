@@ -70,7 +70,7 @@ const std::vector<rows::Carer> rows::Solution::Carers() const {
         }
     }
 
-    return {std::cbegin(carers), std::cend(carers)};
+    return {std::begin(carers), std::end(carers)};
 }
 
 struct PartialVisitContainerContract {
@@ -169,16 +169,16 @@ void rows::Solution::UpdateVisitProperties(const std::vector<rows::CalendarVisit
 
         // find min date in visit index
         const auto calendar_visits_pair_it = visit_index.find(visit.service_user().get());
-        if (calendar_visits_pair_it == std::cend(visit_index)) {
+        if (calendar_visits_pair_it == std::end(visit_index)) {
             // solution has a user who is not present in the problem
             // this situation may happen when a warm start solution does not match original problem
             continue;
         }
 
-        const auto closest_visit_it = std::min_element(std::cbegin(calendar_visits_pair_it->second),
-                                                       std::cend(calendar_visits_pair_it->second),
+        const auto closest_visit_it = std::min_element(std::begin(calendar_visits_pair_it->second),
+                                                       std::end(calendar_visits_pair_it->second),
                                                        start_time_distance);
-        CHECK(closest_visit_it != std::cend(calendar_visits_pair_it->second));
+        CHECK(closest_visit_it != std::end(calendar_visits_pair_it->second));
         calendar_visit->datetime(closest_visit_it->datetime());
         calendar_visit->duration(closest_visit_it->duration());
     }
@@ -188,8 +188,8 @@ std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver,
                                         const operations_research::RoutingModel &model) const {
     std::stringstream status_stream;
 
-    const auto visits_with_calendar = std::count_if(std::cbegin(visits_),
-                                                    std::cend(visits_),
+    const auto visits_with_calendar = std::count_if(std::begin(visits_),
+                                                    std::end(visits_),
                                                     [](const rows::ScheduledVisit &visit) -> bool {
                                                         return visit.calendar_visit().is_initialized();
                                                     });
@@ -221,7 +221,7 @@ std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver,
 
 std::string Get(const std::unordered_map<std::string, std::string> &properties, const std::string &key) {
     const auto find_it = properties.find(key);
-    CHECK(find_it != std::cend(properties));
+    CHECK(find_it != std::end(properties));
     return find_it->second;
 }
 
@@ -288,14 +288,14 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
             }
 
             const auto type_property_it = properties.find(attributes.Type);
-            if (type_property_it == std::cend(properties)) {
+            if (type_property_it == std::end(properties)) {
                 continue;
             }
 
             if (type_property_it->second == "visit") {
                 boost::optional<rows::Carer> carer = boost::none;
                 const auto carer_find_it = properties.find(attributes.AssignedCarer);
-                if (carer_find_it != std::cend(properties)) {
+                if (carer_find_it != std::end(properties)) {
                     CHECK(!carer_find_it->second.empty());
                     carer = rows::Carer(carer_find_it->second);
                 }
@@ -349,17 +349,17 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
             const auto source = GetAttribute(edge, "source");
             const auto target = GetAttribute(edge, "target");
             const auto visit_it = visits.find(target);
-            if (visit_it == std::cend(visits)) {
+            if (visit_it == std::end(visits)) {
                 continue;
             }
 
             const auto carer_it = carers.find(source);
-            if (carer_it != std::cend(carers)) {
+            if (carer_it != std::end(carers)) {
                 visit_it->second.carer() = carer_it->second;
                 visit_it->second.calendar_visit()->carer_count(1);
             } else {
                 const auto user_it = users.find(source);
-                if (user_it != std::cend(users)) {
+                if (user_it != std::end(users)) {
                     visit_it->second.calendar_visit()->service_user() = user_it->second;
                 }
             }

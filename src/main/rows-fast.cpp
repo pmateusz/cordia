@@ -199,8 +199,8 @@ int main(int argc, char *argv[]) {
     auto problem = LoadReducedProblem("/home/pmateusz/dev/cordia/problem.json");
 
     std::vector<rows::CalendarVisit> visits_to_schedule;
-    std::copy(std::cbegin(problem.visits()),
-              std::cbegin(problem.visits()) + 50,
+    std::copy(std::begin(problem.visits()),
+              std::begin(problem.visits()) + 50,
               std::back_inserter(visits_to_schedule));
 
     auto current_index = 0;
@@ -429,7 +429,7 @@ int main(int argc, char *argv[]) {
     LOG(INFO) << "Distance matrix";
     for (const auto &row : data.Distances) {
         std::vector<std::string> text_row;
-        std::transform(std::cbegin(row), std::cend(row), std::back_inserter(text_row),
+        std::transform(std::begin(row), std::end(row), std::back_inserter(text_row),
                        [](const int64 distance) -> std::string { return std::to_string(distance); });
         LOG(INFO) << boost::algorithm::join(text_row, ", ");
     }

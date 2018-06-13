@@ -129,8 +129,8 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operat
 
     const int64 kPenalty = GetDroppedVisitPenalty(model);
     for (const auto &visit_bundle : visit_index_) {
-        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
-                                                                              std::cend(visit_bundle.second)};
+        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
+                                                                              std::end(visit_bundle.second)};
         model.AddDisjunction(visit_nodes, kPenalty, static_cast<int64>(visit_nodes.size()));
     }
 

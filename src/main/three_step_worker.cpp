@@ -12,10 +12,10 @@ rows::ThreeStepSchedulingWorker::CarerTeam::CarerTeam(std::pair<rows::Carer, row
 }
 
 void rows::ThreeStepSchedulingWorker::CarerTeam::Add(std::pair<rows::Carer, rows::Diary> member) {
-    DCHECK(std::find_if(std::cbegin(members_), std::cend(members_),
+    DCHECK(std::find_if(std::begin(members_), std::end(members_),
                         [&member](const std::pair<rows::Carer, rows::Diary> &local_member) -> bool {
                             return local_member.first == member.first;
-                        }) == std::cend(members_));
+                        }) == std::end(members_));
 
     diary_ = diary_.Intersect(member.second);
     members_.emplace_back(std::move(member));
@@ -115,7 +115,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                        begin_end_shift_time_extension_,
                                                        opt_time_limit_);
 
-    std::vector<std::vector<operations_research::RoutingModel::NodeIndex>> second_step_locks{
+    std::vector <std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
             static_cast<std::size_t>(second_step_wrapper->vehicles())};
 
     if (!team_visits.empty()) {
@@ -257,7 +257,6 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                                   rows::SolverWrapper::DEPOT);
     intermediate_wrapper->ConfigureModel(*intermediate_model, printer_, CancelToken());
     const auto routes = second_step_wrapper->solution_repository()->GetSolution();
-
     const auto min_dropped_visits_assignment = second_step_wrapper->min_dropped_visit_solution(); /*intermediate_model->ReadAssignment(
             second_step_wrapper->solution_repository()->solution_file().string());*/
     second_stage_model->WriteAssignment("test_file.pb");
@@ -370,7 +369,7 @@ rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
         CarerTeam team{*carer_diary_it};
 
         // while there is available space and are free carers continue looking for a suitable match
-        boost::optional<std::pair<rows::Carer, rows::Diary>> best_match = boost::none;
+        boost::optional<std::pair<rows::Carer, rows::Diary> > best_match = boost::none;
         boost::optional<rows::Diary> best_match_diary = boost::none;
         for (auto possible_match_it = std::next(carer_diary_it);
              possible_match_it != carer_diary_it_end;

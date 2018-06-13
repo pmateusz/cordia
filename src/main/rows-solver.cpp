@@ -515,8 +515,8 @@ int main(int argc, char **argv) {
 
         std::vector<boost::gregorian::date> scheduling_days_in_order;
         scheduling_days_in_order.reserve(scheduling_days.size());
-        std::copy(std::cbegin(scheduling_days),
-                  std::cend(scheduling_days),
+        std::copy(std::begin(scheduling_days),
+                  std::end(scheduling_days),
                   std::back_inserter(scheduling_days_in_order));
         std::sort(std::begin(scheduling_days_in_order), std::end(scheduling_days_in_order));
 

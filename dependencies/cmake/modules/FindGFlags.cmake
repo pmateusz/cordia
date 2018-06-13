@@ -50,7 +50,7 @@ if (MSVC)
     set(GFLAGS_LIBRARY optimized ${GFLAGS_LIBRARY_RELEASE} debug ${GFLAGS_LIBRARY_DEBUG})
 else ()
     find_library(GFLAGS_LIBRARY
-            NAMES gflags
+            NAMES gflags_nothreads
             HINTS "${_GFLAGS_LIB_LOCATIONS}"
             PATHS "${GFLAGS_PKGCONF_LIBRARY_DIRS}" "/usr/local/lib")
 endif ()

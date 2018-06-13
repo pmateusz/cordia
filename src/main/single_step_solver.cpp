@@ -58,7 +58,7 @@ namespace rows {
     operations_research::IntVar const *SingleStepSolver::CareContinuityVar(
             const rows::ExtendedServiceUser &service_user) const {
         const auto service_user_it = care_continuity_.find(service_user);
-        DCHECK(service_user_it != std::cend(care_continuity_));
+        DCHECK(service_user_it != std::end(care_continuity_));
         return service_user_it->second;
     }
 
@@ -182,8 +182,8 @@ namespace rows {
 
         const int64 kPenalty = max_distance;
         for (const auto &visit_bundle : visit_index_) {
-            std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
-                                                                                  std::cend(visit_bundle.second)};
+            std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
+                                                                                  std::end(visit_bundle.second)};
             model.AddDisjunction(visit_nodes, kPenalty, static_cast<int64>(visit_nodes.size()));
         }
 
@@ -285,8 +285,8 @@ namespace rows {
     SingleStepSolver::CareContinuityMetrics::CareContinuityMetrics(const SingleStepSolver &solver,
                                                                    const rows::Carer &carer)
             : values_() {
-        const auto visit_it_end = std::cend(solver.visit_index_);
-        for (auto visit_it = std::cbegin(solver.visit_index_); visit_it != visit_it_end; ++visit_it) {
+        const auto visit_it_end = std::end(solver.visit_index_);
+        for (auto visit_it = std::begin(solver.visit_index_); visit_it != visit_it_end; ++visit_it) {
             const auto &service_user = solver.User(visit_it->first.service_user());
             if (service_user.IsPreferred(carer)) {
                 for (const auto visit_node : visit_it->second) {

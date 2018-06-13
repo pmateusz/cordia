@@ -131,8 +131,8 @@ void rows::ExperimentalEnforcementWorker::Solver::ConfigureModel(operations_rese
 
     const int64 kPenalty = GetDroppedVisitPenalty(model);
     for (const auto &visit_bundle : visit_index_) {
-        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
-                                                                              std::cend(visit_bundle.second)};
+        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
+                                                                              std::end(visit_bundle.second)};
         if (visit_nodes.size() == 1) {
             model.AddDisjunction(visit_nodes, kPenalty);
         } else {

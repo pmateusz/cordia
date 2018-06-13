@@ -153,7 +153,7 @@ static const Environment DATA{
                         {"22:00:00", "24:00:00"}
                 }
         },
-        std::vector<std::vector<int64>>{
+        std::vector<std::vector<int64> >{
                 {0,    909,  1386, 1129, 1414, 819,  1618, 1107, 1265},
                 {909,  0,    546,  446,  1100, 277,  1304, 1171, 461},
                 {1386, 546,  0,    429,  1069, 636,  1216, 1140, 227},
@@ -344,7 +344,7 @@ static const Environment REPRO{
                         {"19:00:00", "05:00:00"}
                 }
         },
-        std::vector<std::vector<int64>>{
+        std::vector<std::vector<int64> >{
                 {0,    722,  884,  604,  1562, 1129, 855,  655,  547,  432,  327,  945,  1170, 333,  517},
                 {722,  0,    1455, 1006, 1944, 819,  1425, 1376, 1269, 291,  1048, 1516, 1184, 392,  425},
                 {884,  1455, 0,    651,  2070, 1906, 229,  1083, 1140, 1173, 1134, 154,  1935, 1074, 1293},
@@ -430,8 +430,8 @@ TEST(TestBreaksViolation, FindsValidSolution) {
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             std::vector<boost::posix_time::time_period> break_periods;
             const auto &vehicle_breaks = data_set.Breaks.at(static_cast<std::size_t>(vehicle));
-            std::transform(std::cbegin(vehicle_breaks),
-                           std::cend(vehicle_breaks),
+            std::transform(std::begin(vehicle_breaks),
+                           std::end(vehicle_breaks),
                            std::back_inserter(break_periods),
                            [&reference_date](const Break &vehicle_break) -> boost::posix_time::time_period {
                                return boost::posix_time::time_period(

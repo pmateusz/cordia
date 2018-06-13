@@ -6,6 +6,7 @@
 
 #include "solver_wrapper.h"
 #include "solution_repository.h"
+#include "routing_variables_store.h"
 
 namespace rows {
 
@@ -25,15 +26,19 @@ namespace rows {
 
         std::shared_ptr<rows::SolutionRepository> solution_repository();
 
+        std::shared_ptr<rows::RoutingVariablesStore> variable_store();
+
         int64 LastDroppedVisitPenalty() const;
 
         operations_research::Assignment *min_dropped_visit_solution() const;
+
 
     private:
         boost::posix_time::time_duration no_progress_time_limit_;
         int64 last_dropped_visit_penalty_;
         operations_research::SolutionCollector *solution_collector_;
         std::shared_ptr<rows::SolutionRepository> solution_repository_;
+        std::shared_ptr<rows::RoutingVariablesStore> variable_store_;
     };
 }
 

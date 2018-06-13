@@ -144,8 +144,8 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingMo
 
     if (max_dropped_visits_ > 0) {
         for (const auto &visit_bundle : visit_index_) {
-            std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::cbegin(visit_bundle.second),
-                                                                                  std::cend(visit_bundle.second)};
+            std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
+                                                                                  std::end(visit_bundle.second)};
             model.AddDisjunction(visit_nodes, dropped_visit_penalty_, static_cast<int64>(visit_nodes.size()));
         }
 
