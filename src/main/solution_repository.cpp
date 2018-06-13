@@ -5,8 +5,10 @@ rows::SolutionRepository::SolutionRepository()
           solution_file_{boost::filesystem::unique_path()} {}
 
 rows::SolutionRepository::~SolutionRepository() {
-    const auto solution_file_removed = boost::filesystem::remove(solution_file_);
-    LOG_IF(WARNING, !solution_file_removed) << "Failed to remove a solution file " << solution_file_;
+    if (boost::filesystem::exists(solution_file_)) {
+        const auto solution_file_removed = boost::filesystem::remove(solution_file_);
+        LOG_IF(WARNING, !solution_file_removed) << "Failed to remove a solution file " << solution_file_;
+    }
 }
 
 void rows::SolutionRepository::Store(std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > solution) {

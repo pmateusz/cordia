@@ -25,7 +25,8 @@ rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
           no_progress_time_limit_(std::move(no_progress_time_limit)),
           last_dropped_visit_penalty_(0),
           solution_collector_{nullptr},
-          solution_repository_{std::make_shared<rows::SolutionRepository>()} {}
+          solution_repository_{std::make_shared<rows::SolutionRepository>()},
+          variable_store_{nullptr} {}
 
 void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &model,
                                             const std::shared_ptr<Printer> &printer,
@@ -33,6 +34,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     OnConfigureModel(model);
 
     last_dropped_visit_penalty_ = GetDroppedVisitPenalty(model);
+    variable_store_ = std::make_shared<rows::RoutingVariablesStore>(model.nodes(), model.vehicles());
 
     printer->operator<<("Loading the model");
     model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
@@ -77,6 +79,9 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
             }
             model.AddToAssignment(time_dimension->CumulVar(visit_index));
             model.AddToAssignment(time_dimension->SlackVar(visit_index));
+
+            variable_store_->SetTimeVar(visit_index, time_dimension->CumulVar(visit_index));
+            variable_store_->SetTimeSlackVar(visit_index, time_dimension->SlackVar(visit_index));
         }
 
         const auto visit_indices_size = visit_indices.size();
@@ -130,10 +135,13 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
                           << " " << break_item->StartMax()
                           << " " << break_item->DebugString()
                           << " " << break_item->DurationMin();
+                model.AddIntervalToAssignment(break_item);
             }
 
             solver_ptr->AddConstraint(
                     solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+
+            variable_store_->SetBreakIntervalVars(vehicle, breaks);
         }
 
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
@@ -168,6 +176,10 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
 
 std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolver::solution_repository() {
     return solution_repository_;
+}
+
+std::shared_ptr<rows::RoutingVariablesStore> rows::SecondStepSolver::variable_store() {
+    return variable_store_;
 }
 
 int64 rows::SecondStepSolver::LastDroppedVisitPenalty() const {

@@ -257,7 +257,6 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                                   rows::SolverWrapper::DEPOT);
     intermediate_wrapper->ConfigureModel(*intermediate_model, printer_, CancelToken());
     const auto routes = second_step_wrapper->solution_repository()->GetSolution();
-
     const auto min_dropped_visits_assignment = second_step_wrapper->min_dropped_visit_solution(); /*intermediate_model->ReadAssignment(
             second_step_wrapper->solution_repository()->solution_file().string());*/
     second_stage_model->WriteAssignment("test_file.pb");
