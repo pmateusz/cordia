@@ -18,7 +18,11 @@ namespace rows {
 
         void SetBreakIntervalVars(int vehicle, std::vector<operations_research::IntervalVar *> break_intervals);
 
+        void SetVehicleIntervalVars(int vehicle, std::vector<operations_research::IntervalVar *> intervals);
+
         std::vector<std::vector<operations_research::IntervalVar *> > &vehicle_break_intervals();
+
+        std::vector<std::vector<operations_research::IntervalVar *> > &vehicle_intervals();
 
     private:
         int nodes_;
@@ -27,6 +31,7 @@ namespace rows {
         std::vector<operations_research::IntVar *> node_times_;
         std::vector<operations_research::IntVar *> node_slack_times_;
         std::vector<std::vector<operations_research::IntervalVar *> > vehicle_break_intervals_;
+        std::vector<std::vector<operations_research::IntervalVar *> > vehicle_intervals_;
     };
 }
 

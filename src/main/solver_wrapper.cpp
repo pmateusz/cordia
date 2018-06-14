@@ -846,6 +846,10 @@ namespace rows {
         return std::make_pair(first_node_to_use, second_node_to_use);
     }
 
+    bool SolverWrapper::out_office_hours_breaks_enabled() const {
+        return out_office_hours_breaks_enabled_;
+    }
+
     SolverWrapper::LocalServiceUser::LocalServiceUser()
             : LocalServiceUser(ExtendedServiceUser(), 1) {}
 

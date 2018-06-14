@@ -240,11 +240,10 @@ void rows::ThreeStepSchedulingWorker::Run() {
     auto variable_store_ptr = second_step_wrapper->variable_store();
     for (int vehicle = 0; vehicle < second_stage_model->vehicles(); ++vehicle) {
         const auto validation_result
-                = solution_validator.Validate(vehicle,
-                                              *second_stage_assignment,
-                                              *second_stage_model,
-                                              *second_step_wrapper,
-                                              *variable_store_ptr);
+                = solution_validator.ValidateFull(vehicle,
+                                                  *second_stage_assignment,
+                                                  *second_stage_model,
+                                                  *second_step_wrapper);
         CHECK(validation_result.error() == nullptr);
     }
 

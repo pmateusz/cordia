@@ -1,6 +1,7 @@
 #include "break_constraint.h"
 
 #include <boost/algorithm/string/join.hpp>
+#include <boost/date_time/time.hpp>
 
 namespace rows {
 
@@ -13,7 +14,20 @@ namespace rows {
               vehicle_(vehicle),
               break_intervals_(std::move(break_intervals)),
               status_(solver()->MakeBoolVar((boost::format("status %1%") % vehicle).str())),
-              solver_(solver_wrapper) {}
+              solver_(solver_wrapper),
+              variable_store_{nullptr} {}
+
+    BreakConstraint::BreakConstraint(const operations_research::RoutingDimension *dimension, int vehicle,
+                                     std::vector<operations_research::IntervalVar *> break_intervals,
+                                     SolverWrapper &solver_wrapper,
+                                     std::shared_ptr<RoutingVariablesStore> variable_store)
+            : Constraint(
+            dimension->model()->solver()), dimension_(dimension),
+              vehicle_(vehicle),
+              break_intervals_(std::move(break_intervals)),
+              status_(solver()->MakeBoolVar((boost::format("status %1%") % vehicle).str())),
+              solver_(solver_wrapper),
+              variable_store_{variable_store} {}
 
     void BreakConstraint::Post() {
         operations_research::RoutingModel *const model = dimension_->model();
@@ -49,6 +63,7 @@ namespace rows {
 
         std::vector<operations_research::IntervalVar *> all_intervals;
         operations_research::IntervalVar *last_travel_interval = nullptr;
+        operations_research::IntervalVar *last_last_visit_interval = nullptr;
         operations_research::IntervalVar *last_visit_interval = nullptr;
 
         operations_research::RoutingModel *const model = dimension_->model();
@@ -75,9 +90,15 @@ namespace rows {
                                                                               last_travel_interval));
                 }
 
+                last_last_visit_interval = last_visit_interval;
                 last_visit_interval = visit_interval;
             } else {
+                last_last_visit_interval = last_visit_interval;
                 last_visit_interval = nullptr;
+            }
+
+            if (vehicle_ == 7 && current_node == 146 && next_node == 188 && last_visit_interval) {
+                LOG(INFO) << "HERE";
             }
 
             // create travel interval
@@ -90,13 +111,14 @@ namespace rows {
 
                 const auto max_travel_start = std::min(dimension_->CumulVar(next_index)->Max() - travel_duration,
                                                        SolverWrapper::SECONDS_IN_DAY);
-                operations_research::IntervalVar *const travel_interval = solver()->MakeIntervalVar(
+                if (min_travel_start > max_travel_start) {
+                    solver()->Fail();
+                }
+
+                operations_research::IntervalVar *const travel_interval = solver()->MakeFixedDurationIntervalVar(
                         min_travel_start,
                         max_travel_start,
                         travel_duration,
-                        travel_duration,
-                        min_travel_start + travel_duration,
-                        max_travel_start + travel_duration,
                         false,
                         (boost::format("travel %1%-%2%") % current_index % next_index).str());
                 all_intervals.push_back(travel_interval);
@@ -105,10 +127,18 @@ namespace rows {
                     solver()->AddConstraint(solver()->MakeIntervalVarRelation(travel_interval,
                                                                               operations_research::Solver::STARTS_AFTER_END,
                                                                               last_visit_interval));
+                    solver()->AddConstraint(
+                            solver()->MakeGreaterOrEqual(last_visit_interval->EndExpr(), travel_interval->StartExpr()));
+                    CHECK_GE(travel_interval->StartMin(), last_visit_interval->EndMin());
                 }
 
                 last_travel_interval = travel_interval;
             } else {
+                if (last_last_visit_interval && last_visit_interval) {
+                    solver()->AddConstraint(solver()->MakeIntervalVarRelation(last_visit_interval,
+                                                                              operations_research::Solver::STARTS_AFTER_END,
+                                                                              last_last_visit_interval));
+                }
                 last_travel_interval = nullptr;
             }
 
@@ -135,9 +165,24 @@ namespace rows {
             LOG(WARNING) << "Registered a failure and have no way to jump...";
         } else {
             std::copy(std::begin(break_intervals_), std::end(break_intervals_), std::back_inserter(all_intervals));
+
             solver()->AddConstraint(solver()->MakeDisjunctiveConstraint(all_intervals,
                                                                         (boost::format("Vehicle breaks %1%")
                                                                          % vehicle_).str()));
+
+            if (vehicle_ == 7) {
+                LOG(INFO) << "Valid intervals of vehicle " << vehicle_;
+                for (const auto &interval : all_intervals) {
+                    LOG(INFO) << boost::format("==> %1% - [%2%, %3%] - [%4%, %5%] - [%6%, %7%]")
+                                 % interval->DebugString()
+                                 % boost::posix_time::seconds(interval->StartMin())
+                                 % boost::posix_time::seconds(interval->StartMax())
+                                 % boost::posix_time::seconds(interval->EndMin())
+                                 % boost::posix_time::seconds(interval->EndMax())
+                                 % boost::posix_time::seconds(interval->DurationMin())
+                                 % boost::posix_time::seconds(interval->DurationMax());
+                }
+            }
         }
     }
 }

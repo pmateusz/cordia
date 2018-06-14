@@ -139,7 +139,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
             }
 
             solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this, variable_store_)));
 
             variable_store_->SetBreakIntervalVars(vehicle, breaks);
         }

@@ -162,6 +162,8 @@ namespace rows {
 
         int64 GetDroppedVisitPenalty(const operations_research::RoutingModel &model);
 
+        bool out_office_hours_breaks_enabled() const;
+
     protected:
         SolverWrapper(const rows::Problem &problem,
                       const std::vector<rows::Location> &locations,
