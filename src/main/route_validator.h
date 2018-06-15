@@ -335,49 +335,35 @@ namespace rows {
                                                           rows::SolverWrapper &solver) const;
 
     private:
-        class BaseActivity {
-        public:
-            virtual boost::posix_time::ptime Perform(boost::posix_time::ptime current_time) const = 0;
-
-            virtual std::string debug_info() const = 0;
-        };
-
-        class AnyTimeFixedDurationActivity : public BaseActivity {
-        public:
-            AnyTimeFixedDurationActivity(std::string debug_info, boost::posix_time::time_duration duration);
-
-            boost::posix_time::ptime Perform(boost::posix_time::ptime current_time) const override;
-
-            std::string debug_info() const override;
-
-        private:
-            std::string debug_info_;
-            boost::posix_time::time_duration duration_;
-        };
-
-        class FixedDurationActivity : public BaseActivity {
+        class FixedDurationActivity {
         public:
             FixedDurationActivity(std::string debug_info,
                                   boost::posix_time::time_period start_window,
                                   boost::posix_time::time_duration duration);
 
-            boost::posix_time::ptime Perform(boost::posix_time::ptime current_time) const override;
+            boost::posix_time::ptime Perform(boost::posix_time::ptime current_time) const;
 
-            std::string debug_info() const override;
+            std::string debug_info() const;
+
+            bool IsBefore(const FixedDurationActivity &other) const;
+
+            bool IsAfter(const FixedDurationActivity &other) const;
 
         private:
             std::string debug_info_;
+            boost::posix_time::time_period interval_;
             boost::posix_time::time_period start_window_;
             boost::posix_time::time_duration duration_;
         };
 
-        std::shared_ptr<BaseActivity> try_get_failed_activity(std::list<std::shared_ptr<BaseActivity> > &activities,
-                                                              const boost::posix_time::ptime &start_date_time) const;
+        std::shared_ptr<FixedDurationActivity> try_get_failed_activity(
+                std::list<std::shared_ptr<FixedDurationActivity> > &activities,
+                const boost::posix_time::ptime &start_date_time) const;
 
-        bool is_schedule_valid(std::list<std::shared_ptr<BaseActivity> > &activities,
+        bool is_schedule_valid(std::list<std::shared_ptr<FixedDurationActivity> > &activities,
                                const std::vector<std::shared_ptr<FixedDurationActivity> > &breaks,
-                               const boost::posix_time::ptime start_date_time,
-                               std::list<std::shared_ptr<BaseActivity> >::iterator current_position,
+                               boost::posix_time::ptime start_date_time,
+                               std::list<std::shared_ptr<FixedDurationActivity> >::iterator current_position,
                                std::vector<std::shared_ptr<FixedDurationActivity> >::iterator current_break) const;
     };
 

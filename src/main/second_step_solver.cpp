@@ -114,10 +114,6 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
     for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
-        if (vehicle == 7) {
-            LOG(INFO) << "HERE";
-        }
-
         const auto &carer = Carer(vehicle);
         const auto &diary_opt = problem_.diary(carer, schedule_day);
 
@@ -131,15 +127,11 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             for (const auto &break_item : breaks) {
-                LOG(INFO) << "break: " << break_item->StartMin()
-                          << " " << break_item->StartMax()
-                          << " " << break_item->DebugString()
-                          << " " << break_item->DurationMin();
                 model.AddIntervalToAssignment(break_item);
             }
 
             solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this, variable_store_)));
+                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
 
             variable_store_->SetBreakIntervalVars(vehicle, breaks);
         }
@@ -170,8 +162,6 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     }
 
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
-    model.AddSearchMonitor(solver_ptr->RevAlloc(
-            new SolutionDumper("/home/pmateusz/dev/cordia", "second_level_dropped%1%_acc.pb", model)));
 }
 
 std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolver::solution_repository() {

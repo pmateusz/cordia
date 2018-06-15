@@ -18,12 +18,6 @@ namespace rows {
                         std::vector<operations_research::IntervalVar *> break_intervals,
                         SolverWrapper &solver_wrapper);
 
-        BreakConstraint(const operations_research::RoutingDimension *dimension,
-                        int vehicle,
-                        std::vector<operations_research::IntervalVar *> break_intervals,
-                        SolverWrapper &solver_wrapper,
-                        std::shared_ptr<RoutingVariablesStore> variable_store);
-
         ~BreakConstraint() override = default;
 
         void Post() override;
@@ -38,7 +32,6 @@ namespace rows {
         std::vector<operations_research::IntervalVar *> break_intervals_;
         operations_research::IntVar *const status_;
         SolverWrapper &solver_;
-        std::shared_ptr<RoutingVariablesStore> variable_store_;
     };
 }
 

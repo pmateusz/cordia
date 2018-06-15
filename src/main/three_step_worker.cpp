@@ -120,7 +120,6 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     if (!team_visits.empty()) {
         operations_research::Assignment const *first_step_assignment = nullptr;
-        boost::filesystem::path first_level_solution{"first_level_solution.pb"};
 
         rows::Problem sub_problem{team_visits, team_carers, problem_.service_users()};
         std::unique_ptr<rows::SolverWrapper> first_stage_wrapper
@@ -137,14 +136,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                                       first_stage_wrapper->vehicles(),
                                                                       rows::SolverWrapper::DEPOT);
         first_stage_wrapper->ConfigureModel(*first_step_model, printer_, CancelToken());
-
-        if (boost::filesystem::exists(first_level_solution)) {
-            first_step_assignment = first_step_model->ReadAssignment(first_level_solution.string());
-        } else {
-            // some visits in the test problem are duplicated
-            first_step_assignment = first_step_model->SolveWithParameters(search_params);
-            first_step_model->WriteAssignment(first_level_solution.string());
-        }
+        first_step_assignment = first_step_model->SolveWithParameters(search_params);
 
         if (first_step_assignment == nullptr) {
             throw util::ApplicationError("No first stage solution found.", util::ErrorCode::ERROR);
@@ -218,12 +210,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
     second_step_wrapper->ConfigureModel(*second_stage_model, printer_, CancelToken());
 
     operations_research::Assignment const *computed_assignment = nullptr;
-    boost::filesystem::path second_level_acc_solution{"second_level_dropped10_acc.pb"};
-//    if (boost::filesystem::exists(second_level_acc_solution)) {
-//        computed_assignment = second_stage_model->ReadAssignment(second_level_acc_solution.string());
-//    } else {
     computed_assignment = second_stage_model->ReadAssignmentFromRoutes(second_step_locks, true);
-//    }
     DCHECK(computed_assignment);
     if (lock_partial_paths_) {
         const auto locks_applied = second_stage_model->ApplyLocksToAllVehicles(second_step_locks, false);
@@ -260,52 +247,23 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                        break_time_window_,
                                                        begin_end_shift_time_extension_,
                                                        boost::date_time::not_a_date_time);
-    //opt_time_limit_);
     std::unique_ptr<operations_research::RoutingModel> intermediate_model
             = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
                                                                   second_step_wrapper->vehicles(),
                                                                   rows::SolverWrapper::DEPOT);
     intermediate_wrapper->ConfigureModel(*intermediate_model, printer_, CancelToken());
     const auto routes = second_step_wrapper->solution_repository()->GetSolution();
-    const auto min_dropped_visits_assignment = second_step_wrapper->min_dropped_visit_solution(); /*intermediate_model->ReadAssignment(
-            second_step_wrapper->solution_repository()->solution_file().string());*/
-    second_stage_model->WriteAssignment("test_file.pb");
-//    CHECK(min_dropped_visits_assignment->Save("testfile"));
-//    const auto restored_assignment = intermediate_model->ReadAssignment("testfile");
-//    if (!restored_assignment) {
-//        throw util::ApplicationError("No second assignment restored.", util::ErrorCode::ERROR);
-//    }
     const auto max_dropped_visits_count =
             third_stage_model->nodes() - util::GetVisitedNodes(routes, rows::SolverWrapper::DEPOT).size() - 1;
-
-    operations_research::Assignment *assignment = intermediate_model->ReadAssignment("test_file.pb");
-    CHECK(assignment);
-
-    // TODO: add intervals to assignment
-    // TODO: class that will add extra variables to assignment
-    // TODO: class that will pull extra variables from assignment to model
-    // TODO: class that will index extra variables
-//    for (auto visit = 0; visit < intermediate_model->nodes(); ++visit) {
-//        auto time_dim = intermediate_model->GetMutableDimension("Time");
-//        if (assignment->Contains(time_dim->CumulVar(visit))) {
-//            time_dim->CumulVar(visit)->SetMin(assignment->Min(time_dim->CumulVar(visit)));
-//            time_dim->CumulVar(visit)->SetMax(assignment->Max(time_dim->CumulVar(visit)));
-//        }
-//
-//        if (assignment->Contains(time_dim->SlackVar(visit))) {
-//            time_dim->SlackVar(visit)->SetMin(assignment->Min(time_dim->SlackVar(visit)));
-//            time_dim->SlackVar(visit)->SetMax(assignment->Max(time_dim->SlackVar(visit)));
-//        }
-//    }
-    auto assignment_to_use = intermediate_model->RestoreAssignment(*assignment);
+    auto assignment_to_use = intermediate_model->ReadAssignmentFromRoutes(routes, true);
     CHECK(assignment_to_use);
     std::vector<rows::RouteValidatorBase::Metrics> vehicle_metrics;
     for (int vehicle = 0; vehicle < intermediate_model->vehicles(); ++vehicle) {
         const auto validation_result
-                = solution_validator.Validate(vehicle,
-                                              *assignment_to_use,
-                                              *intermediate_model,
-                                              *intermediate_wrapper);
+                = solution_validator.ValidateFull(vehicle,
+                                                  *assignment_to_use,
+                                                  *intermediate_model,
+                                                  *intermediate_wrapper);
         CHECK(validation_result.error() == nullptr);
         vehicle_metrics.emplace_back(validation_result.metrics());
     }
