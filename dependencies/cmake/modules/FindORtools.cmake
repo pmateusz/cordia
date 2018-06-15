@@ -13,17 +13,16 @@ set(_ORTOOLS_LIB_LOCATIONS "")
 if (ORTOOLS_ROOT_DIR)
     set(_ORTOOLS_INCLUDE_LOCATIONS "${ORTOOLS_ROOT_DIR}/ortools")
     set(_ORTOOLS_INCLUDE_GEN_LOCATIONS "${_ORTOOLS_INCLUDE_LOCATIONS}/gen/ortools")
-    set(_ORTOOLS_LIB_LOCATIONS "${ORTOOLS_ROOT_DIR}/lib")
+    set(_ORTOOLS_LIB_LOCATIONS "${ORTOOLS_ROOT_DIR}/build" "${ORTOOLS_ROOT_DIR}/lib")
 
     set(CBC_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
-    set(GFLAGS_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
     set(SPARSEHASH_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
     set(Protobuf_SRC_ROOT_FOLDER "${ORTOOLS_ROOT_DIR}/dependencies/sources/protobuf-3.5.0/src")
 endif ()
 
 find_path(ORTOOLS_INCLUDE_DIR
         NAMES linear_solver/linear_solver.h
-        HINTS "${_ORTOOLS_INCLUDE_LOCATIONS}"
+        HINTS ${_ORTOOLS_INCLUDE_LOCATIONS}
         PATHS ${ORTOOLS_PKGCONF_INCLUDE_DIRS} "/usr/local/include/ortools")
 
 find_path(ORTOOLS_INCLUDE_GEN_DIR
@@ -37,7 +36,7 @@ endif ()
 
 find_library(ORTOOLS_LIBRARY
         NAMES ortools
-        HINTS "${_ORTOOLS_LIB_LOCATIONS}"
+        HINTS ${_ORTOOLS_LIB_LOCATIONS}
         PATHS ${ORTOOLS_PKGCONF_LIBRARY_DIRS} "/usr/local/lib/ortools")
 
 include(FindPackageHandleStandardArgs)

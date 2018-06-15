@@ -15,7 +15,7 @@ endif ()
 
 if (GFLAGS_ROOT_DIR)
     set(_GFLAGS_INCLUDE_LOCATIONS "${GFLAGS_ROOT_DIR}/include")
-    set(_GFLAGS_LIB_LOCATIONS "${GFLAGS_ROOT_DIR}/lib")
+    set(_GFLAGS_LIB_LOCATIONS "${GFLAGS_ROOT_DIR}" "${GFLAGS_ROOT_DIR}/lib")
 else ()
     set(_GFLAGS_INCLUDE_LOCATIONS "")
     set(_GFLAGS_LIB_LOCATIONS "")
@@ -50,8 +50,8 @@ if (MSVC)
     set(GFLAGS_LIBRARY optimized ${GFLAGS_LIBRARY_RELEASE} debug ${GFLAGS_LIBRARY_DEBUG})
 else ()
     find_library(GFLAGS_LIBRARY
-            NAMES gflags
-            HINTS "${_GFLAGS_LIB_LOCATIONS}"
+            NAMES gflags gflags_nothreads
+            HINTS ${_GFLAGS_LIB_LOCATIONS}
             PATHS "${GFLAGS_PKGCONF_LIBRARY_DIRS}" "/usr/local/lib")
 endif ()
 

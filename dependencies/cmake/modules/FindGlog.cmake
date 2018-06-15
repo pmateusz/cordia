@@ -32,7 +32,7 @@ if (MSVC)
 
     set(GLOG_LIBRARY optimized ${GLOG_LIBRARY_RELEASE} debug ${GLOG_LIBRARY_DEBUG})
 else ()
-    find_library(GLOG_LIBRARY glog
+    find_library(GLOG_LIBRARY glog glogd
             HINTS ${GLOG_ROOT_DIR}
             PATH_SUFFIXES lib lib64)
 endif ()

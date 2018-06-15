@@ -2,6 +2,7 @@
 #define ROWS_BREAK_CONSTRAINT_H
 
 #include <vector>
+#include <memory>
 
 #include <ortools/constraint_solver/routing.h>
 #include <ortools/constraint_solver/constraint_solveri.h>
