@@ -36,7 +36,6 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     last_dropped_visit_penalty_ = GetDroppedVisitPenalty(model);
     variable_store_ = std::make_shared<rows::RoutingVariablesStore>(model.nodes(), model.vehicles());
 
-    printer->operator<<("Loading the model");
     model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
 
     static const auto START_FROM_ZERO_TIME = false;
@@ -140,7 +139,13 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
 
-    printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
+    printer->operator<<(ProblemDefinition(model.vehicles(),
+                                          model.nodes() - 1,
+                                          "unknown area",
+                                          schedule_day,
+                                          visit_time_window_,
+                                          break_time_window_,
+                                          GetAdjustment()));
 
     for (const auto &visit_bundle : visit_index_) {
         std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),

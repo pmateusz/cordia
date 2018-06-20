@@ -23,7 +23,6 @@ bool rows::SolutionLogMonitor::AtSolution() {
     if (dropped_visits_count <= min_dropped_visits_) {
         min_dropped_visits_ = dropped_visits_count;
         solution_repository_->Store(routes);
-        solution_repository_->Store(model_);
     }
     dropped_visits_buffer_.push_back(dropped_visits_count);
 

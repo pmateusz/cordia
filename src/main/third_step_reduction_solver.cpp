@@ -33,7 +33,6 @@ void rows::ThirdStepReductionSolver::ConfigureModel(operations_research::Routing
                                                     std::shared_ptr<const std::atomic<bool> > cancel_token) {
     OnConfigureModel(model);
 
-    printer->operator<<("Loading the model");
     model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
 
     static const auto START_FROM_ZERO_TIME = false;
@@ -144,7 +143,13 @@ void rows::ThirdStepReductionSolver::ConfigureModel(operations_research::Routing
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
 
-    printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
+    printer->operator<<(ProblemDefinition(model.vehicles(),
+                                          model.nodes() - 1,
+                                          "unknown area",
+                                          schedule_day,
+                                          visit_time_window_,
+                                          break_time_window_,
+                                          GetAdjustment()));
 
     if (max_dropped_visits_ > 0) {
         for (const auto &visit_bundle : visit_index_) {

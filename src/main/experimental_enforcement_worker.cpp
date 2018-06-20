@@ -31,7 +31,6 @@ void rows::ExperimentalEnforcementWorker::Solver::ConfigureModel(operations_rese
 
     static const auto START_FROM_ZERO_TIME = false;
 
-    printer->operator<<("Loading the model");
     model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
     model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
                        SECONDS_IN_DAY,
@@ -127,7 +126,13 @@ void rows::ExperimentalEnforcementWorker::Solver::ConfigureModel(operations_rese
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time_to_use);
     }
 
-    printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
+    printer->operator<<(ProblemDefinition(model.vehicles(),
+                                          model.nodes() - 1,
+                                          "unknown",
+                                          schedule_day,
+                                          visit_time_window_,
+                                          break_time_window_,
+                                          GetAdjustment()));
 
     const int64 kPenalty = GetDroppedVisitPenalty(model);
     for (const auto &visit_bundle : visit_index_) {

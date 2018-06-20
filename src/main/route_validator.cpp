@@ -842,7 +842,7 @@ namespace rows {
         if (current_visit_ + 1 < visits_.size()) {
             next_node_ = GetNode(visits_[current_visit_ + 1]);
         } else {
-            next_node_ = solver_.DEPOT;
+            next_node_ = SolverWrapper::DEPOT;
         }
 
         current_time_ = service_start + visit.duration();
@@ -944,6 +944,10 @@ namespace rows {
 
     bool ValidationSession::error() const {
         return bool(error_);
+    }
+
+    boost::posix_time::time_duration ValidationSession::current_time() const {
+        return current_time_;
     }
 
     RouteValidatorBase::ValidationResult SolutionValidator::Validate(int vehicle,
@@ -1353,14 +1357,15 @@ namespace rows {
                 activities.emplace_back(std::make_shared<FixedDurationActivity>(
                         (boost::format("Travel %1%-%2%") % last_visit_node % current_visit_node).str(),
                         boost::posix_time::time_period{last_min_visit_complete, max_departure},
-                        travel_time));
+                        travel_time,
+                        ActivityType::Travel));
             }
 
             activities.emplace_back(std::make_shared<FixedDurationActivity>(
                     (boost::format("Visit %1%") % current_visit_node).str(),
                     boost::posix_time::time_period(min_arrival, (max_arrival - min_arrival)),
-                    visit.duration()
-            ));
+                    visit.duration(),
+                    ActivityType::Visit));
 
             last_visit_node = current_visit_node;
             last_min_visit_complete = min_arrival + visit.duration();
@@ -1373,10 +1378,12 @@ namespace rows {
         if (solver.out_office_hours_breaks_enabled()) {
             activities.emplace_front(std::make_shared<FixedDurationActivity>("before working hours",
                                                                              effective_breaks.front().period(),
-                                                                             effective_breaks.front().duration()));
+                                                                             effective_breaks.front().duration(),
+                                                                             ActivityType::Break));
             activities.emplace_back(std::make_shared<FixedDurationActivity>("after working hours",
                                                                             effective_breaks.back().period(),
-                                                                            effective_breaks.back().duration()));
+                                                                            effective_breaks.back().duration(),
+                                                                            ActivityType::Break));
             auto break_index = 1;
             const auto end_it = effective_breaks.end() - 1;
             for (auto break_it = effective_breaks.begin() + 1; break_it != end_it; ++break_it) {
@@ -1387,7 +1394,8 @@ namespace rows {
                 breaks_to_distribute.emplace_back(std::make_shared<FixedDurationActivity>(
                         "break " + std::to_string(break_index++),
                         boost::posix_time::time_period{begin_window, end_window},
-                        break_it->duration()));
+                        break_it->duration(),
+                        ActivityType::Break));
             }
         } else {
             start_time = boost::posix_time::seconds(solution.Min(time_dim.CumulVar(indices[1])));
@@ -1400,7 +1408,8 @@ namespace rows {
                 breaks_to_distribute.emplace_back(std::make_shared<FixedDurationActivity>(
                         "break " + std::to_string(break_index++),
                         boost::posix_time::time_period{begin_window, end_window},
-                        break_event.duration()));
+                        break_event.duration(),
+                        ActivityType::Break));
             }
         }
 
@@ -1416,12 +1425,12 @@ namespace rows {
         }
 
         if (breaks_to_distribute.empty()) {
-            return RouteValidatorBase::ValidationResult();
+            return session.ToValidationResult();
         }
 
-        if (is_schedule_valid(activities, breaks_to_distribute, start_date_time, std::begin(activities),
+        if (is_schedule_valid(activities, breaks_to_distribute, ptime(today, start_time), std::begin(activities),
                               std::begin(breaks_to_distribute))) {
-            return RouteValidatorBase::ValidationResult();
+            return session.ToValidationResult();
         }
 
         std::string error_msg = "Failed to find a combination of breaks that would create a valid activity sequence";
@@ -1432,8 +1441,8 @@ namespace rows {
         return RouteValidatorBase::ValidationResult(std::move(error_ptr));
     }
 
-    std::shared_ptr<SolutionValidator::FixedDurationActivity> SolutionValidator::try_get_failed_activity(
-            std::list<std::shared_ptr<SolutionValidator::FixedDurationActivity>> &activities,
+    std::shared_ptr<FixedDurationActivity> SolutionValidator::try_get_failed_activity(
+            std::list<std::shared_ptr<FixedDurationActivity>> &activities,
             const boost::posix_time::ptime &start_date_time) const {
         auto current_time = start_date_time;
         for (const auto &activity : activities) {
@@ -1446,10 +1455,10 @@ namespace rows {
     }
 
     bool SolutionValidator::is_schedule_valid(
-            std::list<std::shared_ptr<SolutionValidator::FixedDurationActivity> > &activities,
+            std::list<std::shared_ptr<FixedDurationActivity> > &activities,
             const std::vector<std::shared_ptr<FixedDurationActivity> > &normal_breaks,
             const boost::posix_time::ptime start_date_time,
-            std::list<std::shared_ptr<rows::SolutionValidator::FixedDurationActivity> >::iterator current_position,
+            std::list<std::shared_ptr<rows::FixedDurationActivity> >::iterator current_position,
             std::vector<std::shared_ptr<FixedDurationActivity> >::iterator current_break) const {
         if (current_break == std::end(normal_breaks)) {
             // no more breaks to distribute
@@ -1544,15 +1553,17 @@ namespace rows {
         return records_;
     }
 
-    SolutionValidator::FixedDurationActivity::FixedDurationActivity(std::string debug_info,
-                                                                    boost::posix_time::time_period start_window,
-                                                                    boost::posix_time::time_duration duration)
+    FixedDurationActivity::FixedDurationActivity(std::string debug_info,
+                                                 boost::posix_time::time_period start_window,
+                                                 boost::posix_time::time_duration duration,
+                                                 ActivityType activity_type)
             : debug_info_{std::move(debug_info)},
               interval_{start_window.begin(), start_window.end() + duration},
               start_window_{start_window},
-              duration_{std::move(duration)} {}
+              duration_{std::move(duration)},
+              activity_type_{activity_type} {}
 
-    boost::posix_time::ptime SolutionValidator::FixedDurationActivity::Perform(
+    boost::posix_time::ptime FixedDurationActivity::Perform(
             boost::posix_time::ptime current_time) const {
         if (start_window_.is_before(current_time)) {
             return boost::posix_time::not_a_date_time;
@@ -1569,7 +1580,7 @@ namespace rows {
         }
     }
 
-    std::string SolutionValidator::FixedDurationActivity::debug_info() const {
+    std::string FixedDurationActivity::debug_info() const {
         return (boost::format("%1% - [%2%..%3%] for %4%")
                 % debug_info_
                 % start_window_.begin().time_of_day()
@@ -1577,11 +1588,23 @@ namespace rows {
                 % duration_).str();
     }
 
-    bool SolutionValidator::FixedDurationActivity::IsBefore(const FixedDurationActivity &other) const {
+    ActivityType FixedDurationActivity::activity_type() const {
+        return activity_type_;
+    }
+
+    boost::posix_time::time_duration FixedDurationActivity::duration() const {
+        return duration_;
+    }
+
+    bool FixedDurationActivity::IsBefore(const FixedDurationActivity &other) const {
         return interval_.is_before(other.interval_.begin());
     }
 
-    bool SolutionValidator::FixedDurationActivity::IsAfter(const FixedDurationActivity &other) const {
+    bool FixedDurationActivity::IsAfter(const FixedDurationActivity &other) const {
         return interval_.is_after(other.interval_.end());
+    }
+
+    boost::posix_time::time_period FixedDurationActivity::period() const {
+        return start_window_;
     }
 }

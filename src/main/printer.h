@@ -5,20 +5,46 @@
 
 #include <boost/date_time.hpp>
 #include <glog/logging.h>
+#include <nlohmann/json.hpp>
 
 namespace rows {
 
     struct ProblemDefinition {
         ProblemDefinition(int carers,
                           int visits,
-                          boost::posix_time::time_duration time_window,
-                          int covered_visits);
+                          std::string area,
+                          boost::gregorian::date date,
+                          boost::posix_time::time_duration visit_time_window,
+                          boost::posix_time::time_duration break_time_window,
+                          boost::posix_time::time_duration shift_adjustment);
 
         int Carers;
         int Visits;
-        const boost::posix_time::time_duration TimeWindow;
-        int CoveredVisits;
+        std::string Area;
+        boost::gregorian::date Date;
+        boost::posix_time::time_duration VisitTimeWindow;
+        boost::posix_time::time_duration BreakTimeWindow;
+        boost::posix_time::time_duration ShiftAdjustment;
     };
+
+    void to_json(nlohmann::json &json, const ProblemDefinition &problem_definition);
+
+    enum class TracingEventType {
+        Unknown,
+        Started,
+        Finished
+    };
+
+    std::string to_string(const TracingEventType &value);
+
+    struct TracingEvent {
+        TracingEvent(TracingEventType type, std::string comment);
+
+        TracingEventType Type;
+        std::string Comment;
+    };
+
+    void to_json(nlohmann::json &json, const TracingEvent &tracing_event);
 
     struct ProgressStep {
         ProgressStep(double cost,
@@ -28,13 +54,15 @@ namespace rows {
                      std::size_t solutions,
                      std::size_t memory_usage);
 
-        const double Cost;
-        const std::size_t DroppedVisits;
-        const boost::posix_time::time_duration WallTime;
-        const std::size_t Branches;
-        const std::size_t Solutions;
-        const std::size_t MemoryUsage;
+        double Cost;
+        std::size_t DroppedVisits;
+        boost::posix_time::time_duration WallTime;
+        std::size_t Branches;
+        std::size_t Solutions;
+        std::size_t MemoryUsage;
     };
+
+    void to_json(nlohmann::json &json, const ProgressStep &progress_step);
 
     class Printer {
     public:
@@ -44,6 +72,8 @@ namespace rows {
 
         virtual Printer &operator<<(const ProblemDefinition &problem_definition) = 0;
 
+        virtual Printer &operator<<(const TracingEvent &trace_event) = 0;
+
         virtual Printer &operator<<(const ProgressStep &progress_step) = 0;
     };
 
@@ -52,6 +82,8 @@ namespace rows {
         ~ConsolePrinter() override = default;
 
         Printer &operator<<(const ProblemDefinition &problem_definition) override;
+
+        Printer &operator<<(const TracingEvent &trace_event) override;
 
         Printer &operator<<(const ProgressStep &progress_step) override;
 
@@ -66,6 +98,21 @@ namespace rows {
         Printer &operator<<(const std::string &text) override;
 
         Printer &operator<<(const ProblemDefinition &problem_definition) override;
+
+        Printer &operator<<(const TracingEvent &trace_event) override;
+
+        Printer &operator<<(const ProgressStep &progress_step) override;
+    };
+
+    class LogPrinter : public Printer {
+    public:
+        ~LogPrinter() override = default;
+
+        Printer &operator<<(const std::string &text) override;
+
+        Printer &operator<<(const ProblemDefinition &problem_definition) override;
+
+        Printer &operator<<(const TracingEvent &trace_event) override;
 
         Printer &operator<<(const ProgressStep &progress_step) override;
     };

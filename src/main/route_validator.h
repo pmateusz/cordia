@@ -208,6 +208,40 @@ namespace rows {
         static bool IsAssignedAndActive(const rows::ScheduledVisit &visit);
     };
 
+    enum class ActivityType {
+        Visit, Break, Travel
+    };
+
+    class FixedDurationActivity {
+    public:
+        FixedDurationActivity(std::string debug_info,
+                              boost::posix_time::time_period start_window,
+                              boost::posix_time::time_duration duration,
+                              ActivityType activity_type);
+
+        boost::posix_time::ptime Perform(boost::posix_time::ptime current_time) const;
+
+        std::string debug_info() const;
+
+        boost::posix_time::time_duration duration() const;
+
+        boost::posix_time::time_period period() const;
+
+        ActivityType activity_type() const;
+
+        bool IsBefore(const FixedDurationActivity &other) const;
+
+        bool IsAfter(const FixedDurationActivity &other) const;
+
+    private:
+        ActivityType activity_type_;
+        std::string debug_info_;
+        boost::posix_time::time_period interval_;
+        boost::posix_time::time_period start_window_;
+        boost::posix_time::time_duration duration_;
+    };
+
+
     class ValidationSession {
     public:
         static const boost::posix_time::time_duration ERROR_MARGIN;
@@ -228,6 +262,8 @@ namespace rows {
         void Perform(const ScheduledVisit &visit);
 
         void Perform(const Event &interval);
+
+        void Perform(const FixedDurationActivity &activity);
 
         boost::posix_time::time_duration GetBeginWindow(const Event &interval) const;
 
@@ -251,6 +287,8 @@ namespace rows {
         bool CanPerformAfter(boost::posix_time::time_duration time_of_day, const ScheduledVisit &visit) const;
 
         bool error() const;
+
+        boost::posix_time::time_duration current_time() const;
 
         RouteValidatorBase::ValidationResult ToValidationResult();
 
@@ -301,6 +339,7 @@ namespace rows {
         boost::posix_time::time_duration total_travel_time_;
         std::unique_ptr<RouteValidatorBase::ValidationError> error_;
 
+        bool reached_current_node_;
         std::vector<ScheduledVisit> visits_;
         std::vector<operations_research::RoutingModel::NodeIndex> nodes_;
         operations_research::RoutingModel::NodeIndex last_node_;
@@ -335,27 +374,6 @@ namespace rows {
                                                           rows::SolverWrapper &solver) const;
 
     private:
-        class FixedDurationActivity {
-        public:
-            FixedDurationActivity(std::string debug_info,
-                                  boost::posix_time::time_period start_window,
-                                  boost::posix_time::time_duration duration);
-
-            boost::posix_time::ptime Perform(boost::posix_time::ptime current_time) const;
-
-            std::string debug_info() const;
-
-            bool IsBefore(const FixedDurationActivity &other) const;
-
-            bool IsAfter(const FixedDurationActivity &other) const;
-
-        private:
-            std::string debug_info_;
-            boost::posix_time::time_period interval_;
-            boost::posix_time::time_period start_window_;
-            boost::posix_time::time_duration duration_;
-        };
-
         std::shared_ptr<FixedDurationActivity> try_get_failed_activity(
                 std::list<std::shared_ptr<FixedDurationActivity> > &activities,
                 const boost::posix_time::ptime &start_date_time) const;

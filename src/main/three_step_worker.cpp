@@ -81,6 +81,9 @@ int64 GetMaxDistance(rows::SolverWrapper &solver,
 
 void rows::ThreeStepSchedulingWorker::Run() {
     static const SolutionValidator solution_validator{};
+
+    printer_->operator<<(TracingEvent(TracingEventType::Started, "All"));
+
     const auto search_params = rows::SolverWrapper::CreateSearchParameters();
 
     std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
@@ -136,7 +139,10 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                                       first_stage_wrapper->vehicles(),
                                                                       rows::SolverWrapper::DEPOT);
         first_stage_wrapper->ConfigureModel(*first_step_model, printer_, CancelToken());
+
+        printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage1"));
         first_step_assignment = first_step_model->SolveWithParameters(search_params);
+        printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage1"));
 
         if (first_step_assignment == nullptr) {
             throw util::ApplicationError("No first stage solution found.", util::ErrorCode::ERROR);
@@ -218,8 +224,11 @@ void rows::ThreeStepSchedulingWorker::Run() {
         DCHECK(second_stage_model->PreAssignment());
     }
 
+    printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2"));
     operations_research::Assignment const *second_stage_assignment
             = second_stage_model->SolveFromAssignmentWithParameters(computed_assignment, search_params);
+    printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage2"));
+
     if (second_stage_assignment == nullptr) {
         throw util::ApplicationError("No second stage solution found.", util::ErrorCode::ERROR);
     }
@@ -268,25 +277,28 @@ void rows::ThreeStepSchedulingWorker::Run() {
         vehicle_metrics.emplace_back(validation_result.metrics());
     }
 
-    std::unique_ptr<rows::ThirdStepFulfillSolver> third_step_solver
-            = std::make_unique<rows::ThirdStepFulfillSolver>(problem_,
-                                                             routing_parameters_,
-                                                             search_params,
-                                                             visit_time_window_,
-                                                             break_time_window_,
-                                                             begin_end_shift_time_extension_,
-                                                             post_opt_time_limit_,
-                                                             second_step_wrapper->LastDroppedVisitPenalty(),
-                                                             max_dropped_visits_count,
-                                                             vehicle_metrics);
+    std::unique_ptr<rows::ThirdStepSolver> third_step_solver
+            = std::make_unique<rows::ThirdStepSolver>(problem_,
+                                                      routing_parameters_,
+                                                      search_params,
+                                                      visit_time_window_,
+                                                      break_time_window_,
+                                                      begin_end_shift_time_extension_,
+                                                      post_opt_time_limit_,
+                                                      second_step_wrapper->LastDroppedVisitPenalty(),
+                                                      max_dropped_visits_count,
+                                                      vehicle_metrics);
 
     third_step_solver->ConfigureModel(*third_stage_model, printer_, CancelToken());
+
     const auto third_stage_preassignment = third_stage_model->ReadAssignmentFromRoutes(routes, true);
     DCHECK(third_stage_preassignment);
 
+    printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
     operations_research::Assignment const *third_stage_assignment
             = third_stage_model->SolveFromAssignmentWithParameters(third_stage_preassignment,
                                                                    search_params);
+    printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
 
     second_stage_model.release();
     intermediate_model.release();
@@ -301,6 +313,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
     rows::GexfWriter solution_writer;
     solution_writer.Write(output_file_, *third_step_solver, *third_stage_model, *third_stage_assignment);
 
+    printer_->operator<<(TracingEvent(TracingEventType::Finished, "All"));
     SetReturnCode(0);
 }
 

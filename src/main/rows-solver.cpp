@@ -73,15 +73,16 @@ DEFINE_validator(maps, &util::file::Exists);
 
 static const std::string JSON_FORMAT{"json"};
 static const std::string TEXT_FORMAT{"txt"};
+static const std::string LOG_FORMAT{"log"};
 
 bool ValidateConsoleFormat(const char *flagname, const std::string &value) {
     std::string value_to_use{value};
     util::string::Strip(value_to_use);
     util::string::ToLower(value_to_use);
-    return value_to_use == JSON_FORMAT || value_to_use == TEXT_FORMAT;
+    return value_to_use == JSON_FORMAT || value_to_use == TEXT_FORMAT || value_to_use == LOG_FORMAT;
 }
 
-DEFINE_string(console_format, "txt", "output format. Available options: txt or json");
+DEFINE_string(console_format, "txt", "output format. Available options: txt, json or log");
 DEFINE_validator(console_format, &ValidateConsoleFormat);
 
 static const auto DEFAULT_SOLUTION_LIMIT = std::numeric_limits<int64>::max();
@@ -303,6 +304,10 @@ std::shared_ptr<rows::Printer> CreatePrinter() {
 
     if (format_to_use == TEXT_FORMAT) {
         return std::make_shared<rows::ConsolePrinter>();
+    }
+
+    if (format_to_use == LOG_FORMAT) {
+        return std::make_shared<rows::LogPrinter>();
     }
 
     throw util::ApplicationError("Unknown console format.", util::ErrorCode::ERROR);

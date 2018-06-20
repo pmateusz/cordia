@@ -70,7 +70,6 @@ namespace rows {
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
         static const auto START_FROM_ZERO_TIME = false;
 
-        printer->operator<<("Loading the model");
         model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
         model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
                            SECONDS_IN_DAY,
@@ -166,7 +165,13 @@ namespace rows {
             time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time_to_use);
         }
 
-        printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
+        printer->operator<<(ProblemDefinition(model.vehicles(),
+                                              model.nodes() - 1,
+                                              "unknown area",
+                                              schedule_day,
+                                              visit_time_window_,
+                                              break_time_window_,
+                                              GetAdjustment()));
 
         // Adding penalty costs to allow skipping orders.
         auto max_distance = std::numeric_limits<int64>::min();

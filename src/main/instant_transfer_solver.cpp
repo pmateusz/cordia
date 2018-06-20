@@ -18,7 +18,6 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
                                                  std::shared_ptr<const std::atomic<bool> > cancel_token) {
     static const auto START_FROM_ZERO_TIME = false;
 
-    printer->operator<<("Loading the model");
     model.SetArcCostEvaluatorOfAllVehicles(
             NewPermanentCallback(this, &rows::InstantTransferSolver::ServiceTimeWithInstantTransfer));
     model.AddDimension(
@@ -120,7 +119,13 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
 
-    printer->operator<<(ProblemDefinition(model.vehicles(), model.nodes() - 1, visit_time_window_, 0));
+    printer->operator<<(ProblemDefinition(model.vehicles(),
+                                          model.nodes() - 1,
+                                          "unknown_area",
+                                          schedule_day,
+                                          visit_time_window_,
+                                          break_time_window_,
+                                          GetAdjustment()));
 
     // Adding penalty costs to allow skipping orders.
     const int64 kPenalty = 10000000;
