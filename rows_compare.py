@@ -9,6 +9,7 @@ import operator
 import os
 import os.path
 import subprocess
+import re
 import sys
 
 import bs4
@@ -52,6 +53,7 @@ __PULL_COMMAND = 'pull'
 __INFO_COMMAND = 'info'
 __COMPARE_DISTANCE_COMMAND = 'compare-distance'
 __COMPARE_WORKLOAD_COMMAND = 'compare-workload'
+__COMPARE_TRACE_COMMAND = 'compare-trace'
 __DEBUG_COMMAND = 'debug'
 __AREA_ARG = 'area'
 __FROM_ARG = 'from'
@@ -93,6 +95,9 @@ def configure_parser():
     debug_parser = subparsers.add_parser(__DEBUG_COMMAND)
     debug_parser.add_argument(__PROBLEM_FILE_ARG)
     debug_parser.add_argument(__SOLUTION_FILE_ARG)
+
+    compare_trace_parser = subparsers.add_parser(__COMPARE_TRACE_COMMAND)
+    compare_trace_parser.add_argument(__FILE_ARG)
 
     return parser
 
@@ -468,6 +473,24 @@ def compare_workload(args, settings):
             save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem + __PLOT_EXT)
 
 
+def compare_trace(args, settings):
+    trace_file = get_or_raise(args, __FILE_ARG)
+    log_line_pattern = re.compile('^\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?]\s+(?P<body>.*)$')
+    with open(trace_file, 'r') as input_stream:
+        for line in input_stream:
+            match = log_line_pattern.match(line)
+            if match:
+                raw_time = match.group('time')
+                time = datetime.datetime.strptime(raw_time, '%H:%M:%S.%f')
+                try:
+                    raw_body = match.group('body')
+                    body = json.loads(raw_body)
+                except json.decoder.JSONDecodeError:
+                    logging.warning('Failed to parse line: %s', line)
+            else:
+                logging.warning('Failed to match line: %s', line)
+
+
 def debug(args, settings):
     problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
     solution_file = get_or_raise(args, __SOLUTION_FILE_ARG)
@@ -571,6 +594,8 @@ if __name__ == '__main__':
         compare_distance(__args, __settings)
     elif __command == __COMPARE_WORKLOAD_COMMAND:
         compare_workload(__args, __settings)
+    elif __command == __COMPARE_TRACE_COMMAND:
+        compare_trace(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:
