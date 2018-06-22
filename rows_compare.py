@@ -473,10 +473,108 @@ def compare_workload(args, settings):
             save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem + __PLOT_EXT)
 
 
+def parse_time_delta(text):
+    if text:
+        time = datetime.datetime.strptime(text, '%H:%M:%S').time()
+        return datetime.timedelta(hours=time.hour, minutes=time.minute, seconds=time.second)
+    return None
+
+
+class TraceLog:
+    __STAGE_PATTERN = re.compile('^\w+(?P<number>\d+)$')
+
+    class ProgressMessage:
+        def __init__(self, **kwargs):
+            self.__branches = kwargs.get('branches', None)
+            self.__cost = kwargs.get('cost', None)
+            self.__dropped_visits = kwargs.get('dropped_visits', None)
+            self.__memory_usage = kwargs.get('memory_usage', None)
+            self.__solutions = kwargs.get('solutions', None)
+            self.__wall_time = parse_time_delta(kwargs.get('wall_time', None))
+
+        @property
+        def cost(self):
+            return self.__cost
+
+        @property
+        def dropped_visits(self):
+            return self.__dropped_visits
+
+    class ProblemMessage:
+        def __init__(self, **kwargs):
+            self.__carers = kwargs.get('carers', None)
+            self.__visits = kwargs.get('visits', None)
+            self.__date = kwargs.get('date', None)
+            if self.__date:
+                self.__date = datetime.datetime.strptime(self.__date, '%Y-%b-%d').date()
+            self.__visit_time_windows = parse_time_delta(kwargs.get('visit_time_windows', None))
+            self.__break_time_windows = parse_time_delta(kwargs.get('break_time_windows', None))
+            self.__shift_adjustment = parse_time_delta(kwargs.get('shift_adjustment', None))
+            self.__area = kwargs.get('area', None)
+
+        @property
+        def date(self):
+            return self.__date
+
+        @property
+        def carers(self):
+            return self.__carers
+
+        @property
+        def visits(self):
+            return self.__visits
+
+    def __init__(self, time_point):
+        self.__start = time_point
+        self.__events = []
+        self.__current_stage = None
+        self.__problem = TraceLog.ProblemMessage()
+
+    @staticmethod
+    def __parse_stage_number(body):
+        comment = body.get('comment', None)
+        if comment:
+            match = TraceLog.__STAGE_PATTERN.match(comment)
+            if match:
+                return int(match.group('number'))
+        return None
+
+    def append(self, time_point, body):
+        if 'branches' in body:
+            body_to_use = TraceLog.ProgressMessage(**body)
+        elif 'type' in body:
+            if body['type'] == 'started':
+                self.__current_stage = self.__parse_stage_number(body)
+            elif body['type'] == 'finished':
+                self.__current_stage = None
+            body_to_use = body
+        elif 'area' in body:
+            body_to_use = TraceLog.ProblemMessage(**body)
+            self.__problem = body_to_use
+        else:
+            body_to_use = body
+        self.__events.append([time_point - self.__start, self.__current_stage, time_point, body_to_use])
+
+    @property
+    def visits(self):
+        return self.__problem.visits
+
+    @property
+    def carers(self):
+        return self.__problem.carers
+
+    @property
+    def date(self):
+        return self.__problem.date
+
+
 def compare_trace(args, settings):
     trace_file = get_or_raise(args, __FILE_ARG)
     log_line_pattern = re.compile('^\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?]\s+(?P<body>.*)$')
+    trace_logs = []
+    has_preambule = False
     with open(trace_file, 'r') as input_stream:
+        current_log = None
         for line in input_stream:
             match = log_line_pattern.match(line)
             if match:
@@ -485,10 +583,26 @@ def compare_trace(args, settings):
                 try:
                     raw_body = match.group('body')
                     body = json.loads(raw_body)
+                    if 'comment' in body and body['comment'] == 'All':
+                        if 'type' in body:
+                            if body['type'] == 'finished':
+                                has_preambule = False
+                            elif body['type'] == 'started':
+                                has_preambule = True
+                                current_log = TraceLog(time)
+                                current_log.append(time, body)
+                                trace_logs.append(current_log)
+                    elif 'area' in body and not has_preambule:
+                        current_log = TraceLog(time)
+                        current_log.append(time, body)
+                        trace_logs.append(current_log)
+                    else:
+                        current_log.append(time, body)
                 except json.decoder.JSONDecodeError:
                     logging.warning('Failed to parse line: %s', line)
             else:
                 logging.warning('Failed to match line: %s', line)
+    pass
 
 
 def debug(args, settings):
