@@ -23,6 +23,9 @@ namespace rows {
 
     class ThreeStepSchedulingWorker : public rows::SchedulingWorker {
     public:
+        enum class Formula {
+            DEFAULT, DISTANCE, VEHICLE_REDUCTION
+        };
 
         class CarerTeam {
         public:
@@ -49,6 +52,8 @@ namespace rows {
 
         explicit ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer);
 
+        ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer, Formula formula);
+
         void Run() override;
 
         bool Init(rows::Problem problem,
@@ -62,11 +67,18 @@ namespace rows {
                   boost::posix_time::time_duration post_opt_time_limit);
 
     private:
+        std::unique_ptr<rows::SolverWrapper>
+        CreateThirdStageSolver(const operations_research::RoutingSearchParameters &search_params,
+                               int64 last_dropped_visit_penalty,
+                               std::size_t max_dropped_visits_count,
+                               const std::vector<rows::RouteValidatorBase::Metrics> & vehicle_metrics);
+
         std::vector<CarerTeam> GetCarerTeams(const rows::Problem &problem);
 
         std::string output_file_;
 
         std::shared_ptr<rows::Printer> printer_;
+        Formula formula_;
         bool lock_partial_paths_;
 
         osrm::EngineConfig routing_parameters_;

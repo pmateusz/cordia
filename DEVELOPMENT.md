@@ -211,5 +211,9 @@ problem definition:	time_window=02:00:00 | visits=58 | carers=11 | covered_visit
 ### Simulations Commands
 
 ```shell
-./build/rows-main --problem=c200_forecasted_problem.json --maps=./data/scotland-latest.osrm --console-format=log --preopt-noprogress-time-limit=1:00:00 --opt-noprogress-time-limit=00:02:00 --postopt-noprogress-time-limit=00:03:00 --break-time-window=00:90:00 --visit-time-window=00:90:00 --begin-end-shift-time-extension=00:15:00 --output-prefix=c200_v90_b90_e15_1m_2m_3m 1> output.log 2> output_err.log
+./build/rows-main --problem=c200_forecasted_problem.json --maps=./data/scotland-latest.osrm --console-format=log --preopt-noprogress-time-limit=00:01:00 --opt-noprogress-time-limit=00:02:00 --postopt-noprogress-time-limit=00:03:00 --break-time-window=00:90:00 --visit-time-window=00:90:00 --begin-end-shift-time-extension=00:15:00 --output-prefix=c200_v90_b90_e15_1m_2m_3m 1> output.log 2> output_err.log
+```
+
+```shell
+./build/rows-main --problem=c200_forecasted_problem.json --maps=./data/scotland-latest.osrm --console-format=log --preopt-noprogress-time-limit=00:01:00 --opt-noprogress-time-limit=00:02:00 --postopt-noprogress-time-limit=00:03:00 --break-time-window=00:90:00 --visit-time-window=00:90:00 --begin-end-shift-time-extension=00:15:00 --output-prefix=c200redv90b90e15m1m2m3 --solve-all 1> output.log 2> output_err_red.log
 ```

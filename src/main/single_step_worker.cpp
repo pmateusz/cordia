@@ -58,6 +58,38 @@ bool rows::SingleStepSchedulingWorker::Init(rows::Problem problem, osrm::EngineC
     }
 }
 
+bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
+                                            osrm::EngineConfig &engine_config,
+                                            const std::string &output_file,
+                                            const boost::posix_time::time_duration &visit_time_window,
+                                            const boost::posix_time::time_duration &break_time_window,
+                                            const boost::posix_time::time_duration &begin_end_shift_time_extension,
+                                            const boost::posix_time::time_duration &opt_time_limit) {
+    try {
+        const auto search_params = rows::SolverWrapper::CreateSearchParameters();
+        solver_ = std::make_unique<rows::SingleStepSolver>(problem,
+                                                           engine_config,
+                                                           search_params,
+                                                           visit_time_window,
+                                                           break_time_window,
+                                                           begin_end_shift_time_extension,
+                                                           opt_time_limit);
+        model_ = std::make_unique<operations_research::RoutingModel>(solver_->nodes(),
+                                                                     solver_->vehicles(),
+                                                                     rows::SolverWrapper::DEPOT);
+
+        solver_->ConfigureModel(*model_, printer_, CancelToken());
+        VLOG(1) << "Completed routing model configuration with status: " << solver_->GetModelStatus(model_->status());
+
+        output_file_ = output_file;
+        return true;
+    } catch (util::ApplicationError &ex) {
+        LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();
+        SetReturnCode(util::to_exit_code(ex.error_code()));
+        return false;
+    }
+}
+
 void rows::SingleStepSchedulingWorker::Run() {
     try {
         if (initial_assignment_ == nullptr) {

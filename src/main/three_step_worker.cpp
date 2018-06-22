@@ -277,17 +277,10 @@ void rows::ThreeStepSchedulingWorker::Run() {
         vehicle_metrics.emplace_back(validation_result.metrics());
     }
 
-    std::unique_ptr<rows::ThirdStepSolver> third_step_solver
-            = std::make_unique<rows::ThirdStepSolver>(problem_,
-                                                      routing_parameters_,
-                                                      search_params,
-                                                      visit_time_window_,
-                                                      break_time_window_,
-                                                      begin_end_shift_time_extension_,
-                                                      post_opt_time_limit_,
-                                                      second_step_wrapper->LastDroppedVisitPenalty(),
-                                                      max_dropped_visits_count,
-                                                      vehicle_metrics);
+    std::unique_ptr<rows::SolverWrapper> third_step_solver = CreateThirdStageSolver(search_params,
+                                                                                    second_step_wrapper->LastDroppedVisitPenalty(),
+                                                                                    max_dropped_visits_count,
+                                                                                    vehicle_metrics);
 
     third_step_solver->ConfigureModel(*third_stage_model, printer_, CancelToken());
 
@@ -317,12 +310,17 @@ void rows::ThreeStepSchedulingWorker::Run() {
     SetReturnCode(0);
 }
 
-rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer) :
-        printer_{std::move(printer)},
-        lock_partial_paths_{false},
-        pre_opt_time_limit_{boost::posix_time::not_a_date_time},
-        opt_time_limit_{boost::posix_time::not_a_date_time},
-        post_opt_time_limit_{boost::posix_time::not_a_date_time} {}
+rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer)
+        : ThreeStepSchedulingWorker(std::move(printer), Formula::DEFAULT) {}
+
+rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer,
+                                                           Formula formula)
+        : printer_{std::move(printer)},
+          formula_{formula},
+          lock_partial_paths_{false},
+          pre_opt_time_limit_{boost::posix_time::not_a_date_time},
+          opt_time_limit_{boost::posix_time::not_a_date_time},
+          post_opt_time_limit_{boost::posix_time::not_a_date_time} {}
 
 std::vector<rows::ThreeStepSchedulingWorker::CarerTeam>
 rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
@@ -401,4 +399,36 @@ bool rows::ThreeStepSchedulingWorker::Init(rows::Problem problem,
     opt_time_limit_ = std::move(opt_time_limit);
     post_opt_time_limit_ = std::move(post_opt_time_limit);
     return true;
+}
+
+std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThirdStageSolver(
+        const operations_research::RoutingSearchParameters &search_params,
+        int64 last_dropped_visit_penalty,
+        std::size_t max_dropped_visits_count,
+        const std::vector<rows::RouteValidatorBase::Metrics> &vehicle_metrics) {
+    switch (formula_) {
+        case Formula::DEFAULT:
+        case Formula::DISTANCE:
+            return std::make_unique<rows::ThirdStepSolver>(problem_,
+                                                           routing_parameters_,
+                                                           search_params,
+                                                           visit_time_window_,
+                                                           break_time_window_,
+                                                           begin_end_shift_time_extension_,
+                                                           post_opt_time_limit_,
+                                                           last_dropped_visit_penalty,
+                                                           max_dropped_visits_count,
+                                                           vehicle_metrics);
+        case Formula::VEHICLE_REDUCTION:
+            return std::make_unique<rows::ThirdStepReductionSolver>(problem_,
+                                                                    routing_parameters_,
+                                                                    search_params,
+                                                                    visit_time_window_,
+                                                                    break_time_window_,
+                                                                    begin_end_shift_time_extension_,
+                                                                    post_opt_time_limit_,
+                                                                    last_dropped_visit_penalty,
+                                                                    max_dropped_visits_count,
+                                                                    vehicle_metrics);
+    }
 }

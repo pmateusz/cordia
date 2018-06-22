@@ -30,9 +30,17 @@ namespace rows {
                   operations_research::RoutingSearchParameters search_parameters,
                   std::string output_file);
 
-    private:
+        bool Init(const Problem &problem,
+                  osrm::EngineConfig &routing_config,
+                  const std::string &output,
+                  const boost::posix_time::time_duration &visit_time_window,
+                  const boost::posix_time::time_duration &break_time_window,
+                  const boost::posix_time::time_duration &begin_end_shfit_time_extension,
+                  const boost::posix_time::time_duration &opt_time_limit);
+
         void Run() override;
 
+    private:
         std::string output_file_;
 
         std::shared_ptr<rows::Printer> printer_;
