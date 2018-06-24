@@ -8,35 +8,33 @@ import logging
 import operator
 import os
 import os.path
-import subprocess
 import re
+import subprocess
 import sys
 
 import bs4
-
-import pandas
-
-import numpy
-
 import matplotlib
 import matplotlib.dates
 import matplotlib.pyplot
+import matplotlib.ticker
+import matplotlib.cm
+import numpy
+import pandas
 
-import rows.settings
 import rows.console
 import rows.location_finder
-import rows.sql_data_source
-
-import rows.model.carer
 import rows.model.area
-import rows.model.service_user
-import rows.model.problem
+import rows.model.carer
+import rows.model.json
 import rows.model.location
 import rows.model.metadata
-import rows.model.schedule
-import rows.model.visit
 import rows.model.past_visit
-import rows.model.json
+import rows.model.problem
+import rows.model.schedule
+import rows.model.service_user
+import rows.model.visit
+import rows.settings
+import rows.sql_data_source
 
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -54,17 +52,36 @@ __INFO_COMMAND = 'info'
 __COMPARE_DISTANCE_COMMAND = 'compare-distance'
 __COMPARE_WORKLOAD_COMMAND = 'compare-workload'
 __COMPARE_TRACE_COMMAND = 'compare-trace'
+__COST_FUNCTION_TYPE = 'cost_function'
 __DEBUG_COMMAND = 'debug'
 __AREA_ARG = 'area'
 __FROM_ARG = 'from'
 __TO_ARG = 'to'
 __FILE_ARG = 'file'
+__DATE_ARG = 'date'
 __SOLUTION_FILE_ARG = 'solution'
 __PROBLEM_FILE_ARG = 'problem'
 __OUTPUT_PREFIX_ARG = 'output_prefix'
 __OPTIONAL_ARG_PREFIX = '--'
 __BASE_SCHEDULE_PATTERN = 'base_schedule_pattern'
 __CANDIDATE_SCHEDULE_PATTERN = 'candidate_schedule_pattern'
+
+
+def get_or_raise(obj, prop):
+    value = getattr(obj, prop)
+    if not value:
+        raise ValueError('{0} not set'.format(prop))
+    return value
+
+
+def get_date_time(value):
+    date_time = datetime.datetime.strptime(value, '%Y-%m-%d')
+    return date_time
+
+
+def get_date(value):
+    value_to_use = get_date_time(value)
+    return value_to_use.date()
 
 
 def configure_parser():
@@ -98,20 +115,10 @@ def configure_parser():
 
     compare_trace_parser = subparsers.add_parser(__COMPARE_TRACE_COMMAND)
     compare_trace_parser.add_argument(__FILE_ARG)
+    compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __COST_FUNCTION_TYPE, required=True)
+    compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __DATE_ARG, type=get_date)
 
     return parser
-
-
-def get_or_raise(obj, prop):
-    value = getattr(obj, prop)
-    if not value:
-        raise ValueError('{0} not set'.format(prop))
-    return value
-
-
-def get_date_time(value):
-    date_time = datetime.datetime.strptime(value, '%Y-%m-%d')
-    return date_time
 
 
 def pull(args, settings):
@@ -443,8 +450,9 @@ def compare_workload(args, settings):
                     if observed_duration.days < 0:
                         logging.error('Observed duration %s is negative', observed_duration)
                 else:
-                    logging.warning('Visit %s is not supplied with information on check-in and check-out information',
-                                    past_visit.visit.key)
+                    logging.warning(
+                        'Visit %s is not supplied with information on check-in and check-out information',
+                        past_visit.visit.key)
                     observed_duration = past_visit.duration
                 observed_duration_by_visit[past_visit.visit] = observed_duration
 
@@ -495,6 +503,10 @@ class TraceLog:
         @property
         def cost(self):
             return self.__cost
+
+        @property
+        def solutions(self):
+            return self.__solutions
 
         @property
         def dropped_visits(self):
@@ -555,6 +567,14 @@ class TraceLog:
             body_to_use = body
         self.__events.append([time_point - self.__start, self.__current_stage, time_point, body_to_use])
 
+    def has_stages(self):
+        for relative_time, stage, absolute_time, event in self.__events:
+            if isinstance(event, TraceLog.ProblemMessage) or isinstance(event, TraceLog.ProgressMessage):
+                continue
+            if 'type' in event and event['type'] == 'started':
+                return True
+        return False
+
     @property
     def visits(self):
         return self.__problem.visits
@@ -567,10 +587,14 @@ class TraceLog:
     def date(self):
         return self.__problem.date
 
+    @property
+    def events(self):
+        return self.__events
 
-def compare_trace(args, settings):
-    trace_file = get_or_raise(args, __FILE_ARG)
+
+def read_traces(trace_file):
     log_line_pattern = re.compile('^\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?]\s+(?P<body>.*)$')
+
     trace_logs = []
     has_preambule = False
     with open(trace_file, 'r') as input_stream:
@@ -602,7 +626,254 @@ def compare_trace(args, settings):
                     logging.warning('Failed to parse line: %s', line)
             else:
                 logging.warning('Failed to match line: %s', line)
-    pass
+    return trace_logs
+
+
+def traces_to_data_frame(trace_logs):
+    columns = ['relative_time', 'cost', 'dropped_visits', 'solutions', 'stage', 'stage_started', 'date', 'carers',
+               'visits']
+
+    has_stages = [trace.has_stages() for trace in trace_logs]
+    if all(has_stages) != any(has_stages):
+        raise ValueError('Some traces have stages while others do not')
+    has_stages = all(has_stages)
+
+    data = []
+    if has_stages:
+        for trace in trace_logs:
+            current_carers = None
+            current_visits = None
+            current_stage_started = None
+            current_stage_name = None
+            for rel_time, stage, abs_time, event in trace.events:
+                if isinstance(event, TraceLog.ProblemMessage):
+                    current_carers = event.carers
+                    current_visits = event.visits
+                elif isinstance(event, TraceLog.ProgressMessage):
+                    if not current_stage_name:
+                        continue
+                    data.append([rel_time,
+                                 event.cost, event.dropped_visits, event.solutions,
+                                 current_stage_name, current_stage_started,
+                                 trace.date, current_carers, current_visits])
+                elif 'type' in event:
+                    if event['type'] != 'started':
+                        current_carers = None
+                        current_visits = None
+                        current_stage_started = None
+                        current_stage_name = None
+                    elif event['type'] == 'started':
+                        current_stage_started = rel_time
+                        current_stage_name = event['comment']
+    else:
+        for trace in trace_logs:
+            current_carers = None
+            current_visits = None
+            for rel_time, stage, abs_time, event in trace.events:
+                if isinstance(event, TraceLog.ProblemMessage):
+                    current_carers = event.carers
+                    current_visits = event.visits
+                elif isinstance(event, TraceLog.ProgressMessage):
+                    data.append([rel_time,
+                                 event.cost, event.dropped_visits, event.solutions,
+                                 None, None,
+                                 trace.date, current_carers, current_visits])
+    return pandas.DataFrame(data=data, columns=columns)
+
+
+def compare_trace(args, settings):
+    cost_function = get_or_raise(args, __COST_FUNCTION_TYPE)
+    trace_file = get_or_raise(args, __FILE_ARG)
+    trace_file_base_name = os.path.basename(trace_file)
+    trace_file_stem, trace_file_ext = os.path.splitext(trace_file_base_name)
+
+    trace_logs = read_traces(trace_file)
+    data_frame = traces_to_data_frame(trace_logs)
+
+    current_date = getattr(args, __DATE_ARG, None)
+    dates = data_frame['date'].unique()
+    if current_date and current_date not in dates:
+        raise ValueError('Date {0} is not present in the data set'.format(current_date))
+
+    def format_timedelta(x, pos=None):
+        delta = datetime.timedelta(seconds=x)
+        time_point = datetime.datetime(2017, 1, 1) + delta
+        return time_point.strftime('%M:%S')
+
+    def add_legend(axis, handles, bbox_to_anchor=(0.5, -0.23), ncol=3):
+        first_row = handles[0]
+
+        def legend_no_date(row):
+            handle, visits, carers, cost_function = row
+            return 'V{0:03} C{1:02} {2}'.format(visits, carers, cost_function)
+
+        def legend_with_date(row):
+            handle, multi_visits, visits, multi_carers, carers, cost_function, date = row
+            date_time = datetime.datetime.combine(date, datetime.time())
+            return 'V{0:02}/{1:03} C{2:02}/{3:02} {4} {5}' \
+                .format(multi_visits, visits, multi_carers, carers, cost_function, date_time.strftime('%d-%m'))
+
+        if len(first_row) == 4:
+            legend_formatter = legend_no_date
+        elif len(first_row) == 7:
+            legend_formatter = legend_with_date
+        else:
+            raise ValueError('Expecting row of either 4 or 5 elements')
+
+        legend = axis.legend(list(map(operator.itemgetter(0), handles)),
+                             list(map(legend_formatter, handles)),
+                             loc='lower center',
+                             ncol=ncol,
+                             bbox_to_anchor=bbox_to_anchor,
+                             fancybox=None,
+                             edgecolor=None,
+                             handletextpad=0.1,
+                             columnspacing=0.15)
+        for handle in legend.legendHandles:
+            handle.set_sizes([16.0])
+
+    __SCATTER_POINT_SIZE = 1
+    __FILE_FORMAT = 'svg'
+    __Y_AXIS_EXTENSION = 1.2
+
+    def scatter_cost(axis, data_frame):
+        return axis.scatter(
+            [time_delta.total_seconds() for time_delta in data_frame['relative_time']], data_frame['cost'],
+            s=__SCATTER_POINT_SIZE)
+
+    def scatter_dropped_visits(axis, data_frame):
+        axis.scatter(
+            [time_delta.total_seconds() for time_delta in data_frame['relative_time']],
+            data_frame['dropped_visits'],
+            s=__SCATTER_POINT_SIZE)
+
+    def draw_avline(axis, point, color='lightgrey', linestyle='--'):
+        axis.axvline(point, color=color, linestyle=linestyle, linewidth=0.8, alpha=0.8)
+
+    figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
+    try:
+        if current_date:
+            current_date_frame = data_frame[data_frame['date'] == current_date]
+            stages = current_date_frame['stage'].unique()
+            if len(stages) > 1:
+                handles = []
+                for stage in stages:
+                    time_delta = current_date_frame[current_date_frame['stage'] == stage]['stage_started'].iloc[0]
+                    current_stage_data_frame = current_date_frame[current_date_frame['stage'] == stage]
+                    draw_avline(ax1, time_delta.total_seconds())
+                    draw_avline(ax2, time_delta.total_seconds())
+                    visits = current_stage_data_frame['visits'].iloc[0]
+                    carers = current_stage_data_frame['carers'].iloc[0]
+                    handle = scatter_cost(ax1, current_date_frame)
+                    scatter_dropped_visits(ax2, current_stage_data_frame)
+                    handles.append([handle, visits, carers, cost_function])
+                add_legend(ax1, handles)
+
+                ax2.set_xlim(left=0)
+                ax2.set_ylim(bottom=0)
+                ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+            else:
+                visits = current_date_frame['visits'].iloc[0]
+                carers = current_date_frame['carers'].iloc[0]
+                handle = ax1.scatter(
+                    [time_delta.total_seconds() for time_delta in current_date_frame['relative_time']],
+                    current_date_frame['cost'], s=1)
+                add_legend(ax1, [[handle, visits, carers, cost_function]])
+                scatter_dropped_visits(ax2, current_date_frame)
+
+            ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
+            ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+
+            logging.warning('Extending the x axis of the plot by 2 minutes')
+            x_left, x_right = ax1.get_xlim()
+            updated_x_right = x_right + 2 * 60
+
+            ax1_y_bottom, ax1_y_top = ax1.get_ylim()
+            ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
+            ax1.set_xlim(left=0, right=updated_x_right)
+
+            ax2_y_bottom, ax2_y_top = ax2.get_ylim()
+            ax2.set_ylim(bottom=0, top=ax2_y_top * __Y_AXIS_EXTENSION)
+            ax2.set_xlim(left=0, right=updated_x_right)
+            ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+            matplotlib.pyplot.savefig(trace_file_stem + '_' + current_date.isoformat() + '.' + __FILE_FORMAT,
+                                      format=__FILE_FORMAT,
+                                      dpi=1200)
+        else:
+            handles = []
+            color_number = 0
+            color_map = matplotlib.cm.get_cmap('tab20')
+            for current_date in dates:
+                current_date_frame = data_frame[data_frame['date'] == current_date]
+                stages = current_date_frame['stage'].unique()
+                if len(stages) > 1:
+                    stage_linestyles = [None, 'dotted', 'dashed']
+                    for stage, linestyle in zip(stages, stage_linestyles):
+                        time_delta = current_date_frame[current_date_frame['stage'] == stage]['stage_started'].iloc[0]
+                        draw_avline(ax1, time_delta.total_seconds(),
+                                    color=color_map.colors[color_number],
+                                    linestyle=linestyle)
+                        draw_avline(ax2, time_delta.total_seconds(),
+                                    color=color_map.colors[color_number],
+                                    linestyle=linestyle)
+
+                    total_carers = current_date_frame['carers'].max()
+                    multi_carers = current_date_frame['carers'].min()
+                    if multi_carers == total_carers:
+                        multi_carers = 0
+
+                    total_visits = current_date_frame['visits'].max()
+                    multi_visits = current_date_frame['visits'].min()
+                    if multi_visits == total_visits:
+                        multi_visits = 0
+
+                    handle = scatter_cost(ax1, current_date_frame)
+                    scatter_dropped_visits(ax2, current_date_frame)
+                    handles.append([handle,
+                                    multi_visits,
+                                    total_visits,
+                                    multi_carers,
+                                    total_carers,
+                                    cost_function,
+                                    current_date])
+                else:
+                    visits = current_date_frame['visits'].iloc[0]
+                    carers = current_date_frame['carers'].iloc[0]
+                    handle = ax1.scatter(
+                        [time_delta.total_seconds() for time_delta in current_date_frame['relative_time']],
+                        current_date_frame['cost'], s=1)
+                    handles.append([handle, visits, carers, cost_function, current_date])
+                    scatter_dropped_visits(ax2, current_date_frame)
+                color_number += 1
+
+            ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
+            ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+
+            logging.warning('Extending the x axis of the plot by 2 minutes')
+            x_left, x_right = ax1.get_xlim()
+            updated_x_right = x_right + 2 * 60
+
+            ax1_y_bottom, ax1_y_top = ax1.get_ylim()
+            ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
+            ax1.set_xlim(left=0, right=updated_x_right)
+
+            legend = add_legend(ax2, handles, bbox_to_anchor=(0.5, -1.6), ncol=2)
+
+            ax2_y_bottom, ax2_y_top = ax2.get_ylim()
+            ax2.set_ylim(bottom=0, top=ax2_y_top * __Y_AXIS_EXTENSION)
+            ax2.set_xlim(left=0, right=updated_x_right)
+            ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+            matplotlib.pyplot.set_cmap(color_map)
+            matplotlib.pyplot.tight_layout()
+            figure.subplots_adjust(bottom=0.4)
+            matplotlib.pyplot.savefig(trace_file_stem + '.' + __FILE_FORMAT,
+                                      format=__FILE_FORMAT,
+                                      dpi=1200,
+                                      bbox_extra_artists=(legend,),
+                                      layout='tight')
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
 
 
 def debug(args, settings):
@@ -644,12 +915,14 @@ def debug(args, settings):
                         logging.error('Observed duration %s is negative', observed_duration)
                     service_time += observed_duration
                 else:
-                    logging.warning('Visit %s is not supplied with information on check-in and check-out information',
-                                    visit.key)
+                    logging.warning(
+                        'Visit %s is not supplied with information on check-in and check-out information',
+                        visit.key)
                     service_time += visit.duration
 
             available_time = functools.reduce(operator.add, (event.duration
-                                                             for event in carer_dairies[route.carer.sap_number].events))
+                                                             for event in
+                                                             carer_dairies[route.carer.sap_number].events))
             data_set.append([route.carer.sap_number,
                              available_time,
                              service_time,

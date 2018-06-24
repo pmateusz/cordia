@@ -137,7 +137,6 @@ static const std::string LEVEL1_FROMULA = "1level";
 
 bool ValidateFormulation(const char *flagname, const std::string &value) {
     std::string value_to_use{value};
-    util::string::Strip(value_to_use);
     util::string::ToLower(value_to_use);
     return value_to_use == LEVEL3_REDUCTION_FROMULA
            || value_to_use == LEVEL3_DISTANCE_FROMULA
@@ -146,7 +145,6 @@ bool ValidateFormulation(const char *flagname, const std::string &value) {
 
 rows::ThreeStepSchedulingWorker::Formula ParseFormula(const std::string &formula) {
     std::string formula_to_use{formula};
-    util::string::Strip(formula_to_use);
     util::string::ToLower(formula_to_use);
 
     if (formula_to_use == LEVEL3_REDUCTION_FROMULA) {
@@ -581,7 +579,6 @@ int main(int argc, char **argv) {
     ParseArgs(argc, argv);
 
     std::string formula_to_use{FLAGS_formula};
-    util::string::Strip(formula_to_use);
     util::string::ToLower(formula_to_use);
 
     std::shared_ptr<rows::Printer> printer = CreatePrinter();
