@@ -51,6 +51,7 @@ __PULL_COMMAND = 'pull'
 __INFO_COMMAND = 'info'
 __COMPARE_DISTANCE_COMMAND = 'compare-distance'
 __COMPARE_WORKLOAD_COMMAND = 'compare-workload'
+__CONTRAST_WORKLOAD_COMMAND = 'contrast-workload'
 __COMPARE_TRACE_COMMAND = 'compare-trace'
 __COST_FUNCTION_TYPE = 'cost_function'
 __DEBUG_COMMAND = 'debug'
@@ -59,6 +60,8 @@ __FROM_ARG = 'from'
 __TO_ARG = 'to'
 __FILE_ARG = 'file'
 __DATE_ARG = 'date'
+__BASE_FILE_ARG = 'base-file'
+__CANDIDATE_FILE_ARG = 'candidate-file'
 __SOLUTION_FILE_ARG = 'solution'
 __PROBLEM_FILE_ARG = 'problem'
 __OUTPUT_PREFIX_ARG = 'output_prefix'
@@ -117,6 +120,11 @@ def configure_parser():
     compare_trace_parser.add_argument(__FILE_ARG)
     compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __COST_FUNCTION_TYPE, required=True)
     compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __DATE_ARG, type=get_date)
+
+    contrast_workload_parser = subparsers.add_parser(__CONTRAST_WORKLOAD_COMMAND)
+    contrast_workload_parser.add_argument(__PROBLEM_FILE_ARG)
+    contrast_workload_parser.add_argument(__BASE_FILE_ARG)
+    contrast_workload_parser.add_argument(__CANDIDATE_FILE_ARG)
 
     return parser
 
@@ -374,17 +382,18 @@ def get_schedule_data_frame(schedule, routing_session, location_finder, carer_di
                          service_time,
                          travel_time,
                          float(service_time.total_seconds() + travel_time.total_seconds())
-                         / available_time.total_seconds()])
+                         / available_time.total_seconds(),
+                         len(route.visits)])
     data_set.sort(key=operator.itemgetter(4))
-    return pandas.DataFrame(columns=['Carer', 'Availability', 'Service', 'Travel', 'Usage'], data=data_set)
+    return pandas.DataFrame(columns=['Carer', 'Availability', 'Service', 'Travel', 'Usage', 'Visits'], data=data_set)
 
 
 def save_workforce_histogram(data_frame, file_path):
+    __width = 0.35
     figure, axis = matplotlib.pyplot.subplots()
     try:
         indices = numpy.arange(len(data_frame.index))
         time_delta_converter = TimeDeltaConverter()
-        width = 0.35
 
         travel_series = numpy.array(time_delta_converter(data_frame.Travel))
         service_series = numpy.array(time_delta_converter(data_frame.Service))
@@ -396,12 +405,12 @@ def save_workforce_histogram(data_frame, file_path):
                 seconds=abs(value.total_seconds())) if value.days < 0 else datetime.timedelta(),
                 idle_overtime_series)))
 
-        service_handle = axis.bar(indices, service_series, width, bottom=time_delta_converter.zero)
-        travel_handle = axis.bar(indices, travel_series, width,
+        service_handle = axis.bar(indices, service_series, __width, bottom=time_delta_converter.zero)
+        travel_handle = axis.bar(indices, travel_series, __width,
                                  bottom=service_series + time_delta_converter.zero_num)
-        idle_handle = axis.bar(indices, idle_series, width,
+        idle_handle = axis.bar(indices, idle_series, __width,
                                bottom=service_series + travel_series + time_delta_converter.zero_num)
-        overtime_handle = axis.bar(indices, overtime_series, width,
+        overtime_handle = axis.bar(indices, overtime_series, __width,
                                    bottom=idle_series + service_series + travel_series + time_delta_converter.zero_num)
 
         axis.yaxis_date()
@@ -412,6 +421,22 @@ def save_workforce_histogram(data_frame, file_path):
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
+
+
+def calculate_observed_visit_duration(schedule):
+    observed_duration_by_visit = VisitDict()
+    for past_visit in schedule.visits:
+        if past_visit.check_in and past_visit.check_out:
+            observed_duration = past_visit.check_out - past_visit.check_in
+            if observed_duration.days < 0:
+                logging.error('Observed duration %s is negative', observed_duration)
+        else:
+            logging.warning(
+                'Visit %s is not supplied with information on check-in and check-out information',
+                past_visit.visit.key)
+            observed_duration = past_visit.duration
+        observed_duration_by_visit[past_visit.visit] = observed_duration
+    return observed_duration_by_visit
 
 
 def compare_workload(args, settings):
@@ -443,18 +468,7 @@ def compare_workload(args, settings):
                 logging.error('No base schedule is available for %s', date)
                 continue
 
-            observed_duration_by_visit = VisitDict()
-            for past_visit in base_schedule.visits:
-                if past_visit.check_in and past_visit.check_out:
-                    observed_duration = past_visit.check_out - past_visit.check_in
-                    if observed_duration.days < 0:
-                        logging.error('Observed duration %s is negative', observed_duration)
-                else:
-                    logging.warning(
-                        'Visit %s is not supplied with information on check-in and check-out information',
-                        past_visit.visit.key)
-                    observed_duration = past_visit.duration
-                observed_duration_by_visit[past_visit.visit] = observed_duration
+            observed_duration_by_visit = calculate_observed_visit_duration(base_schedule)
 
             candidate_schedule = candidate_schedule_by_date.get(date, None)
             if not candidate_schedule:
@@ -479,6 +493,66 @@ def compare_workload(args, settings):
                                                                     observed_duration_by_visit)
             candidate_schedule_stem, candidate_schedule_ext = os.path.splitext(candidate_schedule_file)
             save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem + __PLOT_EXT)
+
+
+def contrast_workload(args, settings):
+    __width = 0.35
+    __FORMAT = 'svg'
+    problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
+    problem = load_problem(problem_file)
+    base_schedule = load_schedule(get_or_raise(args, __BASE_FILE_ARG))
+    candidate_schedule = load_schedule(get_or_raise(args, __CANDIDATE_FILE_ARG))
+
+    if base_schedule.metadata.begin != candidate_schedule.metadata.begin:
+        raise ValueError('Schedules begin at a different date: {0} vs {1}'
+                         .format(base_schedule.metadata.begin, candidate_schedule.metadata.begin))
+
+    if base_schedule.metadata.end != candidate_schedule.metadata.end:
+        raise ValueError('Schedules end at a different date: {0} vs {1}'
+                         .format(base_schedule.metadata.end, candidate_schedule.metadata.end))
+
+    location_finder = rows.location_finder.UserLocationFinder(settings)
+    location_finder.reload()
+
+    diary_by_date_by_carer = collections.defaultdict(dict)
+    for carer_shift in problem.carers:
+        for diary in carer_shift.diaries:
+            diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
+
+    date = base_schedule.metadata.begin
+    problem_file_base = os.path.basename(problem_file)
+    problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
+    output_file = problem_file_name + '_contrast_visits_' + date.isoformat() + '.' + __FORMAT
+
+    with RoutingServer() as routing_session:
+        observed_duration_by_visit = calculate_observed_visit_duration(base_schedule)
+        base_schedule_frame = get_schedule_data_frame(base_schedule,
+                                                      routing_session,
+                                                      location_finder,
+                                                      diary_by_date_by_carer[date],
+                                                      observed_duration_by_visit)
+        candidate_schedule_frame = get_schedule_data_frame(candidate_schedule,
+                                                           routing_session,
+                                                           location_finder,
+                                                           diary_by_date_by_carer[date],
+                                                           observed_duration_by_visit)
+
+    figure, axis = matplotlib.pyplot.subplots()
+    matplotlib.pyplot.tight_layout()
+    try:
+        contrast_frame = pandas.DataFrame.merge(base_schedule_frame,
+                                                candidate_schedule_frame,
+                                                on='Carer',
+                                                suffixes=['_Base', '_Candidate'])
+        indices = numpy.arange(len(contrast_frame.index))
+        base_handle = axis.bar(indices, contrast_frame['Visits_Base'], __width)
+        candidate_handle = axis.bar(indices + __width, contrast_frame['Visits_Candidate'], __width)
+        axis.legend((base_handle, candidate_handle),
+                    ('Human Planners', 'Constraint Programming'), loc='best')
+        matplotlib.pyplot.savefig(output_file, format=__FORMAT, dpi=1200)
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
 
 
 def parse_time_delta(text):
@@ -981,6 +1055,8 @@ if __name__ == '__main__':
         compare_distance(__args, __settings)
     elif __command == __COMPARE_WORKLOAD_COMMAND:
         compare_workload(__args, __settings)
+    elif __command == __CONTRAST_WORKLOAD_COMMAND:
+        contrast_workload(__args, __settings)
     elif __command == __COMPARE_TRACE_COMMAND:
         compare_trace(__args, __settings)
     elif __command == __DEBUG_COMMAND:
