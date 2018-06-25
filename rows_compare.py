@@ -52,7 +52,12 @@ __INFO_COMMAND = 'info'
 __COMPARE_DISTANCE_COMMAND = 'compare-distance'
 __COMPARE_WORKLOAD_COMMAND = 'compare-workload'
 __CONTRAST_WORKLOAD_COMMAND = 'contrast-workload'
+__COMPARE_PREDICTION_ERROR_COMMAND = 'compare-prediction-error'
+__TYPE_ARG = 'type'
+__ACTIVITY_TYPE = 'activity'
+__VISITS_TYPE = 'visits'
 __COMPARE_TRACE_COMMAND = 'compare-trace'
+__CONTRAST_TRACE_COMMAND = 'contrast-trace'
 __COST_FUNCTION_TYPE = 'cost_function'
 __DEBUG_COMMAND = 'debug'
 __AREA_ARG = 'area'
@@ -117,6 +122,7 @@ def configure_parser():
     debug_parser.add_argument(__SOLUTION_FILE_ARG)
 
     compare_trace_parser = subparsers.add_parser(__COMPARE_TRACE_COMMAND)
+    compare_trace_parser.add_argument(__PROBLEM_FILE_ARG)
     compare_trace_parser.add_argument(__FILE_ARG)
     compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __COST_FUNCTION_TYPE, required=True)
     compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __DATE_ARG, type=get_date)
@@ -125,6 +131,18 @@ def configure_parser():
     contrast_workload_parser.add_argument(__PROBLEM_FILE_ARG)
     contrast_workload_parser.add_argument(__BASE_FILE_ARG)
     contrast_workload_parser.add_argument(__CANDIDATE_FILE_ARG)
+    contrast_workload_parser.add_argument(__OPTIONAL_ARG_PREFIX + __TYPE_ARG)
+
+    compare_prediction_error_parser = subparsers.add_parser(__COMPARE_PREDICTION_ERROR_COMMAND)
+    compare_prediction_error_parser.add_argument(__BASE_FILE_ARG)
+    compare_prediction_error_parser.add_argument(__CANDIDATE_FILE_ARG)
+
+    contrast_trace_parser = subparsers.add_parser(__CONTRAST_TRACE_COMMAND)
+    contrast_trace_parser.add_argument(__PROBLEM_FILE_ARG)
+    contrast_trace_parser.add_argument(__BASE_FILE_ARG)
+    contrast_trace_parser.add_argument(__CANDIDATE_FILE_ARG)
+    contrast_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __DATE_ARG, type=get_date, required=True)
+    contrast_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __COST_FUNCTION_TYPE, required=True)
 
     return parser
 
@@ -439,6 +457,13 @@ def calculate_observed_visit_duration(schedule):
     return observed_duration_by_visit
 
 
+def calculate_expected_visit_duration(schedule):
+    expected_visit_duration = VisitDict()
+    for past_visit in schedule.visits:
+        expected_visit_duration[past_visit.visit] = past_visit.duration
+    return expected_visit_duration
+
+
 def compare_workload(args, settings):
     __PLOT_EXT = '.png'
     problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
@@ -496,8 +521,14 @@ def compare_workload(args, settings):
 
 
 def contrast_workload(args, settings):
-    __width = 0.35
+    __WIDTH = 0.35
     __FORMAT = 'svg'
+
+    plot_type = getattr(args, __TYPE_ARG, None)
+    if plot_type != __ACTIVITY_TYPE and plot_type != __VISITS_TYPE:
+        raise ValueError(
+            'Unknown plot type: {0}. Use either {1} or {2}.'.format(plot_type, __ACTIVITY_TYPE, __VISITS_TYPE))
+
     problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
     problem = load_problem(problem_file)
     base_schedule = load_schedule(get_or_raise(args, __BASE_FILE_ARG))
@@ -522,10 +553,9 @@ def contrast_workload(args, settings):
     date = base_schedule.metadata.begin
     problem_file_base = os.path.basename(problem_file)
     problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
-    output_file = problem_file_name + '_contrast_visits_' + date.isoformat() + '.' + __FORMAT
 
     with RoutingServer() as routing_session:
-        observed_duration_by_visit = calculate_observed_visit_duration(base_schedule)
+        observed_duration_by_visit = calculate_expected_visit_duration(candidate_schedule)
         base_schedule_frame = get_schedule_data_frame(base_schedule,
                                                       routing_session,
                                                       location_finder,
@@ -537,18 +567,99 @@ def contrast_workload(args, settings):
                                                            diary_by_date_by_carer[date],
                                                            observed_duration_by_visit)
 
+    color_map = matplotlib.cm.get_cmap('tab20')
+    matplotlib.pyplot.set_cmap(color_map)
     figure, axis = matplotlib.pyplot.subplots()
     matplotlib.pyplot.tight_layout()
     try:
         contrast_frame = pandas.DataFrame.merge(base_schedule_frame,
                                                 candidate_schedule_frame,
                                                 on='Carer',
+                                                how='left',
                                                 suffixes=['_Base', '_Candidate'])
-        indices = numpy.arange(len(contrast_frame.index))
-        base_handle = axis.bar(indices, contrast_frame['Visits_Base'], __width)
-        candidate_handle = axis.bar(indices + __width, contrast_frame['Visits_Candidate'], __width)
-        axis.legend((base_handle, candidate_handle),
-                    ('Human Planners', 'Constraint Programming'), loc='best')
+        contrast_frame['Visits_Candidate'] = contrast_frame['Visits_Candidate'].fillna(0)
+        contrast_frame['Availability_Candidate'] \
+            = contrast_frame['Availability_Candidate'].mask(pandas.isnull, contrast_frame['Availability_Base'])
+        contrast_frame['Travel_Candidate'] \
+            = contrast_frame['Travel_Candidate'].mask(pandas.isnull, datetime.timedelta())
+        contrast_frame['Service_Candidate'] \
+            = contrast_frame['Service_Candidate'].mask(pandas.isnull, datetime.timedelta())
+        contrast_frame = contrast_frame.sort_values(
+            by=['Availability_Candidate', 'Service_Candidate', 'Travel_Candidate'],
+            ascending=False)
+        if plot_type == __VISITS_TYPE:
+            indices = numpy.arange(len(contrast_frame.index))
+            base_handle = axis.bar(indices, contrast_frame['Visits_Base'], __WIDTH)
+            candidate_handle = axis.bar(indices + __WIDTH, contrast_frame['Visits_Candidate'], __WIDTH)
+            axis.legend((base_handle, candidate_handle),
+                        ('Human Planners', 'Constraint Programming'), loc='best')
+            output_file = problem_file_name + '_contrast_visits_' + date.isoformat() + '.' + __FORMAT
+        elif plot_type == __ACTIVITY_TYPE:
+            indices = numpy.arange(len(base_schedule_frame.index))
+
+            def plot_activity_stacked_histogram(availability, travel, service, axis, width=0.35, initial_width=0.0,
+                                                color_offset=0):
+                time_delta_converter = TimeDeltaConverter()
+                travel_series = numpy.array(time_delta_converter(travel))
+                service_series = numpy.array(time_delta_converter(service))
+                idle_overtime_series = list(availability - travel - service)
+                idle_series = numpy.array(time_delta_converter(
+                    map(lambda value: value if value.days >= 0 else datetime.timedelta(), idle_overtime_series)))
+                overtime_series = numpy.array(time_delta_converter(
+                    map(lambda value: datetime.timedelta(
+                        seconds=abs(value.total_seconds())) if value.days < 0 else datetime.timedelta(),
+                        idle_overtime_series)))
+                service_handle = axis.bar(indices + initial_width, service_series,
+                                          width,
+                                          bottom=time_delta_converter.zero,
+                                          color=color_map.colors[0 + color_offset])
+                travel_handle = axis.bar(indices + initial_width,
+                                         travel_series,
+                                         width,
+                                         bottom=service_series + time_delta_converter.zero_num,
+                                         color=color_map.colors[2 + color_offset])
+                idle_handle = axis.bar(indices + initial_width,
+                                       idle_series,
+                                       width,
+                                       bottom=service_series + travel_series + time_delta_converter.zero_num,
+                                       color=color_map.colors[4 + color_offset])
+                overtime_handle = axis.bar(indices + initial_width,
+                                           overtime_series,
+                                           width,
+                                           bottom=idle_series + service_series + travel_series + time_delta_converter.zero_num,
+                                           color=color_map.colors[6 + color_offset])
+                return service_handle, travel_handle, idle_handle, overtime_handle
+
+            travel_candidate_handle, service_candidate_handle, idle_candidate_handle, overtime_candidate_handle \
+                = plot_activity_stacked_histogram(contrast_frame.Availability_Candidate,
+                                                  contrast_frame.Travel_Candidate,
+                                                  contrast_frame.Service_Candidate,
+                                                  axis,
+                                                  __WIDTH)
+
+            travel_base_handle, service_base_handle, idle_base_handle, overtime_base_handle \
+                = plot_activity_stacked_histogram(contrast_frame.Availability_Base,
+                                                  contrast_frame.Travel_Base,
+                                                  contrast_frame.Service_Base,
+                                                  axis,
+                                                  __WIDTH,
+                                                  __WIDTH,
+                                                  1)
+
+            axis.yaxis_date()
+            axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M:%S"))
+            axis.legend(
+                (travel_candidate_handle, service_candidate_handle, idle_candidate_handle, overtime_candidate_handle,
+                 travel_base_handle, service_base_handle, idle_base_handle, overtime_base_handle),
+                ('', '', '', '', 'Service', 'Travel', 'Idle', 'Overtime'), loc='best', ncol=2, columnspacing=0)
+
+            output_file = problem_file_name + '_contrast_activity_' + date.isoformat() + '.' + __FORMAT
+            bottom, top = axis.get_ylim()
+            axis.set_ylim(bottom, top + 0.025)
+        else:
+            raise ValueError('Unknown plot type {0}'.format(plot_type))
+
+        matplotlib.pyplot.subplots_adjust(left=0.125)
         matplotlib.pyplot.savefig(output_file, format=__FORMAT, dpi=1200)
     finally:
         matplotlib.pyplot.cla()
@@ -755,7 +866,94 @@ def traces_to_data_frame(trace_logs):
     return pandas.DataFrame(data=data, columns=columns)
 
 
+# compare formulations on one plot
+
+def format_timedelta(x, pos=None):
+    delta = datetime.timedelta(seconds=x)
+    time_point = datetime.datetime(2017, 1, 1) + delta
+    return time_point.strftime('%M:%S')
+
+
+__SCATTER_POINT_SIZE = 1
+__FILE_FORMAT = 'svg'
+__Y_AXIS_EXTENSION = 1.2
+
+
+def add_legend(axis, handles, labels, ncol, bbox_to_anchor):
+    legend = axis.legend(handles,
+                         labels,
+                         loc='lower center',
+                         ncol=ncol,
+                         bbox_to_anchor=bbox_to_anchor,
+                         fancybox=None,
+                         edgecolor=None,
+                         handletextpad=0.1,
+                         columnspacing=0.15)
+    for handle in legend.legendHandles:
+        handle.set_sizes([16.0])
+    return legend
+
+
+def add_trace_legend(axis, handles, bbox_to_anchor=(0.5, -0.23), ncol=3):
+    first_row = handles[0]
+
+    def legend_single_stage(row):
+        handle, multi_visits, visits, carers, cost_function, date = row
+        date_time = datetime.datetime.combine(date, datetime.time())
+        return 'V{0:02}/{1:03} C{2:02} {3} {4}'.format(multi_visits,
+                                                       visits,
+                                                       carers,
+                                                       cost_function,
+                                                       date_time.strftime('%d-%m'))
+
+    def legend_multi_stage(row):
+        handle, multi_visits, visits, multi_carers, carers, cost_function, date = row
+        date_time = datetime.datetime.combine(date, datetime.time())
+        return 'V{0:02}/{1:03} C{2:02}/{3:02} {4} {5}' \
+            .format(multi_visits, visits, multi_carers, carers, cost_function, date_time.strftime('%d-%m'))
+
+    if len(first_row) == 6:
+        legend_formatter = legend_single_stage
+    elif len(first_row) == 7:
+        legend_formatter = legend_multi_stage
+    else:
+        raise ValueError('Expecting row of either 6 or 7 elements')
+
+    return add_legend(axis,
+                      list(map(operator.itemgetter(0), handles)),
+                      list(map(legend_formatter, handles)),
+                      ncol,
+                      bbox_to_anchor)
+
+
+def scatter_cost(axis, data_frame, color):
+    return axis.scatter(
+        [time_delta.total_seconds() for time_delta in data_frame['relative_time']], data_frame['cost'],
+        s=__SCATTER_POINT_SIZE,
+        c=color)
+
+
+def scatter_dropped_visits(axis, data_frame, color):
+    axis.scatter(
+        [time_delta.total_seconds() for time_delta in data_frame['relative_time']],
+        data_frame['dropped_visits'],
+        s=__SCATTER_POINT_SIZE,
+        c=color)
+
+
+def draw_avline(axis, point, color='lightgrey', linestyle='--'):
+    axis.axvline(point, color=color, linestyle=linestyle, linewidth=0.8, alpha=0.8)
+
+
+def get_problem_stats(problem, date):
+    problem_visits = [visit for carer_visits in problem.visits
+                      for visit in carer_visits.visits if visit.date == date]
+    return len(problem_visits), len([visit for visit in problem_visits if visit.carer_count > 1])
+
+
 def compare_trace(args, settings):
+    problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+
     cost_function = get_or_raise(args, __COST_FUNCTION_TYPE)
     trace_file = get_or_raise(args, __FILE_ARG)
     trace_file_base_name = os.path.basename(trace_file)
@@ -769,64 +967,12 @@ def compare_trace(args, settings):
     if current_date and current_date not in dates:
         raise ValueError('Date {0} is not present in the data set'.format(current_date))
 
-    def format_timedelta(x, pos=None):
-        delta = datetime.timedelta(seconds=x)
-        time_point = datetime.datetime(2017, 1, 1) + delta
-        return time_point.strftime('%M:%S')
-
-    def add_legend(axis, handles, bbox_to_anchor=(0.5, -0.23), ncol=3):
-        first_row = handles[0]
-
-        def legend_no_date(row):
-            handle, visits, carers, cost_function = row
-            return 'V{0:03} C{1:02} {2}'.format(visits, carers, cost_function)
-
-        def legend_with_date(row):
-            handle, multi_visits, visits, multi_carers, carers, cost_function, date = row
-            date_time = datetime.datetime.combine(date, datetime.time())
-            return 'V{0:02}/{1:03} C{2:02}/{3:02} {4} {5}' \
-                .format(multi_visits, visits, multi_carers, carers, cost_function, date_time.strftime('%d-%m'))
-
-        if len(first_row) == 4:
-            legend_formatter = legend_no_date
-        elif len(first_row) == 7:
-            legend_formatter = legend_with_date
-        else:
-            raise ValueError('Expecting row of either 4 or 5 elements')
-
-        legend = axis.legend(list(map(operator.itemgetter(0), handles)),
-                             list(map(legend_formatter, handles)),
-                             loc='lower center',
-                             ncol=ncol,
-                             bbox_to_anchor=bbox_to_anchor,
-                             fancybox=None,
-                             edgecolor=None,
-                             handletextpad=0.1,
-                             columnspacing=0.15)
-        for handle in legend.legendHandles:
-            handle.set_sizes([16.0])
-
-    __SCATTER_POINT_SIZE = 1
-    __FILE_FORMAT = 'svg'
-    __Y_AXIS_EXTENSION = 1.2
-
-    def scatter_cost(axis, data_frame):
-        return axis.scatter(
-            [time_delta.total_seconds() for time_delta in data_frame['relative_time']], data_frame['cost'],
-            s=__SCATTER_POINT_SIZE)
-
-    def scatter_dropped_visits(axis, data_frame):
-        axis.scatter(
-            [time_delta.total_seconds() for time_delta in data_frame['relative_time']],
-            data_frame['dropped_visits'],
-            s=__SCATTER_POINT_SIZE)
-
-    def draw_avline(axis, point, color='lightgrey', linestyle='--'):
-        axis.axvline(point, color=color, linestyle=linestyle, linewidth=0.8, alpha=0.8)
-
+    color_map = matplotlib.cm.get_cmap('tab20')
+    matplotlib.pyplot.set_cmap(color_map)
     figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
     try:
         if current_date:
+            total_problem_visits, total_multiple_carer_visits = get_problem_stats(problem, current_date)
             current_date_frame = data_frame[data_frame['date'] == current_date]
             stages = current_date_frame['stage'].unique()
             if len(stages) > 1:
@@ -836,39 +982,44 @@ def compare_trace(args, settings):
                     current_stage_data_frame = current_date_frame[current_date_frame['stage'] == stage]
                     draw_avline(ax1, time_delta.total_seconds())
                     draw_avline(ax2, time_delta.total_seconds())
-                    visits = current_stage_data_frame['visits'].iloc[0]
+                    total_stage_visits = current_stage_data_frame['visits'].iloc[0]
                     carers = current_stage_data_frame['carers'].iloc[0]
                     handle = scatter_cost(ax1, current_date_frame)
                     scatter_dropped_visits(ax2, current_stage_data_frame)
-                    handles.append([handle, visits, carers, cost_function])
-                add_legend(ax1, handles)
+                    handles.append([handle, total_stage_visits, carers, cost_function])
+                add_trace_legend(ax1, handles)
 
                 ax2.set_xlim(left=0)
                 ax2.set_ylim(bottom=0)
                 ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
             else:
-                visits = current_date_frame['visits'].iloc[0]
+                total_visits = current_date_frame['visits'].iloc[0]
+                if total_visits != (total_problem_visits + total_multiple_carer_visits):
+                    raise ValueError('Number of visits in problem and solution does not match: {0} vs {1}'
+                                     .format(total_visits, (total_problem_visits + total_multiple_carer_visits)))
+
                 carers = current_date_frame['carers'].iloc[0]
                 handle = ax1.scatter(
                     [time_delta.total_seconds() for time_delta in current_date_frame['relative_time']],
                     current_date_frame['cost'], s=1)
-                add_legend(ax1, [[handle, visits, carers, cost_function]])
+                add_trace_legend(ax1,
+                                 [[handle, total_multiple_carer_visits, total_problem_visits, carers, cost_function]])
                 scatter_dropped_visits(ax2, current_date_frame)
 
             ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
             ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
 
-            logging.warning('Extending the x axis of the plot by 2 minutes')
+            # logging.warning('Extending the x axis of the plot by 2 minutes')
             x_left, x_right = ax1.get_xlim()
             updated_x_right = x_right + 2 * 60
 
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
-            ax1.set_xlim(left=0, right=updated_x_right)
+            # ax1.set_xlim(left=0, right=updated_x_right)
 
             ax2_y_bottom, ax2_y_top = ax2.get_ylim()
             ax2.set_ylim(bottom=0, top=ax2_y_top * __Y_AXIS_EXTENSION)
-            ax2.set_xlim(left=0, right=updated_x_right)
+            # ax2.set_xlim(left=0, right=updated_x_right)
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
             matplotlib.pyplot.savefig(trace_file_stem + '_' + current_date.isoformat() + '.' + __FILE_FORMAT,
                                       format=__FILE_FORMAT,
@@ -876,19 +1027,20 @@ def compare_trace(args, settings):
         else:
             handles = []
             color_number = 0
-            color_map = matplotlib.cm.get_cmap('tab20')
             for current_date in dates:
+                current_color = color_map.colors[color_number]
                 current_date_frame = data_frame[data_frame['date'] == current_date]
+                total_problem_visits, total_multiple_carer_visits = get_problem_stats(problem, current_date)
                 stages = current_date_frame['stage'].unique()
                 if len(stages) > 1:
                     stage_linestyles = [None, 'dotted', 'dashed']
                     for stage, linestyle in zip(stages, stage_linestyles):
                         time_delta = current_date_frame[current_date_frame['stage'] == stage]['stage_started'].iloc[0]
                         draw_avline(ax1, time_delta.total_seconds(),
-                                    color=color_map.colors[color_number],
+                                    color=current_color,
                                     linestyle=linestyle)
                         draw_avline(ax2, time_delta.total_seconds(),
-                                    color=color_map.colors[color_number],
+                                    color=current_color,
                                     linestyle=linestyle)
 
                     total_carers = current_date_frame['carers'].max()
@@ -901,8 +1053,8 @@ def compare_trace(args, settings):
                     if multi_visits == total_visits:
                         multi_visits = 0
 
-                    handle = scatter_cost(ax1, current_date_frame)
-                    scatter_dropped_visits(ax2, current_date_frame)
+                    handle = scatter_cost(ax1, current_date_frame, current_color)
+                    scatter_dropped_visits(ax2, current_date_frame, current_color)
                     handles.append([handle,
                                     multi_visits,
                                     total_visits,
@@ -911,33 +1063,39 @@ def compare_trace(args, settings):
                                     cost_function,
                                     current_date])
                 else:
-                    visits = current_date_frame['visits'].iloc[0]
+                    total_visits = current_date_frame['visits'].iloc[0]
+                    if total_visits != (total_problem_visits + total_multiple_carer_visits):
+                        raise ValueError('Number of visits in problem and solution does not match: {0} vs {1}'
+                                         .format(total_visits, (total_problem_visits + total_multiple_carer_visits)))
                     carers = current_date_frame['carers'].iloc[0]
-                    handle = ax1.scatter(
-                        [time_delta.total_seconds() for time_delta in current_date_frame['relative_time']],
-                        current_date_frame['cost'], s=1)
-                    handles.append([handle, visits, carers, cost_function, current_date])
-                    scatter_dropped_visits(ax2, current_date_frame)
+                    handle = scatter_cost(ax1, current_date_frame, current_color)
+                    handles.append(
+                        [handle,
+                         total_multiple_carer_visits,
+                         total_problem_visits,
+                         carers,
+                         cost_function,
+                         current_date])
+                    scatter_dropped_visits(ax2, current_date_frame, current_color)
                 color_number += 1
 
             ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
             ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
 
-            logging.warning('Extending the x axis of the plot by 2 minutes')
+            # logging.warning('Extending the x axis of the plot by 2 minutes')
             x_left, x_right = ax1.get_xlim()
-            updated_x_right = x_right + 2 * 60
+            # updated_x_right = x_right + 2 * 60
 
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
-            ax1.set_xlim(left=0, right=updated_x_right)
+            ax1.set_xlim(left=0)  # , right=updated_x_right
 
-            legend = add_legend(ax2, handles, bbox_to_anchor=(0.5, -1.6), ncol=2)
+            legend = add_trace_legend(ax2, handles, bbox_to_anchor=(0.5, -1.7), ncol=2)
 
             ax2_y_bottom, ax2_y_top = ax2.get_ylim()
             ax2.set_ylim(bottom=0, top=ax2_y_top * __Y_AXIS_EXTENSION)
-            ax2.set_xlim(left=0, right=updated_x_right)
+            ax2.set_xlim(left=0)  # , right=updated_x_right
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-            matplotlib.pyplot.set_cmap(color_map)
             matplotlib.pyplot.tight_layout()
             figure.subplots_adjust(bottom=0.4)
             matplotlib.pyplot.savefig(trace_file_stem + '.' + __FILE_FORMAT,
@@ -945,6 +1103,154 @@ def compare_trace(args, settings):
                                       dpi=1200,
                                       bbox_extra_artists=(legend,),
                                       layout='tight')
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
+
+
+def get_schedule_stats(data_frame):
+    def get_stage_stats(stage):
+        if stage and (isinstance(stage, str) or (isinstance(stage, float) and not numpy.isnan(stage))):
+            stage_frame = data_frame[data_frame['stage'] == stage]
+        else:
+            stage_frame = data_frame[data_frame['stage'].isnull()]
+
+        min_carers, max_carers = stage_frame['carers'].min(), stage_frame['carers'].max()
+        if min_carers != max_carers:
+            raise ValueError(
+                'Numbers of carer differs within stage in range [{0}, {1}]'.format(min_carers, max_carers))
+
+        min_visits, max_visits = stage_frame['visits'].min(), stage_frame['visits'].max()
+        if min_visits != max_visits:
+            raise ValueError(
+                'Numbers of carer differs within stage in range [{0}, {1}]'.format(min_visits, max_visits))
+
+        return min_carers, min_visits
+
+    stages = data_frame['stage'].unique()
+    if len(stages) > 1:
+        data = []
+        for stage in stages:
+            carers, visits = get_stage_stats(stage)
+            data.append([stage, carers, visits])
+        return data
+    else:
+        stage_to_use = None
+        if len(stages) == 1:
+            stage_to_use = stages[0]
+        carers, visits = get_stage_stats(stage_to_use)
+        return [[None, carers, visits]]
+
+
+def contrast_trace(args, settings):
+    problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
+    problem = load_problem(problem_file)
+
+    problem_file_base = os.path.basename(problem_file)
+    problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
+
+    cost_function = get_or_raise(args, __COST_FUNCTION_TYPE)
+    base_trace_file = get_or_raise(args, __BASE_FILE_ARG)
+    candidate_trace_file = get_or_raise(args, __CANDIDATE_FILE_ARG)
+
+    base_frame = traces_to_data_frame(read_traces(base_trace_file))
+    candidate_frame = traces_to_data_frame(read_traces(candidate_trace_file))
+
+    current_date = get_or_raise(args, __DATE_ARG)
+    if current_date not in base_frame['date'].unique():
+        raise ValueError('Date {0} is not present in the base data set'.format(current_date))
+
+    if current_date not in candidate_frame['date'].unique():
+        raise ValueError('Date {0} is not present in the candidate data set'.format(current_date))
+
+    color_map = matplotlib.cm.get_cmap('tab20')
+    matplotlib.pyplot.set_cmap(color_map)
+    figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
+    try:
+        def plot(data_frame):
+            stages = data_frame['stage'].unique()
+            if len(stages) > 1:
+                for stage, linestyle in zip(stages, [None, 'dotted', 'dashed']):
+                    time_delta = data_frame[data_frame['stage'] == stage]['stage_started'].iloc[0]
+                    draw_avline(ax1, time_delta.total_seconds(), linestyle=linestyle)
+                    draw_avline(ax2, time_delta.total_seconds(), linestyle=linestyle)
+            scatter_dropped_visits(ax2, data_frame)
+            return scatter_cost(ax1, data_frame)
+
+        base_current_data_frame = base_frame[base_frame['date'] == current_date]
+        base_handle = plot(base_current_data_frame)
+        base_stats = get_schedule_stats(base_current_data_frame)
+        candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
+        candidate_handle = plot(candidate_current_data_frame)
+        candidate_stats = get_schedule_stats(candidate_current_data_frame)
+
+        labels = []
+        for stages in [base_stats, candidate_stats]:
+            if len(stages) == 1:
+                stage, carers, visits = stages[0]
+                labels.append('V00/{0:03} C00/{1:02} 1 Level'.format(carers, visits))
+            elif len(stages) > 1:
+                multiple_carers = min((stage[1] for stage in stages))
+                total_carers = max((stage[1] for stage in stages))
+                multiple_carer_visits = min((stage[2] for stage in stages))
+                total_visits = max((stage[2] for stage in stages))
+                labels.append('V{0:02}/{1:03} C{2:02}/{3:02} {4} Level'.format(multiple_carer_visits,
+                                                                               total_visits,
+                                                                               multiple_carers,
+                                                                               total_carers,
+                                                                               len(stages)))
+            else:
+                raise ValueError()
+
+        legend = add_legend(ax1, [base_handle, candidate_handle], labels, ncol=2, bbox_to_anchor=(0.5, -0.23))
+
+        ax1.set_xlim(left=0.0)
+        ax2.set_xlim(left=0.0)
+        ax1.set_ylim(bottom=0.0)
+        ax2.set_ylim(bottom=0.0)
+
+        ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
+        ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+        ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+        matplotlib.pyplot.tight_layout()
+        matplotlib.pyplot.savefig(
+            problem_file_name + '_contrast_traces_' + current_date.isoformat() + '.' + __FILE_FORMAT,
+            format=__FILE_FORMAT,
+            dpi=1200,
+            bbox_extra_artists=(legend,),
+            layout='tight')
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
+
+
+def format_timedelta(x, pos=None):
+    delta = datetime.timedelta(seconds=x)
+    time_point = datetime.datetime(2017, 1, 1) + delta
+    return time_point.strftime('%M:%S')
+
+
+def compare_prediction_error(args, settings):
+    base_schedule = load_schedule(get_or_raise(args, __BASE_FILE_ARG))
+    candidate_schedule = load_schedule(get_or_raise(args, __CANDIDATE_FILE_ARG))
+    observed_duration_by_visit = calculate_observed_visit_duration(base_schedule)
+    expected_duration_by_visit = calculate_expected_visit_duration(candidate_schedule)
+
+    data = []
+    for visit in base_schedule.visits:
+        observed_duration = observed_duration_by_visit[visit.visit]
+        expected_duration = expected_duration_by_visit[visit.visit]
+        data.append([visit.key, observed_duration.total_seconds(), expected_duration.total_seconds()])
+
+    frame = pandas.DataFrame(columns=['Visit', 'ObservedDuration', 'ExpectedDuration'], data=data)
+    frame['Error'] = (frame.ObservedDuration - frame.ExpectedDuration) / frame.ObservedDuration
+    figure, axis = matplotlib.pyplot.subplots()
+    try:
+        axis.plot(frame['Error'], label='(Observed - Expected)/Observed)')
+        axis.legend()
+        axis.set_ylim(-20, 2)
+        axis.grid()
+        matplotlib.pyplot.show()
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -1059,6 +1365,10 @@ if __name__ == '__main__':
         contrast_workload(__args, __settings)
     elif __command == __COMPARE_TRACE_COMMAND:
         compare_trace(__args, __settings)
+    elif __command == __CONTRAST_TRACE_COMMAND:
+        contrast_trace(__args, __settings)
+    elif __command == __COMPARE_PREDICTION_ERROR_COMMAND:
+        compare_prediction_error(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:

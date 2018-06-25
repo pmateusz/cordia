@@ -135,12 +135,15 @@ class Schedule(rows.model.object.DataObject):
                                                                longitude=longitude_attr['value']))
                 users_by_id[node['id']] = user
             elif type_attr['value'] == 'visit':
+                id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
                 user_attr = attributes.find('attvalue', attrs={'for': user_id})
                 start_time_attr = attributes.find('attvalue', attrs={'for': start_time_id})
                 duration_attr = attributes.find('attvalue', attrs={'for': duration_id})
+                key = int(id_number_attr['value'])
                 start_time = datetime.datetime.strptime(start_time_attr['value'], '%Y-%b-%d %H:%M:%S')
                 duration = datetime.datetime.strptime(duration_attr['value'], '%H:%M:%S').time()
-                visits_by_id[node['id']] = rows.model.visit.Visit(date=start_time.date(),
+                visits_by_id[node['id']] = rows.model.visit.Visit(key=key,
+                                                                  date=start_time.date(),
                                                                   time=start_time.time(),
                                                                   duration=datetime.timedelta(hours=duration.hour,
                                                                                               minutes=duration.minute,

@@ -97,6 +97,8 @@ class Problem(rows.model.object.DataObject):
         def from_json(json):
             """Create object from dictionary"""
 
+            key = json.get(Problem.LocalVisit.KEY, None)
+
             date_json = json.get(Problem.LocalVisit.DATE, None)
             date = rows.model.datetime.try_parse_iso_date(date_json) if date_json else None
 
@@ -106,9 +108,13 @@ class Problem(rows.model.object.DataObject):
             duration_json = json.get(Problem.LocalVisit.DURATION, None)
             duration = rows.model.datetime.try_parse_duration(duration_json) if duration_json else None
 
-            return Problem.LocalVisit(**{Problem.LocalVisit.DATE: date,
+            carer_count = json.get(Problem.LocalVisit.CARER_COUNT, None)
+
+            return Problem.LocalVisit(**{Problem.LocalVisit.KEY: key,
+                                         Problem.LocalVisit.DATE: date,
                                          Problem.LocalVisit.TIME: time,
-                                         Problem.LocalVisit.DURATION: duration})
+                                         Problem.LocalVisit.DURATION: duration,
+                                         Problem.LocalVisit.CARER_COUNT: carer_count})
 
         @property
         def service_user(self):
