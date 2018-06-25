@@ -875,7 +875,7 @@ def format_timedelta(x, pos=None):
 
 
 __SCATTER_POINT_SIZE = 1
-__FILE_FORMAT = 'svg'
+__FILE_FORMAT = 'pdf'
 __Y_AXIS_EXTENSION = 1.2
 
 
@@ -1167,21 +1167,21 @@ def contrast_trace(args, settings):
     matplotlib.pyplot.set_cmap(color_map)
     figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
     try:
-        def plot(data_frame):
+        def plot(data_frame, color):
             stages = data_frame['stage'].unique()
             if len(stages) > 1:
                 for stage, linestyle in zip(stages, [None, 'dotted', 'dashed']):
                     time_delta = data_frame[data_frame['stage'] == stage]['stage_started'].iloc[0]
                     draw_avline(ax1, time_delta.total_seconds(), linestyle=linestyle)
                     draw_avline(ax2, time_delta.total_seconds(), linestyle=linestyle)
-            scatter_dropped_visits(ax2, data_frame)
-            return scatter_cost(ax1, data_frame)
+            scatter_dropped_visits(ax2, data_frame, color=color)
+            return scatter_cost(ax1, data_frame, color=color)
 
         base_current_data_frame = base_frame[base_frame['date'] == current_date]
-        base_handle = plot(base_current_data_frame)
+        base_handle = plot(base_current_data_frame, color_map.colors[0])
         base_stats = get_schedule_stats(base_current_data_frame)
         candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
-        candidate_handle = plot(candidate_current_data_frame)
+        candidate_handle = plot(candidate_current_data_frame, color_map.colors[1])
         candidate_stats = get_schedule_stats(candidate_current_data_frame)
 
         labels = []
