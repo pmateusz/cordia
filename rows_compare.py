@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import collections
 import datetime
@@ -1377,6 +1379,7 @@ def show_working_hours(args, settings):
             carer_index = 0
             for carer in carers:
                 carer_frame = frame_to_use[frame_to_use['carer'] == carer]
+                axis.bar(carer_index + 0.25, 24 * 3600, 0.75, bottom=0, color='grey', alpha=0.3)
                 for index, row in carer_frame.iterrows():
                     event_begin = datetime.datetime.strptime(row['begin'], '%Y-%m-%d %H:%M:%S')
                     event_end = datetime.datetime.strptime(row['end'], '%Y-%m-%d %H:%M:%S')
