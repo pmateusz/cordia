@@ -420,15 +420,15 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                            max_dropped_visits_count,
                                                            vehicle_metrics);
         case Formula::VEHICLE_REDUCTION:
-            return std::make_unique<rows::ThirdStepReductionSolver>(problem_,
-                                                                    routing_parameters_,
-                                                                    search_params,
-                                                                    visit_time_window_,
-                                                                    break_time_window_,
-                                                                    begin_end_shift_time_extension_,
-                                                                    post_opt_time_limit_,
-                                                                    last_dropped_visit_penalty,
-                                                                    max_dropped_visits_count,
-                                                                    vehicle_metrics);
+            return std::make_unique<rows::ThirdStepFulfillSolver>(problem_,
+                                                                  routing_parameters_,
+                                                                  search_params,
+                                                                  visit_time_window_,
+                                                                  break_time_window_,
+                                                                  begin_end_shift_time_extension_,
+                                                                  post_opt_time_limit_,
+                                                                  last_dropped_visit_penalty,
+                                                                  max_dropped_visits_count,
+                                                                  vehicle_metrics);
     }
 }

@@ -1,4 +1,5 @@
 import logging
+import pandas
 import pathlib
 import statistics
 import collections
@@ -755,7 +756,7 @@ ORDER BY carer_visits.VisitID"""
         def __init__(self):
             pass
 
-        def reload(self, console, connection_factory):
+        def reload(self, console, connection_factory, area, begin, end):
             pass
 
         def reload_if(self, console, connection_factory):
@@ -1181,6 +1182,9 @@ ORDER BY carer_visits.VisitID"""
             carer_id, begin, end = row
             intervals_by_carer[carer_id].append(AbsoluteEvent(begin=begin, end=end))
 
+        # data = []
+        # columns = ['carer', 'carer_type', 'day', 'begin', 'end', 'event type']
+
         carer_shifts = []
         for carer_id in work_events_by_carer.keys():
             diaries = []
@@ -1192,13 +1196,23 @@ ORDER BY carer_visits.VisitID"""
                     # carer is assigned to area
                     actual_work = [event for event in work_events_by_carer[carer_id]
                                    if event.begin.date() == current_date]
+
+                    # for event in actual_work:
+                    #     data.append([carer_id, 'normal', current_date, event.begin, event.end, 'work'])
+
                     working_hours = scheduler.get_working_hours(carer_id, current_date)
                     if working_hours:
+                        # for event in working_hours:
+                        #     data.append([carer_id, 'normal', current_date, event.begin, event.end, 'contract'])
+
                         work_to_use = scheduler.adjust_work(actual_work, working_hours)
                         work_to_use = scheduler.join_within_threshold(work_to_use, datetime.timedelta(minutes=15))
                         work_to_use = scheduler.patch_outlieres(work_to_use,
                                                                 max_outlier_duration=datetime.timedelta(minutes=30),
                                                                 max_window=datetime.timedelta(minutes=45))
+                        # for event in work_to_use:
+                        #     data.append([carer_id, 'normal', current_date, event.begin, event.end, 'assumed'])
+
                         diary = Diary(date=current_date,
                                       events=work_to_use,
                                       shift_type=Diary.STANDARD_SHIFT_TYPE)
@@ -1207,6 +1221,10 @@ ORDER BY carer_visits.VisitID"""
                         work_to_use = scheduler.patch_outlieres(work_to_use,
                                                                 max_outlier_duration=datetime.timedelta(minutes=30),
                                                                 max_window=datetime.timedelta(minutes=45))
+
+                        # for event in work_to_use:
+                        #     data.append([carer_id, 'normal', current_date, event.begin, event.end, 'assumed'])
+
                         diary = Diary(date=current_date,
                                       events=work_to_use,
                                       shift_type=Diary.EXTRA_SHIFT_TYPE)
@@ -1217,8 +1235,20 @@ ORDER BY carer_visits.VisitID"""
                     actual_work = [event for event in work_events_by_carer[carer_id]
                                    if event.begin.date() == current_date]
                     working_hours = scheduler.get_working_hours(carer_id, current_date)
+
+                    # for event in actual_work:
+                    #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'work'])
+
+                    # if working_hours:
+                    #     for event in working_hours:
+                    #         data.append([carer_id, 'moved', current_date, event.begin, event.end, 'contract'])
+
                     if len(actual_work) == 1:
                         is_external = not working_hours
+
+                        # for event in actual_work:
+                        #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'assumed'])
+
                         diary = Diary(date=current_date,
                                       events=actual_work,
                                       shift_type=Diary.EXTERNAL_SHIFT_TYPE if is_external
@@ -1230,15 +1260,26 @@ ORDER BY carer_visits.VisitID"""
                             work_to_use = scheduler.patch_outlieres(work_to_use,
                                                                     max_outlier_duration=datetime.timedelta(minutes=30),
                                                                     max_window=datetime.timedelta(minutes=45))
+
+                            # for event in work_to_use:
+                            #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'assumed'])
+
                             diary = Diary(date=current_date,
                                           events=work_to_use,
                                           shift_type=Diary.EXTERNAL_SHIFT_TYPE)
                         else:
+                            # for event in working_hours:
+                            #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'contract'])
+
                             work_to_use = scheduler.adjust_work(actual_work, working_hours)
                             work_to_use = scheduler.join_within_threshold(work_to_use, datetime.timedelta(minutes=15))
                             work_to_use = scheduler.patch_outlieres(work_to_use,
                                                                     max_outlier_duration=datetime.timedelta(minutes=30),
                                                                     max_window=datetime.timedelta(minutes=45))
+
+                            # for event in work_to_use:
+                            #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'assumed'])
+
                             diary = Diary(date=current_date,
                                           events=work_to_use,
                                           shift_type=Diary.EXTRA_SHIFT_TYPE)
@@ -1246,6 +1287,8 @@ ORDER BY carer_visits.VisitID"""
             carer_mobility = Carer.CAR_MOBILITY_TYPE if carer_id in mobile_carers else Carer.FOOT_MOBILITY_TYPE
             carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id),
                                                                mobility=carer_mobility), diaries=diaries))
+        # frame = pandas.DataFrame(data=data, columns=columns)
+        # frame.to_csv('shifts.csv')
         return visits, carer_shifts
 
     def get_service_users(self, area, begin_date, end_date):

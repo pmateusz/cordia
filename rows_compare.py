@@ -49,6 +49,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 __COMMAND = 'command'
 __PULL_COMMAND = 'pull'
 __INFO_COMMAND = 'info'
+__SHOW_WORKING_HOURS_COMMAND = 'show-working-hours'
 __COMPARE_DISTANCE_COMMAND = 'compare-distance'
 __COMPARE_WORKLOAD_COMMAND = 'compare-workload'
 __CONTRAST_WORKLOAD_COMMAND = 'contrast-workload'
@@ -143,6 +144,9 @@ def configure_parser():
     contrast_trace_parser.add_argument(__CANDIDATE_FILE_ARG)
     contrast_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __DATE_ARG, type=get_date, required=True)
     contrast_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __COST_FUNCTION_TYPE, required=True)
+
+    show_working_hours_parser = subparsers.add_parser(__SHOW_WORKING_HOURS_COMMAND)
+    show_working_hours_parser.add_argument(__FILE_ARG)
 
     return parser
 
@@ -874,6 +878,14 @@ def format_timedelta(x, pos=None):
     return time_point.strftime('%M:%S')
 
 
+def format_time(x, pos=None):
+    if isinstance(x, numpy.int64):
+        x = x.item()
+    delta = datetime.timedelta(seconds=x)
+    time_point = datetime.datetime(2017, 1, 1) + delta
+    return time_point.strftime('%H:%M')
+
+
 __SCATTER_POINT_SIZE = 1
 __FILE_FORMAT = 'pdf'
 __Y_AXIS_EXTENSION = 1.2
@@ -1342,6 +1354,54 @@ def debug(args, settings):
     pass
 
 
+def show_working_hours(args, settings):
+    __WIDTH = 0.25
+    color_map = matplotlib.cm.get_cmap('tab20')
+    matplotlib.pyplot.set_cmap(color_map)
+
+    shift_file = get_or_raise(args, __FILE_ARG)
+    shift_file_base_name, shift_file_ext = os.path.splitext(shift_file)
+
+    __EVENT_TYPE_OFFSET = {'assumed': 2, 'contract': 1, 'work': 0}
+    __EVENT_TYPE_COLOR = {'assumed': color_map.colors[0], 'contract': color_map.colors[4], 'work': color_map.colors[2]}
+
+    handles = {}
+    frame = pandas.read_csv(shift_file)
+    dates = frame['day'].unique()
+    for current_date in dates:
+        frame_to_use = frame[frame['day'] == current_date]
+        carers = frame_to_use['carer'].unique()
+        figure, axis = matplotlib.pyplot.subplots()
+        try:
+            current_date_to_use = datetime.datetime.strptime(current_date, '%Y-%m-%d')
+            carer_index = 0
+            for carer in carers:
+                carer_frame = frame_to_use[frame_to_use['carer'] == carer]
+                for index, row in carer_frame.iterrows():
+                    event_begin = datetime.datetime.strptime(row['begin'], '%Y-%m-%d %H:%M:%S')
+                    event_end = datetime.datetime.strptime(row['end'], '%Y-%m-%d %H:%M:%S')
+                    handle = axis.bar(carer_index + __EVENT_TYPE_OFFSET[row['event type']] * __WIDTH,
+                                      (event_end - event_begin).total_seconds(),
+                                      __WIDTH,
+                                      bottom=(event_begin - current_date_to_use).total_seconds(),
+                                      color=__EVENT_TYPE_COLOR[row['event type']])
+                    handles[row['event type']] = handle
+                carer_index += 1
+            axis.legend([handles['work'], handles['contract'], handles['assumed']],
+                        ['Worked', 'Available', 'Forecast'], loc='upper right')
+            axis.grid(linestyle='dashed')
+            axis.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_time))
+            axis.yaxis.set_ticks(numpy.arange(0, 24 * 3600, 2 * 3600))
+            axis.set_ylim(6 * 3600, 24 * 60 * 60)
+            matplotlib.pyplot.savefig(shift_file_base_name + current_date + '.pdf',
+                                      dpi=1200,
+                                      format='pdf',
+                                      layout='tight')
+        finally:
+            matplotlib.pyplot.cla()
+            matplotlib.pyplot.close(figure)
+
+
 if __name__ == '__main__':
     sys.excepthook = handle_exception
 
@@ -1369,6 +1429,8 @@ if __name__ == '__main__':
         contrast_trace(__args, __settings)
     elif __command == __COMPARE_PREDICTION_ERROR_COMMAND:
         compare_prediction_error(__args, __settings)
+    elif __command == __SHOW_WORKING_HOURS_COMMAND:
+        show_working_hours(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:
