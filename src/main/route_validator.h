@@ -373,16 +373,16 @@ namespace rows {
                                                           const operations_research::RoutingModel &model,
                                                           rows::SolverWrapper &solver) const;
 
-    private:
-        std::shared_ptr<FixedDurationActivity> try_get_failed_activity(
-                std::list<std::shared_ptr<FixedDurationActivity> > &activities,
-                const boost::posix_time::ptime &start_date_time) const;
-
         bool is_schedule_valid(std::list<std::shared_ptr<FixedDurationActivity> > &activities,
                                const std::vector<std::shared_ptr<FixedDurationActivity> > &breaks,
                                boost::posix_time::ptime start_date_time,
                                std::list<std::shared_ptr<FixedDurationActivity> >::iterator current_position,
                                std::vector<std::shared_ptr<FixedDurationActivity> >::iterator current_break) const;
+
+    private:
+        std::shared_ptr<FixedDurationActivity> try_get_failed_activity(
+                std::list<std::shared_ptr<FixedDurationActivity> > &activities,
+                const boost::posix_time::ptime &start_date_time) const;
     };
 
     class SimpleRouteValidatorWithTimeWindows : public RouteValidatorBase {

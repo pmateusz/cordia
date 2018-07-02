@@ -1433,6 +1433,20 @@ namespace rows {
             return session.ToValidationResult();
         }
 
+        LOG(INFO) << "Vehicle: " << vehicle;
+
+        for (const auto &activity : activities) {
+            LOG(INFO) << activity->debug_info()
+                      << ' ' << boost::posix_time::to_simple_string(activity->period())
+                      << ' ' << activity->duration();
+        }
+
+        for (const auto &activity : breaks_to_distribute) {
+            LOG(INFO) << activity->debug_info()
+                      << ' ' << boost::posix_time::to_simple_string(activity->period())
+                      << ' ' << activity->duration();
+        }
+
         std::string error_msg = "Failed to find a combination of breaks that would create a valid activity sequence";
         LOG(FATAL) << error_msg;
         std::unique_ptr<RouteValidatorBase::ValidationError> error_ptr
@@ -1565,7 +1579,7 @@ namespace rows {
 
     boost::posix_time::ptime FixedDurationActivity::Perform(
             boost::posix_time::ptime current_time) const {
-        if (start_window_.is_before(current_time)) {
+        if (start_window_.is_before(current_time) && start_window_.end() != current_time) {
             return boost::posix_time::not_a_date_time;
         } else if (start_window_.contains(current_time)
                    || start_window_.begin() == current_time
