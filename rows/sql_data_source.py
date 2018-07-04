@@ -143,7 +143,7 @@ class SqlDataSource:
     USED_RESOURCE_ESTIMATOR_NAME = 'used'
 
     LIST_AREAS_QUERY = """SELECT aom.aom_id, aom.area_code
-FROM [StrathClydeOld].[dbo].[ListAom] aom
+FROM [dbo].[ListAom] aom
 ORDER BY aom.area_code"""
 
     LIST_VISITS_QUERY = """SELECT visit_id,
@@ -151,7 +151,7 @@ service_user_id,
 vdate,
 vtime,
 vduration,
-STRING_AGG(task_id, ';')  WITHIN GROUP (ORDER BY task_id) as 'tasks'
+'12345' as 'tasks'
 FROM (
   SELECT MIN(window_visits.visit_id) as visit_id,
     window_visits.service_user_id as service_user_id,
@@ -186,7 +186,7 @@ INNER JOIN (
     SELECT visit_orders.visit_id as 'VisitID',
     MIN(service_user_id) as 'User',
     MIN(area_code) as 'Area',
-    STRING_AGG(visit_orders.task, '-') WITHIN GROUP (ORDER BY visit_orders.task) as 'Tasks'
+    '12345' as 'Tasks'
     FROM (
         SELECT DISTINCT visit_window.visit_id as visit_id,
             CONVERT(int, visit_window.task_no) as task,
@@ -215,7 +215,7 @@ service_user_id,
 vdate,
 vtime,
 vduration,
-STRING_AGG(task_id, ';')  WITHIN GROUP (ORDER BY task_id) as 'tasks'
+'12345' as 'tasks'
 FROM (
  SELECT MIN(window_visits.visit_id) as visit_id,
     window_visits.service_user_id as service_user_id,
@@ -245,7 +245,7 @@ visits.service_user_id as 'service_user_id',
 visits.tasks as 'tasks' FROM (
 SELECT visit_task.visit_id,
 MIN(visit_task.service_user_id) as 'service_user_id',
-STRING_AGG(visit_task.task, ';') WITHIN GROUP (ORDER BY visit_task.task) as 'tasks'
+'12345' as 'tasks'
 FROM (
 SELECT visit_window.visit_id as 'visit_id',
 MIN(visit_window.service_user_id) as 'service_user_id',
@@ -315,7 +315,7 @@ WHERE AomId={2} AND StartDateTime BETWEEN '{0}' AND '{1}'
 """
 
     GLOBAL_VISIT_DURATION = """SELECT visit_id,
-STRING_AGG(task_id, ';') WITHIN GROUP (ORDER BY visits.task_id) as 'tasks',
+'12345' as 'tasks',
 MIN(visits.planned_duration) as planned_duration,
 MIN(visits.duration) as duration
 FROM
