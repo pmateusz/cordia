@@ -7,10 +7,14 @@ import time
 from distutils.util import strtobool
 
 class Carer:
-    def __init__(self, id, sap_number):
+    def __init__(self, id, sap_number,dropped):
         self.id = id
+        self.dropped=dropped
         self.sap_number = sap_number
         self.visits = []
+        self.work_service_time="00:00:00"
+        self.work_travel_time="00:00:00"
+        self.work_idle_time="00:00:00"
 
     def set_work_param(self, work_relative, work_total_time, work_available_time, work_service_time, work_travel_time, work_idle_time, work_visits_count):
         self.work_relative = work_relative
@@ -106,6 +110,7 @@ def load_problem(filepath):
             type_attr = attributes.find('attvalue', attrs={'for': type_id})
             if type_attr['value'] == 'carer':
                 id_attr = attributes.find('attvalue', attrs={'for': id_id})
+                dropped_attr = attributes.find('attvalue', attrs={'for': dropped})
                 sap_number_attr = attributes.find('attvalue', attrs={'for': sap_number_id})
                 work_relative_attr  = attributes.find('attvalue', attrs={'for': work_relative})
                 work_total_time_attr  = attributes.find('attvalue', attrs={'for': work_total_time})
@@ -115,8 +120,9 @@ def load_problem(filepath):
                 work_idle_time_attr  = attributes.find('attvalue', attrs={'for': work_idle_time})
                 work_visits_count_attr  = attributes.find('attvalue', attrs={'for': work_visits_count})
 
-                carer = Carer(id_attr['value'], sap_number_attr['value'])
-                carer.set_work_param(work_relative_attr['value'], work_total_time_attr['value'], work_available_time_attr['value'], work_service_time_attr['value'], work_travel_time_attr['value'], work_idle_time_attr['value'], work_visits_count_attr['value'])
+                carer = Carer(id_attr['value'], sap_number_attr['value'],dropped_attr['value']) if dropped_attr else Carer(id_attr['value'], sap_number_attr['value'],"False")
+                if not strtobool(carer.dropped):
+                    carer.set_work_param(work_relative_attr['value'], work_total_time_attr['value'], work_available_time_attr['value'], work_service_time_attr['value'], work_travel_time_attr['value'], work_idle_time_attr['value'], work_visits_count_attr['value'])
                 carers.append(carer)
                 
             elif type_attr['value'] == 'visit':
