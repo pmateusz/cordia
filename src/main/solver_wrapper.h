@@ -18,6 +18,7 @@
 
 #include <ortools/constraint_solver/routing.h>
 #include <ortools/base/logging.h>
+#include <ortools/constraint_solver/constraint_solver.h>
 #include <boost/date_time/posix_time/posix_time_config.hpp>
 
 #include "calendar_visit.h"
@@ -27,7 +28,6 @@
 #include "route_validator.h"
 #include "service_user.h"
 #include "printer.h"
-#include "../../../../../../usr/local/include/ortools/constraint_solver/constraint_solver.h"
 
 namespace rows {
 
@@ -182,6 +182,20 @@ namespace rows {
         operations_research::IntervalVar *CreateBreakInterval(operations_research::Solver *solver,
                                                               const rows::Event &event,
                                                               std::string label) const;
+
+        bool AddBreakIntervalVarIfNonZero(operations_research::Solver *solver,
+                                          const rows::Event &event,
+                                          std::string label,
+                                          std::vector<operations_research::IntervalVar *> &intervals) const;
+
+        operations_research::IntervalVar *CreateFixedInterval(operations_research::Solver *solver,
+                                                              const rows::Event &event,
+                                                              std::string label) const;
+
+        bool AddFixedIntervalIfNonZero(operations_research::Solver *solver,
+                                       const rows::Event &event,
+                                       std::string label,
+                                       std::vector<operations_research::IntervalVar *> &intervals) const;
 
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
