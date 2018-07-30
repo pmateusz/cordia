@@ -243,6 +243,11 @@ void rows::ThreeStepSchedulingWorker::Run() {
         CHECK(validation_result.error() == nullptr);
     }
 
+    const rows::GexfWriter solution_writer;
+    std::string second_stage_output{"second_stage_"};
+    second_stage_output.append(output_file_);
+    solution_writer.Write(second_stage_output, *second_step_wrapper, *second_stage_model, *second_stage_assignment);
+
     std::unique_ptr<operations_research::RoutingModel> third_stage_model
             = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
                                                                   second_step_wrapper->vehicles(),
@@ -302,8 +307,6 @@ void rows::ThreeStepSchedulingWorker::Run() {
     operations_research::Assignment third_validation_copy{third_stage_assignment};
     const auto is_third_solution_correct = third_stage_assignment->solver()->CheckAssignment(&third_validation_copy);
     DCHECK(is_third_solution_correct);
-
-    rows::GexfWriter solution_writer;
     solution_writer.Write(output_file_, *third_step_solver, *third_stage_model, *third_stage_assignment);
 
     printer_->operator<<(TracingEvent(TracingEventType::Finished, "All"));

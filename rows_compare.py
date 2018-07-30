@@ -5,6 +5,7 @@ import collections
 import datetime
 import functools
 import glob
+import itertools
 import json
 import logging
 import operator
@@ -76,6 +77,8 @@ __OUTPUT_PREFIX_ARG = 'output_prefix'
 __OPTIONAL_ARG_PREFIX = '--'
 __BASE_SCHEDULE_PATTERN = 'base_schedule_pattern'
 __CANDIDATE_SCHEDULE_PATTERN = 'candidate_schedule_pattern'
+__SCHEDULE_PATTERNS = 'schedule_patterns'
+__LABELS = 'labels'
 
 
 def get_or_raise(obj, prop):
@@ -112,8 +115,8 @@ def configure_parser():
     info_parser.add_argument(__FILE_ARG)
 
     compare_distance_parser = subparsers.add_parser(__COMPARE_DISTANCE_COMMAND)
-    compare_distance_parser.add_argument(__BASE_SCHEDULE_PATTERN)
-    compare_distance_parser.add_argument(__CANDIDATE_SCHEDULE_PATTERN)
+    compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __SCHEDULE_PATTERNS, nargs='+', required=True)
+    compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __LABELS, nargs='+', required=True)
 
     compare_workload_parser = subparsers.add_parser(__COMPARE_WORKLOAD_COMMAND)
     compare_workload_parser.add_argument(__PROBLEM_FILE_ARG)
@@ -188,7 +191,9 @@ class RoutingServer:
         EXIT_TIMEOUT = 5
 
         def __init__(self):
-            self.__process = subprocess.Popen(['./build/rows-routing-server', '--maps=./data/scotland-latest.osrm'],
+            self.__process = subprocess.Popen([os.path.expanduser('~/dev/cordia/build/rows-routing-server'),
+                                               '--maps=' + os.path.expanduser(
+                                                   '~/dev/cordia/data/scotland-latest.osrm')],
                                               stdin=subprocess.PIPE,
                                               stdout=subprocess.PIPE,
                                               stderr=subprocess.PIPE)
@@ -232,8 +237,8 @@ def get_travel_time(schedule, user_tag_finder):
 
     total_travel_time = datetime.timedelta()
     with RoutingServer() as session:
-        for carer in routes:
-            visit_it = iter(routes[carer])
+        for route in routes:
+            visit_it = iter(route.visits)
 
             current_visit = next(visit_it, None)
             current_location = user_tag_finder.find(int(current_visit.visit.service_user))
@@ -308,41 +313,50 @@ class TimeDeltaConverter:
 
 
 def compare_distance(args, settings):
-    left_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __BASE_SCHEDULE_PATTERN))]
-    left_series.sort(key=operator.attrgetter('metadata.begin'))
-    right_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __CANDIDATE_SCHEDULE_PATTERN))]
-    right_series.sort(key=operator.attrgetter('metadata.begin'))
+    schedule_patterns = getattr(args, __SCHEDULE_PATTERNS)
+    labels = getattr(args, __LABELS)
 
     user_tag_finder = rows.location_finder.UserLocationFinder(settings)
     user_tag_finder.reload()
-    left_results = [(schedule.metadata.begin, get_travel_time(schedule, user_tag_finder)) for schedule in left_series]
-    right_results = [(schedule.metadata.begin, get_travel_time(schedule, user_tag_finder)) for schedule in right_series]
 
-    dates = list(map(operator.itemgetter(0), left_results))
-    dates.extend(map(operator.itemgetter(0), right_results))
-    data_frame = pandas.DataFrame(columns=['HumanPlanners', 'ConstraintProgramming'],
+    data = {}
+    for label, schedule_pattern in zip(labels, schedule_patterns):
+        series = [load_schedule(file_path) for file_path in glob.glob(schedule_pattern)]
+        series.sort(key=operator.attrgetter('metadata.begin'))
+        results = [(schedule.metadata.begin, get_travel_time(schedule, user_tag_finder)) for schedule in series]
+        data[label] = results
+
+    dates = [date for label, series in data.items() for date, duration in series]
+    data_frame = pandas.DataFrame(columns=labels,
                                   index=numpy.arange(min(dates),
                                                      max(dates) + datetime.timedelta(days=1),
                                                      dtype='datetime64[D]'))
-    for data, duration in left_results:
-        data_frame.HumanPlanners[data] = duration
-    for data, duration in right_results:
-        data_frame.ConstraintProgramming[data] = duration
+
+    for label in labels:
+        for date, duration in data[label]:
+            data_frame[label][date] = duration
 
     time_delta_convert = TimeDeltaConverter()
     indices = numpy.array(list(map(matplotlib.dates.date2num, data_frame.index)))
-    width = 0.35
+    width = 0.20
 
     figure, axis = matplotlib.pyplot.subplots()
-    human_handle = axis.bar(indices,
-                            time_delta_convert(data_frame.HumanPlanners), width, bottom=time_delta_convert.zero)
-    cp_handle = axis.bar(indices + width,
-                         time_delta_convert(data_frame.ConstraintProgramming), width, bottom=time_delta_convert.zero)
+    handles = []
+    position = 0
+    for label in labels:
+        handle = axis.bar(indices + position * width,
+                          time_delta_convert(data_frame[label]),
+                          width,
+                          bottom=time_delta_convert.zero)
+        handles.append(handle)
+        position += 1
     axis.xaxis_date()
+    axis.xaxis.set_tick_params(rotation=45)
     axis.yaxis_date()
-    axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M:%S"))
-    axis.legend((human_handle, cp_handle), ('Human Planners', 'Constraint Programming'), loc='upper right')
-    matplotlib.pyplot.show()
+    axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d %H:%M:%S"))
+    axis.legend(handles, labels, loc='upper right')
+    matplotlib.pyplot.tight_layout()
+    matplotlib.pyplot.savefig('distance.pdf', format='pdf', dpi=1200)
 
 
 class VisitDict:
