@@ -20,7 +20,11 @@ echo 'Making comparison plot of 1 and 3 level distance formulation'
 echo 'Making distance comparison'
 ../rows_compare.py compare-distance --schedule_patterns "./350_distance/c350dv90b90e15m2m4m8_201710*.gexf" "./350_distance/second_stage_c350dv90b90e15m2m4m8_201710*.gexf" "./human/c350human_201710*.json" --labels "3 Level Constraint Programming" "2 Level Constraint Programming" "Human Planners" --output=compare_distance_350
 
-echo 'Making workload comparison'
+echo 'Making workload comparison for the reduced objective function'
 ../rows_compare.py compare-workload c350_forecasted_problem.json "./350_reduction/c350redv90b90e15m2m4m8_*.gexf" "./350_distance/second_stage_c350dv90b90e15m2m4m8_201710*.gexf"
+
+echo 'Making workload comparison for the distance objective function'
+../rows_compare.py compare-workload c350_forecasted_problem.json "./350_distance/c350dv90b90e15m2m4m8_*.gexf" "./350_distance/second_stage_c350dv90b90e15m2m4m8_*.gexf"
+
 
 popd
