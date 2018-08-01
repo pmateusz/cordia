@@ -11,7 +11,7 @@ import numpy as np
 from distutils.util import strtobool
 from simplekml import Kml, Style, Color, ColorMode
 
-from rows.visualisation.problem import load_problem
+from rows.visualisation.problem import load_solution
 
 def generate_colors(n):
     palette = []
@@ -39,7 +39,7 @@ def generate_colors(n):
 
 def generate_graph(input_file, output_file):
 
-    carers, visits = load_problem(input_file)
+    carers, visits = load_solution(input_file)
 
     #write corresponding KLM file for display in Google Earth
     kml = Kml()      

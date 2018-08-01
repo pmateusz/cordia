@@ -4,11 +4,11 @@ import time
 import datetime
 from distutils.util import strtobool
 
-from rows.visualisation.problem import load_problem
+from rows.visualisation.problem import load_solution
 
 def generate_stats(input_file,output_file):
 
-    carers,visits = load_problem(input_file)
+    carers,visits = load_solution(input_file)
 
     sap_number = [carer.sap_number for carer in carers]
     

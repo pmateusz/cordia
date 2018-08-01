@@ -56,7 +56,8 @@ class Visit:
         self.assigned_carer = assigned_carer
         self.satisfaction = satisfaction
 
-    def set_staticparam(self, lon, lat, user, start_time, duration):
+    def set_staticparam(self, id, lon, lat, user, start_time, duration):
+        self.id = id
         self.lon = lon
         self.lat = lat
         self.user = user
@@ -72,7 +73,7 @@ class Visit:
         else:
             return False
 
-def load_problem(filepath):
+def load_solution(filepath):
     with open(filepath, 'r') as fp:
         soup = bs4.BeautifulSoup(fp, "html5lib")
 
@@ -126,6 +127,7 @@ def load_problem(filepath):
                 carers.append(carer)
                 
             elif type_attr['value'] == 'visit':
+                id_attr = attributes.find('attvalue', attrs={'for': id_id})
                 dropped_attr = attributes.find('attvalue', attrs={'for': dropped})
                 lon_attr = attributes.find('attvalue', attrs={'for': lon})
                 lat_attr = attributes.find('attvalue', attrs={'for': lat})
@@ -133,7 +135,7 @@ def load_problem(filepath):
                 start_time_attr = attributes.find('attvalue', attrs={'for': start_time})
                 duration_attr = attributes.find('attvalue', attrs={'for': duration})                		
                 visit = Visit(dropped_attr['value']) if dropped_attr else Visit("False")		
-                visit.set_staticparam(lon_attr['value'], lat_attr['value'], user_attr['value'], start_time_attr['value'], duration_attr['value'])		
+                visit.set_staticparam(id_attr['value'], lon_attr['value'], lat_attr['value'], user_attr['value'], start_time_attr['value'], duration_attr['value'])		
                 if not strtobool(visit.dropped):
                     assigned_carer_attr = attributes.find('attvalue', attrs={'for': assigned_carer_id})
                     satisfaction_attr = attributes.find('attvalue', attrs={'for': satisfaction})
