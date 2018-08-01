@@ -79,7 +79,6 @@ def get_histogram(writer, sheet, utilisation_hist, utilisation_hist_labels):
             'name':       [sheet, 0, col_num],
             'categories': [sheet, 1, 0, len(utilisation_hist), 0],
             'values':     [sheet, 1, col_num, len(utilisation_hist), col_num],
-            #'fill':       {'color': brews['Pastel1'][col_num - 1]},
             'gap':        4,
          })
 
@@ -248,7 +247,7 @@ def generate_MSExcel(problem_file,input_file,output_file):
                 opt_utilisation_hist.append({'service time': partial_work_time, 'travel time': partial_travel_time, 'idle time': sign*partial_idle_time}) 
             else:
                 dropped_carers.append(carer.sap_number)
-        print("Lenght dict_dataframe_opt",len(dict_dataframe_opt['Scheduled start time']))
+
         # writing to Excel
         dataframe_opt = pd.DataFrame(dict_dataframe_opt, columns=['Carer SAP', 'Service User ID', 'Actual start time', 'Actual duration', 'Planned start time', 'Planned duration', 'Scheduled start time', 'Scheduled duration', 'Travel time'])
         dataframe_opt.to_excel(writer,'Optimiser', index=False, startrow=row_id)
@@ -322,7 +321,6 @@ def generate_MSExcel(problem_file,input_file,output_file):
             man_utilisation_hist_labels.append(int(carer.sap_number))
 
         # writing to Excel
-        print("Lenght dict_dataframe_man",len(dict_dataframe_man['Planned start time']))
         dataframe_man = pd.DataFrame(dict_dataframe_man, columns=['Carer SAP', 'Service User ID', 'Actual start time', 'Actual duration', 'Planned start time', 'Planned duration', 'Travel time'])
         dataframe_man.to_excel(writer,'Human Planner', index=False, startrow=row_id)
         worksheet_man = writer.sheets['Human Planner']
