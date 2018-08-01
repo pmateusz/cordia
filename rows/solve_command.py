@@ -82,6 +82,10 @@ class Handler:
                 args.append('--scheduling-date={0}-{1}-{2}'.format(schedule_date_arg.year,
                                                                    schedule_date_arg.month,
                                                                    schedule_date_arg.day))
+            
+            args.append('--begin-end-shift-time-extension=00:15:00')
+            args.append('--break-time-window=02:00:00')
+            args.append('--visit-time-window=02:00:00')
             args.append('--console-format=json')
             return args
 
