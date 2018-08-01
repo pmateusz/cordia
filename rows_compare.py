@@ -5,6 +5,7 @@ import collections
 import datetime
 import functools
 import glob
+import itertools
 import json
 import logging
 import operator
@@ -37,7 +38,7 @@ import rows.model.service_user
 import rows.model.visit
 import rows.settings
 import rows.sql_data_source
-
+import rows.routing_server
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     """Logs uncaught exceptions"""
@@ -76,6 +77,9 @@ __OUTPUT_PREFIX_ARG = 'output_prefix'
 __OPTIONAL_ARG_PREFIX = '--'
 __BASE_SCHEDULE_PATTERN = 'base_schedule_pattern'
 __CANDIDATE_SCHEDULE_PATTERN = 'candidate_schedule_pattern'
+__SCHEDULE_PATTERNS = 'schedule_patterns'
+__LABELS = 'labels'
+__OUTPUT = 'output'
 
 
 def get_or_raise(obj, prop):
@@ -112,8 +116,9 @@ def configure_parser():
     info_parser.add_argument(__FILE_ARG)
 
     compare_distance_parser = subparsers.add_parser(__COMPARE_DISTANCE_COMMAND)
-    compare_distance_parser.add_argument(__BASE_SCHEDULE_PATTERN)
-    compare_distance_parser.add_argument(__CANDIDATE_SCHEDULE_PATTERN)
+    compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __SCHEDULE_PATTERNS, nargs='+', required=True)
+    compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __LABELS, nargs='+', required=True)
+    compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
 
     compare_workload_parser = subparsers.add_parser(__COMPARE_WORKLOAD_COMMAND)
     compare_workload_parser.add_argument(__PROBLEM_FILE_ARG)
@@ -129,6 +134,7 @@ def configure_parser():
     compare_trace_parser.add_argument(__FILE_ARG)
     compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __COST_FUNCTION_TYPE, required=True)
     compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __DATE_ARG, type=get_date)
+    compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
 
     contrast_workload_parser = subparsers.add_parser(__CONTRAST_WORKLOAD_COMMAND)
     contrast_workload_parser.add_argument(__PROBLEM_FILE_ARG)
@@ -146,9 +152,11 @@ def configure_parser():
     contrast_trace_parser.add_argument(__CANDIDATE_FILE_ARG)
     contrast_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __DATE_ARG, type=get_date, required=True)
     contrast_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __COST_FUNCTION_TYPE, required=True)
+    contrast_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
 
     show_working_hours_parser = subparsers.add_parser(__SHOW_WORKING_HOURS_COMMAND)
     show_working_hours_parser.add_argument(__FILE_ARG)
+    show_working_hours_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
 
     return parser
 
@@ -181,59 +189,13 @@ def pull(args, settings):
         current_date_time += datetime.timedelta(days=1)
 
 
-class RoutingServer:
-    class Session:
-        ENCODING = 'ascii'
-        MESSAGE_TIMEOUT = 1
-        EXIT_TIMEOUT = 5
-
-        def __init__(self):
-            self.__process = subprocess.Popen(['./build/rows-routing-server', '--maps=./data/scotland-latest.osrm'],
-                                              stdin=subprocess.PIPE,
-                                              stdout=subprocess.PIPE,
-                                              stderr=subprocess.PIPE)
-
-        def distance(self, source, destination):
-            self.__process.stdin.write(
-                json.dumps({'command': 'route',
-                            'source': source.as_dict(),
-                            'destination': destination.as_dict()}).encode(self.ENCODING))
-            self.__process.stdin.write(os.linesep.encode(self.ENCODING))
-            self.__process.stdin.flush()
-            stdout_msg = self.__process.stdout.readline()
-            if stdout_msg:
-                message = json.loads(stdout_msg.decode(self.ENCODING))
-                return message.get('distance', None)
-            return None
-
-        def close(self, exc, value, tb):
-            stdout_msg, error_msg = self.__process.communicate('{"command":"shutdown"}'.encode(self.ENCODING),
-                                                               timeout=self.MESSAGE_TIMEOUT)
-            if error_msg:
-                logging.error(error_msg)
-
-            try:
-                self.__process.wait(self.EXIT_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                logging.exception('Failed to shutdown the routing server')
-                self.__process.kill()
-                self.__process.__exit__(exc, value, tb)
-
-    def __enter__(self):
-        self.__session = RoutingServer.Session()
-        return self.__session
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.__session.close(exc_type, exc_val, exc_tb)
-
-
 def get_travel_time(schedule, user_tag_finder):
     routes = schedule.routes()
 
     total_travel_time = datetime.timedelta()
     with RoutingServer() as session:
-        for carer in routes:
-            visit_it = iter(routes[carer])
+        for route in routes:
+            visit_it = iter(route.visits)
 
             current_visit = next(visit_it, None)
             current_location = user_tag_finder.find(int(current_visit.visit.service_user))
@@ -308,41 +270,51 @@ class TimeDeltaConverter:
 
 
 def compare_distance(args, settings):
-    left_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __BASE_SCHEDULE_PATTERN))]
-    left_series.sort(key=operator.attrgetter('metadata.begin'))
-    right_series = [load_schedule(file_path) for file_path in glob.glob(getattr(args, __CANDIDATE_SCHEDULE_PATTERN))]
-    right_series.sort(key=operator.attrgetter('metadata.begin'))
+    schedule_patterns = getattr(args, __SCHEDULE_PATTERNS)
+    labels = getattr(args, __LABELS)
+    output_file = getattr(args, __OUTPUT, 'distance')
 
     user_tag_finder = rows.location_finder.UserLocationFinder(settings)
     user_tag_finder.reload()
-    left_results = [(schedule.metadata.begin, get_travel_time(schedule, user_tag_finder)) for schedule in left_series]
-    right_results = [(schedule.metadata.begin, get_travel_time(schedule, user_tag_finder)) for schedule in right_series]
 
-    dates = list(map(operator.itemgetter(0), left_results))
-    dates.extend(map(operator.itemgetter(0), right_results))
-    data_frame = pandas.DataFrame(columns=['HumanPlanners', 'ConstraintProgramming'],
+    data = {}
+    for label, schedule_pattern in zip(labels, schedule_patterns):
+        series = [load_schedule(file_path) for file_path in glob.glob(schedule_pattern)]
+        series.sort(key=operator.attrgetter('metadata.begin'))
+        results = [(schedule.metadata.begin, get_travel_time(schedule, user_tag_finder)) for schedule in series]
+        data[label] = results
+
+    dates = [date for label, series in data.items() for date, duration in series]
+    data_frame = pandas.DataFrame(columns=labels,
                                   index=numpy.arange(min(dates),
                                                      max(dates) + datetime.timedelta(days=1),
                                                      dtype='datetime64[D]'))
-    for data, duration in left_results:
-        data_frame.HumanPlanners[data] = duration
-    for data, duration in right_results:
-        data_frame.ConstraintProgramming[data] = duration
+
+    for label in labels:
+        for date, duration in data[label]:
+            data_frame[label][date] = duration
 
     time_delta_convert = TimeDeltaConverter()
     indices = numpy.array(list(map(matplotlib.dates.date2num, data_frame.index)))
-    width = 0.35
+    width = 0.20
 
     figure, axis = matplotlib.pyplot.subplots()
-    human_handle = axis.bar(indices,
-                            time_delta_convert(data_frame.HumanPlanners), width, bottom=time_delta_convert.zero)
-    cp_handle = axis.bar(indices + width,
-                         time_delta_convert(data_frame.ConstraintProgramming), width, bottom=time_delta_convert.zero)
+    handles = []
+    position = 0
+    for label in labels:
+        handle = axis.bar(indices + position * width,
+                          time_delta_convert(data_frame[label]),
+                          width,
+                          bottom=time_delta_convert.zero)
+        handles.append(handle)
+        position += 1
     axis.xaxis_date()
+    axis.xaxis.set_tick_params(rotation=45)
     axis.yaxis_date()
-    axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M:%S"))
-    axis.legend((human_handle, cp_handle), ('Human Planners', 'Constraint Programming'), loc='upper right')
-    matplotlib.pyplot.show()
+    axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d %H:%M:%S"))
+    axis.legend(handles, labels, loc='upper right')
+    matplotlib.pyplot.tight_layout()
+    matplotlib.pyplot.savefig(output_file + '.' + __FILE_FORMAT, format=__FILE_FORMAT, dpi=1200)
 
 
 class VisitDict:
@@ -441,7 +413,7 @@ def save_workforce_histogram(data_frame, file_path):
         axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M:%S"))
         axis.legend((travel_handle, service_handle, idle_handle, overtime_handle),
                     ('Travel', 'Service', 'Idle', 'Overtime'), loc='upper right')
-        matplotlib.pyplot.savefig(file_path)
+        matplotlib.pyplot.savefig(file_path, format=__FILE_FORMAT, dpi=1200, layout='tight')
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -471,7 +443,6 @@ def calculate_expected_visit_duration(schedule):
 
 
 def compare_workload(args, settings):
-    __PLOT_EXT = '.png'
     problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
     diary_by_date_by_carer = collections.defaultdict(dict)
     for carer_shift in problem.carers:
@@ -513,8 +484,8 @@ def compare_workload(args, settings):
                                                                diary_by_date_by_carer[date],
                                                                observed_duration_by_visit)
 
-            base_schedule_stem, base_schedule_ext = os.path.splitext(base_schedule_file)
-            save_workforce_histogram(base_schedule_data_frame, base_schedule_stem + __PLOT_EXT)
+            base_schedule_stem, base_schedule_ext = os.path.splitext(os.path.basename(base_schedule_file))
+            save_workforce_histogram(base_schedule_data_frame, base_schedule_stem + '.' + __FILE_FORMAT)
 
             candidate_schedule_file = candidate_schedules[candidate_schedule]
             candidate_schedule_data_frame = get_schedule_data_frame(candidate_schedule,
@@ -522,8 +493,9 @@ def compare_workload(args, settings):
                                                                     location_finder,
                                                                     diary_by_date_by_carer[date],
                                                                     observed_duration_by_visit)
-            candidate_schedule_stem, candidate_schedule_ext = os.path.splitext(candidate_schedule_file)
-            save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem + __PLOT_EXT)
+            candidate_schedule_stem, candidate_schedule_ext = os.path.splitext(
+                os.path.basename(candidate_schedule_file))
+            save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem + '.' +__FILE_FORMAT)
 
 
 def contrast_workload(args, settings):
@@ -972,6 +944,7 @@ def compare_trace(args, settings):
     trace_file = get_or_raise(args, __FILE_ARG)
     trace_file_base_name = os.path.basename(trace_file)
     trace_file_stem, trace_file_ext = os.path.splitext(trace_file_base_name)
+    output_file_stem = getattr(args, __OUTPUT, trace_file_stem)
 
     trace_logs = read_traces(trace_file)
     data_frame = traces_to_data_frame(trace_logs)
@@ -1035,7 +1008,7 @@ def compare_trace(args, settings):
             ax2.set_ylim(bottom=0, top=ax2_y_top * __Y_AXIS_EXTENSION)
             # ax2.set_xlim(left=0, right=updated_x_right)
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-            matplotlib.pyplot.savefig(trace_file_stem + '_' + current_date.isoformat() + '.' + __FILE_FORMAT,
+            matplotlib.pyplot.savefig(output_file_stem + '_' + current_date.isoformat() + '.' + __FILE_FORMAT,
                                       format=__FILE_FORMAT,
                                       dpi=1200)
         else:
@@ -1112,7 +1085,7 @@ def compare_trace(args, settings):
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
             matplotlib.pyplot.tight_layout()
             figure.subplots_adjust(bottom=0.4)
-            matplotlib.pyplot.savefig(trace_file_stem + '.' + __FILE_FORMAT,
+            matplotlib.pyplot.savefig(output_file_stem + '.' + __FILE_FORMAT,
                                       format=__FILE_FORMAT,
                                       dpi=1200,
                                       bbox_extra_artists=(legend,),
@@ -1162,6 +1135,8 @@ def contrast_trace(args, settings):
 
     problem_file_base = os.path.basename(problem_file)
     problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
+
+    output_file_stem = getattr(args, __OUTPUT, problem_file_name + '_contrast_traces')
 
     cost_function = get_or_raise(args, __COST_FUNCTION_TYPE)
     base_trace_file = get_or_raise(args, __BASE_FILE_ARG)
@@ -1228,7 +1203,7 @@ def contrast_trace(args, settings):
         ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
         matplotlib.pyplot.tight_layout()
         matplotlib.pyplot.savefig(
-            problem_file_name + '_contrast_traces_' + current_date.isoformat() + '.' + __FILE_FORMAT,
+            output_file_stem + '_' + current_date.isoformat() + '.' + __FILE_FORMAT,
             format=__FILE_FORMAT,
             dpi=1200,
             bbox_extra_artists=(legend,),
@@ -1362,7 +1337,8 @@ def show_working_hours(args, settings):
     matplotlib.pyplot.set_cmap(color_map)
 
     shift_file = get_or_raise(args, __FILE_ARG)
-    shift_file_base_name, shift_file_ext = os.path.splitext(shift_file)
+    shift_file_base_name, shift_file_ext = os.path.splitext(os.path.basename(shift_file))
+    output_file_base_name = getattr(args, __OUTPUT, shift_file_base_name)
 
     __EVENT_TYPE_OFFSET = {'assumed': 2, 'contract': 1, 'work': 0}
     __EVENT_TYPE_COLOR = {'assumed': color_map.colors[0], 'contract': color_map.colors[4], 'work': color_map.colors[2]}
@@ -1396,9 +1372,9 @@ def show_working_hours(args, settings):
             axis.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_time))
             axis.yaxis.set_ticks(numpy.arange(0, 24 * 3600, 2 * 3600))
             axis.set_ylim(6 * 3600, 24 * 60 * 60)
-            matplotlib.pyplot.savefig(shift_file_base_name + current_date + '.pdf',
+            matplotlib.pyplot.savefig(output_file_base_name + '_' + current_date + '.' + __FILE_FORMAT,
                                       dpi=1200,
-                                      format='pdf',
+                                      format=__FILE_FORMAT,
                                       layout='tight')
         finally:
             matplotlib.pyplot.cla()

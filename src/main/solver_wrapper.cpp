@@ -248,10 +248,43 @@ namespace rows {
                 label);
     }
 
+    operations_research::IntervalVar *SolverWrapper::CreateFixedInterval(
+            operations_research::Solver *solver,
+            const rows::Event &event,
+            std::string label) const {
+        return solver->MakeFixedInterval(event.begin().time_of_day().total_seconds(),
+                                         event.duration().total_seconds(),
+                                         label);
+    }
+
+    bool SolverWrapper::AddFixedIntervalIfNonZero(operations_research::Solver *solver,
+                                                  const rows::Event &event,
+                                                  std::string label,
+                                                  std::vector<operations_research::IntervalVar *> &intervals) const {
+        if (event.duration().total_seconds() > 0) {
+            intervals.push_back(CreateFixedInterval(solver, event, label));
+            return true;
+        }
+        return false;
+    }
+
+    bool SolverWrapper::AddBreakIntervalVarIfNonZero(operations_research::Solver *solver,
+                                                     const rows::Event &event,
+                                                     std::string label,
+                                                     std::vector<operations_research::IntervalVar *> &intervals) const {
+        if (event.duration().total_seconds() > 0) {
+            intervals.push_back(CreateBreakInterval(solver, event, label));
+            return true;
+        }
+        return false;
+    }
+
     std::vector<operations_research::IntervalVar *> SolverWrapper::CreateBreakIntervals(
             operations_research::Solver *const solver,
             const rows::Carer &carer,
             const rows::Diary &diary) const {
+        // intervals must not have zero duration, otherwise they may result in violation of the all distinct constraint
+
         std::vector<operations_research::IntervalVar *> break_intervals;
 
         const auto break_periods = GetEffectiveBreaks(diary);
@@ -262,29 +295,31 @@ namespace rows {
         if (out_office_hours_breaks_enabled_) {
             const auto &break_before_work = break_periods.front();
             CHECK_EQ(break_before_work.begin().time_of_day().total_seconds(), 0);
-
-            break_intervals.push_back(solver->MakeFixedInterval(break_before_work.begin().time_of_day().total_seconds(),
-                                                                break_before_work.duration().total_seconds(),
-                                                                GetBreakLabel(carer, BreakType::BEFORE_WORKDAY)));
+            AddFixedIntervalIfNonZero(solver,
+                                      break_before_work,
+                                      GetBreakLabel(carer, BreakType::BEFORE_WORKDAY),
+                                      break_intervals);
 
             const auto last_break = break_periods.size() - 1;
             for (auto break_index = 1; break_index < last_break; ++break_index) {
-                break_intervals.push_back(CreateBreakInterval(solver,
-                                                              break_periods[break_index],
-                                                              SolverWrapper::GetBreakLabel(carer, BreakType::BREAK)));
+                AddBreakIntervalVarIfNonZero(solver,
+                                             break_periods[break_index],
+                                             SolverWrapper::GetBreakLabel(carer, BreakType::BREAK),
+                                             break_intervals);
             }
 
             const auto &break_after_work = break_periods.back();
             CHECK_EQ(break_after_work.end().time_of_day().total_seconds(), 0);
-
-            break_intervals.push_back(solver->MakeFixedInterval(break_after_work.begin().time_of_day().total_seconds(),
-                                                                break_after_work.duration().total_seconds(),
-                                                                GetBreakLabel(carer, BreakType::AFTER_WORKDAY)));
+            AddFixedIntervalIfNonZero(solver,
+                                      break_after_work,
+                                      GetBreakLabel(carer, BreakType::AFTER_WORKDAY),
+                                      break_intervals);
         } else {
             for (const auto &break_period : break_periods) {
-                break_intervals.push_back(CreateBreakInterval(solver,
-                                                              break_period,
-                                                              SolverWrapper::GetBreakLabel(carer, BreakType::BREAK)));
+                AddBreakIntervalVarIfNonZero(solver,
+                                             break_period,
+                                             SolverWrapper::GetBreakLabel(carer, BreakType::BREAK),
+                                             break_intervals);
             }
         }
 

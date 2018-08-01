@@ -1,7 +1,8 @@
 """Visualise an optimal solution"""
+import os
 
 from rows.visualisation.dynamic_network import generate_graph
-from rows.visualisation.excel_graphs import generate_stats
+from rows.visualisation.print_schedule import generate_MSExcel
 
 
 class Handler:
@@ -13,14 +14,19 @@ class Handler:
         self.__console = application.console
 
     def __call__(self, command):
+        problem_file = getattr(command, 'problem')
         input_file = getattr(command, 'file')
         output_file = getattr(command, 'output')
 
+        if not output_file:
+            filename, file_extension = os.path.splitext(input_file)
+            output_file = filename
+
         try:
+            print("Generating network map (use Google Earth to visualise it): "+output_file+".kml")
             generate_graph(input_file,output_file+".kml")
-            generate_stats(input_file,output_file+".xls")
-            
-            # run google earth and excel for visualisation
+            print("Print optimised schedule and human planner schedule in Excel: "+output_file+".xls")
+            generate_MSExcel(problem_file, input_file,output_file+".xls")
 
         except FileExistsError:
             error_msg = "The file '{0}' doesn't exists. Please try again with a different name.".format(input_file)

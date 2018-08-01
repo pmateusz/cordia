@@ -82,6 +82,10 @@ class Handler:
                 args.append('--scheduling-date={0}-{1}-{2}'.format(schedule_date_arg.year,
                                                                    schedule_date_arg.month,
                                                                    schedule_date_arg.day))
+            
+            args.append('--begin-end-shift-time-extension=00:15:00')
+            args.append('--break-time-window=02:00:00')
+            args.append('--visit-time-window=02:00:00')
             args.append('--console-format=json')
             return args
 
@@ -93,7 +97,7 @@ class Handler:
             elif message_type == 'problem_definition':
                 self.__console.write_line(
                     'problem definition:\ttime_window={0} | visits={1} | carers={2} | covered_visits={3}'.format(
-                        content.get('time_window', '?'),
+                        content.get('visit_time_windows', '?'),
                         content.get('visits', '?'),
                         content.get('carers', '?'),
                         content.get('covered_visits', '?')))
@@ -110,6 +114,8 @@ class Handler:
                     '{cost:16g} | {dropped_visits:16d} | {solutions:10d} | {branches:12}'
                     ' | {memory_usage:>16} | {wall_time}'.format(
                         **content))
+            elif message_type == 'tracing_event':
+                pass
             else:
                 logging.error('Failed to decode message: {0}', message)
 

@@ -215,7 +215,11 @@ problem definition:	time_window=02:00:00 | visits=58 | carers=11 | covered_visit
 ```
 
 ```shell
+convert -density 300 -trim vrptw1.pdf -quality 100 vrptw1.png
+
 ./build/rows-main --problem=c200_forecasted_problem.json --maps=./data/scotland-latest.osrm --console-format=log --preopt-noprogress-time-limit=00:01:00 --opt-noprogress-time-limit=00:02:00 --postopt-noprogress-time-limit=00:03:00 --break-time-window=00:90:00 --visit-time-window=00:90:00 --begin-end-shift-time-extension=00:15:00 --output-prefix=c200redv90b90e15m1m2m3 --solve-all 1> output.log 2> output_err_red.log
 ./build/rows-main --problem=c200_forecasted_problem.json --maps=./data/scotland-latest.osrm --console-format=log --preopt-noprogress-time-limit=00:01:00 --opt-noprogress-time-limit=00:02:00 --postopt-noprogress-time-limit=00:03:00 --break-time-window=00:90:00 --visit-time-window=00:90:00 --begin-end-shift-time-extension=00:15:00 --output-prefix=c200fulv90b90e15m1m2m3 --solve-all --formula=3level-reduction 1> output.log 2> output_err_fulfill.log
 ./build/rows-main --problem=c200_forecasted_problem.json --maps=./data/scotland-latest.osrm --console-format=log --preopt-noprogress-time-limit=00:01:00 --opt-noprogress-time-limit=00:06:00 --postopt-noprogress-time-limit=00:03:00 --break-time-window=00:90:00 --visit-time-window=00:90:00 --begin-end-shift-time-extension=00:15:00 --output-prefix=c200level1v90b90e15m6 --solve-all --formula=1level 1> output.log 2> output_err_1level.log
+
+./build/rows-main --problem=c350_forecasted_problem.json --maps=./data/scotland-latest.osrm --console-format=log --preopt-noprogress-time-limit=00:02:00 --opt-noprogress-time-limit=00:04:00 --postopt-noprogress-time-limit=00:06:00 --break-time-window=00:90:00 --visit-time-window=00:90:00 --begin-end-shift-time-extension=00:15:00 --output-prefix=c350dv90b90e15m2m4m6 --solve-all --formula=3level-distance 1> output_distance.log 2> output_err_distance.log
 ```

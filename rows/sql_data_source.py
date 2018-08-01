@@ -412,7 +412,7 @@ ORDER BY carer_visits.VisitID"""
             self.__min_duration = self.__get_min_duration(min_duration)
 
         def __call__(self, local_visit):
-            return local_visit.duration
+            return str(int(max(float(local_visit.duration), self.min_duration)))
 
         def reload_if(self, console, connection_factory):
             if self.should_reload:
@@ -720,7 +720,11 @@ ORDER BY carer_visits.VisitID"""
 
         def __call__(self, local_visit):
             value = self.__duration_by_task.get(local_visit.tasks, None)
-            return value if value else super(SqlDataSource.GlobalPercentileEstimator, self).__call__(local_visit)
+            if value:
+                if float(value) > self.min_duration:
+                    return value
+                return str(int(self.min_duration))
+            return super(SqlDataSource.GlobalPercentileEstimator, self).__call__(local_visit)
 
     class PastDurationEstimator:
 
@@ -764,6 +768,26 @@ ORDER BY carer_visits.VisitID"""
 
         def __call__(self, local_visit):
             return local_visit.duration
+
+    class ScheduleEventCollector:
+        EVENT_TYPE_CONTRACT = 'contract'
+        EVENT_TYPE_WORK = 'work'
+        EVENT_TYPE_ASSUMED = 'assumed'
+        CARER_TYPE_MOVED = 'moved'
+        CARER_TYPE_NORMAL = 'normal'
+
+        __COLUMNS = ['carer', 'carer_type', 'day', 'begin', 'end', 'event type']
+
+        def __init__(self):
+            self.__data = []
+
+        def extend(self, events, event_type, date, carer_id, carer_type):
+            for event in events:
+                self.__data.append([carer_id, carer_type, date, event.begin, event.end, event_type])
+
+        def save(self, path):
+            frame = pandas.DataFrame(data=self.__data, columns=self.__COLUMNS)
+            frame.to_csv(path)
 
     class Scheduler:
 
@@ -861,6 +885,9 @@ ORDER BY carer_visits.VisitID"""
                     updated_work_to_use.append(updated_event)
 
                 if updated_work_to_use == actual_work_to_use:
+                    # test how much it will affect - 2018-06-29
+                    break
+
                     # no expansion possible containment of time intervals, try overlaps
                     updated_work_to_use = []
                     for actual_event in actual_work_to_use:
@@ -1182,8 +1209,7 @@ ORDER BY carer_visits.VisitID"""
             carer_id, begin, end = row
             intervals_by_carer[carer_id].append(AbsoluteEvent(begin=begin, end=end))
 
-        # data = []
-        # columns = ['carer', 'carer_type', 'day', 'begin', 'end', 'event type']
+        schedule_event_collector = SqlDataSource.ScheduleEventCollector()
 
         carer_shifts = []
         for carer_id in work_events_by_carer.keys():
@@ -1197,21 +1223,31 @@ ORDER BY carer_visits.VisitID"""
                     actual_work = [event for event in work_events_by_carer[carer_id]
                                    if event.begin.date() == current_date]
 
-                    # for event in actual_work:
-                    #     data.append([carer_id, 'normal', current_date, event.begin, event.end, 'work'])
+                    schedule_event_collector.extend(actual_work,
+                                                    SqlDataSource.ScheduleEventCollector.EVENT_TYPE_WORK,
+                                                    current_date,
+                                                    carer_id,
+                                                    SqlDataSource.ScheduleEventCollector.CARER_TYPE_NORMAL)
 
                     working_hours = scheduler.get_working_hours(carer_id, current_date)
                     if working_hours:
-                        # for event in working_hours:
-                        #     data.append([carer_id, 'normal', current_date, event.begin, event.end, 'contract'])
+                        schedule_event_collector.extend(working_hours,
+                                                        SqlDataSource.ScheduleEventCollector.EVENT_TYPE_CONTRACT,
+                                                        current_date,
+                                                        carer_id,
+                                                        SqlDataSource.ScheduleEventCollector.CARER_TYPE_NORMAL)
 
                         work_to_use = scheduler.adjust_work(actual_work, working_hours)
                         work_to_use = scheduler.join_within_threshold(work_to_use, datetime.timedelta(minutes=15))
                         work_to_use = scheduler.patch_outlieres(work_to_use,
                                                                 max_outlier_duration=datetime.timedelta(minutes=30),
                                                                 max_window=datetime.timedelta(minutes=45))
-                        # for event in work_to_use:
-                        #     data.append([carer_id, 'normal', current_date, event.begin, event.end, 'assumed'])
+
+                        schedule_event_collector.extend(work_to_use,
+                                                        SqlDataSource.ScheduleEventCollector.EVENT_TYPE_ASSUMED,
+                                                        current_date,
+                                                        carer_id,
+                                                        SqlDataSource.ScheduleEventCollector.CARER_TYPE_NORMAL)
 
                         diary = Diary(date=current_date,
                                       events=work_to_use,
@@ -1222,8 +1258,11 @@ ORDER BY carer_visits.VisitID"""
                                                                 max_outlier_duration=datetime.timedelta(minutes=30),
                                                                 max_window=datetime.timedelta(minutes=45))
 
-                        # for event in work_to_use:
-                        #     data.append([carer_id, 'normal', current_date, event.begin, event.end, 'assumed'])
+                        schedule_event_collector.extend(work_to_use,
+                                                        SqlDataSource.ScheduleEventCollector.EVENT_TYPE_ASSUMED,
+                                                        current_date,
+                                                        carer_id,
+                                                        SqlDataSource.ScheduleEventCollector.CARER_TYPE_NORMAL)
 
                         diary = Diary(date=current_date,
                                       events=work_to_use,
@@ -1236,18 +1275,27 @@ ORDER BY carer_visits.VisitID"""
                                    if event.begin.date() == current_date]
                     working_hours = scheduler.get_working_hours(carer_id, current_date)
 
-                    # for event in actual_work:
-                    #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'work'])
+                    schedule_event_collector.extend(actual_work,
+                                                    SqlDataSource.ScheduleEventCollector.EVENT_TYPE_WORK,
+                                                    current_date,
+                                                    carer_id,
+                                                    SqlDataSource.ScheduleEventCollector.CARER_TYPE_MOVED)
 
-                    # if working_hours:
-                    #     for event in working_hours:
-                    #         data.append([carer_id, 'moved', current_date, event.begin, event.end, 'contract'])
+                    if working_hours:
+                        schedule_event_collector.extend(working_hours,
+                                                        SqlDataSource.ScheduleEventCollector.EVENT_TYPE_CONTRACT,
+                                                        current_date,
+                                                        carer_id,
+                                                        SqlDataSource.ScheduleEventCollector.CARER_TYPE_MOVED)
 
                     if len(actual_work) == 1:
                         is_external = not working_hours
 
-                        # for event in actual_work:
-                        #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'assumed'])
+                        schedule_event_collector.extend(actual_work,
+                                                        SqlDataSource.ScheduleEventCollector.EVENT_TYPE_ASSUMED,
+                                                        current_date,
+                                                        carer_id,
+                                                        SqlDataSource.ScheduleEventCollector.CARER_TYPE_MOVED)
 
                         diary = Diary(date=current_date,
                                       events=actual_work,
@@ -1261,15 +1309,21 @@ ORDER BY carer_visits.VisitID"""
                                                                     max_outlier_duration=datetime.timedelta(minutes=30),
                                                                     max_window=datetime.timedelta(minutes=45))
 
-                            # for event in work_to_use:
-                            #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'assumed'])
+                            schedule_event_collector.extend(work_to_use,
+                                                            SqlDataSource.ScheduleEventCollector.EVENT_TYPE_ASSUMED,
+                                                            current_date,
+                                                            carer_id,
+                                                            SqlDataSource.ScheduleEventCollector.CARER_TYPE_MOVED)
 
                             diary = Diary(date=current_date,
                                           events=work_to_use,
                                           shift_type=Diary.EXTERNAL_SHIFT_TYPE)
                         else:
-                            # for event in working_hours:
-                            #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'contract'])
+                            schedule_event_collector.extend(working_hours,
+                                                            SqlDataSource.ScheduleEventCollector.EVENT_TYPE_CONTRACT,
+                                                            current_date,
+                                                            carer_id,
+                                                            SqlDataSource.ScheduleEventCollector.CARER_TYPE_MOVED)
 
                             work_to_use = scheduler.adjust_work(actual_work, working_hours)
                             work_to_use = scheduler.join_within_threshold(work_to_use, datetime.timedelta(minutes=15))
@@ -1277,8 +1331,11 @@ ORDER BY carer_visits.VisitID"""
                                                                     max_outlier_duration=datetime.timedelta(minutes=30),
                                                                     max_window=datetime.timedelta(minutes=45))
 
-                            # for event in work_to_use:
-                            #     data.append([carer_id, 'moved', current_date, event.begin, event.end, 'assumed'])
+                            schedule_event_collector.extend(work_to_use,
+                                                            SqlDataSource.ScheduleEventCollector.EVENT_TYPE_ASSUMED,
+                                                            current_date,
+                                                            carer_id,
+                                                            SqlDataSource.ScheduleEventCollector.CARER_TYPE_MOVED)
 
                             diary = Diary(date=current_date,
                                           events=work_to_use,
@@ -1287,8 +1344,7 @@ ORDER BY carer_visits.VisitID"""
             carer_mobility = Carer.CAR_MOBILITY_TYPE if carer_id in mobile_carers else Carer.FOOT_MOBILITY_TYPE
             carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id),
                                                                mobility=carer_mobility), diaries=diaries))
-        # frame = pandas.DataFrame(data=data, columns=columns)
-        # frame.to_csv('shifts.csv')
+        schedule_event_collector.save('shifts3.csv')
         return visits, carer_shifts
 
     def get_service_users(self, area, begin_date, end_date):

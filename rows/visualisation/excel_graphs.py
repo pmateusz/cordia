@@ -4,13 +4,14 @@ import time
 import datetime
 from distutils.util import strtobool
 
-from rows.visualisation.problem import load_problem
+from rows.visualisation.problem import load_solution
 
 def generate_stats(input_file,output_file):
 
-    carers,visits = load_problem(input_file)
+    carers,visits = load_solution(input_file)
 
     sap_number = [carer.sap_number for carer in carers]
+    
     serv_t = [carer.work_service_time for carer in carers]
     trav_t = [carer.work_travel_time for carer in carers]
     idle_t = [carer.work_idle_time for carer in carers]
@@ -29,9 +30,14 @@ def generate_stats(input_file,output_file):
         secs = datetime.timedelta(hours=tme.tm_hour, minutes=tme.tm_min, seconds=tme.tm_sec).total_seconds() 
         trav_t_sec.append(secs)
 
+        if carer.work_idle_time[0]=='-':
+            sign = -1.0
+            carer.work_idle_time = carer.work_idle_time[1:]
+        else:
+            sign = 1.0
         tme = time.strptime(carer.work_idle_time,'%H:%M:%S')
         secs = datetime.timedelta(hours=tme.tm_hour, minutes=tme.tm_min, seconds=tme.tm_sec).total_seconds() 
-        idle_t_sec.append(secs)
+        idle_t_sec.append(sign*secs)
 
     carers_dict= dict(zip(sap_number, zip(serv_t, serv_t_sec, trav_t, trav_t_sec, idle_t, idle_t_sec)))
     df = pd.DataFrame.from_dict(carers_dict, orient='index')
