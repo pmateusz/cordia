@@ -11,6 +11,7 @@
 
 #include "service_user.h"
 #include "solver_wrapper.h"
+#include "solution_repository.h"
 
 namespace rows {
 
@@ -40,6 +41,8 @@ namespace rows {
         std::string GetDescription(const operations_research::RoutingModel &model,
                                    const operations_research::Assignment &solution) override;
 
+        std::shared_ptr<rows::RoutingVariablesStore> variable_store();
+
     private:
         class CareContinuityMetrics {
         public:
@@ -53,6 +56,8 @@ namespace rows {
         };
 
         boost::posix_time::time_duration no_progress_time_limit_;
+
+        std::shared_ptr<rows::RoutingVariablesStore> variable_store_;
 
         bool care_continuity_enabled_;
 

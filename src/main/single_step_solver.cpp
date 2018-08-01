@@ -35,6 +35,7 @@ namespace rows {
                             std::move(break_time_window),
                             std::move(begin_end_work_day_adjustment)),
               no_progress_time_limit_(no_progress_time_limit),
+              variable_store_{nullptr},
               care_continuity_enabled_(false),
               care_continuity_(),
               care_continuity_metrics_() {
@@ -65,10 +66,12 @@ namespace rows {
     void SingleStepSolver::ConfigureModel(operations_research::RoutingModel &model,
                                           const std::shared_ptr<Printer> &printer,
                                           std::shared_ptr<const std::atomic<bool> > cancel_token) {
-        OnConfigureModel(model);
-
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
         static const auto START_FROM_ZERO_TIME = false;
+
+        OnConfigureModel(model);
+
+        variable_store_ = std::make_shared<rows::RoutingVariablesStore>(model.nodes(), model.vehicles());
 
         model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
         model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
@@ -107,7 +110,11 @@ namespace rows {
                 } else {
                     time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
                 }
+                model.AddToAssignment(time_dimension->CumulVar(visit_index));
                 model.AddToAssignment(time_dimension->SlackVar(visit_index));
+
+                variable_store_->SetTimeVar(visit_index, time_dimension->CumulVar(visit_index));
+                variable_store_->SetTimeSlackVar(visit_index, time_dimension->SlackVar(visit_index));
             }
 
             const auto visit_indices_size = visit_indices.size();
@@ -159,6 +166,8 @@ namespace rows {
                 const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
                 solver_ptr->AddConstraint(
                         solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+
+                variable_store_->SetBreakIntervalVars(vehicle, breaks);
             }
 
             time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time_to_use, end_time);
@@ -285,6 +294,10 @@ namespace rows {
         }
 
         return description;
+    }
+
+    std::shared_ptr<rows::RoutingVariablesStore> SingleStepSolver::variable_store() {
+        return variable_store_;
     }
 
     SingleStepSolver::CareContinuityMetrics::CareContinuityMetrics(const SingleStepSolver &solver,

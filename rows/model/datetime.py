@@ -38,7 +38,7 @@ def try_parse_duration(text):
     """Parses time delta from seconds"""
 
     try:
-        return datetime.timedelta(seconds=int(text))
+        return datetime.timedelta(seconds=int(float(text)))
     except ValueError as ex:
         logging.error("Failed to parse '%s' due to error '%s'", text, ex)
         return None
