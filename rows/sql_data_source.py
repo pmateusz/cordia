@@ -412,7 +412,7 @@ ORDER BY carer_visits.VisitID"""
             self.__min_duration = self.__get_min_duration(min_duration)
 
         def __call__(self, local_visit):
-            return local_visit.duration
+            return str(int(max(float(local_visit.duration), self.min_duration)))
 
         def reload_if(self, console, connection_factory):
             if self.should_reload:
@@ -720,7 +720,11 @@ ORDER BY carer_visits.VisitID"""
 
         def __call__(self, local_visit):
             value = self.__duration_by_task.get(local_visit.tasks, None)
-            return value if value else super(SqlDataSource.GlobalPercentileEstimator, self).__call__(local_visit)
+            if value:
+                if float(value) > self.min_duration:
+                    return value
+                return str(int(self.min_duration))
+            return super(SqlDataSource.GlobalPercentileEstimator, self).__call__(local_visit)
 
     class PastDurationEstimator:
 
