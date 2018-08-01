@@ -93,7 +93,7 @@ class Handler:
             elif message_type == 'problem_definition':
                 self.__console.write_line(
                     'problem definition:\ttime_window={0} | visits={1} | carers={2} | covered_visits={3}'.format(
-                        content.get('time_window', '?'),
+                        content.get('visit_time_windows', '?'),
                         content.get('visits', '?'),
                         content.get('carers', '?'),
                         content.get('covered_visits', '?')))
@@ -110,6 +110,8 @@ class Handler:
                     '{cost:16g} | {dropped_visits:16d} | {solutions:10d} | {branches:12}'
                     ' | {memory_usage:>16} | {wall_time}'.format(
                         **content))
+            elif message_type == 'tracing_event':
+                pass
             else:
                 logging.error('Failed to decode message: {0}', message)
 
