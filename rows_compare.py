@@ -110,6 +110,19 @@ def find_file_or_fail(file_paths):
     raise ValueError()
 
 
+def add_legend(axis, handles, labels, ncol, bbox_to_anchor):
+    legend = axis.legend(handles,
+                         labels,
+                         loc='lower center',
+                         ncol=ncol,
+                         bbox_to_anchor=bbox_to_anchor,
+                         fancybox=None,
+                         edgecolor=None,
+                         handletextpad=0.1,
+                         columnspacing=0.15)
+    return legend
+
+
 def configure_parser():
     parser = argparse.ArgumentParser(prog=sys.argv[0],
                                      description='Robust Optimization '
@@ -205,11 +218,7 @@ def pull(args, settings):
 def get_travel_time(schedule, user_tag_finder):
     routes = schedule.routes()
     total_travel_time = datetime.timedelta()
-    with rows.routing_server.RoutingServer(
-            server_executable=find_file_or_fail(
-                ['~/dev/cordia/build/rows-routing-server', './build/rows-routing-server']),
-            maps_file=find_file_or_fail(
-                ['~/dev/cordia/data/scotland-latest.osrm', './data/scotland-latest.osrm'])) as session:
+    with create_routing_session() as session:
         for route in routes:
             visit_it = iter(route.visits)
 
@@ -267,6 +276,18 @@ def load_problem(problem_file):
         return rows.model.problem.Problem.from_json(problem_json)
 
 
+class CumulativeHourMinuteConverter:
+    def __init__(self):
+        self.__REFERENCE = matplotlib.dates.date2num(datetime.datetime(2018, 1, 1))
+
+    def __call__(self, x, pos=None):
+        time_delta = matplotlib.dates.num2timedelta(x - self.__REFERENCE)
+        hours = int(time_delta.total_seconds() // matplotlib.dates.SEC_PER_HOUR)
+        minutes = int((time_delta.total_seconds() - hours * matplotlib.dates.SEC_PER_HOUR) \
+                      // matplotlib.dates.SEC_PER_MIN)
+        return '{0:02d}:{1:02d}'.format(hours, minutes)
+
+
 class TimeDeltaConverter:
 
     def __init__(self):
@@ -285,94 +306,122 @@ class TimeDeltaConverter:
         return [matplotlib.dates.date2num(self.__zero + value) - self.__zero_num for value in series]
 
 
+def create_routing_session():
+    return rows.routing_server.RoutingServer(server_executable=find_file_or_fail(
+        ['~/dev/cordia/build/rows-routing-server', './build/rows-routing-server']),
+        maps_file=find_file_or_fail(
+            ['~/dev/cordia/data/scotland-latest.osrm', './data/scotland-latest.osrm']))
+
+
 def compare_distance(args, settings):
     schedule_patterns = getattr(args, __SCHEDULE_PATTERNS)
     labels = getattr(args, __LABELS)
     output_file = getattr(args, __OUTPUT, 'distance')
 
-    user_tag_finder = rows.location_finder.UserLocationFinder(settings)
-    user_tag_finder.reload()
+    data_frame_file = 'data_frame_cache.bin'
 
-    location_finder = rows.location_finder.UserLocationFinder(settings)
-    location_finder.reload()
+    if os.path.isfile(data_frame_file):
+        data_frame = pandas.read_pickle(data_frame_file)
+    else:
+        user_tag_finder = rows.location_finder.UserLocationFinder(settings)
+        user_tag_finder.reload()
 
-    problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
-    observed_duration_by_visit = calculate_forecast_visit_duration(problem)
+        location_finder = rows.location_finder.UserLocationFinder(settings)
+        location_finder.reload()
 
-    diary_by_date_by_carer = collections.defaultdict(dict)
-    for carer_shift in problem.carers:
-        for diary in carer_shift.diaries:
-            diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
+        problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+        observed_duration_by_visit = calculate_forecast_visit_duration(problem)
 
-    store = []
-    with rows.routing_server.RoutingServer(server_executable=find_file_or_fail(
-            ['~/dev/cordia/build/rows-routing-server', './build/rows-routing-server']),
-            maps_file=find_file_or_fail(
-                ['~/dev/cordia/data/scotland-latest.osrm', './data/scotland-latest.osrm'])) as routing_session:
-        for label, schedule_pattern in zip(labels, schedule_patterns):
-            for schedule_path in glob.glob(schedule_pattern):
-                schedule = load_schedule(schedule_path)
-                frame = get_schedule_data_frame(schedule,
-                                                routing_session,
-                                                location_finder,
-                                                diary_by_date_by_carer[schedule.metadata.begin],
-                                                observed_duration_by_visit)
-                idle_time = frame['Availability'] - frame['Travel'] - frame['Service']
-                idle_time[idle_time < pandas.Timedelta(0)] = pandas.Timedelta(0)
-                overtime = frame['Travel'] + frame['Service'] - frame['Availability']
-                overtime[overtime < pandas.Timedelta(0)] = pandas.Timedelta(0)
-                store.append({
-                    'Label': label,
-                    'Date': schedule.metadata.begin,
-                    'Availability': frame['Availability'].sum(),
-                    'Travel': frame['Travel'].sum(),
-                    'Service': frame['Service'].sum(),
-                    'Idle': idle_time.sum(),
-                    'Overtime': overtime.sum()
-                })
+        diary_by_date_by_carer = collections.defaultdict(dict)
+        for carer_shift in problem.carers:
+            for diary in carer_shift.diaries:
+                diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
 
-    data_frame = pandas.DataFrame(store)
-    data_frame.sort_values(by=['Date'], inplace=True)
+        store = []
+        with create_routing_session() as routing_session:
+            for label, schedule_pattern in zip(labels, schedule_patterns):
+                for schedule_path in glob.glob(schedule_pattern):
+                    schedule = load_schedule(schedule_path)
+                    frame = get_schedule_data_frame(schedule,
+                                                    routing_session,
+                                                    location_finder,
+                                                    diary_by_date_by_carer[schedule.metadata.begin],
+                                                    observed_duration_by_visit)
+                    idle_time = frame['Availability'] - frame['Travel'] - frame['Service']
+                    idle_time[idle_time < pandas.Timedelta(0)] = pandas.Timedelta(0)
+                    overtime = frame['Travel'] + frame['Service'] - frame['Availability']
+                    overtime[overtime < pandas.Timedelta(0)] = pandas.Timedelta(0)
+                    store.append({
+                        'Label': label,
+                        'Date': schedule.metadata.begin,
+                        'Availability': frame['Availability'].sum(),
+                        'Travel': frame['Travel'].sum(),
+                        'Service': frame['Service'].sum(),
+                        'Idle': idle_time.sum(),
+                        'Overtime': overtime.sum()
+                    })
 
-    def plot(data_frame, column):
+        data_frame = pandas.DataFrame(store)
+        data_frame.sort_values(by=['Date'], inplace=True)
+        data_frame.to_pickle(data_frame_file)
+
+    figure, (ax1, ax2, ax3) = matplotlib.pyplot.subplots(3, 1, sharex=True)
+    try:
+        width = 0.20
         dates = data_frame['Date'].unique()
         time_delta_convert = TimeDeltaConverter()
-        indices = numpy.array(list(map(matplotlib.dates.date2num, dates)))
+        indices = numpy.arange(1, len(dates) + 1, 1)
 
-        width = 0.20
+        handles = []
+        position = 0
+        for label in labels:
+            data_frame_to_use = data_frame[data_frame['Label'] == label]
 
-        figure, axis = matplotlib.pyplot.subplots()
-        try:
-            handles = []
-            position = 0
-            for label in labels:
-                data_frame_to_use = data_frame[data_frame['Label'] == label]
-                handle = axis.bar(indices + position * width,
-                                  time_delta_convert(data_frame_to_use[column]),
-                                  width,
-                                  bottom=time_delta_convert.zero)
-                handles.append(handle)
-                position += 1
-            axis.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d"))
-            # axis.xaxis.set_tick_params(rotation=45)
-            axis.yaxis_date()
-            axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d %H:%M:%S"))
-            axis.legend(handles, labels, loc='upper right')
-            axis.set_xlabel('Day of October 2017')
-            axis.set_ylabel('Time')
-            matplotlib.pyplot.tight_layout()
-            matplotlib.pyplot.savefig(output_file + '_' + column.lower() + '.' + __FILE_FORMAT,
-                                      format=__FILE_FORMAT,
-                                      dpi=300)
-        finally:
-            matplotlib.pyplot.cla()
-            matplotlib.pyplot.close(figure)
+            handle = ax1.bar(indices + position * width,
+                             time_delta_convert(data_frame_to_use['Travel']),
+                             width,
+                             bottom=time_delta_convert.zero)
 
-    plot(data_frame, 'Travel')
-    plot(data_frame, 'Service')
-    plot(data_frame, 'Overtime')
-    plot(data_frame, 'Idle')
-    plot(data_frame, 'Availability')
+            ax2.bar(indices + position * width,
+                    time_delta_convert(data_frame_to_use['Idle']),
+                    width,
+                    bottom=time_delta_convert.zero)
+
+            ax3.bar(indices + position * width,
+                    time_delta_convert(data_frame_to_use['Overtime']),
+                    width,
+                    bottom=time_delta_convert.zero)
+
+            handles.append(handle)
+            position += 1
+
+        ax1.yaxis_date()
+        ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
+        ax1.set_ylabel('Travel Time')
+
+        ax2.yaxis_date()
+        ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
+        ax2.set_ylabel('Idle Time')
+
+        ax3.yaxis_date()
+        ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
+        ax3.set_ylabel('Overtime')
+        ax3.set_xlabel('Day of October 2017')
+
+        legend = add_legend(ax3, handles, labels, ncol=3, bbox_to_anchor=(0.5, -0.68))
+
+        matplotlib.pyplot.tight_layout()
+
+        figure.subplots_adjust(bottom=0.15)
+
+        matplotlib.pyplot.savefig(output_file + '.' + __FILE_FORMAT,
+                                  format=__FILE_FORMAT,
+                                  transparent=True,
+                                  bbox_extra_artists=(legend,),
+                                  dpi=300)
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
 
 
 class VisitDict:
@@ -468,10 +517,24 @@ def save_workforce_histogram(data_frame, file_path):
                                    bottom=idle_series + service_series + travel_series + time_delta_converter.zero_num)
 
         axis.yaxis_date()
-        axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M:%S"))
-        axis.legend((travel_handle, service_handle, idle_handle, overtime_handle),
-                    ('Travel', 'Service', 'Idle', 'Overtime'), loc='upper right')
-        matplotlib.pyplot.savefig(file_path, format=__FILE_FORMAT, dpi=1200, layout='tight')
+        axis.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
+        axis.set_xlabel('Carer')
+        axis.set_ylabel('Time Delta')
+        legend = add_legend(axis,
+                            [travel_handle, service_handle, idle_handle, overtime_handle],
+                            ['Travel Time', 'Service Time', 'Idle Time', 'Overtime'],
+                            ncol=4,
+                            bbox_to_anchor=(0.5, -0.2))
+
+        matplotlib.pyplot.tight_layout()
+
+        figure.subplots_adjust(bottom=0.15)
+
+        matplotlib.pyplot.savefig(file_path,
+                                  format=__FILE_FORMAT,
+                                  transparent=True,
+                                  dpi=300,
+                                  bbox_extra_artists=(legend,))
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -529,7 +592,7 @@ def compare_workload(args, settings):
     dates = list(dates)
     dates.sort()
 
-    with RoutingServer() as routing_session:
+    with create_routing_session() as routing_session:
         for date in dates:
             base_schedule = base_schedule_by_date.get(date, None)
             if not base_schedule:
@@ -598,7 +661,7 @@ def contrast_workload(args, settings):
     problem_file_base = os.path.basename(problem_file)
     problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
 
-    with RoutingServer() as routing_session:
+    with create_routing_session() as routing_session:
         observed_duration_by_visit = calculate_expected_visit_duration(candidate_schedule)
         base_schedule_frame = get_schedule_data_frame(base_schedule,
                                                       routing_session,
@@ -704,7 +767,7 @@ def contrast_workload(args, settings):
             raise ValueError('Unknown plot type {0}'.format(plot_type))
 
         matplotlib.pyplot.subplots_adjust(left=0.125)
-        matplotlib.pyplot.savefig(output_file, format=__FORMAT, dpi=1200)
+        matplotlib.pyplot.savefig(output_file, format=__FORMAT, dpi=300)
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -931,21 +994,6 @@ def format_time(x, pos=None):
 __SCATTER_POINT_SIZE = 1
 __FILE_FORMAT = 'png'
 __Y_AXIS_EXTENSION = 1.2
-
-
-def add_legend(axis, handles, labels, ncol, bbox_to_anchor):
-    legend = axis.legend(handles,
-                         labels,
-                         loc='lower center',
-                         ncol=ncol,
-                         bbox_to_anchor=bbox_to_anchor,
-                         fancybox=None,
-                         edgecolor=None,
-                         handletextpad=0.1,
-                         columnspacing=0.15)
-    for handle in legend.legendHandles:
-        handle.set_sizes([16.0])
-    return legend
 
 
 def add_trace_legend(axis, handles, bbox_to_anchor=(0.5, -0.23), ncol=3):
@@ -1401,7 +1449,7 @@ def debug(args, settings):
     location_finder = rows.location_finder.UserLocationFinder(settings)
     location_finder.reload()
     data_set = []
-    with RoutingServer() as session:
+    with create_routing_session() as session:
         for route in schedule.routes():
             travel_time = datetime.timedelta()
             for source, destination in route.edges():
