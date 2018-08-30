@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
 
-import argparse
-import collections
-import datetime
-import functools
-import glob
 import json
 import logging
-import operator
 import os
 import os.path
-import re
 import subprocess
-import sys
+
 
 class RoutingServer:
     class Session:
@@ -20,8 +13,10 @@ class RoutingServer:
         MESSAGE_TIMEOUT = 3
         EXIT_TIMEOUT = 5
 
-        def __init__(self):
-            self.__process = subprocess.Popen(['./build/rows-routing-server', '--maps=./data/scotland-latest.osrm'],
+        def __init__(self,
+                     server_executable='./build/rows-routing-server',
+                     maps_file='--maps=./data/scotland-latest.osrm'):
+            self.__process = subprocess.Popen([server_executable, maps_file],
                                               stdin=subprocess.PIPE,
                                               stdout=subprocess.PIPE,
                                               stderr=subprocess.PIPE)
@@ -52,8 +47,12 @@ class RoutingServer:
                 self.__process.kill()
                 self.__process.__exit__(exc, value, tb)
 
+    def __init__(self, server_executable, maps_file):
+        self.__server_executable = server_executable
+        self.__maps_file = maps_file
+
     def __enter__(self):
-        self.__session = RoutingServer.Session()
+        self.__session = RoutingServer.Session(self.__server_executable, self.__maps_file)
         return self.__session
 
     def __exit__(self, exc_type, exc_val, exc_tb):

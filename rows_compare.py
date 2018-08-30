@@ -5,14 +5,12 @@ import collections
 import datetime
 import functools
 import glob
-import itertools
 import json
 import logging
 import operator
 import os
 import os.path
 import re
-import subprocess
 import sys
 
 import bs4
@@ -39,6 +37,7 @@ import rows.model.visit
 import rows.settings
 import rows.sql_data_source
 import rows.routing_server
+
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     """Logs uncaught exceptions"""
@@ -80,6 +79,7 @@ __CANDIDATE_SCHEDULE_PATTERN = 'candidate_schedule_pattern'
 __SCHEDULE_PATTERNS = 'schedule_patterns'
 __LABELS = 'labels'
 __OUTPUT = 'output'
+__ARROWS = 'arrows'
 
 
 def get_or_raise(obj, prop):
@@ -99,6 +99,17 @@ def get_date(value):
     return value_to_use.date()
 
 
+def find_file_or_fail(file_paths):
+    for raw_path in file_paths:
+        path = os.path.expanduser(raw_path)
+        path = os.path.expandvars(path)
+        if os.path.isfile(path):
+            return path
+    if file_paths:
+        raise ValueError('Failed to find ' + file_paths[0])
+    raise ValueError()
+
+
 def configure_parser():
     parser = argparse.ArgumentParser(prog=sys.argv[0],
                                      description='Robust Optimization '
@@ -116,6 +127,7 @@ def configure_parser():
     info_parser.add_argument(__FILE_ARG)
 
     compare_distance_parser = subparsers.add_parser(__COMPARE_DISTANCE_COMMAND)
+    compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __PROBLEM_FILE_ARG, required=True)
     compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __SCHEDULE_PATTERNS, nargs='+', required=True)
     compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __LABELS, nargs='+', required=True)
     compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
@@ -135,6 +147,7 @@ def configure_parser():
     compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __COST_FUNCTION_TYPE, required=True)
     compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __DATE_ARG, type=get_date)
     compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
+    compare_trace_parser.add_argument(__OPTIONAL_ARG_PREFIX + __ARROWS, type=bool, default=False)
 
     contrast_workload_parser = subparsers.add_parser(__CONTRAST_WORKLOAD_COMMAND)
     contrast_workload_parser.add_argument(__PROBLEM_FILE_ARG)
@@ -191,9 +204,12 @@ def pull(args, settings):
 
 def get_travel_time(schedule, user_tag_finder):
     routes = schedule.routes()
-
     total_travel_time = datetime.timedelta()
-    with RoutingServer() as session:
+    with rows.routing_server.RoutingServer(
+            server_executable=find_file_or_fail(
+                ['~/dev/cordia/build/rows-routing-server', './build/rows-routing-server']),
+            maps_file=find_file_or_fail(
+                ['~/dev/cordia/data/scotland-latest.osrm', './data/scotland-latest.osrm'])) as session:
         for route in routes:
             visit_it = iter(route.visits)
 
@@ -277,44 +293,86 @@ def compare_distance(args, settings):
     user_tag_finder = rows.location_finder.UserLocationFinder(settings)
     user_tag_finder.reload()
 
-    data = {}
-    for label, schedule_pattern in zip(labels, schedule_patterns):
-        series = [load_schedule(file_path) for file_path in glob.glob(schedule_pattern)]
-        series.sort(key=operator.attrgetter('metadata.begin'))
-        results = [(schedule.metadata.begin, get_travel_time(schedule, user_tag_finder)) for schedule in series]
-        data[label] = results
+    location_finder = rows.location_finder.UserLocationFinder(settings)
+    location_finder.reload()
 
-    dates = [date for label, series in data.items() for date, duration in series]
-    data_frame = pandas.DataFrame(columns=labels,
-                                  index=numpy.arange(min(dates),
-                                                     max(dates) + datetime.timedelta(days=1),
-                                                     dtype='datetime64[D]'))
+    problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+    observed_duration_by_visit = calculate_forecast_visit_duration(problem)
 
-    for label in labels:
-        for date, duration in data[label]:
-            data_frame[label][date] = duration
+    diary_by_date_by_carer = collections.defaultdict(dict)
+    for carer_shift in problem.carers:
+        for diary in carer_shift.diaries:
+            diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
 
-    time_delta_convert = TimeDeltaConverter()
-    indices = numpy.array(list(map(matplotlib.dates.date2num, data_frame.index)))
-    width = 0.20
+    store = []
+    with rows.routing_server.RoutingServer(server_executable=find_file_or_fail(
+            ['~/dev/cordia/build/rows-routing-server', './build/rows-routing-server']),
+            maps_file=find_file_or_fail(
+                ['~/dev/cordia/data/scotland-latest.osrm', './data/scotland-latest.osrm'])) as routing_session:
+        for label, schedule_pattern in zip(labels, schedule_patterns):
+            for schedule_path in glob.glob(schedule_pattern):
+                schedule = load_schedule(schedule_path)
+                frame = get_schedule_data_frame(schedule,
+                                                routing_session,
+                                                location_finder,
+                                                diary_by_date_by_carer[schedule.metadata.begin],
+                                                observed_duration_by_visit)
+                idle_time = frame['Availability'] - frame['Travel'] - frame['Service']
+                idle_time[idle_time < pandas.Timedelta(0)] = pandas.Timedelta(0)
+                overtime = frame['Travel'] + frame['Service'] - frame['Availability']
+                overtime[overtime < pandas.Timedelta(0)] = pandas.Timedelta(0)
+                store.append({
+                    'Label': label,
+                    'Date': schedule.metadata.begin,
+                    'Availability': frame['Availability'].sum(),
+                    'Travel': frame['Travel'].sum(),
+                    'Service': frame['Service'].sum(),
+                    'Idle': idle_time.sum(),
+                    'Overtime': overtime.sum()
+                })
 
-    figure, axis = matplotlib.pyplot.subplots()
-    handles = []
-    position = 0
-    for label in labels:
-        handle = axis.bar(indices + position * width,
-                          time_delta_convert(data_frame[label]),
-                          width,
-                          bottom=time_delta_convert.zero)
-        handles.append(handle)
-        position += 1
-    axis.xaxis_date()
-    axis.xaxis.set_tick_params(rotation=45)
-    axis.yaxis_date()
-    axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d %H:%M:%S"))
-    axis.legend(handles, labels, loc='upper right')
-    matplotlib.pyplot.tight_layout()
-    matplotlib.pyplot.savefig(output_file + '.' + __FILE_FORMAT, format=__FILE_FORMAT, dpi=1200)
+    data_frame = pandas.DataFrame(store)
+    data_frame.sort_values(by=['Date'], inplace=True)
+
+    def plot(data_frame, column):
+        dates = data_frame['Date'].unique()
+        time_delta_convert = TimeDeltaConverter()
+        indices = numpy.array(list(map(matplotlib.dates.date2num, dates)))
+
+        width = 0.20
+
+        figure, axis = matplotlib.pyplot.subplots()
+        try:
+            handles = []
+            position = 0
+            for label in labels:
+                data_frame_to_use = data_frame[data_frame['Label'] == label]
+                handle = axis.bar(indices + position * width,
+                                  time_delta_convert(data_frame_to_use[column]),
+                                  width,
+                                  bottom=time_delta_convert.zero)
+                handles.append(handle)
+                position += 1
+            axis.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d"))
+            # axis.xaxis.set_tick_params(rotation=45)
+            axis.yaxis_date()
+            axis.yaxis.set_major_formatter(matplotlib.dates.DateFormatter("%d %H:%M:%S"))
+            axis.legend(handles, labels, loc='upper right')
+            axis.set_xlabel('Day of October 2017')
+            axis.set_ylabel('Time')
+            matplotlib.pyplot.tight_layout()
+            matplotlib.pyplot.savefig(output_file + '_' + column.lower() + '.' + __FILE_FORMAT,
+                                      format=__FILE_FORMAT,
+                                      dpi=300)
+        finally:
+            matplotlib.pyplot.cla()
+            matplotlib.pyplot.close(figure)
+
+    plot(data_frame, 'Travel')
+    plot(data_frame, 'Service')
+    plot(data_frame, 'Overtime')
+    plot(data_frame, 'Idle')
+    plot(data_frame, 'Availability')
 
 
 class VisitDict:
@@ -419,6 +477,14 @@ def save_workforce_histogram(data_frame, file_path):
         matplotlib.pyplot.close(figure)
 
 
+def calculate_forecast_visit_duration(problem):
+    forecast_visit_duration = VisitDict()
+    for recurring_visits in problem.visits:
+        for local_visit in recurring_visits.visits:
+            forecast_visit_duration[local_visit] = local_visit.duration
+    return forecast_visit_duration
+
+
 def calculate_observed_visit_duration(schedule):
     observed_duration_by_visit = VisitDict()
     for past_visit in schedule.visits:
@@ -495,7 +561,7 @@ def compare_workload(args, settings):
                                                                     observed_duration_by_visit)
             candidate_schedule_stem, candidate_schedule_ext = os.path.splitext(
                 os.path.basename(candidate_schedule_file))
-            save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem + '.' +__FILE_FORMAT)
+            save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem + '.' + __FILE_FORMAT)
 
 
 def contrast_workload(args, settings):
@@ -849,7 +915,9 @@ def traces_to_data_frame(trace_logs):
 def format_timedelta(x, pos=None):
     delta = datetime.timedelta(seconds=x)
     time_point = datetime.datetime(2017, 1, 1) + delta
-    return time_point.strftime('%M:%S')
+    if time_point.hour == 0:
+        return time_point.strftime('%M:%S')
+    return time_point.strftime('%H:%M:%S')
 
 
 def format_time(x, pos=None):
@@ -861,7 +929,7 @@ def format_time(x, pos=None):
 
 
 __SCATTER_POINT_SIZE = 1
-__FILE_FORMAT = 'pdf'
+__FILE_FORMAT = 'png'
 __Y_AXIS_EXTENSION = 1.2
 
 
@@ -946,6 +1014,8 @@ def compare_trace(args, settings):
     trace_file_stem, trace_file_ext = os.path.splitext(trace_file_base_name)
     output_file_stem = getattr(args, __OUTPUT, trace_file_stem)
 
+    add_arrows = getattr(args, __ARROWS, False)
+
     trace_logs = read_traces(trace_file)
     data_frame = traces_to_data_frame(trace_logs)
 
@@ -954,9 +1024,12 @@ def compare_trace(args, settings):
     if current_date and current_date not in dates:
         raise ValueError('Date {0} is not present in the data set'.format(current_date))
 
+    color_numbers = [0, 2, 4, 6, 8, 10, 12, 1, 3, 5, 7, 9, 11, 13]
+    color_number_it = iter(color_numbers)
     color_map = matplotlib.cm.get_cmap('tab20')
     matplotlib.pyplot.set_cmap(color_map)
     figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
+    max_relative_time = datetime.timedelta()
     try:
         if current_date:
             total_problem_visits, total_multiple_carer_visits = get_problem_stats(problem, current_date)
@@ -977,7 +1050,7 @@ def compare_trace(args, settings):
                 add_trace_legend(ax1, handles)
 
                 ax2.set_xlim(left=0)
-                ax2.set_ylim(bottom=0)
+                ax2.set_ylim(bottom=-10)
                 ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
             else:
                 total_visits = current_date_frame['visits'].iloc[0]
@@ -1002,21 +1075,26 @@ def compare_trace(args, settings):
 
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
+            ax1.set_ylabel('Cost Function')
             # ax1.set_xlim(left=0, right=updated_x_right)
 
             ax2_y_bottom, ax2_y_top = ax2.get_ylim()
-            ax2.set_ylim(bottom=0, top=ax2_y_top * __Y_AXIS_EXTENSION)
+            ax2.set_ylim(bottom=-10, top=ax2_y_top * __Y_AXIS_EXTENSION)
             # ax2.set_xlim(left=0, right=updated_x_right)
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+            ax2.set_ylabel('Declined Visits')
+            ax2.set_xlabel('Computation Time')
             matplotlib.pyplot.savefig(output_file_stem + '_' + current_date.isoformat() + '.' + __FILE_FORMAT,
                                       format=__FILE_FORMAT,
-                                      dpi=1200)
+                                      transparent=True,
+                                      dpi=300)
         else:
             handles = []
-            color_number = 0
             for current_date in dates:
-                current_color = color_map.colors[color_number]
+                current_color = color_map.colors[next(color_number_it)]
+
                 current_date_frame = data_frame[data_frame['date'] == current_date]
+                max_relative_time = max(current_date_frame['relative_time'].max(), max_relative_time)
                 total_problem_visits, total_multiple_carer_visits = get_problem_stats(problem, current_date)
                 stages = current_date_frame['stage'].unique()
                 if len(stages) > 1:
@@ -1064,7 +1142,6 @@ def compare_trace(args, settings):
                          cost_function,
                          current_date])
                     scatter_dropped_visits(ax2, current_date_frame, current_color)
-                color_number += 1
 
             ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
             ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
@@ -1073,22 +1150,30 @@ def compare_trace(args, settings):
             x_left, x_right = ax1.get_xlim()
             # updated_x_right = x_right + 2 * 60
 
+            if add_arrows:
+                ax1.arrow(950, 200000, 40, -110000, head_width=10, head_length=20000, fc='k', ec='k')
+                ax2.arrow(950, 60, 40, -40, head_width=10, head_length=10, fc='k', ec='k')
+
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
-            ax1.set_xlim(left=0)  # , right=updated_x_right
-
-            legend = add_trace_legend(ax2, handles, bbox_to_anchor=(0.5, -1.7), ncol=2)
+            ax1.set_xlim(left=0, right=(max_relative_time + datetime.timedelta(minutes=2)).total_seconds())
+            ax1.set_ylabel('Cost Function')
+            # legend = add_trace_legend(ax2, handles, bbox_to_anchor=(0.5, -1.7), ncol=2)
 
             ax2_y_bottom, ax2_y_top = ax2.get_ylim()
-            ax2.set_ylim(bottom=0, top=ax2_y_top * __Y_AXIS_EXTENSION)
-            ax2.set_xlim(left=0)  # , right=updated_x_right
+            ax2.set_ylim(bottom=-10, top=ax2_y_top * __Y_AXIS_EXTENSION)
+            ax2.set_xlim(left=0, right=(max_relative_time + datetime.timedelta(minutes=2)).total_seconds())
+            ax2.set_ylabel('Declined Visits')
+            ax2.set_xlabel('Computation Time')
+
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
             matplotlib.pyplot.tight_layout()
-            figure.subplots_adjust(bottom=0.4)
+            # figure.subplots_adjust(bottom=0.4)
             matplotlib.pyplot.savefig(output_file_stem + '.' + __FILE_FORMAT,
                                       format=__FILE_FORMAT,
-                                      dpi=1200,
-                                      bbox_extra_artists=(legend,),
+                                      dpi=300,
+                                      transparent=True,
+                                      # bbox_extra_artists=(legend,),
                                       layout='tight')
     finally:
         matplotlib.pyplot.cla()
@@ -1152,7 +1237,7 @@ def contrast_trace(args, settings):
     if current_date not in candidate_frame['date'].unique():
         raise ValueError('Date {0} is not present in the candidate data set'.format(current_date))
 
-    color_map = matplotlib.cm.get_cmap('tab20')
+    color_map = matplotlib.cm.get_cmap('Set1')
     matplotlib.pyplot.set_cmap(color_map)
     figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
     try:
@@ -1176,47 +1261,104 @@ def contrast_trace(args, settings):
         labels = []
         for stages in [base_stats, candidate_stats]:
             if len(stages) == 1:
-                stage, carers, visits = stages[0]
-                labels.append('V00/{0:03} C00/{1:02} 1 Level'.format(carers, visits))
+                labels.append('Direct')
             elif len(stages) > 1:
-                multiple_carers = min((stage[1] for stage in stages))
-                total_carers = max((stage[1] for stage in stages))
-                multiple_carer_visits = min((stage[2] for stage in stages))
-                total_visits = max((stage[2] for stage in stages))
-                labels.append('V{0:02}/{1:03} C{2:02}/{3:02} {4} Level'.format(multiple_carer_visits,
-                                                                               total_visits,
-                                                                               multiple_carers,
-                                                                               total_carers,
-                                                                               len(stages)))
+                labels.append('Multistage')
             else:
                 raise ValueError()
 
-        legend = add_legend(ax1, [base_handle, candidate_handle], labels, ncol=2, bbox_to_anchor=(0.5, -0.23))
-
         ax1.set_xlim(left=0.0)
-        ax2.set_xlim(left=0.0)
         ax1.set_ylim(bottom=0.0)
-        ax2.set_ylim(bottom=0.0)
-
+        ax1.set_ylabel('Cost Function')
         ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
         ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+        legend1 = ax1.legend([base_handle, candidate_handle], labels)
+        for handle in legend1.legendHandles:
+            handle._sizes = [25]
+
+        ax2.set_xlim(left=0.0)
+        ax2.set_ylim(bottom=0.0)
+        ax2.set_ylabel('Declined Visits')
+        ax2.set_xlabel('Computation Time')
         ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+        legend2 = ax2.legend([base_handle, candidate_handle], labels)
+        for handle in legend2.legendHandles:
+            handle._sizes = [25]
+
         matplotlib.pyplot.tight_layout()
         matplotlib.pyplot.savefig(
             output_file_stem + '_' + current_date.isoformat() + '.' + __FILE_FORMAT,
             format=__FILE_FORMAT,
-            dpi=1200,
-            bbox_extra_artists=(legend,),
+            dpi=300,
+            transparent=True,
             layout='tight')
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
 
+    figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
+    try:
+        candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
+        scatter_dropped_visits(ax2, candidate_current_data_frame, color=color_map.colors[1])
+        scatter_cost(ax1, candidate_current_data_frame, color=color_map.colors[1])
 
-def format_timedelta(x, pos=None):
-    delta = datetime.timedelta(seconds=x)
-    time_point = datetime.datetime(2017, 1, 1) + delta
-    return time_point.strftime('%M:%S')
+        stage2_started = \
+            candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage2']['stage_started'].iloc[0]
+
+        ax1.set_xlim(left=0.0, right=stage2_started.total_seconds())
+        ax1.set_ylim(bottom=0, top=22000)
+        ax1.set_ylabel('Cost Function')
+        ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
+        ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+
+        ax2.set_xlim(left=0.0, right=stage2_started.total_seconds())
+        ax2.set_ylim(bottom=-10.0, top=120)
+        ax2.set_ylabel('Declined Visits')
+        ax2.set_xlabel('Computation Time')
+        ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+
+        matplotlib.pyplot.tight_layout()
+        matplotlib.pyplot.savefig(
+            output_file_stem + '_first_stage_' + current_date.isoformat() + '.' + __FILE_FORMAT,
+            format=__FILE_FORMAT,
+            dpi=300,
+            transparent=True,
+            layout='tight')
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
+
+    figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
+    try:
+        candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
+        scatter_dropped_visits(ax2, candidate_current_data_frame, color=color_map.colors[1])
+        scatter_cost(ax1, candidate_current_data_frame, color=color_map.colors[1])
+
+        stage3_started = \
+            candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage3']['stage_started'].iloc[0]
+
+        ax1.set_xlim(left=860.0, right=stage3_started.total_seconds())
+        ax1.set_ylim(bottom=0.0, top=400000)
+        ax1.set_ylabel('Cost Function')
+        ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
+        ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+
+        ax2.set_xlim(left=860.0, right=stage3_started.total_seconds())
+        ax2.set_ylim(bottom=-5.0, top=40)
+        ax2.set_ylabel('Declined Visits')
+        ax2.set_xlabel('Computation Time')
+        ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+
+        matplotlib.pyplot.tight_layout()
+        matplotlib.pyplot.savefig(
+            output_file_stem + '_oscillations_' + current_date.isoformat() + '.' + __FILE_FORMAT,
+            format=__FILE_FORMAT,
+            dpi=300,
+            transparent=True,
+            layout='tight')
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
 
 
 def compare_prediction_error(args, settings):
