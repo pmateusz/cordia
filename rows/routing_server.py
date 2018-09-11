@@ -15,8 +15,8 @@ class RoutingServer:
 
         def __init__(self,
                      server_executable='./build/rows-routing-server',
-                     maps_file='--maps=./data/scotland-latest.osrm'):
-            self.__process = subprocess.Popen([server_executable, maps_file],
+                     maps_file='./data/scotland-latest.osrm'):
+            self.__process = subprocess.Popen([server_executable, '--maps=' + maps_file],
                                               stdin=subprocess.PIPE,
                                               stdout=subprocess.PIPE,
                                               stderr=subprocess.PIPE)
