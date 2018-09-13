@@ -4,6 +4,7 @@ import csv
 import os
 import sys
 import pathlib
+import collections
 
 import pandas
 
@@ -78,7 +79,7 @@ def load_locations(file_paths):
     return database
 
 
-if __name__ == '__main__':
+def build_distance_matrix():
     __script_file = os.path.realpath(__file__)
     __install_dir = os.path.dirname(os.path.dirname(__script_file))
 
@@ -117,5 +118,51 @@ if __name__ == '__main__':
     frame.set_index('UserId')
     with open('old_car_distance_matrix.txt', 'w') as file:
         frame.to_csv(file)
+
+
+def update_ids_in_distance_matrix(file_path, output_file_path):
+    script_file = os.path.realpath(__file__)
+    install_dir = os.path.dirname(os.path.dirname(script_file))
+
+    settings = rows.settings.Settings(install_dir)
+    settings.reload()
+
+    with Connector(settings) as connector:
+        connection = connector.connection()
+        cursor = connection.cursor().execute('SELECT DISTINCT OldId, AnonymizedId'
+                                             ' FROM dbo.ServiceUserIds')
+        old_to_new = collections.OrderedDict()
+        new_to_old = collections.OrderedDict()
+        for row in cursor:
+            old_id = int(row[0])
+            new_id = int(row[1])
+            old_to_new[old_id] = new_id
+            new_to_old[new_id] = old_id
+
+    with open(file_path, 'r') as stream:
+        old_frame = pandas.read_csv(stream)
+
+    items = old_frame.shape[0]
+    data = []
+    for index, row in old_frame.iterrows():
+        new_row = [old_to_new[row[1]]]
+        new_row.extend(row[2:])
+        data.append(new_row)
+
+    columns = [old_frame.columns[1]]
+    for old_column in old_frame.columns[2:]:
+        columns.append(old_to_new[int(old_column)])
+
+    trimmed_columns = columns[:31]
+    trimmed_data = [row[:31] for row in data[:30]]
+
+    new_frame = pandas.DataFrame(columns=trimmed_columns, data=trimmed_data)
+    with open(output_file_path, 'w') as stream:
+        new_frame.to_csv(stream)
+
+
+if __name__ == '__main__':
+    update_ids_in_distance_matrix('/home/pmateusz/dev/cordia/old_distance_matrix.txt',
+                                  '/home/pmateusz/dev/cordia/old_updated_distance_matrix.txt')
 
     sys.exit(0)
