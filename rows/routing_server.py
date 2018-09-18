@@ -47,7 +47,7 @@ class RoutingServer:
                 self.__process.kill()
                 self.__process.__exit__(exc, value, tb)
 
-    def __init__(self, server_executable, maps_file):
+    def __init__(self, server_executable='./build/rows-routing-server', maps_file='./data/scotland-latest.osrm'):
         self.__server_executable = server_executable
         self.__maps_file = maps_file
 
