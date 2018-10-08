@@ -126,15 +126,17 @@ if __name__ == '__main__':
     max_requests = 2000
 
     users_to_resolve = [user for user in address_pairs if user not in resolved_users]
-    for user in tqdm.tqdm(users_to_resolve):
-        if used_requests >= max_requests:
-            print('Exceeded request quota', file=sys.stderr)
-            exit(2)
-        print('Query {0}'.format(user))
-        location = resolve(address_pairs[user], api_key)
-        if location[0] and location[1]:
-            logger.add(user, location[0], location[1])
-            time.sleep(2)
-        used_requests += 1
-
-    print(used_requests)
+    for user in users_to_resolve:
+        print(user, address_pairs[user])
+    # for user in tqdm.tqdm(users_to_resolve):
+    #     if used_requests >= max_requests:
+    #         print('Exceeded request quota', file=sys.stderr)
+    #         exit(2)
+    #     print('Query {0}'.format(user))
+    #     location = resolve(address_pairs[user], api_key)
+    #     if location[0] and location[1]:
+    #         logger.add(user, location[0], location[1])
+    #         time.sleep(2)
+    #     used_requests += 1
+    #
+    # print(used_requests)

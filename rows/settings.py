@@ -12,7 +12,7 @@ class Settings:
     DEFAULT_MAPS_PATH_KEY = 'maps_path'
     DEFAULT_LOCATION_CACHE_PATH_KEY = 'location_cache_path'
     DEFAULT_DIFFICULT_LOCATIONS_PATH_KEY = 'difficult_location_cache_path'
-    DEFAULT_USER_GEO_TAGGING_PATH_KEY = 'geo_tagging_path'
+    DEFAULT_USER_GEO_TAGGING_PATHS_KEY = 'geo_tagging_paths'
     DEFAULT_SOLVER_PATH_KEY = 'solver_path'
     DEFAULT_CREDENTIALS_PATH_KEY = 'database_credentials_path'
     DEFAULT_DATABASE_SERVER_KEY = 'database_server'
@@ -32,7 +32,7 @@ class Settings:
         self.__maps_path = None
         self.__location_cache_path = None
         self.__difficult_locations_path = None
-        self.__user_geo_tagging_path = None
+        self.__user_geo_tagging_paths = None
         self.__solver_dir = None
         self.__database_driver = None
         self.__database_credentials_path = None
@@ -51,8 +51,8 @@ class Settings:
                                                           self.get_default_location_cache())
                 self.__difficult_locations_path = settings.get(Settings.DEFAULT_DIFFICULT_LOCATIONS_PATH_KEY,
                                                                self.get_default_difficult_location_cache())
-                self.__user_geo_tagging_path = settings.get(Settings.DEFAULT_USER_GEO_TAGGING_PATH_KEY,
-                                                            self.get_default_user_geo_tagging_path())
+                self.__user_geo_tagging_paths = settings.get(Settings.DEFAULT_USER_GEO_TAGGING_PATHS_KEY,
+                                                             self.get_default_user_geo_tagging_paths())
                 self.__solver_dir = settings.get(Settings.DEFAULT_SOLVER_PATH_KEY, self.get_default_solver_path())
                 self.__database_credentials_path = settings.get(Settings.DEFAULT_CREDENTIALS_PATH_KEY,
                                                                 self.get_default_credentials_path())
@@ -76,7 +76,7 @@ class Settings:
         return {Settings.DEFAULT_MAPS_PATH_KEY: self.maps_path,
                 Settings.DEFAULT_LOCATION_CACHE_PATH_KEY: self.location_cache_path,
                 Settings.DEFAULT_DIFFICULT_LOCATIONS_PATH_KEY: self.difficult_locations_path,
-                Settings.DEFAULT_USER_GEO_TAGGING_PATH_KEY: self.user_geo_tagging_path,
+                Settings.DEFAULT_USER_GEO_TAGGING_PATHS_KEY: self.__user_geo_tagging_paths,
                 Settings.DEFAULT_SOLVER_PATH_KEY: self.solver_path,
                 Settings.DEFAULT_CREDENTIALS_PATH_KEY: self.database_credentials_path,
                 Settings.DEFAULT_DATABASE_SERVER_KEY: self.database_server,
@@ -89,7 +89,7 @@ class Settings:
         self.__solver_path = self.get_default_solver_path()
         self.__location_cache_path = self.get_default_location_cache()
         self.__difficult_locations_path = self.get_default_difficult_location_cache()
-        self.__user_geo_tagging_path = self.get_default_user_geo_tagging_path()
+        self.__user_geo_tagging_paths = self.get_default_user_geo_tagging_paths()
         self.__database_credentials_path = self.get_default_credentials_path()
         self.__database_server = self.DEFAULT_DATABASE_SERVER
         self.__database_name = self.DEFAULT_DATABASE
@@ -113,8 +113,8 @@ class Settings:
     def get_default_difficult_location_cache(self):
         return os.path.join(self.data_dir, 'difficult_location_cache.json')
 
-    def get_default_user_geo_tagging_path(self):
-        return os.path.join(self.data_dir, 'user_geo_tagging.csv')
+    def get_default_user_geo_tagging_paths(self):
+        return [os.path.join(self.data_dir, 'user_geo_tagging.csv')]
 
     def get_default_credentials_path(self):
         return os.path.join(self.data_dir, '.dev')
@@ -144,8 +144,8 @@ class Settings:
         return self.__difficult_locations_path
 
     @property
-    def user_geo_tagging_path(self):
-        return self.__user_geo_tagging_path
+    def user_geo_tagging_paths(self):
+        return self.__user_geo_tagging_paths
 
     @property
     def database_driver(self):

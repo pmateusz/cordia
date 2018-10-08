@@ -46,11 +46,11 @@ class Handler:
     def __create_problem(self, area, begin_date, end_date, resource_estimator_name, duration_estimator_name):
         visits, carers, service_users = [], [], []
         if resource_estimator_name == SqlDataSource.PLANNED_RESOURCE_ESTIMATOR_NAME:
+            carers = self.__data_source.get_carers(area, begin_date, end_date)
             visits = self.__data_source.get_visits(area,
                                                    begin_date,
                                                    end_date,
                                                    self.__create_duration_estimator(duration_estimator_name))
-            carers = self.__data_source.get_carers(area, begin_date, end_date)
             service_users = self.__data_source.get_service_users(area, begin_date, end_date)
         elif resource_estimator_name == SqlDataSource.USED_RESOURCE_ESTIMATOR_NAME:
             visits, carers = self.__data_source.get_visits_carers_from_schedule(area,

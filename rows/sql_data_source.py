@@ -620,9 +620,17 @@ ORDER BY carer_visits.VisitID"""
                 data_frame.Duration = data_frame.Duration - trend.Duration
 
                 seasonal_component = find_repeating_component(decomposition.seasonal)
-                seasons = int(numpy.ceil(365.0 / len(seasonal_component)))
+
+                first_index_dt = first_index.to_pydatetime()
+                last_index_dt = last_index.to_pydatetime()
+                first_index_year = datetime.datetime(year=first_index_dt.year, month=1, day=1)
+                last_index_year = datetime.datetime(year=last_index_dt.year, month=12, day=31)
+
+                # generate data range from the first index to the last index
+                seasons = int(numpy.ceil((last_index_year - first_index_year).days / len(seasonal_component)))
                 seasonal_component_df = pandas.DataFrame(
-                    index=pandas.date_range(start=datetime.datetime(2017, 1, 1), periods=7 * seasons, freq='D'),
+                    index=pandas.date_range(start=first_index_year, periods=len(seasonal_component) * seasons,
+                                            freq='D'),
                     data=numpy.tile(seasonal_component, seasons),
                     columns=['Duration'])
 
@@ -650,7 +658,7 @@ ORDER BY carer_visits.VisitID"""
                 return SqlDataSource.ForecastEstimator.ARIMAModel(last_past_visit_date,
                                                                   arma_model,
                                                                   trend.Duration.mean(),
-                                                                  season_df)
+                                                                      season_df)
 
             self.__cluster_models = {}
             for user, clusters in self.__user_clusters.items():
