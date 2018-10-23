@@ -1084,6 +1084,10 @@ ORDER BY carer_visits.VisitID"""
             if mobile == 1:
                 mobile_carers.add(carer_id)
         carer_shifts = []
+
+        for carer in events_by_carer:
+            events_by_carer[carer].sort(key=lambda event: event.begin.date())
+
         for carer_id in events_by_carer.keys():
             diaries = [Diary(date=date, events=list(events), schedule_pattern=None)
                        for date, events

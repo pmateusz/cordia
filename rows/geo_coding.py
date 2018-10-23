@@ -47,7 +47,9 @@ AddressDatabaseRecord = collections.namedtuple('AddressDatabaseRecord', ['versio
 AddressDatabases = [
     AddressDatabase(1, '/media/sf_D_DRIVE/addresses_february.csv', './data/user_geo_tagging_february.csv'),
     AddressDatabase(2, '/media/sf_D_DRIVE/addresses_april.csv', './data/user_geo_tagging_april.csv'),
-    AddressDatabase(3, '/media/sf_D_DRIVE/addresses_september.csv', './data/user_geo_tagging_september.csv')
+    AddressDatabase(3, '/media/sf_D_DRIVE/addresses_september.csv', './data/user_geo_tagging_september.csv'),
+    AddressDatabase(4, '/media/sf_D_DRIVE/problematic_addresses.csv', './data/problematic_addresses.csv'),
+    AddressDatabase(5, '/media/sf_D_DRIVE/addresses_october.csv', './data/user_geo_tagging_october.csv')
 ]
 
 
@@ -68,7 +70,7 @@ def load_resolved_users():
             continue
         locations = load_resolved_users_from_file(database.geo_tagging_file)
         for user in locations:
-            if user in master_address_database and master_address_database[user].version == database.version:
+            if user in master_address_database and master_address_database[user].version >= database.version:
                 master_resolved_users.add(user)
             else:
                 logging.error('User %s not found in the master address database', user)
@@ -113,7 +115,7 @@ class Logger:
 
 
 if __name__ == '__main__':
-    address_file = '/media/sf_D_DRIVE/addresses_september.csv'
+    address_file = '/media/sf_D_DRIVE/addresses_october.csv'
     if not os.path.isfile(address_file):
         sys.exit(1)
     address_pairs = load_addresses(address_file)
@@ -126,17 +128,17 @@ if __name__ == '__main__':
     max_requests = 2000
 
     users_to_resolve = [user for user in address_pairs if user not in resolved_users]
-    for user in users_to_resolve:
-        print(user, address_pairs[user])
-    # for user in tqdm.tqdm(users_to_resolve):
-    #     if used_requests >= max_requests:
-    #         print('Exceeded request quota', file=sys.stderr)
-    #         exit(2)
-    #     print('Query {0}'.format(user))
-    #     location = resolve(address_pairs[user], api_key)
-    #     if location[0] and location[1]:
-    #         logger.add(user, location[0], location[1])
-    #         time.sleep(2)
-    #     used_requests += 1
-    #
-    # print(used_requests)
+    # for user in users_to_resolve:
+    #     print(user, address_pairs[user])
+    for user in tqdm.tqdm(users_to_resolve):
+        if used_requests >= max_requests:
+            print('Exceeded request quota', file=sys.stderr)
+            exit(2)
+        print('Query {0}'.format(user))
+        location = resolve(address_pairs[user], api_key)
+        if location[0] and location[1]:
+            logger.add(user, location[0], location[1])
+            time.sleep(2)
+        used_requests += 1
+
+    print(used_requests)
