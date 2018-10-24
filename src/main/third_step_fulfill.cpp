@@ -37,8 +37,8 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingMo
 
     static const auto START_FROM_ZERO_TIME = false;
     model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
-                       SECONDS_IN_DAY,
-                       SECONDS_IN_DAY,
+                       SECONDS_IN_DIMENSION,
+                       SECONDS_IN_DIMENSION,
                        START_FROM_ZERO_TIME,
                        TIME_DIMENSION);
 
@@ -60,7 +60,7 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingMo
             = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
     operations_research::Solver *const solver = model.solver();
-    time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DAY);
+    time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
 
     // visit that needs multiple carers is referenced by multiple nodes
     // all such nodes must be either performed or unperformed

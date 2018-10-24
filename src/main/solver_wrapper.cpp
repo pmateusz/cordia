@@ -63,6 +63,8 @@ namespace rows {
 
     const int64 SolverWrapper::SECONDS_IN_DAY = 24 * 3600;
 
+    const int64 SolverWrapper::SECONDS_IN_DIMENSION = 24 * 3600 + 2 * 3600;
+
     const std::string SolverWrapper::TIME_DIMENSION{"Time"};
 
     SolverWrapper::SolverWrapper(const rows::Problem &problem,
@@ -616,7 +618,7 @@ namespace rows {
 
     int64 SolverWrapper::GetEndWindow(boost::posix_time::time_duration value,
                                       boost::posix_time::time_duration window_size) const {
-        return std::min(static_cast<int64>((value + window_size).total_seconds()), SECONDS_IN_DAY);
+        return std::min(static_cast<int64>((value + window_size).total_seconds()), SECONDS_IN_DIMENSION);
     }
 
     const Problem &SolverWrapper::problem() const {
@@ -783,7 +785,7 @@ namespace rows {
             return finish_time.total_seconds();
         }
         return std::min(static_cast<int64>((finish_time + begin_end_work_day_adjustment_).total_seconds()),
-                        SECONDS_IN_DAY);
+                        SECONDS_IN_DIMENSION);
     }
 
     void SolverWrapper::OnConfigureModel(const operations_research::RoutingModel &model) {

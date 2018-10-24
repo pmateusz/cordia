@@ -119,6 +119,7 @@ namespace rows {
         return out;
     }
 
+    // requires evens in diary to be sorted
     Diary Diary::Intersect(const Diary &other) const {
         DCHECK_EQ(date_, other.date_);
 

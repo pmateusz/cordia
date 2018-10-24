@@ -75,6 +75,7 @@ namespace rows {
 
         static const operations_research::RoutingModel::NodeIndex DEPOT;
         static const int64 SECONDS_IN_DAY;
+        static const int64 SECONDS_IN_DIMENSION;
         static const std::string TIME_DIMENSION;
 
         static operations_research::RoutingSearchParameters CreateSearchParameters();

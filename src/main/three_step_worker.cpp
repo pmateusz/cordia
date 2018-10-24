@@ -118,6 +118,13 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                        begin_end_shift_time_extension_,
                                                        opt_time_limit_);
 
+    if (second_step_wrapper->vehicles() == 0) {
+        LOG(ERROR) << "No carers available.";
+        printer_->operator<<(TracingEvent(TracingEventType::Finished, "All"));
+        SetReturnCode(1);
+        return;
+    }
+
     std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
             static_cast<std::size_t>(second_step_wrapper->vehicles())};
 
@@ -141,6 +148,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
         first_stage_wrapper->ConfigureModel(*first_step_model, printer_, CancelToken());
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage1"));
+//        first_step_model->solver()->set_fail_intercept(&FailureInterceptor);
         first_step_assignment = first_step_model->SolveWithParameters(search_params);
         printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage1"));
 
@@ -376,6 +384,9 @@ rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
                         util::ErrorCode::ERROR);
             }
             team.Add(std::move(*best_match));
+
+            CHECK_LE(team.Diary().begin_time(), team.Diary().end_time());
+
             teams.emplace_back(std::move(team));
         }
     }

@@ -1,6 +1,7 @@
 #ifndef ROWS_PROBLEM_H
 #define ROWS_PROBLEM_H
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 #include <unordered_map>
@@ -271,9 +272,17 @@ namespace rows {
 
                     events.emplace_back(boost::posix_time::time_period(begin, end));
                 }
+                std::sort(std::begin(events), std::end(events),
+                          [](const rows::Event &left, const rows::Event &right) -> bool {
+                              return left.begin() <= right.begin();
+                          });
 
                 diaries.emplace_back(date, events);
             }
+            std::sort(std::begin(diaries), std::end(diaries),
+                      [](const rows::Diary &left, const rows::Diary &right) -> bool {
+                          return left.date() <= right.date();
+                      });
 
             result.emplace_back(carer, diaries);
         }

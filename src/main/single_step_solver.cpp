@@ -75,8 +75,8 @@ namespace rows {
 
         model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
         model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
-                           SECONDS_IN_DAY,
-                           SECONDS_IN_DAY,
+                           SECONDS_IN_DIMENSION,
+                           SECONDS_IN_DIMENSION,
                            START_FROM_ZERO_TIME,
                            TIME_DIMENSION);
 
@@ -84,7 +84,7 @@ namespace rows {
                 = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
         operations_research::Solver *const solver = model.solver();
-        time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DAY);
+        time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
 
         // visit that needs multiple carers is referenced by multiple nodes
         // all such nodes must be either performed or unperformed
@@ -147,6 +147,7 @@ namespace rows {
 
         const auto schedule_day = GetScheduleDate();
         auto solver_ptr = model.solver();
+
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto &carer = Carer(vehicle);
             const auto &diary_opt = problem_.diary(carer, schedule_day);
@@ -169,6 +170,9 @@ namespace rows {
 
                 variable_store_->SetBreakIntervalVars(vehicle, breaks);
             }
+
+            CHECK_LE(begin_time_to_use, end_time) << carer.sap_number();
+            CHECK_LE(begin_time, end_time_to_use) << carer.sap_number();
 
             time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time_to_use, end_time);
             time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time_to_use);

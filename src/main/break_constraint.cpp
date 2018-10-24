@@ -93,7 +93,7 @@ namespace rows {
                 }
 
                 const auto max_travel_start = std::min(dimension_->CumulVar(next_index)->Max() - travel_duration,
-                                                       SolverWrapper::SECONDS_IN_DAY);
+                                                       SolverWrapper::SECONDS_IN_DIMENSION);
                 if (min_travel_start > max_travel_start) {
                     solver()->Fail();
                 }
