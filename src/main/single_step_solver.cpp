@@ -90,7 +90,8 @@ namespace rows {
         // all such nodes must be either performed or unperformed
         auto total_multiple_carer_visits = 0;
         for (const auto &visit_index_pair : visit_index_) {
-            const auto visit_start = visit_index_pair.first.datetime().time_of_day();
+            const auto visit_start = visit_index_pair.first.datetime() - StartHorizon();
+            DCHECK(!visit_start.is_negative()) << visit_index_pair.first.id();
 
             std::vector<int64> visit_indices;
             for (const auto &visit_node : visit_index_pair.second) {
@@ -105,8 +106,9 @@ namespace rows {
                             ->CumulVar(visit_index)
                             ->SetRange(start_window, end_window);
 
-                    DCHECK_LT(start_window, end_window);
-                    DCHECK_EQ((start_window + end_window) / 2, visit_start.total_seconds());
+                    DCHECK_LT(start_window, end_window) << visit_index_pair.first.id();
+                    DCHECK_LE(start_window, visit_start.total_seconds()) << visit_index_pair.first.id();
+                    DCHECK_LE(visit_start.total_seconds(), end_window) << visit_index_pair.first.id();
                 } else {
                     time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
                 }
@@ -153,16 +155,21 @@ namespace rows {
             const auto &diary_opt = problem_.diary(carer, schedule_day);
 
             int64 begin_time = 0;
-            int64 begin_time_to_use = 0;
             int64 end_time = 0;
-            int64 end_time_to_use = 0;
             if (diary_opt.is_initialized()) {
                 const auto &diary = diary_opt.get();
 
-                begin_time = diary.begin_time().total_seconds();
-                end_time = diary.end_time().total_seconds();
-                begin_time_to_use = GetAdjustedWorkdayStart(diary.begin_time());
-                end_time_to_use = GetAdjustedWorkdayFinish(diary.end_time());
+                const auto begin_duration = (diary.begin_date_time() - StartHorizon());
+                const auto end_duration = (diary.end_date_time() - StartHorizon());
+                CHECK(!begin_duration.is_negative()) << carer.sap_number();
+                CHECK(!end_duration.is_negative()) << carer.sap_number();
+
+                begin_time = GetAdjustedWorkdayStart(begin_duration);
+                end_time = GetAdjustedWorkdayFinish(end_duration);
+                CHECK_GE(begin_time, 0) << carer.sap_number();
+                CHECK_LE(begin_time, end_time) << carer.sap_number();
+                CHECK_LE(begin_duration.total_seconds(), begin_time) << carer.sap_number();
+                CHECK_LE(end_duration.total_seconds(), end_time) << carer.sap_number();
 
                 const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
                 solver_ptr->AddConstraint(
@@ -171,11 +178,8 @@ namespace rows {
                 variable_store_->SetBreakIntervalVars(vehicle, breaks);
             }
 
-            CHECK_LE(begin_time_to_use, end_time) << carer.sap_number();
-            CHECK_LE(begin_time, end_time_to_use) << carer.sap_number();
-
-            time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time_to_use, end_time);
-            time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time_to_use);
+            time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
+            time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
         }
 
         printer->operator<<(ProblemDefinition(model.vehicles(),

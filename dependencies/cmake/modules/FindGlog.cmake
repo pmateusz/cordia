@@ -18,7 +18,7 @@ if (WIN32)
             HINTS ${GLOG_ROOT_DIR}/src/windows)
 else ()
     find_path(GLOG_INCLUDE_DIR glog/logging.h
-            HINTS ${GLOG_ROOT_DIR}/include)
+            HINTS ${GLOG_ROOT_DIR} ${GLOG_ROOT_DIR}/include)
 endif ()
 
 if (MSVC)

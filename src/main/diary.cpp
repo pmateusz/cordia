@@ -52,28 +52,25 @@ namespace rows {
         return date_;
     }
 
-    std::vector<rows::Event> Diary::Breaks() const {
+    // TODO: using hardcoded constant to compute breaks is likely to cause problems
+    std::vector<rows::Event> Diary::Breaks(const boost::posix_time::time_period &time_horizon) const {
         if (events_.empty()) {
-            return {rows::Event(boost::posix_time::time_period(boost::posix_time::ptime(date_),
-                                                               boost::posix_time::hours(24)))};
+            return {rows::Event(time_horizon)};
         }
 
         auto breaks = std::vector<Event>();
         breaks.emplace_back(
-                boost::posix_time::time_period(boost::posix_time::ptime(date_), events_.front().begin().time_of_day()));
+                boost::posix_time::time_period{boost::posix_time::ptime{events_.front().begin().date()},
+                                               events_.front().begin().time_of_day()});
 
         const auto events_size = events_.size();
         for (int index = 1; index < events_size; ++index) {
-            const auto last_event_finish = events_[index - 1].end().time_of_day();
-            const auto current_event_start = events_[index].begin().time_of_day();
-            breaks.emplace_back(boost::posix_time::time_period(boost::posix_time::ptime(date_, last_event_finish),
-                                                               current_event_start - last_event_finish));
+            const auto last_event_finish = events_[index - 1].end();
+            const auto current_event_start = events_[index].begin();
+            breaks.emplace_back(boost::posix_time::time_period{last_event_finish, current_event_start});
         }
 
-        breaks.emplace_back(
-                boost::posix_time::time_period(boost::posix_time::ptime(date_, events_.back().end().time_of_day()),
-                                               boost::posix_time::hours(24) - events_.back().end().time_of_day()));
-
+        breaks.emplace_back(boost::posix_time::time_period{events_.back().end(), time_horizon.end()});
         return breaks;
     }
 
@@ -89,12 +86,28 @@ namespace rows {
         return events_.front().begin().time_of_day();
     }
 
+    boost::posix_time::ptime Diary::begin_date_time() const {
+        if (events_.empty()) {
+            return boost::posix_time::not_a_date_time;
+        }
+
+        return events_.front().begin();
+    }
+
     boost::posix_time::ptime::time_duration_type Diary::end_time() const {
         if (events_.empty()) {
             return {};
         }
 
         return events_.back().end().time_of_day();
+    }
+
+    boost::posix_time::ptime Diary::end_date_time() const {
+        if (events_.empty()) {
+            return boost::posix_time::not_a_date_time;
+        }
+
+        return events_.back().end();
     }
 
     boost::posix_time::ptime::time_duration_type Diary::duration() const {

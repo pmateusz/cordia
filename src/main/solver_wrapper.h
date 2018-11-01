@@ -114,6 +114,10 @@ namespace rows {
 
         int Vehicle(const rows::Carer &carer) const;
 
+        const boost::posix_time::ptime EndHorizon() const;
+
+        const boost::posix_time::ptime StartHorizon() const;
+
         const Location &depot() const;
 
         const Problem &problem() const;
@@ -220,6 +224,7 @@ namespace rows {
         const rows::Problem problem_;
         const Location depot_;
         const LocalServiceUser depot_service_user_;
+        boost::posix_time::ptime start_horizon_;
 
         bool out_office_hours_breaks_enabled_;
 

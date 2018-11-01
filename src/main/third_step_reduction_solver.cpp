@@ -70,7 +70,8 @@ void rows::ThirdStepReductionSolver::ConfigureModel(operations_research::Routing
     // all such nodes must be either performed or unperformed
     auto total_multiple_carer_visits = 0;
     for (const auto &visit_index_pair : visit_index_) {
-        const auto visit_start = visit_index_pair.first.datetime().time_of_day();
+        const auto visit_start = visit_index_pair.first.datetime() - StartHorizon();
+        CHECK(!visit_start.is_negative()) << visit_index_pair.first.id();
 
         std::vector<int64> visit_indices;
         for (const auto &visit_node : visit_index_pair.second) {
@@ -85,8 +86,9 @@ void rows::ThirdStepReductionSolver::ConfigureModel(operations_research::Routing
                         ->CumulVar(visit_index)
                         ->SetRange(start_window, end_window);
 
-                DCHECK_LT(start_window, end_window);
-                DCHECK_EQ((start_window + end_window) / 2, visit_start.total_seconds());
+                DCHECK_LT(start_window, end_window) << visit_index_pair.first.id();
+                DCHECK_LE(start_window, visit_start.total_seconds()) << visit_index_pair.first.id();
+                DCHECK_LE(visit_start.total_seconds(), end_window) << visit_index_pair.first.id();
             } else {
                 time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
             }

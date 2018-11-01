@@ -55,7 +55,8 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     // all such nodes must be either performed or unperformed
     auto total_multiple_carer_visits = 0;
     for (const auto &visit_index_pair : visit_index_) {
-        const auto visit_start = visit_index_pair.first.datetime().time_of_day();
+        const auto visit_start = visit_index_pair.first.datetime() - StartHorizon();
+        DCHECK(!visit_start.is_negative()) << visit_index_pair.first.id();
 
         // TODO: sort visit indices, but don't remember why...
         std::vector<int64> visit_indices;
@@ -71,8 +72,9 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
                         ->CumulVar(visit_index)
                         ->SetRange(start_window, end_window);
 
-                DCHECK_LT(start_window, end_window);
-                DCHECK_EQ((start_window + end_window) / 2, visit_start.total_seconds());
+                DCHECK_LT(start_window, end_window) << visit_index_pair.first.id();
+                DCHECK_LE(start_window, visit_start.total_seconds()) << visit_index_pair.first.id();
+                DCHECK_LE(visit_start.total_seconds(), end_window) << visit_index_pair.first.id();
             } else {
                 time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
             }
@@ -121,12 +123,28 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
         if (diary_opt.is_initialized()) {
             const auto &diary = diary_opt.get();
 
-            begin_time = GetAdjustedWorkdayStart(diary.begin_time());
-            end_time = GetAdjustedWorkdayFinish(diary.end_time());
+            const auto begin_time_duration = (diary.begin_date_time() - StartHorizon());
+            const auto end_time_duration = (diary.end_date_time() - StartHorizon());
+
+            CHECK(!begin_time_duration.is_negative());
+            CHECK(!end_time_duration.is_negative());
+
+            begin_time = GetAdjustedWorkdayStart(begin_time_duration);
+            end_time = GetAdjustedWorkdayFinish(end_time_duration);
+
+            CHECK_GE(begin_time, 0);
+            CHECK_LE(begin_time, end_time);
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             for (const auto &break_item : breaks) {
                 model.AddIntervalToAssignment(break_item);
+            }
+
+            LOG(INFO) << "Carer:" << carer.sap_number() << " Vehicle:" << vehicle;
+            for (const auto &break_item : breaks) {
+                LOG(INFO) << "[" << break_item->StartMin() << ", " << break_item->StartMax()
+                          << "] ["
+                          << break_item->EndMin() << ", " << break_item->EndMax() << "]";
             }
 
             solver_ptr->AddConstraint(

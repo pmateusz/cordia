@@ -1475,9 +1475,11 @@ ORDER BY carer_visits.VisitID"""
                 if previous_tasks.issubset(current_tasks):
                     user_date_slot[visit.time] = visit
                 elif not current_tasks.issubset(previous_tasks):
-                    raise ValueError(
-                        'Two visits happen at the same time {0} and both contain different tasks {1} vs {2}'
-                            .format(visit.time, previous_tasks, current_tasks))
+                    pass
+                    # fixme: ignore error
+                    # raise ValueError(
+                    #     'Two visits happen at the same time {0} and both contain different tasks {1} vs {2}'
+                    #         .format(visit.time, previous_tasks, current_tasks))
             else:
                 user_date_slot[visit.time] = visit
 

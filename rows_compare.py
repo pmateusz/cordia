@@ -372,6 +372,7 @@ def compare_distance(args, settings):
         data_frame.sort_values(by=['Date'], inplace=True)
         data_frame.to_pickle(data_frame_file)
 
+    data_frame.to_csv('table.csv')
     figure, (ax1, ax2, ax3) = matplotlib.pyplot.subplots(3, 1, sharex=True)
     try:
         width = 0.20

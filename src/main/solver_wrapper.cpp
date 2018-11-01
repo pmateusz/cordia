@@ -109,7 +109,8 @@ namespace rows {
               parameters_(search_parameters),
               visit_index_(),
               visit_by_node_(),
-              service_users_() {
+              service_users_(),
+              start_horizon_{boost::posix_time::max_date_time} {
 
         visit_by_node_.emplace_back(CalendarVisit()); // depot visit
         // visit that needs multiple carers is referenced by multiple nodes
@@ -132,6 +133,8 @@ namespace rows {
                 const auto index_inserted = node_index_set.insert(current_visit_node).second;
                 DCHECK(index_inserted);
             }
+
+            start_horizon_ = std::min(start_horizon_, boost::posix_time::ptime(visit.datetime().date()));
         }
         DCHECK_EQ(current_visit_node.value(), visit_by_node_.size());
 
@@ -203,7 +206,8 @@ namespace rows {
     }
 
     std::vector<rows::Event> SolverWrapper::GetEffectiveBreaks(const rows::Diary &diary) const {
-        const auto original_breaks = diary.Breaks();
+        const boost::posix_time::time_period time_horizon{StartHorizon(), EndHorizon()};
+        const auto original_breaks = diary.Breaks(time_horizon);
 
         if (original_breaks.size() < 2) {
             return original_breaks;
@@ -237,10 +241,17 @@ namespace rows {
     operations_research::IntervalVar *SolverWrapper::CreateBreakInterval(operations_research::Solver *solver,
                                                                          const rows::Event &event,
                                                                          std::string label) const {
-        const auto start_time = event.begin().time_of_day();
+        const auto start_time = event.begin() - StartHorizon();
+        CHECK(!start_time.is_negative());
+
         const auto raw_duration = event.duration().total_seconds();
         const auto begin_break_window = this->GetBeginBreakWindow(start_time);
         const auto end_break_window = this->GetEndBreakWindow(start_time);
+
+        CHECK_LE(begin_break_window, end_break_window);
+        CHECK_GT(raw_duration, 0);
+        // TODO: consider more strict tests to ensure that end break window is within the time horizon
+
         return solver->MakeIntervalVar(
                 begin_break_window, end_break_window,
                 raw_duration, raw_duration,
@@ -254,7 +265,11 @@ namespace rows {
             operations_research::Solver *solver,
             const rows::Event &event,
             std::string label) const {
-        return solver->MakeFixedInterval(event.begin().time_of_day().total_seconds(),
+        const auto start_time = event.begin() - StartHorizon();
+        CHECK(!start_time.is_negative());
+        CHECK_GT(event.duration().total_seconds(), 0);
+
+        return solver->MakeFixedInterval(start_time.total_seconds(),
                                          event.duration().total_seconds(),
                                          label);
     }
@@ -294,6 +309,10 @@ namespace rows {
             return break_intervals;
         }
 
+        for (const auto &break_period : break_periods) {
+            CHECK_LE(break_period.begin(), break_period.end());
+        }
+
         if (out_office_hours_breaks_enabled_) {
             const auto &break_before_work = break_periods.front();
             CHECK_EQ(break_before_work.begin().time_of_day().total_seconds(), 0);
@@ -311,7 +330,7 @@ namespace rows {
             }
 
             const auto &break_after_work = break_periods.back();
-            CHECK_EQ(break_after_work.end().time_of_day().total_seconds(), 0);
+            CHECK_EQ(break_after_work.end(), EndHorizon());
             AddFixedIntervalIfNonZero(solver,
                                       break_after_work,
                                       GetBreakLabel(carer, BreakType::AFTER_WORKDAY),
@@ -885,6 +904,14 @@ namespace rows {
 
     bool SolverWrapper::out_office_hours_breaks_enabled() const {
         return out_office_hours_breaks_enabled_;
+    }
+
+    const boost::posix_time::ptime SolverWrapper::StartHorizon() const {
+        return start_horizon_;
+    }
+
+    const boost::posix_time::ptime SolverWrapper::EndHorizon() const {
+        return start_horizon_ + boost::posix_time::seconds(SECONDS_IN_DIMENSION);
     }
 
     SolverWrapper::LocalServiceUser::LocalServiceUser()

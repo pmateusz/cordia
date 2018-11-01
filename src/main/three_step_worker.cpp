@@ -6,6 +6,10 @@
 #include "gexf_writer.h"
 #include "third_step_fulfill.h"
 
+void FailureInterceptor() {
+    LOG(INFO) << "Failure";
+}
+
 rows::ThreeStepSchedulingWorker::CarerTeam::CarerTeam(std::pair<rows::Carer, rows::Diary> member)
         : diary_{member.second} {
     members_.emplace_back(std::move(member));
@@ -221,6 +225,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
             = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
                                                                   second_step_wrapper->vehicles(),
                                                                   rows::SolverWrapper::DEPOT);
+//    second_stage_model->solver()->set_fail_intercept(&FailureInterceptor);
     second_step_wrapper->ConfigureModel(*second_stage_model, printer_, CancelToken());
 
     operations_research::Assignment const *computed_assignment = nullptr;

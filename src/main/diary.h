@@ -5,7 +5,6 @@
 #include <utility>
 #include <ostream>
 
-#include <boost/date_time/gregorian/gregorian.hpp>
 #include <boost/date_time.hpp>
 
 #include "event.h"
@@ -34,13 +33,17 @@ namespace rows {
 
         boost::posix_time::ptime::time_duration_type begin_time() const;
 
+        boost::posix_time::ptime begin_date_time() const;
+
         boost::posix_time::ptime::time_duration_type end_time() const;
+
+        boost::posix_time::ptime end_date_time() const;
 
         boost::posix_time::ptime::time_duration_type duration() const;
 
         const std::vector<rows::Event> &events() const;
 
-        std::vector<rows::Event> Breaks() const;
+        std::vector<rows::Event> Breaks(const boost::posix_time::time_period &time_horizon) const;
 
         bool IsAvailable(boost::posix_time::ptime date_time,
                          boost::posix_time::time_duration adjustment) const;

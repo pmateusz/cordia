@@ -320,6 +320,8 @@ namespace rows {
             }
         }
 
+        const boost::posix_time::time_period time_horizon(solver.StartHorizon(), solver.EndHorizon());
+
         std::unordered_set<rows::Carer> processed_visits;
         for (const auto &visit_bundle : visit_index) {
             if (visit_bundle.second.size() <= 1) {
@@ -331,7 +333,7 @@ namespace rows {
                 if (processed_visits.insert(carer).second) {
                     LOG(INFO) << "Visit: " << visit_pair.first.carer().get();
                     const auto diary = solver.problem().diary(carer, visit_pair.first.datetime().date()).get();
-                    for (const auto &break_interval : diary.Breaks()) {
+                    for (const auto &break_interval : diary.Breaks(time_horizon)) {
                         LOG(INFO) << boost::format("break [%1%,%2%] %3%")
                                      % break_interval.begin().time_of_day()
                                      % break_interval.end().time_of_day()
@@ -745,7 +747,8 @@ namespace rows {
             next_node_ = nodes_[2];
         }
 
-        breaks_ = diary.get().Breaks();
+        const boost::posix_time::time_period time_horizon(solver_.StartHorizon(), solver_.EndHorizon());
+        breaks_ = diary.get().Breaks(time_horizon);
         current_break_ = 0;
 
         if (VLOG_IS_ON(2)) {
@@ -1045,7 +1048,7 @@ namespace rows {
             last_travel_time = session.GetTravelTime(visit_node, next_node);
         }
 
-        ptime end_of_day(date, boost::posix_time::hours(24));
+        ptime end_of_day = solver.EndHorizon();
         if (end_of_day > last_visit_finish) {
             idle_periods.emplace_back(last_visit_finish, end_of_day);
         }
@@ -1195,7 +1198,7 @@ namespace rows {
             last_travel_time = session.GetTravelTime(visit_node, next_node);
         }
 
-        ptime end_of_day(date, boost::posix_time::hours(24));
+        ptime end_of_day = solver.EndHorizon();
         if (end_of_day > last_visit_finish) {
             idle_periods.emplace_back(last_visit_finish, end_of_day);
         }
@@ -1579,6 +1582,10 @@ namespace rows {
 
     boost::posix_time::ptime FixedDurationActivity::Perform(
             boost::posix_time::ptime current_time) const {
+        if (duration_.total_seconds() == 0) {
+            return current_time;
+        }
+
         if (start_window_.is_before(current_time) && start_window_.end() != current_time) {
             return boost::posix_time::not_a_date_time;
         } else if (start_window_.contains(current_time)
