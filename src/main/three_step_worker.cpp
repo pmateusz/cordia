@@ -302,6 +302,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     third_step_solver->ConfigureModel(*third_stage_model, printer_, CancelToken());
 
+//    third_stage_model->solver()->set_fail_intercept(FailureInterceptor);
     const auto third_stage_preassignment = third_stage_model->ReadAssignmentFromRoutes(routes, true);
     DCHECK(third_stage_preassignment);
 

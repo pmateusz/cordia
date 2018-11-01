@@ -126,14 +126,14 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
             const auto begin_time_duration = (diary.begin_date_time() - StartHorizon());
             const auto end_time_duration = (diary.end_date_time() - StartHorizon());
 
-            CHECK(!begin_time_duration.is_negative());
-            CHECK(!end_time_duration.is_negative());
+            CHECK(!begin_time_duration.is_negative()) << carer.sap_number();
+            CHECK(!end_time_duration.is_negative()) << carer.sap_number();
 
             begin_time = GetAdjustedWorkdayStart(begin_time_duration);
             end_time = GetAdjustedWorkdayFinish(end_time_duration);
 
-            CHECK_GE(begin_time, 0);
-            CHECK_LE(begin_time, end_time);
+            CHECK_GE(begin_time, 0) << carer.sap_number();
+            CHECK_LE(begin_time, end_time) << carer.sap_number();
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             for (const auto &break_item : breaks) {

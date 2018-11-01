@@ -129,8 +129,17 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingMo
         if (diary_opt.is_initialized()) {
             const auto &diary = diary_opt.get();
 
-            begin_time = GetAdjustedWorkdayStart(diary.begin_time());
-            end_time = GetAdjustedWorkdayFinish(diary.end_time());
+            const auto begin_duration = (diary.begin_date_time() - StartHorizon());
+            const auto end_duration = (diary.end_date_time() - StartHorizon());
+            CHECK(!begin_duration.is_negative()) << carer.sap_number();
+            CHECK(!end_duration.is_negative()) << carer.sap_number();
+
+            begin_time = GetAdjustedWorkdayStart(begin_duration);
+            end_time = GetAdjustedWorkdayFinish(end_duration);
+            CHECK_GE(begin_time, 0) << carer.sap_number();
+            CHECK_LT(begin_time, end_time) << carer.sap_number();
+            CHECK_LE(begin_time, begin_duration.total_seconds()) << carer.sap_number();
+            CHECK_LE(end_duration.total_seconds(), end_time) << carer.sap_number();
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             solver_ptr->AddConstraint(

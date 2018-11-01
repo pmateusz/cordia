@@ -617,13 +617,24 @@ TEST(TestBreaksViolation, TestRealProblem) {
         }
     }
 
+    static const auto FIX_CUMULATIVE_TO_ZERO = true;
+    static const auto MAX_TIME_SLACK = boost::posix_time::hours(24).total_seconds();
+    static const auto CAPACITY = boost::posix_time::hours(24).total_seconds();
+
+    boost::posix_time::ptime min_start_time = boost::posix_time::min_date_time;
+    for (const auto &visit : problem.visits()) {
+        min_start_time = std::min(min_start_time, visit.datetime());
+    }
+    min_start_time = boost::posix_time::ptime(min_start_time.date());
+
     // initialize breaks
     std::vector<std::vector<Break> > breaks;
     for (const auto &carer_pair : problem.carers()) {
         DCHECK(carer_pair.second.empty() || carer_pair.second.size() == 1);
 
         std::vector<Break> local_breaks;
-        for (const auto &local_break : carer_pair.second.front().Breaks()) {
+        for (const auto &local_break : carer_pair.second.front().Breaks(
+                boost::posix_time::time_period{min_start_time, boost::posix_time::seconds(MAX_TIME_SLACK)})) {
             local_breaks.emplace_back(local_break.begin().time_of_day(), local_break.duration());
         }
         breaks.emplace_back(std::move(local_breaks));
@@ -637,9 +648,6 @@ TEST(TestBreaksViolation, TestRealProblem) {
 
     model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&data, &Environment::distance));
 
-    static const auto FIX_CUMULATIVE_TO_ZERO = true;
-    static const auto MAX_TIME_SLACK = boost::posix_time::hours(24).total_seconds();
-    static const auto CAPACITY = boost::posix_time::hours(24).total_seconds();
     model.AddDimension(NewPermanentCallback(&data, &Environment::service_plus_distance),
                        MAX_TIME_SLACK,
                        CAPACITY,
