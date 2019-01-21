@@ -19,6 +19,7 @@
 
 #include "util/logging.h"
 
+
 TEST(TestOSRM, CanCalculateTravelTime) {
     // Configure based on a .osrm base path, and no datasets in shared mem from osrm-datastore
     osrm::EngineConfig config;
@@ -34,8 +35,8 @@ TEST(TestOSRM, CanCalculateTravelTime) {
     // The following shows how to use the Route service; configure this service
     osrm::RouteParameters params;
     // a route in Glasgow
-    params.coordinates.push_back({osrm::util::FloatLongitude{-4.267129}, osrm::util::FloatLatitude{55.8659861}});
-    params.coordinates.push_back({osrm::util::FloatLongitude{-4.245461}, osrm::util::FloatLatitude{55.862235}});
+    params.coordinates.push_back({osrm::util::FloatLongitude{-4.32}, osrm::util::FloatLatitude{55.79}});
+    params.coordinates.push_back({osrm::util::FloatLongitude{-4.35}, osrm::util::FloatLatitude{55.80}});
 
     // Response is in JSON format
     osrm::json::Object result;
@@ -53,6 +54,8 @@ TEST(TestOSRM, CanCalculateTravelTime) {
     auto &route = routes.values.at(0).get<osrm::json::Object>();
     const auto distance = route.values["distance"].get<osrm::json::Number>().value;
     const auto duration = route.values["duration"].get<osrm::json::Number>().value;
+
+    LOG(INFO) << distance << ' ' << duration;
 
     EXPECT_GT(distance, 0.0);
     EXPECT_GT(duration, 0.0);

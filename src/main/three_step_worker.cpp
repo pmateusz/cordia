@@ -86,6 +86,11 @@ int64 GetMaxDistance(rows::SolverWrapper &solver,
 void rows::ThreeStepSchedulingWorker::Run() {
     static const SolutionValidator solution_validator{};
 
+    for (const auto &visit : problem_.visits()) {
+        LOG(INFO) << visit.duration();
+        CHECK_GT(visit.duration().total_seconds(), 0);
+    }
+
     printer_->operator<<(TracingEvent(TracingEventType::Started, "All"));
 
     const auto search_params = rows::SolverWrapper::CreateSearchParameters();

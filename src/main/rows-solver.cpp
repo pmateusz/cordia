@@ -248,7 +248,18 @@ rows::Problem LoadProblem(std::shared_ptr<rows::Printer> printer) {
 
     try {
         rows::Problem::JsonLoader json_loader;
-        return json_loader.Load(problem_json);
+        const auto initial_problem = json_loader.Load(problem_json);
+
+        std::vector<rows::CalendarVisit> visits_to_use;
+        for (const auto &visit : initial_problem.visits()) {
+            if (visit.duration().total_seconds() > 0) {
+                visits_to_use.push_back(visit);
+            }
+        }
+
+        LOG_IF(WARNING, visits_to_use.size() != initial_problem.visits().size()) << "Removed " << initial_problem.visits().size() - visits_to_use.size() << " visits ";
+
+        return rows::Problem(std::move(visits_to_use), initial_problem.carers(), initial_problem.service_users());
     } catch (const std::domain_error &ex) {
         throw util::ApplicationError(
                 (boost::format("Failed to parse the file %1% due to error: '%2%'") % problem_file %
