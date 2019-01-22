@@ -900,8 +900,8 @@ if __name__ == '__main__':
     # action = 'compare_forecasts'
     # action = 'test_models'
     # action = 'reproduce_error'
-    # action = 'improve'
-    action = 'plot_error'
+    action = 'improve'
+    # action = 'plot_error'
     # action = 'inspect'
     if action == 'save_clusters':
         source_file = VisitCSVSourceFile('/home/pmateusz/dev/cordia/output.csv')

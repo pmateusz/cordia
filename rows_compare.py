@@ -111,19 +111,6 @@ def find_file_or_fail(file_paths):
     raise ValueError()
 
 
-def add_legend(axis, handles, labels, ncol, bbox_to_anchor):
-    legend = axis.legend(handles,
-                         labels,
-                         loc='lower center',
-                         ncol=ncol,
-                         bbox_to_anchor=bbox_to_anchor,
-                         fancybox=None,
-                         edgecolor=None,
-                         handletextpad=0.1,
-                         columnspacing=0.15)
-    return legend
-
-
 def configure_parser():
     parser = argparse.ArgumentParser(prog=sys.argv[0],
                                      description='Robust Optimization '
@@ -249,45 +236,6 @@ def info(args, settings):
     print(get_travel_time(schedule, user_tag_finder), len(carers), len(schedule.visits))
 
 
-def load_problem(problem_file):
-    with open(problem_file, 'r') as input_stream:
-        problem_json = json.load(input_stream)
-        return rows.model.problem.Problem.from_json(problem_json)
-
-
-class CumulativeHourMinuteConverter:
-    def __init__(self):
-        self.__REFERENCE = matplotlib.dates.date2num(datetime.datetime(2018, 1, 1))
-
-    def __call__(self, x, pos=None):
-        time_delta = matplotlib.dates.num2timedelta(x - self.__REFERENCE)
-        hours = int(time_delta.total_seconds() // matplotlib.dates.SEC_PER_HOUR)
-        minutes = int((time_delta.total_seconds() - hours * matplotlib.dates.SEC_PER_HOUR) \
-                      // matplotlib.dates.SEC_PER_MIN)
-        return '{0:02d}:{1:02d}:00'.format(hours, minutes)
-
-
-class TimeDeltaConverter:
-
-    def __init__(self):
-        self.__zero = datetime.datetime(2018, 1, 1)
-        self.__zero_num = matplotlib.dates.date2num(self.__zero)
-
-    @property
-    def zero(self):
-        return self.__zero
-
-    @property
-    def zero_num(self):
-        return self.__zero_num
-
-    def convert(self, value):
-        return matplotlib.dates.date2num(self.__zero + value) - self.__zero_num
-
-    def __call__(self, series):
-        return [self.convert(value) for value in series]
-
-
 def create_routing_session():
     return rows.routing_server.RoutingServer(server_executable=find_file_or_fail(
         ['~/dev/cordia/build/rows-routing-server', './build/rows-routing-server']),
@@ -311,7 +259,7 @@ def compare_distance(args, settings):
         location_finder = rows.location_finder.UserLocationFinder(settings)
         location_finder.reload()
 
-        problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+        problem = rows.plot.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
         observed_duration_by_visit = calculate_forecast_visit_duration(problem)
 
         diary_by_date_by_carer = collections.defaultdict(dict)
@@ -356,7 +304,7 @@ def compare_distance(args, settings):
     try:
         width = 0.20
         dates = data_frame['Date'].unique()
-        time_delta_convert = TimeDeltaConverter()
+        time_delta_convert = rows.plot.TimeDeltaConverter()
         indices = numpy.arange(1, len(dates) + 1, 1)
 
         handles = []
@@ -383,142 +331,25 @@ def compare_distance(args, settings):
             position += 1
 
         ax1.yaxis_date()
-        ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
+        ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
         ax1.set_ylabel('Travel Time')
 
         ax2.yaxis_date()
-        ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
+        ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
         ax2.set_ylabel('Idle Time')
 
         ax3.yaxis_date()
-        ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
+        ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
         ax3.set_ylabel('Overtime')
         ax3.set_xlabel('Day of October 2017')
 
-        legend = add_legend(ax3, handles, labels, ncol=3, bbox_to_anchor=(0.5, -0.68))
+        legend = rows.plot.add_legend(ax3, handles, labels, ncol=3, bbox_to_anchor=(0.5, -0.68))
 
         matplotlib.pyplot.tight_layout()
 
         figure.subplots_adjust(bottom=0.15)
 
-        matplotlib.pyplot.savefig(output_file + '.' + __FILE_FORMAT,
-                                  format=__FILE_FORMAT,
-                                  transparent=True,
-                                  bbox_extra_artists=(legend,),
-                                  dpi=300)
-    finally:
-        matplotlib.pyplot.cla()
-        matplotlib.pyplot.close(figure)
-
-
-def save_workforce_histogram(data_frame, file_path):
-    __width = 0.35
-    figure, axis = matplotlib.pyplot.subplots()
-    try:
-        indices = numpy.arange(len(data_frame.index))
-        time_delta_converter = TimeDeltaConverter()
-
-        travel_series = numpy.array(time_delta_converter(data_frame.Travel))
-        service_series = numpy.array(time_delta_converter(data_frame.Service))
-        idle_overtime_series = list(data_frame.Availability - data_frame.Travel - data_frame.Service)
-        idle_series = numpy.array(time_delta_converter(
-            map(lambda value: value if value.days >= 0 else datetime.timedelta(), idle_overtime_series)))
-        overtime_series = numpy.array(time_delta_converter(
-            map(lambda value: datetime.timedelta(
-                seconds=abs(value.total_seconds())) if value.days < 0 else datetime.timedelta(),
-                idle_overtime_series)))
-
-        service_handle = axis.bar(indices, service_series, __width, bottom=time_delta_converter.zero)
-        travel_handle = axis.bar(indices, travel_series, __width,
-                                 bottom=service_series + time_delta_converter.zero_num)
-        idle_handle = axis.bar(indices, idle_series, __width,
-                               bottom=service_series + travel_series + time_delta_converter.zero_num)
-        overtime_handle = axis.bar(indices, overtime_series, __width,
-                                   bottom=idle_series + service_series + travel_series + time_delta_converter.zero_num)
-
-        axis.yaxis_date()
-        axis.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
-        axis.set_xlabel('Carer')
-        axis.set_ylabel('Time Delta')
-        legend = add_legend(axis,
-                            [travel_handle, service_handle, idle_handle, overtime_handle],
-                            ['Travel Time', 'Service Time', 'Idle Time', 'Overtime'],
-                            ncol=4,
-                            bbox_to_anchor=(0.5, -0.2))
-
-        matplotlib.pyplot.tight_layout()
-
-        figure.subplots_adjust(bottom=0.15)
-
-        matplotlib.pyplot.savefig(file_path,
-                                  format=__FILE_FORMAT,
-                                  transparent=True,
-                                  dpi=300,
-                                  bbox_extra_artists=(legend,))
-    finally:
-        matplotlib.pyplot.cla()
-        matplotlib.pyplot.close(figure)
-
-
-def save_combined_histogram(top_data_frame, bottom_data_frame, labels, file_path):
-    __width = 0.35
-
-    y_label1, y_label2 = labels
-    figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
-    max_y = max((top_data_frame['Service'] + top_data_frame['Travel']).max(),
-                (bottom_data_frame['Service'] + bottom_data_frame['Travel']).max())
-
-    try:
-        time_delta_converter = TimeDeltaConverter()
-
-        # put the same scale limits
-        for axis, data_frame, y_label in [(ax1, top_data_frame, y_label1), (ax2, bottom_data_frame, y_label2)]:
-            travel_series = numpy.array(time_delta_converter(data_frame.Travel))
-            service_series = numpy.array(time_delta_converter(data_frame.Service))
-            idle_overtime_series = list(data_frame.Availability - data_frame.Travel - data_frame.Service)
-            idle_series = numpy.array(time_delta_converter(
-                map(lambda value: value if value.days >= 0 else datetime.timedelta(), idle_overtime_series)))
-            overtime_series = numpy.array(time_delta_converter(
-                map(lambda value: datetime.timedelta(
-                    seconds=abs(value.total_seconds())) if value.days < 0 else datetime.timedelta(),
-                    idle_overtime_series)))
-
-            indices = numpy.arange(len(data_frame.index))
-            service_handle = axis.bar(indices, service_series, __width, bottom=time_delta_converter.zero)
-            travel_handle = axis.bar(indices, travel_series, __width,
-                                     bottom=service_series + time_delta_converter.zero_num)
-            idle_handle = axis.bar(indices, idle_series, __width,
-                                   bottom=service_series + travel_series + time_delta_converter.zero_num)
-            overtime_handle = axis.bar(indices, overtime_series, __width,
-                                       bottom=idle_series + service_series + travel_series + time_delta_converter.zero_num)
-
-            axis.yaxis_date()
-            axis.set_ylim(top=time_delta_converter.convert(max_y) + time_delta_converter.zero_num)
-            axis.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
-            axis.set_ylabel('Time Delta')
-            axis.text(1.02, 0.5, y_label,
-                      horizontalalignment='left',
-                      verticalalignment='center',
-                      rotation=90,
-                      clip_on=False,
-                      transform=axis.transAxes)
-
-        ax2.set_xlabel('Carer')
-        legend = add_legend(axis,
-                            [travel_handle, service_handle, idle_handle, overtime_handle],
-                            ['Travel Time', 'Service Time', 'Idle Time', 'Overtime'],
-                            ncol=4,
-                            bbox_to_anchor=(0.5, -0.4))
-
-        matplotlib.pyplot.tight_layout()
-
-        figure.subplots_adjust(bottom=0.15, right=0.96, hspace=0.05)
-
-        matplotlib.pyplot.savefig(file_path,
-                                  format=__FILE_FORMAT,
-                                  transparent=True,
-                                  dpi=300,
-                                  bbox_extra_artists=(legend,))
+        rows.plot.save_figure(output_file + '.' + rows.plot.FILE_FORMAT)
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -532,22 +363,6 @@ def calculate_forecast_visit_duration(problem):
     return forecast_visit_duration
 
 
-def calculate_observed_visit_duration(schedule):
-    observed_duration_by_visit = rows.plot.VisitDict()
-    for past_visit in schedule.visits:
-        if past_visit.check_in and past_visit.check_out:
-            observed_duration = past_visit.check_out - past_visit.check_in
-            if observed_duration.days < 0:
-                logging.error('Observed duration %s is negative', observed_duration)
-        else:
-            logging.warning(
-                'Visit %s is not supplied with information on check-in and check-out information',
-                past_visit.visit.key)
-            observed_duration = past_visit.duration
-        observed_duration_by_visit[past_visit.visit] = observed_duration
-    return observed_duration_by_visit
-
-
 def calculate_expected_visit_duration(schedule):
     expected_visit_duration = rows.plot.VisitDict()
     for past_visit in schedule.visits:
@@ -556,7 +371,7 @@ def calculate_expected_visit_duration(schedule):
 
 
 def compare_workload(args, settings):
-    problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+    problem = rows.plot.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
     diary_by_date_by_carer = collections.defaultdict(dict)
     for carer_shift in problem.carers:
         for diary in carer_shift.diaries:
@@ -583,7 +398,7 @@ def compare_workload(args, settings):
                 logging.error('No base schedule is available for %s', date)
                 continue
 
-            observed_duration_by_visit = calculate_observed_visit_duration(base_schedule)
+            observed_duration_by_visit = rows.plot.calculate_observed_visit_duration(base_schedule)
 
             candidate_schedule = candidate_schedule_by_date.get(date, None)
             if not candidate_schedule:
@@ -598,7 +413,8 @@ def compare_workload(args, settings):
                                                                          observed_duration_by_visit)
 
             base_schedule_stem, base_schedule_ext = os.path.splitext(os.path.basename(base_schedule_file))
-            save_workforce_histogram(base_schedule_data_frame, base_schedule_stem + '.' + __FILE_FORMAT)
+            rows.plot.save_workforce_histogram(base_schedule_data_frame,
+                                               base_schedule_stem + '.' + rows.plot.FILE_FORMAT)
 
             candidate_schedule_file = candidate_schedules[candidate_schedule]
             candidate_schedule_data_frame = rows.plot.get_schedule_data_frame(candidate_schedule,
@@ -608,11 +424,12 @@ def compare_workload(args, settings):
                                                                               observed_duration_by_visit)
             candidate_schedule_stem, candidate_schedule_ext = os.path.splitext(
                 os.path.basename(candidate_schedule_file))
-            save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem + '.' + __FILE_FORMAT)
-            save_combined_histogram(candidate_schedule_data_frame,
-                                    base_schedule_data_frame,
-                                    ['2nd Stage', '3rd Stage'],
-                                    'contrast_workforce_{0}_combined.{1}'.format(date, __FILE_FORMAT))
+            rows.plot.save_workforce_histogram(candidate_schedule_data_frame,
+                                               candidate_schedule_stem + '.' + rows.plot.FILE_FORMAT)
+            rows.plot.save_combined_histogram(candidate_schedule_data_frame,
+                                              base_schedule_data_frame,
+                                              ['2nd Stage', '3rd Stage'],
+                                              'contrast_workforce_{0}_combined.{1}'.format(date, rows.plot.FILE_FORMAT))
 
 
 def contrast_workload(args, settings):
@@ -625,7 +442,7 @@ def contrast_workload(args, settings):
             'Unknown plot type: {0}. Use either {1} or {2}.'.format(plot_type, __ACTIVITY_TYPE, __VISITS_TYPE))
 
     problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
-    problem = load_problem(problem_file)
+    problem = rows.plot.load_problem(problem_file)
     base_schedule = rows.plot.load_schedule(get_or_raise(args, __BASE_FILE_ARG))
     candidate_schedule = rows.plot.load_schedule(get_or_raise(args, __CANDIDATE_FILE_ARG))
 
@@ -694,7 +511,7 @@ def contrast_workload(args, settings):
 
             def plot_activity_stacked_histogram(availability, travel, service, axis, width=0.35, initial_width=0.0,
                                                 color_offset=0):
-                time_delta_converter = TimeDeltaConverter()
+                time_delta_converter = rows.plot.TimeDeltaConverter()
                 travel_series = numpy.array(time_delta_converter(travel))
                 service_series = numpy.array(time_delta_converter(service))
                 idle_overtime_series = list(availability - travel - service)
@@ -980,7 +797,7 @@ def format_time(x, pos=None):
 
 
 __SCATTER_POINT_SIZE = 1
-__FILE_FORMAT = 'png'
+
 __Y_AXIS_EXTENSION = 1.2
 
 
@@ -1009,11 +826,11 @@ def add_trace_legend(axis, handles, bbox_to_anchor=(0.5, -0.23), ncol=3):
     else:
         raise ValueError('Expecting row of either 6 or 7 elements')
 
-    return add_legend(axis,
-                      list(map(operator.itemgetter(0), handles)),
-                      list(map(legend_formatter, handles)),
-                      ncol,
-                      bbox_to_anchor)
+    return rows.plot.add_legend(axis,
+                                list(map(operator.itemgetter(0), handles)),
+                                list(map(legend_formatter, handles)),
+                                ncol,
+                                bbox_to_anchor)
 
 
 def scatter_cost(axis, data_frame, color):
@@ -1042,7 +859,7 @@ def get_problem_stats(problem, date):
 
 
 def compare_trace(args, settings):
-    problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+    problem = rows.plot.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
 
     cost_function = get_or_raise(args, __COST_FUNCTION_TYPE)
     trace_file = get_or_raise(args, __FILE_ARG)
@@ -1252,7 +1069,7 @@ def get_schedule_stats(data_frame):
 
 def contrast_trace(args, settings):
     problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
-    problem = load_problem(problem_file)
+    problem = rows.plot.load_problem(problem_file)
 
     problem_file_base = os.path.basename(problem_file)
     problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
@@ -1401,7 +1218,7 @@ def contrast_trace(args, settings):
 def compare_prediction_error(args, settings):
     base_schedule = rows.plot.load_schedule(get_or_raise(args, __BASE_FILE_ARG))
     candidate_schedule = rows.plot.load_schedule(get_or_raise(args, __CANDIDATE_FILE_ARG))
-    observed_duration_by_visit = calculate_observed_visit_duration(base_schedule)
+    observed_duration_by_visit = rows.plot.calculate_observed_visit_duration(base_schedule)
     expected_duration_by_visit = calculate_expected_visit_duration(candidate_schedule)
 
     data = []
@@ -1425,7 +1242,7 @@ def compare_prediction_error(args, settings):
 
 
 def debug(args, settings):
-    problem = load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+    problem = rows.plot.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
     solution_file = get_or_raise(args, __SOLUTION_FILE_ARG)
     schedule = rows.plot.load_schedule(solution_file)
 
@@ -1482,7 +1299,7 @@ def debug(args, settings):
 
     figure, axis = matplotlib.pyplot.subplots()
     indices = numpy.arange(len(data_frame.index))
-    time_delta_converter = TimeDeltaConverter()
+    time_delta_converter = rows.plot.TimeDeltaConverter()
     width = 0.35
 
     travel_series = numpy.array(time_delta_converter(data_frame.Travel))
