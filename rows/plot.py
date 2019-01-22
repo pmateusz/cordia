@@ -251,9 +251,7 @@ def save_combined_histogram(top_data_frame, bottom_data_frame, labels, file_path
 
     y_label1, y_label2 = labels
     figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
-    max_y = max((top_data_frame['Service'] + top_data_frame['Travel']).max(),
-                (bottom_data_frame['Service'] + bottom_data_frame['Travel']).max())
-
+    max_y = 0
     try:
         time_delta_converter = TimeDeltaConverter()
 
@@ -278,8 +276,9 @@ def save_combined_histogram(top_data_frame, bottom_data_frame, labels, file_path
             overtime_handle = axis.bar(indices, overtime_series, __width,
                                        bottom=idle_series + service_series + travel_series + time_delta_converter.zero_num)
 
+            max_y = max(max_y, (service_series + idle_series + travel_series + overtime_series).max())
+
             axis.yaxis_date()
-            axis.set_ylim(top=time_delta_converter.convert(max_y) + time_delta_converter.zero_num)
             axis.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(CumulativeHourMinuteConverter()))
             axis.set_ylabel('Time Delta')
             axis.text(1.02, 0.5, y_label,
@@ -289,12 +288,15 @@ def save_combined_histogram(top_data_frame, bottom_data_frame, labels, file_path
                       clip_on=False,
                       transform=axis.transAxes)
 
+        for axis in [ax1, ax2]:
+            axis.set_ylim(top=max_y + time_delta_converter.zero_num)
+
         ax2.set_xlabel('Carer')
-        legend = add_legend(axis,
-                            [travel_handle, service_handle, idle_handle, overtime_handle],
-                            ['Travel Time', 'Service Time', 'Idle Time', 'Overtime'],
-                            ncol=4,
-                            bbox_to_anchor=(0.5, -0.4))
+        add_legend(axis,
+                   [travel_handle, service_handle, idle_handle, overtime_handle],
+                   ['Travel Time', 'Service Time', 'Idle Time', 'Overtime'],
+                   ncol=4,
+                   bbox_to_anchor=(0.5, -0.4))
 
         matplotlib.pyplot.tight_layout()
 
