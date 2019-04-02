@@ -5,6 +5,7 @@ __pycache__/
 build/
 cmake-build-debug/
 data/
+simulations/
 
 *problem.json
 *past_solution.json

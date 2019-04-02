@@ -13,7 +13,6 @@ import os.path
 import re
 import sys
 
-import bs4
 import matplotlib
 import matplotlib.dates
 import matplotlib.pyplot
@@ -231,7 +230,7 @@ def info(args, settings):
     user_tag_finder.reload()
     schedule_file = get_or_raise(args, __FILE_ARG)
     schedule_file_to_use = os.path.realpath(os.path.expandvars(schedule_file))
-    schedule = rows.plot.load_schedule(schedule_file_to_use)
+    schedule = rows.load.load_schedule(schedule_file_to_use)
     carers = {visit.carer for visit in schedule.visits}
     print(get_travel_time(schedule, user_tag_finder), len(carers), len(schedule.visits))
 
@@ -259,7 +258,7 @@ def compare_distance(args, settings):
         location_finder = rows.location_finder.UserLocationFinder(settings)
         location_finder.reload()
 
-        problem = rows.plot.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+        problem = rows.load.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
         observed_duration_by_visit = calculate_forecast_visit_duration(problem)
 
         diary_by_date_by_carer = collections.defaultdict(dict)
@@ -271,7 +270,7 @@ def compare_distance(args, settings):
         with create_routing_session() as routing_session:
             for label, schedule_pattern in zip(labels, schedule_patterns):
                 for schedule_path in glob.glob(schedule_pattern):
-                    schedule = rows.plot.load_schedule(schedule_path)
+                    schedule = rows.load.load_schedule(schedule_path)
                     frame = rows.plot.get_schedule_data_frame(schedule,
                                                               routing_session,
                                                               location_finder,
@@ -371,15 +370,15 @@ def calculate_expected_visit_duration(schedule):
 
 
 def compare_workload(args, settings):
-    problem = rows.plot.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+    problem = rows.load.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
     diary_by_date_by_carer = collections.defaultdict(dict)
     for carer_shift in problem.carers:
         for diary in carer_shift.diaries:
             diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
-    base_schedules = {rows.plot.load_schedule(file_path): file_path
+    base_schedules = {rows.load.load_schedule(file_path): file_path
                       for file_path in glob.glob(getattr(args, __BASE_SCHEDULE_PATTERN))}
     base_schedule_by_date = {schedule.metadata.begin: schedule for schedule in base_schedules}
-    candidate_schedules = {rows.plot.load_schedule(file_path): file_path
+    candidate_schedules = {rows.load.load_schedule(file_path): file_path
                            for file_path in glob.glob(getattr(args, __CANDIDATE_SCHEDULE_PATTERN))}
     candidate_schedule_by_date = {schedule.metadata.begin: schedule for schedule in candidate_schedules}
     location_finder = rows.location_finder.UserLocationFinder(settings)
@@ -442,9 +441,9 @@ def contrast_workload(args, settings):
             'Unknown plot type: {0}. Use either {1} or {2}.'.format(plot_type, __ACTIVITY_TYPE, __VISITS_TYPE))
 
     problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
-    problem = rows.plot.load_problem(problem_file)
-    base_schedule = rows.plot.load_schedule(get_or_raise(args, __BASE_FILE_ARG))
-    candidate_schedule = rows.plot.load_schedule(get_or_raise(args, __CANDIDATE_FILE_ARG))
+    problem = rows.load.load_problem(problem_file)
+    base_schedule = rows.load.load_schedule(get_or_raise(args, __BASE_FILE_ARG))
+    candidate_schedule = rows.load.load_schedule(get_or_raise(args, __CANDIDATE_FILE_ARG))
 
     if base_schedule.metadata.begin != candidate_schedule.metadata.begin:
         raise ValueError('Schedules begin at a different date: {0} vs {1}'
@@ -859,7 +858,7 @@ def get_problem_stats(problem, date):
 
 
 def compare_trace(args, settings):
-    problem = rows.plot.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
+    problem = rows.load.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
 
     cost_function = get_or_raise(args, __COST_FUNCTION_TYPE)
     trace_file = get_or_raise(args, __FILE_ARG)
@@ -937,10 +936,7 @@ def compare_trace(args, settings):
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
             ax2.set_ylabel('Declined Visits')
             ax2.set_xlabel('Computation Time')
-            matplotlib.pyplot.savefig(output_file_stem + '_' + current_date.isoformat() + '.' + __FILE_FORMAT,
-                                      format=__FILE_FORMAT,
-                                      transparent=True,
-                                      dpi=300)
+            rows.plot.save_figure(output_file_stem + '_' + current_date.isoformat())
         else:
             handles = []
             for current_date in dates:
@@ -1022,12 +1018,7 @@ def compare_trace(args, settings):
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
             matplotlib.pyplot.tight_layout()
             # figure.subplots_adjust(bottom=0.4)
-            matplotlib.pyplot.savefig(output_file_stem + '.' + __FILE_FORMAT,
-                                      format=__FILE_FORMAT,
-                                      dpi=300,
-                                      transparent=True,
-                                      # bbox_extra_artists=(legend,),
-                                      layout='tight')
+            rows.plot.save_figure(output_file_stem)
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -1139,12 +1130,7 @@ def contrast_trace(args, settings):
             handle._sizes = [25]
 
         matplotlib.pyplot.tight_layout()
-        matplotlib.pyplot.savefig(
-            output_file_stem + '_' + current_date.isoformat() + '.' + __FILE_FORMAT,
-            format=__FILE_FORMAT,
-            dpi=300,
-            transparent=True,
-            layout='tight')
+        rows.plot.save_figure(output_file_stem + '_' + current_date.isoformat())
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -1172,12 +1158,7 @@ def contrast_trace(args, settings):
         ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
 
         matplotlib.pyplot.tight_layout()
-        matplotlib.pyplot.savefig(
-            output_file_stem + '_first_stage_' + current_date.isoformat() + '.' + __FILE_FORMAT,
-            format=__FILE_FORMAT,
-            dpi=300,
-            transparent=True,
-            layout='tight')
+        rows.plot.save_figure(output_file_stem + '_first_stage_' + current_date.isoformat())
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -1204,12 +1185,7 @@ def contrast_trace(args, settings):
         ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
 
         matplotlib.pyplot.tight_layout()
-        matplotlib.pyplot.savefig(
-            output_file_stem + '_oscillations_' + current_date.isoformat() + '.' + __FILE_FORMAT,
-            format=__FILE_FORMAT,
-            dpi=300,
-            transparent=True,
-            layout='tight')
+        rows.plot.save_figure(output_file_stem + '_oscillations_' + current_date.isoformat())
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -1368,10 +1344,7 @@ def show_working_hours(args, settings):
             axis.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_time))
             axis.yaxis.set_ticks(numpy.arange(0, 24 * 3600, 2 * 3600))
             axis.set_ylim(6 * 3600, 24 * 60 * 60)
-            matplotlib.pyplot.savefig(output_file_base_name + '_' + current_date + '.' + __FILE_FORMAT,
-                                      dpi=1200,
-                                      format=__FILE_FORMAT,
-                                      layout='tight')
+            rows.plot.save_figure(output_file_base_name + '_' + current_date)
         finally:
             matplotlib.pyplot.cla()
             matplotlib.pyplot.close(figure)

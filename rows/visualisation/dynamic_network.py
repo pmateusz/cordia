@@ -1,17 +1,12 @@
-import bs4
-import os
-import sys
-import re
-import random
 import datetime
-import time
-import math
-import colorsys
-import numpy as np
+import random
 from distutils.util import strtobool
-from simplekml import Kml, Style, Color, ColorMode
+
+import numpy as np
+from simplekml import Kml, Style, Color
 
 from rows.visualisation.problem import load_solution
+
 
 def generate_colors(n):
     palette = []

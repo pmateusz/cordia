@@ -87,7 +87,6 @@ void rows::ThreeStepSchedulingWorker::Run() {
     static const SolutionValidator solution_validator{};
 
     for (const auto &visit : problem_.visits()) {
-        LOG(INFO) << visit.duration();
         CHECK_GT(visit.duration().total_seconds(), 0);
     }
 

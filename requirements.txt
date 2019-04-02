@@ -12,6 +12,7 @@ setuptools
 simplekml
 sklearn
 statsmodels
+ortools
 tqdm
 twine
 XlsxWriter

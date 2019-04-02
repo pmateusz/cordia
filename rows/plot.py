@@ -1,11 +1,8 @@
 import datetime
-import json
-import os
 import logging
 import operator
 import functools
 
-import bs4
 import pandas
 import numpy
 import matplotlib
@@ -94,34 +91,6 @@ class CumulativeHourMinuteConverter:
         return '{0:02d}:{1:02d}:00'.format(hours, minutes)
 
 
-def load_schedule_from_json(file_path):
-    with open(file_path, 'r') as input_stream:
-        schedule_json = json.load(input_stream)
-        return rows.model.schedule.Schedule.from_json(schedule_json)
-
-
-def load_schedule_from_gexf(file_path):
-    with open(file_path, 'r') as input_stream:
-        soup = bs4.BeautifulSoup(input_stream, 'html5lib')
-        return rows.model.schedule.Schedule.from_gexf(soup)
-
-
-def load_schedule(file_path):
-    file_name, file_ext = os.path.splitext(file_path)
-    if file_ext == '.json':
-        return load_schedule_from_json(file_path)
-    elif file_ext == '.gexf':
-        return load_schedule_from_gexf(file_path)
-    else:
-        raise ValueError('Unrecognized extension ' + file_ext)
-
-
-def load_problem(problem_file):
-    with open(problem_file, 'r') as input_stream:
-        problem_json = json.load(input_stream)
-        return rows.model.problem.Problem.from_json(problem_json)
-
-
 def get_schedule_data_frame(schedule, routing_session, location_finder, carer_diaries, visit_durations):
     data_set = []
     for route in schedule.routes():
@@ -194,7 +163,7 @@ FILE_FORMAT = 'png'
 
 
 def save_figure(file_path):
-    matplotlib.pyplot.savefig(file_path,
+    matplotlib.pyplot.savefig(file_path + '.' + FILE_FORMAT,
                               format=FILE_FORMAT,
                               transparent=True,
                               dpi=300)
