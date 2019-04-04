@@ -6,14 +6,14 @@
 #include <utility>
 #include <unordered_map>
 
+#include <ortools/constraint_solver/constraint_solver.h>
+#include <ortools/constraint_solver/routing.h>
+
 #include <libgexf/gexf.h>
 #include <libgexf/libgexf.h>
 
 #include <boost/filesystem.hpp>
 #include <boost/date_time.hpp>
-
-#include <ortools/constraint_solver/constraint_solver.h>
-#include <ortools/constraint_solver/routing.h>
 
 #include "location.h"
 #include "solver_wrapper.h"

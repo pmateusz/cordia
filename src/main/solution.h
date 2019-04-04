@@ -7,6 +7,8 @@
 #include <exception>
 #include <stdexcept>
 
+#include <ortools/constraint_solver/routing.h>
+
 #include <libxml/xmlreader.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
@@ -15,8 +17,6 @@
 
 #include <boost/optional.hpp>
 #include <boost/date_time.hpp>
-
-#include <ortools/constraint_solver/routing.h>
 
 #include "scheduled_visit.h"
 
