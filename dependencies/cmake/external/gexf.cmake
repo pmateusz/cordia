@@ -16,16 +16,12 @@ if (NOT __GEXF_INCLUDED) # guard against multiple includes
             set(GFLAGS_EXTRA_COMPILER_FLAGS "-fPIC")
         endif()
 
-        ExternalProject_Add(gexf
+        ExternalProject_Add(gexf-external
                 PREFIX ${gexf_PREFIX}
                 GIT_REPOSITORY "https://github.com/pmateusz/libgexf.git"
                 UPDATE_COMMAND ""
                 INSTALL_DIR ${gexf_INSTALL}
-                CMAKE_ARGS -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-                -DCMAKE_INSTALL_PREFIX=${gexf_INSTALL}
-                -DBUILD_SHARED_LIBS=OFF
-                -BUILD_CONFIG_TESTS=OFF
-                -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+                CMAKE_ARGS -DCMAKE_BUILD_TYPE=RELEASE -DCMAKE_INSTALL_PREFIX=${gexf_INSTALL} -DBUILD_SHARED_LIBS=OFF -DBUILD_CONFIG_TESTS=OFF -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
                 LOG_DOWNLOAD 1
                 LOG_INSTALL 1)
 

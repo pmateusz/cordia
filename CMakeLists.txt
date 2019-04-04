@@ -14,7 +14,7 @@ if (CMAKE_COMPILER_IS_GNUCXX)
 endif ()
 
 # uncomment for a debug mode build
-set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/or-tools-6.7.2)
+set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/or-tools-6.10.1-release)
 
 set(default_build_type "RELEASE")
 if (EXISTS "${CMAKE_SOURCE_DIR}/.git")
@@ -44,6 +44,7 @@ get_filename_component(_SPARSEHASH_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/bu
 get_filename_component(_GTEST_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/gtest-install" REALPATH)
 get_filename_component(_JSON_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/json-install" REALPATH)
 get_filename_component(_GEXF_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/gexf-install" REALPATH)
+get_filename_component(_GUROBI_ROOT "/opt/gurobi801" REALPATH)
 
 set(GFLAGS_ROOT_DIR ${_GFLAGS_ROOT_DIR})
 set(GLOG_ROOT_DIR ${_GLOG_ROOT_DIR})
@@ -52,6 +53,7 @@ set(SPARSEHASH_ROOT_DIR ${_SPARSEHASH_ROOT_DIR})
 set(OSRM_ROOT_DIR ${CMAKE_BINARY_DIR}/external/osrm-install)
 set(JSON_ROOT_DIR ${_JSON_ROOT})
 set(GEXF_ROOT_DIR ${_GEXF_ROOT})
+set(GUROBI_ROOT_DIR ${_GUROBI_ROOT})
 
 #include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBGet.cmake)
 #include(${CMAKE_SOURCE_DIR}/dependencies/cmake/external/TBBBuild.cmake)
@@ -75,6 +77,7 @@ find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(EXPAT REQUIRED)
 find_package(GFlags REQUIRED)
+find_package(Gurobi REQUIRED)
 find_package(Json)
 find_package(Gexf)
 
@@ -93,10 +96,14 @@ set(HEADER_DEP ${OSRM_INCLUDE_DIR}
         ${JSON_INCLUDE_DIR}
         ${GEXF_INCLUDE_DIR}
         ${LIBXML2_INCLUDE_DIR}
+        ${ORTOOLS_INCLUDE_DIR}
+        ${GUROBI_INCLUDE_DIR}
         ${GFLAGS_INCLUDE_DIR}
         ${GLOG_INCLUDE_DIR})
 
 set(LIBRARY_DEP ${ORTOOLS_LIBRARY}
+        ${GUROBI_LIBRARY}
+        ${GUROBI_STATIC_LIBRARY}
         ${OSRM_LIBRARY}
         ${Boost_LIBRARIES}
         ${ZLIB_LIBRARIES}
@@ -118,9 +125,17 @@ target_include_directories(rows-main PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-main rows ${LIBRARY_DEP})
 set_property(TARGET rows-main PROPERTY CXX_STANDARD 14)
 
+message(STATUS ${GUROBI_LIBRARY})
+
+add_executable(rows-mip-solver "${CMAKE_SOURCE_DIR}/src/main/rows-mip.cpp")
+target_include_directories(rows-mip-solver PUBLIC ${HEADERS} ${HEADER_DEP})
+target_link_libraries(rows-mip-solver rows ${LIBRARY_DEP})
+set_property(TARGET rows-mip-solver PROPERTY CXX_STANDARD 14)
+add_dependencies(rows-mip-solver rows)
+
 add_executable(rows-fast "${CMAKE_SOURCE_DIR}/src/main/rows-fast.cpp")
 target_include_directories(rows-fast PUBLIC ${HEADERS} ${HEADER_DEP})
-target_link_libraries(rows-fast rows ${LIBRARY_DEP})
+target_link_libraries(rows-fast rows ${LIBRARY_DEP} ${GUROBI_LIBRARY})
 set_property(TARGET rows-fast PROPERTY CXX_STANDARD 14)
 
 add_executable(rows-routing-server "${CMAKE_SOURCE_DIR}/src/main/rows-routing-server.cpp")
@@ -141,7 +156,7 @@ if (${OSRM_EXTERNAL})
 endif ()
 
 if (${JSON_EXTERNAL})
-    add_dependencies(rows json)
+    add_dependencies(rows json-external)
 endif ()
 
 if (${GFLAGS_EXTERNAL})
@@ -149,11 +164,11 @@ if (${GFLAGS_EXTERNAL})
 endif ()
 
 if (${GEXF_EXTERNAL})
-    add_dependencies(rows gexf)
+    add_dependencies(rows gexf-external)
 endif ()
 
 if (${GTEST_EXTERNAL})
-    add_dependencies(rows gtest)
+    add_dependencies(rows gtest-external)
 endif ()
 
 if (${GLOG_EXTERNAL})

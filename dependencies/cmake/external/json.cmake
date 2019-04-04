@@ -1,3 +1,24 @@
+#
+# Copyright 2018 Mateusz Polnik
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 if (NOT __JSON_INCLUDED)
     set(__JSON_INCLUDED TRUE)
 
@@ -10,10 +31,10 @@ if (NOT __JSON_INCLUDED)
         # install directory
         set(json_INSTALL ${CMAKE_BINARY_DIR}/external/json-install)
 
-        ExternalProject_Add(json
+        ExternalProject_Add(json-external
                 PREFIX ${json_PREFIX}
-                URL_HASH SHA256=faa2321beb1aa7416d035e7417fcfa59692ac3d8c202728f9bcc302e2d558f57
-                URL "https://github.com/nlohmann/json/releases/download/v2.1.1/json.hpp"
+                URL_HASH SHA256=63da6d1f22b2a7bb9e4ff7d6b255cf691a161ff49532dcc45d398a53e295835f
+                URL "https://github.com/nlohmann/json/releases/download/v3.4.0/json.hpp"
                 INSTALL_DIR ${json_INSTALL}
                 BUILD_COMMAND ""
                 PATCH_COMMAND ""
@@ -27,8 +48,7 @@ if (NOT __JSON_INCLUDED)
         set(JSON_INCLUDE_DIRS ${json_INSTALL}/include)
         set(JSON_INCLUDE_DIR ${JSON_INCLUDE_DIRS})
         set(JSON_EXTERNAL TRUE)
-
-        list(APPEND external_project_dependencies json)
+        set_property(GLOBAL APPEND PROPERTY EXTERNAL_PROJECT_DEPENDENCIES json-external)
     endif ()
 
 endif ()

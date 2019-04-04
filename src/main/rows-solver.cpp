@@ -41,6 +41,7 @@
 #include "util/aplication_error.h"
 #include "util/logging.h"
 #include "util/validation.h"
+#include "util/input.h"
 #include "location.h"
 #include "location_container.h"
 #include "carer.h"
@@ -71,19 +72,8 @@ DEFINE_validator(solution, &util::file::IsNullOrExists);
 DEFINE_string(maps, "../data/scotland-latest.osrm", "a file path to the map");
 DEFINE_validator(maps, &util::file::Exists);
 
-static const std::string JSON_FORMAT{"json"};
-static const std::string TEXT_FORMAT{"txt"};
-static const std::string LOG_FORMAT{"log"};
-
-bool ValidateConsoleFormat(const char *flagname, const std::string &value) {
-    std::string value_to_use{value};
-    util::string::Strip(value_to_use);
-    util::string::ToLower(value_to_use);
-    return value_to_use == JSON_FORMAT || value_to_use == TEXT_FORMAT || value_to_use == LOG_FORMAT;
-}
-
 DEFINE_string(console_format, "txt", "output format. Available options: txt, json or log");
-DEFINE_validator(console_format, &ValidateConsoleFormat);
+DEFINE_validator(console_format, &util::ValidateConsoleFormat);
 
 static const auto DEFAULT_SOLUTION_LIMIT = std::numeric_limits<int64>::max();
 DEFINE_int64(solutions_limit,
@@ -228,95 +218,6 @@ void ParseArgs(int argc, char **argv) {
                % GetYesOrNoOption(FLAGS_solve_all);
 }
 
-rows::Problem LoadProblem(std::shared_ptr<rows::Printer> printer) {
-    boost::filesystem::path problem_file(boost::filesystem::canonical(FLAGS_problem));
-    std::ifstream problem_stream;
-    problem_stream.open(problem_file.c_str());
-    if (!problem_stream.is_open()) {
-        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % problem_file).str(),
-                                     util::ErrorCode::ERROR);
-    }
-
-    nlohmann::json problem_json;
-    try {
-        problem_stream >> problem_json;
-    } catch (...) {
-        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % problem_file).str(),
-                                     boost::current_exception_diagnostic_information(),
-                                     util::ErrorCode::ERROR);
-    }
-
-    try {
-        rows::Problem::JsonLoader json_loader;
-        const auto initial_problem = json_loader.Load(problem_json);
-
-        std::vector<rows::CalendarVisit> visits_to_use;
-        for (const auto &visit : initial_problem.visits()) {
-            if (visit.duration().total_seconds() > 0) {
-                visits_to_use.push_back(visit);
-            }
-        }
-
-        LOG_IF(WARNING, visits_to_use.size() != initial_problem.visits().size()) << "Removed " << initial_problem.visits().size() - visits_to_use.size() << " visits ";
-
-        return rows::Problem(std::move(visits_to_use), initial_problem.carers(), initial_problem.service_users());
-    } catch (const std::domain_error &ex) {
-        throw util::ApplicationError(
-                (boost::format("Failed to parse the file %1% due to error: '%2%'") % problem_file %
-                 ex.what()).str(),
-                util::ErrorCode::ERROR);
-    }
-}
-
-rows::Problem LoadReducedProblem(std::shared_ptr<rows::Printer> printer) {
-    const auto problem = LoadProblem(printer);
-
-    const std::pair<boost::posix_time::ptime, boost::posix_time::ptime> timespan_pair = problem.Timespan();
-    const auto begin_date = timespan_pair.first.date();
-    const auto end_date = timespan_pair.second.date();
-
-    if (FLAGS_scheduling_date.empty()) {
-        if (begin_date < end_date) {
-            printer->operator<<(
-                    (boost::format("Problem contains records from several days."
-                                   " The computed solution will be reduced to a single day: '%1%'")
-                     % begin_date).str());
-
-            return problem.Trim(timespan_pair.first, boost::posix_time::hours(24));
-        }
-
-        return problem;
-    }
-
-    const boost::posix_time::ptime scheduling_time{boost::gregorian::from_simple_string(FLAGS_scheduling_date)};
-    const auto scheduling_date = scheduling_time.date();
-    if (begin_date == end_date && begin_date == scheduling_date) {
-        return problem;
-    } else if (begin_date <= scheduling_date && scheduling_date <= end_date) {
-        return problem.Trim(scheduling_time, boost::posix_time::hours(24));
-    } else {
-        throw util::ApplicationError(
-                (boost::format("Scheduling day '%1%' does not fin into the interval ['%2%','%3%']")
-                 % scheduling_date
-                 % timespan_pair.first
-                 % timespan_pair.second).str(),
-                util::ErrorCode::ERROR);
-    }
-}
-
-osrm::EngineConfig CreateEngineConfig(const std::string &maps_file) {
-    osrm::EngineConfig config;
-    config.storage_config = osrm::StorageConfig(maps_file);
-    config.use_shared_memory = false;
-    config.algorithm = osrm::EngineConfig::Algorithm::MLD;
-
-    if (!config.IsValid()) {
-        throw util::ApplicationError("Invalid Open Street Map engine configuration", util::ErrorCode::ERROR);
-    }
-
-    return config;
-}
-
 void ChatBot(rows::SchedulingWorker &worker) {
     std::regex non_printable_character_pattern{"[\\W]"};
 
@@ -333,25 +234,6 @@ void ChatBot(rows::SchedulingWorker &worker) {
 
         line.clear();
     }
-}
-
-std::shared_ptr<rows::Printer> CreatePrinter() {
-    auto format_to_use = FLAGS_console_format;
-    util::string::Strip(format_to_use);
-    util::string::ToLower(format_to_use);
-    if (format_to_use == JSON_FORMAT) {
-        return std::make_shared<rows::JsonPrinter>();
-    }
-
-    if (format_to_use == TEXT_FORMAT) {
-        return std::make_shared<rows::ConsolePrinter>();
-    }
-
-    if (format_to_use == LOG_FORMAT) {
-        return std::make_shared<rows::LogPrinter>();
-    }
-
-    throw util::ApplicationError("Unknown console format.", util::ErrorCode::ERROR);
 }
 
 rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem) {
@@ -399,9 +281,9 @@ rows::Solution LoadSolution(const std::string &solution_path, const rows::Proble
 }
 
 int RunSingleStepSchedulingWorker() {
-    std::shared_ptr<rows::Printer> printer = CreatePrinter();
+    std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
-    auto problem_to_use = LoadReducedProblem(printer);
+    auto problem_to_use = util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer);
 
     boost::optional<rows::Solution> solution;
     if (!FLAGS_solution.empty()) {
@@ -410,7 +292,7 @@ int RunSingleStepSchedulingWorker() {
         problem_to_use.RemoveCancelled(solution.get().visits());
     }
 
-    auto engine_config = CreateEngineConfig(FLAGS_maps);
+    auto engine_config = util::CreateEngineConfig(FLAGS_maps);
     auto search_parameters = rows::SolverWrapper::CreateSearchParameters();
     if (FLAGS_solutions_limit != DEFAULT_SOLUTION_LIMIT) {
         search_parameters.set_solution_limit(FLAGS_solutions_limit);
@@ -438,11 +320,11 @@ int RunSingleStepSchedulingWorker() {
 }
 
 int RunIncrementalSchedulingWorker() {
-    std::shared_ptr<rows::Printer> printer = CreatePrinter();
+    std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
     rows::IncrementalSchedulingWorker worker{printer};
-    if (worker.Init(LoadReducedProblem(printer),
-                    CreateEngineConfig(FLAGS_maps),
+    if (worker.Init(util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
+                    util::CreateEngineConfig(FLAGS_maps),
                     rows::SolverWrapper::CreateSearchParameters(),
                     FLAGS_output)) {
         worker.Start();
@@ -455,13 +337,13 @@ int RunIncrementalSchedulingWorker() {
 }
 
 int RunExperimentalSchedulingWorker() {
-    std::shared_ptr<rows::Printer> printer = CreatePrinter();
+    std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
     auto search_params = rows::SolverWrapper::CreateSearchParameters();
 
     rows::ExperimentalEnforcementWorker worker{printer};
-    if (worker.Init(LoadReducedProblem(printer),
-                    CreateEngineConfig(FLAGS_maps),
+    if (worker.Init(util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
+                    util::CreateEngineConfig(FLAGS_maps),
                     search_params,
                     FLAGS_output)) {
         worker.Start();
@@ -565,10 +447,10 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
 }
 
 int RunSchedulingWorkerEx(const std::shared_ptr<rows::Printer> &printer, const std::string &formula) {
-    auto engine_config = CreateEngineConfig(FLAGS_maps);
+    auto engine_config = util::CreateEngineConfig(FLAGS_maps);
     return RunCancellableSchedulingWorker(printer,
                                           formula,
-                                          LoadReducedProblem(printer),
+                                          util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
                                           FLAGS_output,
                                           engine_config,
                                           GetTimeDurationOrDefault(FLAGS_visit_time_window,
@@ -592,10 +474,10 @@ int main(int argc, char **argv) {
     std::string formula_to_use{FLAGS_formula};
     util::string::ToLower(formula_to_use);
 
-    std::shared_ptr<rows::Printer> printer = CreatePrinter();
+    std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
     if (FLAGS_solve_all) {
-        const auto problem = LoadProblem(printer);
+        const auto problem = util::LoadProblem(FLAGS_problem, printer);
 
         std::unordered_set<boost::gregorian::date> scheduling_days;
         for (const auto &visit : problem.visits()) {
@@ -617,7 +499,7 @@ int main(int argc, char **argv) {
                     boost::posix_time::hours(24)));
         }
 
-        auto engine_config = CreateEngineConfig(FLAGS_maps);
+        auto engine_config = util::CreateEngineConfig(FLAGS_maps);
         const auto visit_time_window = GetTimeDurationOrDefault(FLAGS_visit_time_window,
                                                                 boost::posix_time::not_a_date_time);
         const auto break_time_window = GetTimeDurationOrDefault(FLAGS_break_time_window,
