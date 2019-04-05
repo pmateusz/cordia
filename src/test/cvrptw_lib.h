@@ -20,6 +20,7 @@
 
 #include "ortools/constraint_solver/routing.h"
 #include "ortools/base/random.h"
+#include "ortools/base/int_type_indexed_vector.h"
 
 namespace operations_research {
 
@@ -31,29 +32,39 @@ namespace operations_research {
     class LocationContainer {
     public:
         LocationContainer(int64 speed, bool use_deterministic_seed);
+
         void AddLocation(int64 x, int64 y) { locations_.push_back(Location(x, y)); }
+
         void AddRandomLocation(int64 x_max, int64 y_max);
+
         void AddRandomLocation(int64 x_max, int64 y_max, int duplicates);
+
         int64 ManhattanDistance(
                 operations_research::RoutingModel::NodeIndex from,
                 operations_research::RoutingModel::NodeIndex to) const;
+
         int64 NegManhattanDistance(
                 operations_research::RoutingModel::NodeIndex from,
                 operations_research::RoutingModel::NodeIndex to) const;
+
         int64 ManhattanTime(operations_research::RoutingModel::NodeIndex from,
                             operations_research::RoutingModel::NodeIndex to) const;
 
         bool SameLocation(operations_research::RoutingModel::NodeIndex node1,
                           operations_research::RoutingModel::NodeIndex node2) const;
+
         int64 SameLocationFromIndex(int64 node1, int64 node2) const;
 
     private:
         class Location {
         public:
             Location();
+
             Location(int64 x, int64 y);
-            int64 DistanceTo(const Location& location) const;
-            bool IsAtSameLocation(const Location& location) const;
+
+            int64 DistanceTo(const Location &location) const;
+
+            bool IsAtSameLocation(const Location &location) const;
 
         private:
             static int64 Abs(int64 value);
@@ -64,7 +75,7 @@ namespace operations_research {
 
         MTRandom randomizer_;
         const int64 speed_;
-        ITIVector<operations_research::RoutingModel::NodeIndex, Location> locations_;
+        gtl::ITIVector<operations_research::RoutingModel::NodeIndex, Location> locations_;
     };
 
 // Random demand.
@@ -72,7 +83,9 @@ namespace operations_research {
     public:
         RandomDemand(int size, operations_research::RoutingModel::NodeIndex depot,
                      bool use_deterministic_seed);
+
         void Initialize();
+
         int64 Demand(operations_research::RoutingModel::NodeIndex from,
                      operations_research::RoutingModel::NodeIndex to) const;
 
@@ -88,8 +101,9 @@ namespace operations_research {
     public:
         ServiceTimePlusTransition(
                 int64 time_per_demand_unit,
-                operations_research::RoutingModel::NodeEvaluator2* demand,
-                operations_research::RoutingModel::NodeEvaluator2* transition_time);
+                operations_research::RoutingModel::NodeEvaluator2 *demand,
+                operations_research::RoutingModel::NodeEvaluator2 *transition_time);
+
         int64 Compute(operations_research::RoutingModel::NodeIndex from,
                       operations_research::RoutingModel::NodeIndex to) const;
 
@@ -104,14 +118,15 @@ namespace operations_research {
     class StopServiceTimePlusTransition {
     public:
         StopServiceTimePlusTransition(
-                int64 stop_time, const LocationContainer& location_container,
-                operations_research::RoutingModel::NodeEvaluator2* transition_time);
+                int64 stop_time, const LocationContainer &location_container,
+                operations_research::RoutingModel::NodeEvaluator2 *transition_time);
+
         int64 Compute(operations_research::RoutingModel::NodeIndex from,
                       operations_research::RoutingModel::NodeIndex to) const;
 
     private:
         const int64 stop_time_;
-        const LocationContainer& location_container_;
+        const LocationContainer &location_container_;
         std::unique_ptr<operations_research::RoutingModel::NodeEvaluator2> demand_;
         std::unique_ptr<operations_research::RoutingModel::NodeEvaluator2>
                 transition_time_;
@@ -120,11 +135,11 @@ namespace operations_research {
 // Route plan displayer.
 // TODO(user): Move the display code to the routing library.
     void DisplayPlan(
-            const operations_research::RoutingModel& routing,
-            const operations_research::Assignment& plan, bool use_same_vehicle_costs,
+            const operations_research::RoutingModel &routing,
+            const operations_research::Assignment &plan, bool use_same_vehicle_costs,
             int64 max_nodes_per_group, int64 same_vehicle_cost,
-            const operations_research::RoutingDimension& capacity_dimension,
-            const operations_research::RoutingDimension& time_dimension);
+            const operations_research::RoutingDimension &capacity_dimension,
+            const operations_research::RoutingDimension &time_dimension);
 
 }  // namespace operations_research
 

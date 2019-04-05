@@ -203,7 +203,7 @@ namespace rows {
         }
 
         // override max distance if it is zero or small
-        static const decltype(max_distance) MAX_DISTANCE_OVERRIDE = 3600 * 3;
+        static const decltype(max_distance) MAX_DISTANCE_OVERRIDE = 3600 * 4;
         const int64 kPenalty = std::max(max_distance, MAX_DISTANCE_OVERRIDE);
         for (const auto &visit_bundle : visit_index_) {
             std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
