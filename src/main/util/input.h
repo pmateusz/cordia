@@ -6,6 +6,7 @@
 
 #include "problem.h"
 #include "printer.h"
+#include "solution.h"
 
 #include <osrm/engine/engine_config.hpp>
 #include <osrm/coordinate.hpp>
@@ -25,6 +26,8 @@ namespace util {
     rows::Problem LoadReducedProblem(const std::string &problem_path,
                                      const std::string &scheduling_date,
                                      std::shared_ptr<rows::Printer> printer);
+
+    rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem);
 
     std::shared_ptr<rows::Printer> CreatePrinter(const std::string &format);
 

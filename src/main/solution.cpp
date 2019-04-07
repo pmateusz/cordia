@@ -300,6 +300,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                     carer = rows::Carer(carer_find_it->second);
                 }
 
+                const auto id = std::stoul(GetCheckNotEmpty(properties, attributes.Id));
                 const auto duration = boost::posix_time::duration_from_string(
                         GetCheckNotEmpty(properties, attributes.Duration));
                 const auto start_time = boost::posix_time::time_from_string(
@@ -311,7 +312,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                                                              boost::none,
                                                              boost::none,
                                                              rows::CalendarVisit{
-                                                                     0,
+                                                                     id,
                                                                      rows::ServiceUser::DEFAULT,
                                                                      rows::Address::DEFAULT,
                                                                      rows::Location(
