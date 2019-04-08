@@ -18,6 +18,7 @@
 #include <boost/optional.hpp>
 #include <boost/date_time.hpp>
 
+#include "break.h"
 #include "scheduled_visit.h"
 
 namespace rows {
@@ -32,7 +33,7 @@ namespace rows {
     public:
         Solution();
 
-        explicit Solution(std::vector<ScheduledVisit> visits);
+        Solution(std::vector<ScheduledVisit> visits, std::vector<Break> breaks);
 
         Solution Trim(boost::posix_time::ptime begin, boost::posix_time::ptime::time_duration_type duration) const;
 
@@ -114,10 +115,13 @@ namespace rows {
 
         const std::vector<ScheduledVisit> &visits() const;
 
+        const std::vector<Break> &breaks() const;
+
         std::string DebugStatus(SolverWrapper &solver, const operations_research::RoutingModel &model) const;
 
     private:
         std::vector<ScheduledVisit> visits_;
+        std::vector<Break> breaks_;
     };
 }
 
@@ -136,7 +140,8 @@ namespace rows {
         for (const auto &actual_visit : visits_it.value()) {
             visits.emplace_back(visit_loader.Load(actual_visit));
         }
-        return Solution(std::move(visits));
+
+        return Solution(std::move(visits), std::vector<Break>());
     }
 }
 

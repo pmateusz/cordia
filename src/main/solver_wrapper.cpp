@@ -607,7 +607,7 @@ namespace rows {
 
         DCHECK_EQ(visits_to_release.size(), released_visits);
 
-        return rows::Solution(std::move(visits_to_use));
+        return rows::Solution(std::move(visits_to_use), std::vector<Break>());
     }
 
     bool SolverWrapper::HasTimeWindows() const {

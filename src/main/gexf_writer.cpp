@@ -192,17 +192,19 @@ namespace rows {
             } while (!model.IsEnd(start_visit_index));
 
             if (activities) {
+                const auto carer_node = operations_research::RoutingModel::NodeIndex{vehicle};
                 operations_research::RoutingModel::NodeIndex break_node{1};
                 for (const auto &local_activity : activities->at(vehicle)) {
-                    // create break node with break id
-                    // set carer id
-                    // set time
-                    // set duration
                     if (local_activity->activity_type() != rows::RouteValidatorBase::ActivityType::Break) {
                         continue;
                     }
 
-                    LOG(INFO) << vehicle << " break " << local_activity->period() << " " << local_activity->duration();
+                    const auto break_id = gexf.BreakId(carer_node, break_node);
+                    gexf.AddNode(break_id, (boost::format("break %1% carer %2%") % break_node % carer_node).str());
+                    gexf.SetNodeValue(break_id, TYPE, BREAK_NODE);
+                    gexf.SetNodeValue(break_id, ASSIGNED_CARER, carer.sap_number());
+                    gexf.SetNodeValue(break_id, START_TIME, local_activity->period().begin());
+                    gexf.SetNodeValue(break_id, DURATION, local_activity->duration());
 
                     ++break_node;
                 }
