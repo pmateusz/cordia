@@ -115,7 +115,7 @@ void rows::SingleStepSchedulingWorker::Run() {
         DCHECK(is_solution_correct);
 
         rows::GexfWriter solution_writer;
-        solution_writer.Write(output_file_, *solver_, *model_, *assignment);
+        solution_writer.Write(output_file_, *solver_, *model_, *assignment, boost::none);
         solver_->DisplayPlan(*model_, *assignment);
         SetReturnCode(STATUS_OK);
     } catch (util::ApplicationError &ex) {

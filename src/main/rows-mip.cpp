@@ -19,6 +19,8 @@
 
 // TODO: create a solution and save it to a file
 // TODO: load previous solution and use it as a starting point
+// TODO: output breaks in the solution
+// TODO: load breaks from the solution
 
 DEFINE_string(problem,
               "../problem.json", "a file path to the problem instance");

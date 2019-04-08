@@ -1,6 +1,8 @@
 #include <random>
 #include <unordered_map>
 
+#include <boost/optional.hpp>
+
 #include "experimental_enforcement_worker.h"
 #include "gexf_writer.h"
 #include "progress_printer_monitor.h"
@@ -389,7 +391,7 @@ void rows::ExperimentalEnforcementWorker::Run() {
 
         // TODO: slow progression of the bound
         rows::GexfWriter solution_writer;
-        solution_writer.Write(output_file_, *solver_wrapper, *model, *patched_assignment);
+        solution_writer.Write(output_file_, *solver_wrapper, *model, *patched_assignment, boost::none);
         solver_wrapper->DisplayPlan(*model, *patched_assignment);
         SetReturnCode(STATUS_OK);
     } catch (util::ApplicationError &ex) {

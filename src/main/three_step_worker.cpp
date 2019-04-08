@@ -263,7 +263,8 @@ void rows::ThreeStepSchedulingWorker::Run() {
     const rows::GexfWriter solution_writer;
     std::string second_stage_output{"second_stage_"};
     second_stage_output.append(output_file_);
-    solution_writer.Write(second_stage_output, *second_step_wrapper, *second_stage_model, *second_stage_assignment);
+    solution_writer.Write(second_stage_output, *second_step_wrapper,
+                          *second_stage_model, *second_stage_assignment, boost::none);
 
     std::unique_ptr<operations_research::RoutingModel> third_stage_model
             = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
@@ -325,7 +326,20 @@ void rows::ThreeStepSchedulingWorker::Run() {
     operations_research::Assignment third_validation_copy{third_stage_assignment};
     const auto is_third_solution_correct = third_stage_assignment->solver()->CheckAssignment(&third_validation_copy);
     DCHECK(is_third_solution_correct);
-    solution_writer.Write(output_file_, *third_step_solver, *third_stage_model, *third_stage_assignment);
+
+    std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > > activities;
+    for (int vehicle = 0; vehicle < third_stage_model->vehicles(); ++vehicle) {
+        const auto validation_result
+                = solution_validator.ValidateFull(vehicle,
+                                                  *third_stage_assignment,
+                                                  *third_stage_model,
+                                                  *third_step_solver);
+        CHECK(validation_result.error() == nullptr);
+
+        activities[vehicle] = validation_result.activities();
+    }
+
+    solution_writer.Write(output_file_, *third_step_solver, *third_stage_model, *third_stage_assignment, boost::make_optional(activities));
 
     printer_->operator<<(TracingEvent(TracingEventType::Finished, "All"));
     SetReturnCode(0);
