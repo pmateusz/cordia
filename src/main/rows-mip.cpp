@@ -637,6 +637,79 @@ private:
         if (solution_opt) { SetInitialSolution(solution_opt.get()); }
     }
 
+//    void SetInitialSolution(const rows::Solution &solution) {
+//        std::unordered_set<std::size_t> visited_nodes;
+//
+//        for (const auto &carer : solution.Carers()) {
+//            const auto route = solution.GetRoute(carer);
+//            const auto carer_index = GetIndex(carer);
+//
+//            std::vector<std::pair<std::size_t, std::size_t>> solution_edges;
+//            auto last_node = begin_depot_node_;
+//            for (const auto &visit : route.visits()) {
+//                const auto node_ids = GetNodes(visit.calendar_visit().get());
+//                std::size_t current_node = 0;
+//                auto node_found = false;
+//                for (auto node_id : node_ids) {
+//                    if (visited_nodes.find(node_id) == std::end(visited_nodes)) {
+//                        current_node = node_id;
+//                        node_found = true;
+//                        visited_nodes.insert(node_id);
+//                        break;
+//                    }
+//                }
+//
+//                CHECK(node_found);
+//
+//                solution_edges.emplace_back(last_node, current_node);
+//                last_node = current_node;
+//            }
+//            solution_edges.emplace_back(last_node, end_depot_node_);
+//
+//            for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
+//                for (auto to_node = begin_depot_node_; to_node <= end_depot_node_; ++to_node) {
+//                    carer_edges_[carer_index][from_node][to_node].set(GRB_DoubleAttr_UB, 0.0);
+//                    carer_edges_[carer_index][from_node][to_node].set(GRB_DoubleAttr_LB, 0.0);
+//                }
+//            }
+//
+//            for (const auto &edge : solution_edges) {
+//                carer_edges_[carer_index][edge.first][edge.second].set(GRB_DoubleAttr_UB, 1.0);
+//                carer_edges_[carer_index][edge.first][edge.second].set(GRB_DoubleAttr_LB, 1.0);
+//            }
+//        }
+//
+//        for (const auto &visit : solution.visits()) {
+//            if (visit.carer()) {
+//                for (const auto visit_node : GetNodes(visit.calendar_visit().get())) {
+//                    visit_start_times_[visit_node].set(GRB_DoubleAttr_UB,
+//                                                       visit.datetime().time_of_day().total_seconds());
+//                    visit_start_times_[visit_node].set(GRB_DoubleAttr_LB,
+//                                                       visit.datetime().time_of_day().total_seconds());
+//                    active_visits_[visit_node].set(GRB_DoubleAttr_UB, 1.0);
+//                    active_visits_[visit_node].set(GRB_DoubleAttr_LB, 1.0);
+//                }
+//            } else {
+//                for (const auto visit_node: GetNodes(visit.calendar_visit().get())) {
+//                    visit_start_times_[visit_node].set(GRB_DoubleAttr_UB, 0.0);
+//                    visit_start_times_[visit_node].set(GRB_DoubleAttr_LB, 0.0);
+//                    active_visits_[visit_node].set(GRB_DoubleAttr_UB, 0.0);
+//                    active_visits_[visit_node].set(GRB_DoubleAttr_LB, 0.0);
+//                }
+//            }
+//        }
+//
+//        for (const auto &break_element : solution.breaks()) {
+//            const auto carer_index = GetIndex(break_element.carer());
+//            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);
+//
+//            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_UB,
+//                                                                  break_element.datetime().time_of_day().total_seconds());
+//            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_LB,
+//                                                                  break_element.datetime().time_of_day().total_seconds());
+//        }
+//    }
+
     void SetInitialSolution(const rows::Solution &solution) {
         std::unordered_set<std::size_t> visited_nodes;
 
@@ -668,33 +741,26 @@ private:
 
             for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
                 for (auto to_node = begin_depot_node_; to_node <= end_depot_node_; ++to_node) {
-                    carer_edges_[carer_index][from_node][to_node].set(GRB_DoubleAttr_UB, 0.0);
-                    carer_edges_[carer_index][from_node][to_node].set(GRB_DoubleAttr_LB, 0.0);
+                    carer_edges_[carer_index][from_node][to_node].set(GRB_DoubleAttr_Start, 0.0);
                 }
             }
 
             for (const auto &edge : solution_edges) {
-                carer_edges_[carer_index][edge.first][edge.second].set(GRB_DoubleAttr_UB, 1.0);
-                carer_edges_[carer_index][edge.first][edge.second].set(GRB_DoubleAttr_LB, 1.0);
+                carer_edges_[carer_index][edge.first][edge.second].set(GRB_DoubleAttr_Start, 1.0);
             }
         }
 
         for (const auto &visit : solution.visits()) {
             if (visit.carer()) {
                 for (const auto visit_node : GetNodes(visit.calendar_visit().get())) {
-                    visit_start_times_[visit_node].set(GRB_DoubleAttr_UB,
+                    visit_start_times_[visit_node].set(GRB_DoubleAttr_Start,
                                                        visit.datetime().time_of_day().total_seconds());
-                    visit_start_times_[visit_node].set(GRB_DoubleAttr_LB,
-                                                       visit.datetime().time_of_day().total_seconds());
-                    active_visits_[visit_node].set(GRB_DoubleAttr_UB, 1.0);
-                    active_visits_[visit_node].set(GRB_DoubleAttr_LB, 1.0);
+                    active_visits_[visit_node].set(GRB_DoubleAttr_Start, 1.0);
                 }
             } else {
                 for (const auto visit_node: GetNodes(visit.calendar_visit().get())) {
-                    visit_start_times_[visit_node].set(GRB_DoubleAttr_UB, 0.0);
-                    visit_start_times_[visit_node].set(GRB_DoubleAttr_LB, 0.0);
-                    active_visits_[visit_node].set(GRB_DoubleAttr_UB, 0.0);
-                    active_visits_[visit_node].set(GRB_DoubleAttr_LB, 0.0);
+                    visit_start_times_[visit_node].set(GRB_DoubleAttr_Start, 0.0);
+                    active_visits_[visit_node].set(GRB_DoubleAttr_Start, 0.0);
                 }
             }
         }
@@ -703,9 +769,7 @@ private:
             const auto carer_index = GetIndex(break_element.carer());
             const auto break_node = GetNodeOrNeighbor(carer_index, break_element);
 
-            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_UB,
-                                                                  break_element.datetime().time_of_day().total_seconds());
-            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_LB,
+            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_Start,
                                                                   break_element.datetime().time_of_day().total_seconds());
         }
     }
