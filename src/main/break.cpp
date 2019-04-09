@@ -7,6 +7,12 @@ rows::Break::Break(rows::Carer carer,
           datetime_{datetime},
           duration_{std::move(duration)} {}
 
+bool rows::Break::operator==(const rows::Break &other) const {
+    return carer_ == other.carer_
+           && datetime_ == other.datetime_
+           && duration_ == other.duration_;
+}
+
 std::ostream &operator<<(std::ostream &out, const rows::Break &break_element) {
     out << "Break ["
         << "carer=" << break_element.carer()

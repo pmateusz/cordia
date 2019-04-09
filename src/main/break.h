@@ -14,6 +14,8 @@ namespace rows {
     public:
         Break(Carer carer, boost::posix_time::ptime datetime, boost::posix_time::ptime::time_duration_type duration);
 
+        bool operator==(const Break &other) const;
+
         inline const Carer &carer() const { return carer_; }
 
         inline const boost::posix_time::ptime &datetime() const { return datetime_; }

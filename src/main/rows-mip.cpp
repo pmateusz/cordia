@@ -20,8 +20,6 @@
 
 // TODO: create a solution and save it to a file
 // TODO: load previous solution and use it as a starting point
-// TODO: output breaks in the solution
-// TODO: load breaks from the solution
 
 DEFINE_string(problem,
               "../problem.json", "a file path to the problem instance");
@@ -96,7 +94,10 @@ public:
               node_visits_{},
               multiple_carer_visit_nodes_{},
               begin_depot_node_{0},
-              first_visit_node_{1} {
+              first_visit_node_{1},
+              visit_time_window_{boost::posix_time::minutes(90)},
+              break_time_window_{boost::posix_time::minutes(90)},
+              overtime_window_{boost::posix_time::minutes(15)} {
         num_carers_ = carer_diaries_.size();
         carer_node_breaks_.resize(num_carers_);
         carer_break_start_times_.resize(num_carers_);
@@ -123,18 +124,32 @@ public:
         horizon_duration_ = boost::posix_time::seconds(rows::SolverWrapper::SECONDS_IN_DIMENSION);
         boost::posix_time::time_period time_horizon(horizon_start_, horizon_duration_);
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            // reset current node so all breaks start from the same node
+            current_node = end_depot_node_;
             const auto &carer_pair = carer_diaries_[carer_index];
+            const auto &carer_diary = carer_pair.second[0];
+            const auto carer_breaks = carer_diary.Breaks(time_horizon);
+            if (carer_breaks.empty()) { continue; }
 
-            const auto carer_breaks = carer_pair.second[0].Breaks(time_horizon);
+            const auto last_break_index = carer_breaks.size() - 1;
+            const auto &first_break = carer_breaks[0];
+            rows::Break first_break_to_use{
+                    carer_pair.first,
+                    first_break.begin(),
+                    first_break.duration() - overtime_window_};
+            carer_node_breaks_[carer_index].emplace(++current_node, std::move(first_break_to_use));
 
-            for (auto break_index = 0; break_index < carer_breaks.size(); ++break_index) {
+            for (auto break_index = 1; break_index < last_break_index; ++break_index) {
                 const auto &break_item = carer_breaks[break_index];
                 rows::Break break_to_use{carer_pair.first, break_item.begin(), break_item.duration()};
                 carer_node_breaks_[carer_index].emplace(++current_node, std::move(break_to_use));
             }
 
-            // reset current node so all breaks start from the same node
-            current_node = end_depot_node_;
+            const auto &last_break = carer_breaks[last_break_index];
+            rows::Break last_break_to_use{carer_pair.first,
+                                          last_break.begin() + overtime_window_,
+                                          last_break.duration() - overtime_window_};
+            carer_node_breaks_[carer_index].emplace(++current_node, std::move(last_break_to_use));
         }
     }
 
@@ -195,14 +210,12 @@ public:
                 std::vector<decltype(carer_edges_)::size_type> carer_path;
                 auto current_visit_node = begin_depot_node_;
                 while (current_visit_node != BLANK_NODE) {
-                    carer_path.push_back(current_visit_node);
-
                     for (auto break_index : next_break_nodes[current_visit_node]) {
                         carer_path.push_back(break_index);
                     }
+                    carer_path.push_back(current_visit_node);
 
                     const auto next_visit_node = next_visit_nodes[current_visit_node];
-
                     CHECK_NE(current_visit_node, next_visit_node) << "Current node (" << current_visit_node
                                                                   << ") must not be equal to the next node ("
                                                                   << next_visit_node << ")";
@@ -244,8 +257,9 @@ public:
                     LOG(INFO) << "Visit " << visit_node << ": " << visit_start_times_[visit_node].get(GRB_DoubleAttr_X);
                 }
 
-                for (auto break_index = 0; break_index < carer_break_start_times_[carer_index].size(); ++break_index) {
-                    LOG(INFO) << "Break: " << carer_break_start_times_[carer_index][break_index].get(GRB_DoubleAttr_X);
+                for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                    LOG(INFO) << "Break: "
+                              << carer_break_start_times_[carer_index][break_item.first].get(GRB_DoubleAttr_X);
                 }
             }
 
@@ -354,7 +368,7 @@ private:
         // >> final depot get zero outflow
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             const auto carer_num_nodes = carer_edges_[carer_index].size();
-            for (auto to_node = begin_depot_node_; to_node < carer_num_nodes; ++to_node) {
+            for (auto to_node = begin_depot_node_; to_node <= last_visit_node_; ++to_node) {
                 // traversal from the end depot is forbidden
                 model.addConstr(carer_edges_[carer_index][end_depot_node_][to_node] == 0);
             }
@@ -364,11 +378,22 @@ private:
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (auto in_index = first_visit_node_; in_index <= last_visit_node_; ++in_index) {
                 GRBLinExpr node_outflow = 0;
-                for (auto out_index = begin_depot_node_; out_index <= end_depot_node_; ++out_index) {
+                for (auto out_index = first_visit_node_; out_index <= end_depot_node_; ++out_index) {
                     node_outflow += carer_edges_[carer_index][in_index][out_index];
                 }
                 model.addConstr(node_outflow <= 1.0);
             }
+        }
+
+        // >> each visit is performed at most once
+        for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+            GRBLinExpr node_inflow = 0;
+            for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+                for (auto prev_node = 0; prev_node <= last_visit_node_; ++prev_node) {
+                    node_inflow += carer_edges_[carer_index][prev_node][visit_node];
+                }
+            }
+            model.addConstr(node_inflow <= 1.0);
         }
 
         // 5 - flow conservation
@@ -379,9 +404,7 @@ private:
             for (auto node_index = first_visit_node_; node_index <= last_visit_node_; ++node_index) {
                 GRBLinExpr node_inflow = 0;
                 GRBLinExpr node_outflow = 0;
-                for (auto other_node_index = begin_depot_node_;
-                     other_node_index <= end_depot_node_;
-                     ++other_node_index) {
+                for (auto other_node_index = 0; other_node_index < carer_num_nodes; ++other_node_index) {
                     node_inflow += carer_edges_[carer_index][other_node_index][node_index];
                     node_outflow += carer_edges_[carer_index][node_index][other_node_index];
                 }
@@ -395,7 +418,6 @@ private:
 
                 GRBLinExpr node_inflow = 0;
                 GRBLinExpr node_outflow = 0;
-
                 for (auto other_node_index = 0; other_node_index < carer_num_nodes; ++other_node_index) {
                     node_inflow += carer_edges_[carer_index][other_node_index][node_index];
                     node_outflow += carer_edges_[carer_index][node_index][other_node_index];
@@ -411,7 +433,7 @@ private:
                 const auto break_node = break_item.first;
 
                 GRBLinExpr node_inflow = 0;
-                for (auto in_node = first_visit_node_; in_node <= last_visit_node_; ++in_node) {
+                for (auto in_node = begin_depot_node_; in_node <= end_depot_node_; ++in_node) {
                     node_inflow += carer_edges_[carer_index][in_node][break_node];
                 }
                 model.addConstr(node_inflow == 1.0);
@@ -430,17 +452,18 @@ private:
             }
         }
 
-        // 8 - carer taking break after a visit is scheduled to make that visit
+        // 8 - carer taking break before a visit is scheduled to make that visit
+        // cases for the begin and end depot are trivially satisfied
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
                 const auto break_node = break_item.first;
 
-                for (auto from_node = begin_depot_node_; from_node <= last_visit_node_; ++from_node) {
-                    GRBLinExpr from_node_inflow = 0;
-                    for (auto other_node = begin_depot_node_; other_node <= last_visit_node_; ++other_node) {
-                        from_node_inflow += carer_edges_[carer_index][other_node][from_node];
+                for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+                    GRBLinExpr visit_node_inflow = 0;
+                    for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
+                        visit_node_inflow += carer_edges_[carer_index][from_node][visit_node];
                     }
-                    model.addConstr(carer_edges_[carer_index][from_node][break_node] <= from_node_inflow);
+                    model.addConstr(carer_edges_[carer_index][visit_node][break_node] <= visit_node_inflow);
                 }
             }
         }
@@ -470,11 +493,6 @@ private:
 
         // 10 - visit start times after break
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            // TODO: hack
-            if (carer_index == 3 || carer_index == 4 || carer_index == 5) {
-                continue;
-            }
-
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
                 const auto break_node = break_item.first;
                 for (auto to_node = first_visit_node_; to_node <= last_visit_node_; ++to_node) {
@@ -487,6 +505,56 @@ private:
                     model.addConstr(left <= right);
                 }
             }
+        }
+
+        // >> break start times
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                for (auto prev_visit_node = first_visit_node_; prev_visit_node <= last_visit_node_; ++prev_visit_node) {
+                    for (auto next_visit_node = first_visit_node_;
+                         next_visit_node <= last_visit_node_; ++next_visit_node) {
+                        GRBLinExpr left = 0;
+                        left += visit_start_times_[prev_visit_node];
+                        left += node_visits_[prev_visit_node].duration().total_seconds();
+
+                        GRBLinExpr right = 0;
+                        right += carer_break_start_times_[carer_index][break_item.first];
+                        right += BIG_M * (2.0
+                                          - carer_edges_[carer_index][prev_visit_node][next_visit_node]
+                                          - carer_edges_[carer_index][next_visit_node][break_item.first]);
+                        model.addConstr(left <= right);
+                    }
+                }
+            }
+        }
+
+        // >> at most one break can be connected to a visit
+        for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+            GRBLinExpr break_inflow = 0;
+            for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+                for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                    break_inflow += carer_edges_[carer_index][break_item.first][visit_node];
+                }
+            }
+            model.addConstr(break_inflow <= 1.0);
+        }
+
+        // >> one break can be connected to a begin depot
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            GRBLinExpr break_inflow = 0;
+            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                break_inflow += carer_edges_[carer_index][begin_depot_node_][break_item.first];
+            }
+            model.addConstr(break_inflow == 1.0);
+        }
+
+        // >> at most one break can be connected to a end depot
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            GRBLinExpr break_inflow = 0;
+            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                break_inflow += carer_edges_[carer_index][end_depot_node_][break_item.first];
+            }
+            model.addConstr(break_inflow == 1.0);
         }
 
         // 12 - active nodes
@@ -513,27 +581,26 @@ private:
         }
 
         // 15 - start times for visits
-        const auto time_window = boost::posix_time::minutes(90);
         for (const auto &visit_nodes : visit_start_times_) {
             GRBLinExpr left = active_visits_[visit_nodes.first] *
-                              (node_visits_[visit_nodes.first].datetime().time_of_day() - time_window).total_seconds();
+                              (node_visits_[visit_nodes.first].datetime().time_of_day() -
+                               visit_time_window_).total_seconds();
 
             GRBLinExpr right = active_visits_[visit_nodes.first] *
-                               (node_visits_[visit_nodes.first].datetime().time_of_day() + time_window).total_seconds();
+                               (node_visits_[visit_nodes.first].datetime().time_of_day() +
+                                visit_time_window_).total_seconds();
 
             model.addConstr(left <= visit_start_times_[visit_nodes.first]);
             model.addConstr(visit_start_times_[visit_nodes.first] <= right);
         }
 
         // 16 - start times for breaks
-        // TODO: first and last break have a different start and end times
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                LOG(INFO) << break_item.second;
-                model.addConstr((break_item.second.datetime().time_of_day() - time_window).total_seconds() <=
+                model.addConstr((break_item.second.datetime().time_of_day() - break_time_window_).total_seconds() <=
                                 carer_break_start_times_[carer_index][break_item.first]);
                 model.addConstr(carer_break_start_times_[carer_index][break_item.first] <=
-                                (break_item.second.datetime().time_of_day() + time_window).total_seconds());
+                                (break_item.second.datetime().time_of_day() + break_time_window_).total_seconds());
             }
         }
 
@@ -632,9 +699,14 @@ private:
             }
         }
 
-        // TODO: initialize breaks
         for (const auto &break_element : solution.breaks()) {
-            const auto carer_node = GetIndex(break_element.carer());
+            const auto carer_index = GetIndex(break_element.carer());
+            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);
+
+            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_UB,
+                                                                  break_element.datetime().time_of_day().total_seconds());
+            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_LB,
+                                                                  break_element.datetime().time_of_day().total_seconds());
         }
     }
 
@@ -653,6 +725,67 @@ private:
         return result;
     }
 
+    std::size_t GetNode(const std::size_t carer_index, const rows::Break &break_element) {
+        for (const auto &break_item : carer_node_breaks_[carer_index]) {
+            if (break_item.second == break_element) {
+                return break_item.first;
+            }
+        }
+
+        LOG(FATAL) << break_element << " is not present in the problem definition";
+
+        return -1;
+    }
+
+    std::size_t GetNodeOrNeighbor(const std::size_t carer_index, const rows::Break &break_element) {
+        boost::posix_time::ptime min_start = boost::posix_time::max_date_time;
+        boost::posix_time::ptime max_start = boost::posix_time::min_date_time;
+
+        boost::optional<std::size_t> candidate_node = boost::none;
+        for (const auto &break_item : carer_node_breaks_[carer_index]) {
+            min_start = std::min(min_start, break_item.second.datetime());
+            max_start = std::max(max_start, break_item.second.datetime());
+
+            if (break_item.second.carer() != break_element.carer()) {
+                continue;
+            }
+
+            auto start_time_diff = break_item.second.datetime() - break_element.datetime();
+            if (start_time_diff.is_negative()) {
+                start_time_diff = -start_time_diff;
+            }
+
+            auto duration_diff = break_item.second.duration() - break_element.duration();
+            if (duration_diff.is_negative()) {
+                duration_diff = -duration_diff;
+            }
+
+            if (start_time_diff <= break_time_window_ && duration_diff <= overtime_window_) {
+                candidate_node = break_item.first;
+            }
+        }
+
+        if (!candidate_node) {
+            LOG(FATAL) << break_element << " is not present in the problem definition";
+        }
+
+        const auto &break_ref = carer_node_breaks_[carer_index].at(candidate_node.get());
+        if (break_ref.datetime() == min_start
+            && break_ref.datetime() == break_element.datetime()
+            && break_ref.duration() + overtime_window_ >= break_element.duration()) { // first break
+            return candidate_node.get();
+        } else if (break_ref.datetime() == max_start
+                   && break_ref.datetime() + overtime_window_ >= break_element.datetime()
+                   && break_ref.duration() + overtime_window_ >= break_element.duration()) { // last break
+            return candidate_node.get();
+        } else if (break_ref.duration() == break_element.duration()) {// is middle break
+            return candidate_node.get();
+        }
+
+        LOG(FATAL) << break_element << " is not present in the problem definition";
+        return -1;
+    }
+
     std::size_t GetIndex(const rows::Carer &carer) {
         auto carer_index = 0;
         for (const auto &carer_diary : carer_diaries_) {
@@ -661,6 +794,7 @@ private:
             }
             ++carer_index;
         }
+
         LOG(FATAL) << "Carer " << carer.sap_number() << " is not present in the problem definition";
     }
 
@@ -670,11 +804,16 @@ private:
     std::size_t end_depot_node_;
     std::size_t num_carers_;
 
+    boost::posix_time::time_duration visit_time_window_;
+    boost::posix_time::time_duration break_time_window_;
+    boost::posix_time::time_duration overtime_window_;
+
     boost::posix_time::ptime horizon_start_;
     boost::posix_time::time_duration horizon_duration_;
 
     std::vector<rows::CalendarVisit> visits_;
-    std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>> carer_diaries_;
+    std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>>
+            carer_diaries_;
     rows::CachedLocationContainer location_container_;
 
     std::unordered_map<std::size_t, rows::CalendarVisit> node_visits_;
@@ -682,10 +821,11 @@ private:
     std::unordered_map<std::size_t, GRBVar> visit_start_times_;
     std::unordered_map<std::size_t, GRBVar> active_visits_;
 
-    std::vector<std::unordered_map<std::size_t, rows::Break> > carer_node_breaks_;
-    std::vector<std::unordered_map<std::size_t, GRBVar> > carer_break_start_times_;
+    std::vector<std::unordered_map<std::size_t, rows::Break>> carer_node_breaks_;
+    std::vector<std::unordered_map<std::size_t, GRBVar>> carer_break_start_times_;
 
-    std::vector<std::vector<std::vector<GRBVar>>> carer_edges_;
+    std::vector<std::vector<std::vector<GRBVar>>>
+            carer_edges_;
 };
 
 
