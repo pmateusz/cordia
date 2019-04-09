@@ -17,6 +17,7 @@
 #include "location_container.h"
 #include "solver_wrapper.h"
 #include "break.h"
+#include "single_step_solver.h"
 
 // TODO: create a solution and save it to a file
 // TODO: load previous solution and use it as a starting point
@@ -61,6 +62,10 @@ std::string GetStatus(int gurobi_status) {
             return "UNBOUNDED";
         case GRB_OPTIMAL:
             return "OPTIMAL";
+        case GRB_TIME_LIMIT:
+            return "TIME_LIMIT";
+        default:
+            return "UNKNOWN";
     }
 }
 
@@ -74,7 +79,11 @@ std::vector<rows::Location> getLocations(const rows::Problem &problem) {
 
 class Model {
 public:
-    static Model Create(rows::Problem problem, osrm::EngineConfig engine_config) {
+    static Model Create(rows::Problem problem,
+                        osrm::EngineConfig engine_config,
+                        boost::posix_time::time_duration visit_time_window,
+                        boost::posix_time::time_duration break_time_window,
+                        boost::posix_time::time_duration overtime_allowance) {
 
         std::vector<rows::Location> locations;
         for (const auto &visit : problem.visits()) {
@@ -84,10 +93,14 @@ public:
         rows::CachedLocationContainer location_container(std::cbegin(locations), std::cend(locations), engine_config);
         location_container.ComputeDistances();
 
-        return Model{problem, std::move(location_container)};
+        return Model{problem, std::move(location_container), visit_time_window, break_time_window, overtime_allowance};
     }
 
-    Model(const rows::Problem &problem, rows::CachedLocationContainer location_container)
+    Model(const rows::Problem &problem,
+          rows::CachedLocationContainer location_container,
+          boost::posix_time::time_duration visit_time_window,
+          boost::posix_time::time_duration break_time_window,
+          boost::posix_time::time_duration overtime_allowance)
             : visits_(problem.visits()),
               carer_diaries_(problem.carers()),
               location_container_(std::move(location_container)),
@@ -95,9 +108,9 @@ public:
               multiple_carer_visit_nodes_{},
               begin_depot_node_{0},
               first_visit_node_{1},
-              visit_time_window_{boost::posix_time::minutes(90)},
-              break_time_window_{boost::posix_time::minutes(90)},
-              overtime_window_{boost::posix_time::minutes(15)} {
+              visit_time_window_{std::move(visit_time_window)},
+              break_time_window_{std::move(break_time_window)},
+              overtime_window_{std::move(overtime_allowance)} {
         num_carers_ = carer_diaries_.size();
         carer_node_breaks_.resize(num_carers_);
         carer_break_start_times_.resize(num_carers_);
@@ -153,13 +166,13 @@ public:
         }
     }
 
-    void Solve(const boost::optional<rows::Solution> &initial_solution) {
+    rows::Solution Solve(const boost::optional<rows::Solution> &initial_solution) {
         GRBEnv env = GRBEnv();
         GRBModel model = GRBModel(env);
 
         Build(model, initial_solution);
 
-        model.set(GRB_DoubleParam_TimeLimit, 60 * 5);
+        model.set(GRB_DoubleParam_TimeLimit, 10); // TODO: very short time limit
         model.set(GRB_IntParam_Presolve, 2); // max 2
         // model.set(GRB_DoubleParam_Heuristics, 0.2);
         // 1 - focus on feasible solutions, 2 - focus on proving optimality, 3 - focus on bound
@@ -167,104 +180,105 @@ public:
         model.optimize();
 
         const auto solver_status = model.get(GRB_IntAttr_Status);
-        LOG(INFO) << "Status " << GetStatus(solver_status);
 
-        // TODO: ensure the CP schedule is correct
-        // TODO: print flow for the first break for carer 3 - print all inflow, print all outflow, print break start time, print visit start time
 
-        if (solver_status == GRB_OPTIMAL) {
-            std::vector<std::vector<decltype(carer_edges_)::size_type>> carer_paths;
-
-            static const auto BLANK_NODE = -1;
-
-            for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                const auto carer_num_nodes = carer_edges_[carer_index].size();
-                std::vector<int> next_visit_nodes(carer_num_nodes, BLANK_NODE);
-                std::vector<std::vector<int>> next_break_nodes(carer_num_nodes);
-
-                for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
-                    for (auto to_node = begin_depot_node_; to_node < carer_num_nodes; ++to_node) {
-                        const auto value = carer_edges_[carer_index][from_node][to_node].get(GRB_DoubleAttr_X);
-                        CHECK(value == 0.0 || value == 1.0);
-                        if (value == 1.0) {
-                            if (to_node <= end_depot_node_) { // handle visit
-                                if (from_node <= end_depot_node_) { // coming back from prior breaks is ignored
-                                    CHECK_EQ(next_visit_nodes.at(from_node), BLANK_NODE) << " at " << to_node;
-//                            if (next_visit_nodes.at(from_node) != BLANK_NODE) {
-//
-//                                for (auto local_to_node = BEGIN_DEPOT; local_to_node < carer_num_nodes; ++local_to_node) {
-//                                    LOG(INFO) << from_node << " : " << local_to_node << " : " << carer_edges[carer_index][from_node][local_to_node].get(GRB_DoubleAttr_X);
-//                                }
-//
-//                                CHECK(false);
-//                            }
-                                    next_visit_nodes.at(from_node) = to_node;
-                                }
-                            } else { // handle break
-                                next_break_nodes.at(from_node).push_back(to_node);
-                            }
-                        }
-                    }
-                }
-
-                std::vector<decltype(carer_edges_)::size_type> carer_path;
-                auto current_visit_node = begin_depot_node_;
-                while (current_visit_node != BLANK_NODE) {
-                    for (auto break_index : next_break_nodes[current_visit_node]) {
-                        carer_path.push_back(break_index);
-                    }
-                    carer_path.push_back(current_visit_node);
-
-                    const auto next_visit_node = next_visit_nodes[current_visit_node];
-                    CHECK_NE(current_visit_node, next_visit_node) << "Current node (" << current_visit_node
-                                                                  << ") must not be equal to the next node ("
-                                                                  << next_visit_node << ")";
-                    current_visit_node = next_visit_node;
-                }
-
-                carer_paths.emplace_back(std::move(carer_path));
-            }
-
-            std::stringstream output_msg;
-            for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                output_msg << "Carer " << carer_index << ": ";
-
-                auto &carer_path = carer_paths[carer_index];
-
-                CHECK(!carer_path.empty());
-                output_msg << carer_path[0];
-                const auto carer_path_size = carer_path.size();
-                for (auto node_index = 1; node_index < carer_path_size; ++node_index) {
-                    output_msg << " -> " << carer_path[node_index];
-                }
-
-                output_msg << std::endl;
-            }
-
-            for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                LOG(INFO) << "Carer " << carer_index << ": ";
-                std::vector<std::size_t> visit_nodes;
-                const auto carer_nodes = carer_edges_[carer_index].size();
-                for (auto from_node = begin_depot_node_; from_node < end_depot_node_; ++from_node) {
-                    for (auto to_node = begin_depot_node_; to_node < end_depot_node_; ++to_node) {
-                        if (carer_edges_[carer_index][from_node][to_node].get(GRB_DoubleAttr_X) == 1.0) {
-                            visit_nodes.push_back(to_node);
-                        }
-                    }
-                }
-
-                for (const auto &visit_node : visit_nodes) {
-                    LOG(INFO) << "Visit " << visit_node << ": " << visit_start_times_[visit_node].get(GRB_DoubleAttr_X);
-                }
-
-                for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                    LOG(INFO) << "Break: "
-                              << carer_break_start_times_[carer_index][break_item.first].get(GRB_DoubleAttr_X);
-                }
-            }
-
-            LOG(INFO) << output_msg.str();
+        // TODO: ensure the IP schedule is correct
+        if (solver_status != GRB_OPTIMAL && solver_status != GRB_TIME_LIMIT) {
+            LOG(FATAL) << "Invalid status: " << GetStatus(solver_status);
+            return rows::Solution();
         }
+
+        std::vector<rows::ScheduledVisit> visits;
+        std::vector<rows::Break> breaks;
+
+        std::vector<std::vector<decltype(carer_edges_)::size_type>> carer_paths;
+        static const auto BLANK_NODE = -1;
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            const auto carer_num_nodes = carer_edges_[carer_index].size();
+            std::vector<int> next_visit_nodes(carer_num_nodes, BLANK_NODE);
+            std::vector<std::vector<int>> next_break_nodes(carer_num_nodes);
+
+            for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
+                for (auto to_node = begin_depot_node_; to_node < carer_num_nodes; ++to_node) {
+                    const auto value = carer_edges_[carer_index][from_node][to_node].get(GRB_DoubleAttr_X);
+                    CHECK(value == 0.0 || value == 1.0);
+                    if (value == 1.0) {
+                        if (to_node <= end_depot_node_) { // handle visit
+                            if (from_node <= end_depot_node_) { // coming back from prior breaks is ignored
+                                CHECK_EQ(next_visit_nodes.at(from_node), BLANK_NODE) << " at " << to_node;
+                                next_visit_nodes.at(from_node) = to_node;
+                            }
+                        } else { // handle break
+                            next_break_nodes.at(from_node).push_back(to_node);
+                        }
+                    }
+                }
+            }
+
+            std::vector<decltype(carer_edges_)::size_type> carer_path;
+            auto current_visit_node = begin_depot_node_;
+            while (current_visit_node != BLANK_NODE) {
+                for (auto break_index : next_break_nodes[current_visit_node]) {
+                    carer_path.push_back(break_index);
+                }
+                carer_path.push_back(current_visit_node);
+
+                const auto next_visit_node = next_visit_nodes[current_visit_node];
+                CHECK_NE(current_visit_node, next_visit_node) << "Current node (" << current_visit_node
+                                                              << ") must not be equal to the next node ("
+                                                              << next_visit_node << ")";
+                current_visit_node = next_visit_node;
+            }
+
+            const auto &carer_ref = carer_diaries_[carer_index].first;
+            for (const auto visit_node : carer_path) {
+                if (visit_node == begin_depot_node_ || visit_node == end_depot_node_) {
+                    continue;
+                }
+
+                visits.emplace_back(rows::ScheduledVisit::VisitType::OK, carer_ref, node_visits_[visit_node]);
+            }
+
+            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                const auto seconds = carer_break_start_times_[carer_index][break_item.first].get(GRB_DoubleAttr_X);
+                boost::posix_time::ptime start_time{horizon_start_.date(),
+                                                    boost::posix_time::seconds(static_cast<int>(seconds))};
+                breaks.emplace_back(carer_ref, start_time, break_item.second.duration());
+            }
+
+            carer_paths.emplace_back(std::move(carer_path));
+        }
+
+        std::stringstream output_msg;
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            output_msg << "Carer " << carer_index << ": ";
+
+            auto &carer_path = carer_paths[carer_index];
+
+            CHECK(!carer_path.empty());
+            output_msg << carer_path[0];
+            const auto carer_path_size = carer_path.size();
+            for (auto node_index = 1; node_index < carer_path_size; ++node_index) {
+                output_msg << " -> " << carer_path[node_index];
+            }
+
+            output_msg << std::endl;
+        }
+
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            LOG(INFO) << "Carer " << carer_index << ": ";
+            std::vector<std::size_t> visit_nodes;
+            const auto carer_nodes = carer_edges_[carer_index].size();
+            for (auto from_node = begin_depot_node_; from_node < end_depot_node_; ++from_node) {
+                for (auto to_node = begin_depot_node_; to_node < end_depot_node_; ++to_node) {
+                    if (carer_edges_[carer_index][from_node][to_node].get(GRB_DoubleAttr_X) == 1.0) {
+                        visit_nodes.push_back(to_node);
+                    }
+                }
+            }
+        }
+
+        return rows::Solution(std::move(visits), std::move(breaks));
     }
 
 private:
@@ -876,8 +890,7 @@ private:
     boost::posix_time::time_duration horizon_duration_;
 
     std::vector<rows::CalendarVisit> visits_;
-    std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>>
-            carer_diaries_;
+    std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>> carer_diaries_;
     rows::CachedLocationContainer location_container_;
 
     std::unordered_map<std::size_t, rows::CalendarVisit> node_visits_;
@@ -888,8 +901,7 @@ private:
     std::vector<std::unordered_map<std::size_t, rows::Break>> carer_node_breaks_;
     std::vector<std::unordered_map<std::size_t, GRBVar>> carer_break_start_times_;
 
-    std::vector<std::vector<std::vector<GRBVar>>>
-            carer_edges_;
+    std::vector<std::vector<std::vector<GRBVar>>> carer_edges_;
 };
 
 
@@ -899,15 +911,46 @@ int main(int argc, char *argv[]) {
 
     const auto printer = util::CreatePrinter(util::TEXT_FORMAT);
     const auto problem = util::LoadProblem(FLAGS_problem, printer);
-    const auto engine_config = util::CreateEngineConfig(FLAGS_maps);
+    auto engine_config = util::CreateEngineConfig(FLAGS_maps);
+    std::shared_ptr<std::atomic_bool> cancel_token{std::make_shared<std::atomic<bool> >(false)};
 
     boost::optional<rows::Solution> solution_opt = boost::none;
     if (!FLAGS_solution.empty()) {
         solution_opt = util::LoadSolution(FLAGS_solution, problem);
     }
 
-    auto problem_model = Model::Create(problem, engine_config);
-    problem_model.Solve(solution_opt);
+    boost::posix_time::time_duration visit_time_window{boost::posix_time::minutes(90)};
+    boost::posix_time::time_duration break_time_window{boost::posix_time::minutes(90)};
+    boost::posix_time::time_duration overtime_window{boost::posix_time::minutes(15)};
+    boost::posix_time::time_duration no_progress_time_limit{boost::posix_time::seconds(15)}; // TODO: short time limit
+
+    auto problem_model = Model::Create(problem, engine_config, visit_time_window, break_time_window, overtime_window);
+    const auto ip_solution = problem_model.Solve(solution_opt);
+
+    const auto search_params = rows::SolverWrapper::CreateSearchParameters();
+    std::unique_ptr<rows::SingleStepSolver> solver_wrapper
+            = std::make_unique<rows::SingleStepSolver>(problem,
+                                                       engine_config,
+                                                       search_params,
+                                                       visit_time_window,
+                                                       break_time_window,
+                                                       overtime_window,
+                                                       no_progress_time_limit);
+
+    static const rows::SolutionValidator solution_validator{};
+
+    std::unique_ptr<operations_research::RoutingModel> routing_model
+            = std::make_unique<operations_research::RoutingModel>(solver_wrapper->nodes(),
+                                                                  solver_wrapper->vehicles(),
+                                                                  rows::SolverWrapper::DEPOT);
+
+    solver_wrapper->ConfigureModel(*routing_model, printer, cancel_token);
+
+    const auto routes = solver_wrapper->GetRoutes(ip_solution, *routing_model);
+    operations_research::Assignment *const assignment = routing_model->ReadAssignmentFromRoutes(routes, false);
+    if (assignment == nullptr || !routing_model->solver()->CheckAssignment(assignment)) {
+        throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
+    }
 
     return 0;
 }
