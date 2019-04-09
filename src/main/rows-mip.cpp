@@ -1,3 +1,5 @@
+#include <utility>
+
 #include <sstream>
 
 #include <gurobi_c++.h>
@@ -93,7 +95,11 @@ public:
         rows::CachedLocationContainer location_container(std::cbegin(locations), std::cend(locations), engine_config);
         location_container.ComputeDistances();
 
-        return Model{problem, std::move(location_container), visit_time_window, break_time_window, overtime_allowance};
+        return Model{problem,
+                     std::move(location_container),
+                     std::move(visit_time_window),
+                     break_time_window,
+                     overtime_allowance};
     }
 
     Model(const rows::Problem &problem,
@@ -266,7 +272,6 @@ public:
         }
 
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            LOG(INFO) << "Carer " << carer_index << ": ";
             std::vector<std::size_t> visit_nodes;
             const auto carer_nodes = carer_edges_[carer_index].size();
             for (auto from_node = begin_depot_node_; from_node < end_depot_node_; ++from_node) {
@@ -905,6 +910,34 @@ private:
 };
 
 
+void Print(const rows::Solution &solution, rows::CachedLocationContainer &location_container) {
+    for (const auto &carer : solution.Carers()) {
+        std::vector<rows::ScheduledVisit> carer_visits;
+        for (const auto &visit : solution.visits()) {
+            const auto &visit_carer_opt = visit.carer();
+            if (visit_carer_opt.get() == carer) {
+                carer_visits.push_back(visit);
+            }
+        }
+        std::sort(std::begin(carer_visits),
+                  std::end(carer_visits),
+                  [](const rows::ScheduledVisit &left, const rows::ScheduledVisit &right) -> bool {
+                      return left.datetime() <= right.datetime();
+                  });
+
+        std::vector<rows::Break> carer_breaks;
+        for (const auto &break_element : solution.breaks()) {
+            if (break_element.carer() == carer) {
+                carer_breaks.push_back(break_element);
+            }
+        }
+        std::sort(std::begin(carer_breaks), std::end(carer_breaks),
+                  [](const rows::Break &left, const rows::Break &right) -> bool {
+                      return left.datetime() <= right.datetime();
+                  });
+    }
+}
+
 int main(int argc, char *argv[]) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
@@ -951,6 +984,9 @@ int main(int argc, char *argv[]) {
     if (assignment == nullptr || !routing_model->solver()->CheckAssignment(assignment)) {
         throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
     }
+
+    // TODO: compare cost of both solutions
+    // TODO: show differences between both solutions
 
     return 0;
 }

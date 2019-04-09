@@ -168,7 +168,7 @@ namespace rows {
                 end_time = GetAdjustedWorkdayFinish(end_duration);
                 CHECK_GE(begin_time, 0) << carer.sap_number();
                 CHECK_LE(begin_time, end_time) << carer.sap_number();
-                CHECK_LE(begin_duration.total_seconds(), begin_time) << carer.sap_number();
+                CHECK_GE(begin_duration.total_seconds(), begin_time) << carer.sap_number(); // TODO: should be GE
                 CHECK_LE(end_duration.total_seconds(), end_time) << carer.sap_number();
 
                 const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);

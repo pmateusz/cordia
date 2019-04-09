@@ -7,13 +7,13 @@
 
 #include <osrm.hpp>
 #include <osrm/storage_config.hpp>
-#include <util/logging.h>
-#include <single_step_solver.h>
 
-#include "solution.h"
 #include "problem.h"
+#include "single_step_solver.h"
+#include "solution.h"
 #include "solver_wrapper.h"
 #include "util/aplication_error.h"
+#include "util/logging.h"
 
 
 rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem) {
@@ -135,8 +135,8 @@ TEST(RouteValidation, ReproFullValidation) {
 
     const boost::gregorian::date day{2014, 10, 14};
 
-    std::list<std::shared_ptr<rows::FixedDurationActivity> > activities{
-            std::make_shared<rows::FixedDurationActivity>(
+    std::list<std::shared_ptr<rows::RouteValidatorBase::FixedDurationActivity> > activities{
+            std::make_shared<rows::RouteValidatorBase::FixedDurationActivity>(
                     "before working hours",
                     time_period(
                             ptime(day, time_duration(0, 0, 0)),
