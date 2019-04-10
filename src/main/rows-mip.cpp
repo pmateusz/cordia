@@ -759,11 +759,32 @@ private:
         // >> begin start time is greater than the break at begin depot
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                model.addConstr(break_item.second.datetime().time_of_day()
+                model.addConstr(break_item.second.datetime().time_of_day().total_seconds()
                                 + break_item.second.duration().total_seconds()
                                 - BIG_M
                                 + BIG_M * carer_edges_[carer_index][break_item.first][begin_depot_node_]
                                 <= begin_depot_start_[carer_index]);
+            }
+        }
+
+        // >> end time is greater or equal the finish of the last visit
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+                model.addConstr(visit_start_times_[visit_node]
+                                + node_visits_[visit_node].duration().total_seconds()
+                                - BIG_M
+                                + BIG_M * carer_edges_[carer_index][visit_node][end_depot_node_]
+                                <= end_depot_start_[carer_index]);
+            }
+        }
+
+        // >> last break is after end time
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto &break_item : carer_node_breaks_[carer_index]) {
+                model.addConstr(end_depot_start_[carer_index]
+                                - BIG_M
+                                + BIG_M * carer_edges_[carer_index][break_item.first][end_depot_node_]
+                                <= carer_break_start_times_[carer_index][break_item.first]);
             }
         }
 
