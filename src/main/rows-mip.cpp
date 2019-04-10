@@ -532,6 +532,8 @@ public:
 
 private:
 
+    // TODO: introduce start and end times for depots
+
     void Build(GRBModel &model, const boost::optional<rows::Solution> &solution_opt) {
         // define edges
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
