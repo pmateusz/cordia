@@ -52,7 +52,7 @@ class Handler:
 
         multiple_carer_visit_vars = [visit_vars[visit] for visit in visit_by_carers if len(visit_by_carers[visit]) == 2]
         model.AddSumConstraint(visit_vars.values(), low_disruption(num_visits), up_disruption(num_visits))
-        model.AddSumConstraint(carer_vars.values(), low_disruption(num_carers), up_disruption(num_carers))
+        model.AddSumConstraint(carer_vars.values(), num_carers, num_carers)
         model.AddSumConstraint(multiple_carer_visit_vars,
                                low_disruption(num_multiple_carer_visits),
                                up_disruption(num_multiple_carer_visits))
@@ -63,8 +63,8 @@ class Handler:
 
         solver = cp_model.CpSolver()
         status = solver.Solve(model)
-        if status == cp_model.INFEASIBLE:
-            print('Problem infeasible', file=sys.stderr)
+        if status != cp_model.FEASIBLE and status != cp_model.OPTIMAL:
+            print('Failed to find a solution. The solver returned status: {0}'.format(status), file=sys.stderr)
 
         visits_to_keep = set()
         for visit_id, visit_variable in visit_vars.items():
