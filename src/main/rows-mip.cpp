@@ -575,7 +575,7 @@ private:
         // define start times for visits
         for (const auto &node_item : node_visits_) {
             std::string label = "v_" + std::to_string(node_item.first) + "_start";
-            visit_start_times_[node_item.first] = model.addVar(0.0, 2 * horizon_duration_.total_seconds(), 0.0,
+            visit_start_times_[node_item.first] = model.addVar(0.0, horizon_duration_.total_seconds(), 0.0,
                                                                GRB_CONTINUOUS, label);
         }
 
@@ -591,8 +591,19 @@ private:
                 std::string label = "c_" + std::to_string(carer_index) + "_" + std::to_string(carer_break_item.first);
                 carer_break_start_times_[carer_index].emplace(
                         carer_break_item.first,
-                        model.addVar(0.0, 2 * horizon_duration_.total_seconds(), 0.0, GRB_CONTINUOUS, label));
+                        model.addVar(0.0, horizon_duration_.total_seconds(), 0.0, GRB_CONTINUOUS, label));
             }
+        }
+
+        // >> define start and end times for depots
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            std::string begin_label = "d_" + std::to_string(carer_index) + "_start";
+            begin_depot_start_.push_back(
+                    model.addVar(0.0, horizon_duration_.total_seconds(), 0.0, GRB_CONTINUOUS, begin_label));
+
+            std::string end_label = "d_" + std::to_string(carer_index) + "_end";
+            end_depot_start_.push_back(
+                    model.addVar(0.0, horizon_duration_.total_seconds(), 0.0, GRB_CONTINUOUS, end_label));
         }
 
         // 2 - all carers start their routes
@@ -733,8 +744,30 @@ private:
             }
         }
 
-        // 9 - visit start times
         const auto BIG_M = horizon_duration_.total_seconds();
+
+        // >> begin start time is lower or equal to the first visits
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+                model.addConstr(begin_depot_start_[carer_index]
+                                - BIG_M
+                                + BIG_M * carer_edges_[carer_index][begin_depot_node_][visit_node]
+                                <= visit_start_times_[visit_node]);
+            }
+        }
+
+        // >> begin start time is greater than the break at begin depot
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                model.addConstr(break_item.second.datetime().time_of_day()
+                                + break_item.second.duration().total_seconds()
+                                - BIG_M
+                                + BIG_M * carer_edges_[carer_index][break_item.first][begin_depot_node_]
+                                <= begin_depot_start_[carer_index]);
+            }
+        }
+
+        // 9 - visit start times
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (auto from_node = first_visit_node_; from_node <= last_visit_node_; ++from_node) {
                 for (auto to_node = first_visit_node_; to_node <= last_visit_node_; ++to_node) {
@@ -1147,9 +1180,11 @@ private:
     rows::CachedLocationContainer location_container_;
 
     std::unordered_map<std::size_t, rows::CalendarVisit> node_visits_;
-    std::vector<std::pair<std::size_t, std::size_t>> multiple_carer_visit_nodes_;
+    std::vector<std::pair<std::size_t, std::size_t> > multiple_carer_visit_nodes_;
     std::unordered_map<std::size_t, GRBVar> visit_start_times_;
     std::unordered_map<std::size_t, GRBVar> active_visits_;
+    std::vector<GRBVar> begin_depot_start_;
+    std::vector<GRBVar> end_depot_start_;
 
     std::vector<std::unordered_map<std::size_t, rows::Break>> carer_node_breaks_;
     std::vector<std::unordered_map<std::size_t, GRBVar>> carer_break_start_times_;
