@@ -59,7 +59,7 @@ rows::Solution rows::Solution::Trim(boost::posix_time::ptime begin,
 
     std::vector<ScheduledVisit> visits_to_use;
     for (const auto &visit : visits_) {
-        if (begin <= visit.datetime() && visit.datetime() < end) {
+        if (begin <= visit.datetime() && visit.datetime() <= end) {
             visits_to_use.push_back(visit);
         }
     }

@@ -171,6 +171,9 @@ rows::Solution util::LoadSolution(const std::string &solution_path, const rows::
                  % file_extension).str(), util::ErrorCode::ERROR);
     }
 
+    // TODO: too much trimming
     const auto time_span = problem.Timespan();
+    LOG(INFO) << time_span.first;
+    LOG(INFO) << time_span.second;
     return original_solution.Trim(time_span.first, time_span.second - time_span.first);
 }
