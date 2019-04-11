@@ -243,7 +243,8 @@ int RunSingleStepSchedulingWorker() {
 
     boost::optional<rows::Solution> solution;
     if (!FLAGS_solution.empty()) {
-        solution = util::LoadSolution(FLAGS_solution, problem_to_use);
+        static const boost::posix_time::time_duration ZERO_DURATION;
+        solution = util::LoadSolution(FLAGS_solution, problem_to_use, ZERO_DURATION);
         solution.get().UpdateVisitProperties(problem_to_use.visits());
         problem_to_use.RemoveCancelled(solution.get().visits());
     }

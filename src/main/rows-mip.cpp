@@ -1259,15 +1259,15 @@ int main(int argc, char *argv[]) {
     auto engine_config = util::CreateEngineConfig(FLAGS_maps);
     std::shared_ptr<std::atomic_bool> cancel_token{std::make_shared<std::atomic<bool> >(false)};
 
-    boost::optional<rows::Solution> solution_opt = boost::none;
-    if (!FLAGS_solution.empty()) {
-        solution_opt = util::LoadSolution(FLAGS_solution, problem);
-    }
-
     boost::posix_time::time_duration visit_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration break_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration overtime_window{boost::posix_time::minutes(15)};
     boost::posix_time::time_duration no_progress_time_limit{boost::posix_time::minutes(30)}; // TODO: short time limit
+
+    boost::optional<rows::Solution> solution_opt = boost::none;
+    if (!FLAGS_solution.empty()) {
+        solution_opt = util::LoadSolution(FLAGS_solution, problem, visit_time_window);
+    }
 
     const auto search_params = rows::SolverWrapper::CreateSearchParameters();
     std::unique_ptr<rows::SecondStepSolver> solver_wrapper

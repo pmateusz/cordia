@@ -15,6 +15,9 @@
 #include <osrm/storage_config.hpp>
 #include <osrm/osrm.hpp>
 
+#include <boost/config.hpp>
+#include <boost/date_time.hpp>
+
 namespace util {
 
     static const std::string JSON_FORMAT{"json"};
@@ -27,7 +30,9 @@ namespace util {
                                      const std::string &scheduling_date,
                                      std::shared_ptr<rows::Printer> printer);
 
-    rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem);
+    rows::Solution LoadSolution(const std::string &solution_path,
+                                const rows::Problem &problem,
+                                const boost::posix_time::time_duration &visit_time_window);
 
     std::shared_ptr<rows::Printer> CreatePrinter(const std::string &format);
 
