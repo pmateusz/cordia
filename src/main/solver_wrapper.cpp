@@ -450,11 +450,16 @@ namespace rows {
 
             const auto local_route = solution.GetRoute(carer);
             for (const auto &visit : local_route.visits()) {
-                if (!Contains(visit.calendar_visit().get())) {
+                if (!ContainsNear(visit.calendar_visit().get())) {
+                    LOG(INFO) << "Visit not found: " << visit.calendar_visit().get();
+                    for (const auto &visit_item: visit_index_) {
+                        LOG(INFO) << visit_item.first;
+                    }
+
                     continue;
                 }
 
-                const auto &visit_nodes = GetNodes(visit);
+                const auto &visit_nodes = GetNearNodes(visit.calendar_visit().get());
                 auto inserted = false;
                 for (const auto &node : visit_nodes) {
                     if (used_nodes.find(node) != std::end(used_nodes)) {
@@ -770,6 +775,15 @@ namespace rows {
         return visit_index_.find(visit) != std::end(visit_index_);
     }
 
+    bool SolverWrapper::ContainsNear(const CalendarVisit &visit) const {
+        for (const auto &visit_item : visit_index_) {
+            if (IsNear(visit_item.first, visit)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     const std::vector<operations_research::RoutingModel::NodeIndex> &
     SolverWrapper::GetNodes(const CalendarVisit &visit) const {
         const auto find_it = visit_index_.find(visit);
@@ -782,6 +796,19 @@ namespace rows {
     SolverWrapper::GetNodes(const ScheduledVisit &visit) const {
         const auto &calendar_visit = visit.calendar_visit().get();
         return GetNodes(calendar_visit);
+    }
+
+    const std::vector<operations_research::RoutingModel::NodeIndex> &
+    SolverWrapper::GetNearNodes(const CalendarVisit &visit) const {
+        boost::optional<CalendarVisit> visit_opt = boost::none;
+        for (const auto &visit_item : visit_index_) {
+            if (IsNear(visit_item.first, visit)) {
+                visit_opt = visit_item.first;
+                break;
+            }
+        }
+        CHECK(visit_opt);
+        return GetNodes(visit_opt.get());
     }
 
     const CalendarVisit &
@@ -949,5 +976,12 @@ namespace rows {
                 % CarerUtility.Median
                 % CarerUtility.Stddev
                 % CarerUtility.TotalMean).str();
+    }
+
+    bool SolverWrapper::IsNear(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const {
+        return left.duration() == right.duration()
+               && left.service_user() == right.service_user()
+               && GetBeginVisitWindow(left.datetime().time_of_day()) <= right.datetime().time_of_day().total_seconds()
+               && right.datetime().time_of_day().total_seconds() <= GetEndVisitWindow(left.datetime().time_of_day());
     }
 }

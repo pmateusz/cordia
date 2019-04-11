@@ -108,6 +108,8 @@ namespace rows {
 
         bool Contains(const CalendarVisit &visit) const;
 
+        bool ContainsNear(const CalendarVisit &visit) const;
+
         const LocalServiceUser &User(const rows::ServiceUser &service_user) const;
 
         const rows::Carer &Carer(int vehicle) const;
@@ -131,6 +133,8 @@ namespace rows {
         int nodes() const;
 
         const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const CalendarVisit &visit) const;
+
+        const std::vector<operations_research::RoutingModel::NodeIndex> &GetNearNodes(const CalendarVisit &visit) const;
 
         const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const ScheduledVisit &visit) const;
 
@@ -218,6 +222,8 @@ namespace rows {
                                const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > &validation_errors) const;
 
         static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
+
+        bool IsNear(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const;
 
         const rows::Problem problem_;
         const Location depot_;
