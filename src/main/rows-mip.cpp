@@ -241,7 +241,7 @@ public:
 
         Build(model, initial_solution);
 
-        model.set(GRB_DoubleParam_TimeLimit, 2); // TODO: very short time limit
+        model.set(GRB_DoubleParam_TimeLimit, 15); // TODO: very short time limit
         model.set(GRB_IntParam_Presolve, 2); // max 2
         // model.set(GRB_DoubleParam_Heuristics, 0.2);
         // 1 - focus on feasible solutions, 2 - focus on proving optimality, 3 - focus on bound
@@ -528,6 +528,20 @@ public:
         }
     }
 
+    void PrintStats() const {
+        for (const auto &visit_item : node_visits_) {
+            LOG(INFO) << visit_item.first << " " << visit_item.second;
+        }
+
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            LOG(INFO) << carer_diaries_[carer_index].first;
+
+            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                LOG(INFO) << break_item.second;
+            }
+        }
+    }
+
     rows::CachedLocationContainer &LocationContainer() { return location_container_; }
 
 private:
@@ -759,11 +773,12 @@ private:
         // >> begin start time is greater than the break at begin depot
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                model.addConstr(break_item.second.datetime().time_of_day().total_seconds()
-                                + break_item.second.duration().total_seconds()
-                                - BIG_M
-                                + BIG_M * carer_edges_[carer_index][break_item.first][begin_depot_node_]
-                                <= begin_depot_start_[carer_index]);
+                model.addConstr( // break_item.second.datetime().time_of_day().total_seconds()
+                        //+
+                        break_item.second.duration().total_seconds()
+                        - BIG_M
+                        + BIG_M * carer_edges_[carer_index][break_item.first][begin_depot_node_]
+                        <= begin_depot_start_[carer_index]);
             }
         }
 
@@ -919,11 +934,33 @@ private:
 
         // 16 - start times for breaks
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                model.addConstr((break_item.second.datetime().time_of_day() - break_time_window_).total_seconds() <=
-                                carer_break_start_times_[carer_index][break_item.first]);
-                model.addConstr(carer_break_start_times_[carer_index][break_item.first] <=
-                                (break_item.second.datetime().time_of_day() + break_time_window_).total_seconds());
+            const auto carer_num_nodes = carer_edges_[carer_index].size();
+
+            // first and last break are treated differently
+            const auto first_break_node = end_depot_node_ + 1;
+            const auto last_break_node = carer_num_nodes - 1;
+
+            if (first_break_node < carer_num_nodes) {
+                model.addConstr(carer_break_start_times_[carer_index][first_break_node]
+                                ==
+                                carer_node_breaks_[carer_index].at(
+                                        first_break_node).datetime().time_of_day().total_seconds());
+            }
+
+            if (last_break_node > end_depot_node_) {
+                model.addConstr(carer_break_start_times_[carer_index][last_break_node]
+                                ==
+                                carer_node_breaks_[carer_index].at(
+                                        last_break_node).datetime().time_of_day().total_seconds());
+            }
+
+            for (auto break_node = first_break_node + 1; break_node < last_break_node; ++break_node) {
+                model.addConstr((carer_node_breaks_[carer_index].at(break_node).datetime().time_of_day()
+                                 - break_time_window_).total_seconds()
+                                <= carer_break_start_times_[carer_index][break_node]);
+                model.addConstr(carer_break_start_times_[carer_index][break_node]
+                                <= (carer_node_breaks_[carer_index].at(break_node).datetime().time_of_day()
+                                    + break_time_window_).total_seconds());
             }
         }
 
@@ -1088,13 +1125,13 @@ private:
             }
         }
 
-        for (const auto &break_element : solution.breaks()) {
-            const auto carer_index = GetIndex(break_element.carer());
-            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);
-
-            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_Start,
-                                                                  break_element.datetime().time_of_day().total_seconds());
-        }
+//        for (const auto &break_element : solution.breaks()) {
+//            const auto carer_index = GetIndex(break_element.carer());
+//            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);
+//
+//            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_Start,
+//                                                                  break_element.datetime().time_of_day().total_seconds());
+//        }
     }
 
     std::vector<std::size_t> GetNodes(const rows::CalendarVisit &visit) {
@@ -1230,9 +1267,10 @@ int main(int argc, char *argv[]) {
     boost::posix_time::time_duration visit_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration break_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration overtime_window{boost::posix_time::minutes(15)};
-    boost::posix_time::time_duration no_progress_time_limit{boost::posix_time::seconds(15)}; // TODO: short time limit
+    boost::posix_time::time_duration no_progress_time_limit{boost::posix_time::minutes(30)}; // TODO: short time limit
 
     auto problem_model = Model::Create(problem, engine_config, visit_time_window, break_time_window, overtime_window);
+    problem_model.PrintStats();
     const auto ip_solution = problem_model.Solve(solution_opt);
 
     const auto search_params = rows::SolverWrapper::CreateSearchParameters();
@@ -1255,9 +1293,15 @@ int main(int argc, char *argv[]) {
     solver_wrapper->ConfigureModel(*routing_model, printer, cancel_token);
 
     const auto routes = solver_wrapper->GetRoutes(ip_solution, *routing_model);
-    operations_research::Assignment *const assignment = routing_model->ReadAssignmentFromRoutes(routes, false);
+    operations_research::Assignment *assignment = routing_model->ReadAssignmentFromRoutes(routes, false);
     if (assignment == nullptr || !routing_model->solver()->CheckAssignment(assignment)) {
         throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
+    }
+
+    for (auto vehicle = 0; vehicle < solver_wrapper.get()->vehicles(); ++vehicle) {
+        const auto validation_result
+                = solution_validator.ValidateFull(vehicle, *assignment, *routing_model, *solver_wrapper);
+        CHECK(validation_result.error() == nullptr);
     }
 
     // TODO: compare cost of both solutions

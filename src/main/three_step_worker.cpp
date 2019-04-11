@@ -400,7 +400,7 @@ rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
             }
         }
 
-        if (best_match && best_match_diary->duration() >= boost::posix_time::time_duration(2, 30, 0, 0)) {
+        if (best_match && best_match_diary->duration() >= boost::posix_time::time_duration(2, 15, 0, 0)) {
             if (!processed_carers.insert(best_match->first).second) {
                 throw util::ApplicationError(
                         (boost::format("Carer %1% cannot be a member of more than 1 team")

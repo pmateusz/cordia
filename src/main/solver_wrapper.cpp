@@ -120,7 +120,7 @@ namespace rows {
             DCHECK_GT(visit.carer_count(), 0);
 
             auto insert_pair = visit_index_.emplace(visit,
-                                                    std::unordered_set<operations_research::RoutingModel::NodeIndex>{});
+                                                    std::vector<operations_research::RoutingModel::NodeIndex>{});
             if (!insert_pair.second) {
                 // skip duplicate
                 continue;
@@ -130,8 +130,7 @@ namespace rows {
             const auto visit_start = visit.datetime().time_of_day();
             for (auto carer_count = 0; carer_count < visit.carer_count(); ++carer_count, ++current_visit_node) {
                 visit_by_node_.push_back(visit);
-                const auto index_inserted = node_index_set.insert(current_visit_node).second;
-                DCHECK(index_inserted);
+                node_index_set.push_back(current_visit_node);
             }
 
             start_horizon_ = std::min(start_horizon_, boost::posix_time::ptime(visit.datetime().date()));
@@ -771,7 +770,7 @@ namespace rows {
         return visit_index_.find(visit) != std::end(visit_index_);
     }
 
-    const std::unordered_set<operations_research::RoutingModel::NodeIndex> &
+    const std::vector<operations_research::RoutingModel::NodeIndex> &
     SolverWrapper::GetNodes(const CalendarVisit &visit) const {
         const auto find_it = visit_index_.find(visit);
         CHECK(find_it != std::end(visit_index_));
@@ -779,7 +778,7 @@ namespace rows {
         return find_it->second;
     }
 
-    const std::unordered_set<operations_research::RoutingModel::NodeIndex> &
+    const std::vector<operations_research::RoutingModel::NodeIndex> &
     SolverWrapper::GetNodes(const ScheduledVisit &visit) const {
         const auto &calendar_visit = visit.calendar_visit().get();
         return GetNodes(calendar_visit);

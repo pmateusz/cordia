@@ -130,11 +130,9 @@ namespace rows {
 
         int nodes() const;
 
-        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
-                const CalendarVisit &visit) const;
+        const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const CalendarVisit &visit) const;
 
-        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
-                const ScheduledVisit &visit) const;
+        const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const ScheduledVisit &visit) const;
 
         std::pair<operations_research::RoutingModel::NodeIndex,
                 operations_research::RoutingModel::NodeIndex> GetNodePair(const rows::CalendarVisit &visit) const;
@@ -236,7 +234,7 @@ namespace rows {
         operations_research::RoutingSearchParameters parameters_;
 
         std::unordered_map<rows::CalendarVisit,
-                std::unordered_set<operations_research::RoutingModel::NodeIndex>,
+                std::vector<operations_research::RoutingModel::NodeIndex>,
                 Problem::PartialVisitOperations,
                 Problem::PartialVisitOperations> visit_index_;
 

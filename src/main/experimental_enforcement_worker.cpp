@@ -122,6 +122,7 @@ void rows::ExperimentalEnforcementWorker::Solver::ConfigureModel(operations_rese
             const auto breaks = CreateBreakIntervals(model.solver(), carer, diary);
             model.solver()->AddConstraint(
                     model.solver()->RevAlloc(new rows::BreakConstraint(time_dimension, vehicle, breaks, *this)));
+//            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle);
         }
 
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time_to_use, end_time);
