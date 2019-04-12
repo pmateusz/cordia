@@ -66,7 +66,8 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
                                             const boost::posix_time::time_duration &begin_end_shift_time_extension,
                                             const boost::posix_time::time_duration &opt_time_limit) {
     try {
-        const auto search_params = rows::SolverWrapper::CreateSearchParameters();
+        static const auto USE_TABU_SEARCH = false;
+        const auto search_params = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
         solver_ = std::make_unique<rows::SingleStepSolver>(problem,
                                                            engine_config,
                                                            search_params,

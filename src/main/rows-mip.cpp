@@ -13,6 +13,9 @@
 #include <boost/optional/optional_io.hpp>
 #include <boost/algorithm/string/join.hpp>
 
+#include <ortools/constraint_solver/routing.h>
+#include <ortools/constraint_solver/routing_parameters.pb.h>
+
 #include "util/input.h"
 #include "util/logging.h"
 #include "util/validation.h"
@@ -24,7 +27,6 @@
 #include "second_step_solver.h"
 
 // TODO: create a solution and save it to a file
-// TODO: load previous solution and use it as a starting point
 
 DEFINE_string(problem,
               "../problem.json", "a file path to the problem instance");
@@ -241,17 +243,16 @@ public:
 
         Build(model, initial_solution);
 
-        model.set(GRB_DoubleParam_TimeLimit, 15); // TODO: very short time limit
+        model.set(GRB_DoubleParam_TimeLimit, 60 * 10);
         model.set(GRB_IntParam_Presolve, 2); // max 2
         // model.set(GRB_DoubleParam_Heuristics, 0.2);
         // 1 - focus on feasible solutions, 2 - focus on proving optimality, 3 - focus on bound
-        model.set(GRB_IntParam_MIPFocus, 1);
+        model.set(GRB_IntParam_MIPFocus, 2);
         model.optimize();
 
         const auto solver_status = model.get(GRB_IntAttr_Status);
 
 
-        // TODO: ensure the IP schedule is correct
         if (solver_status != GRB_OPTIMAL && solver_status != GRB_TIME_LIMIT) {
             LOG(FATAL) << "Invalid status: " << GetStatus(solver_status);
             return rows::Solution();
@@ -545,9 +546,6 @@ public:
     rows::CachedLocationContainer &LocationContainer() { return location_container_; }
 
 private:
-
-    // TODO: introduce start and end times for depots
-
     void Build(GRBModel &model, const boost::optional<rows::Solution> &solution_opt) {
         // define edges
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
@@ -832,6 +830,20 @@ private:
                     right += visit_start_times_[to_node];
 
                     model.addConstr(left <= right);
+                }
+            }
+        }
+
+        // >> break start times after the begin depot
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                for (auto next_visit_node = first_visit_node_; next_visit_node <= last_visit_node_; ++next_visit_node) {
+                    GRBLinExpr right = 0;
+                    right += carer_break_start_times_[carer_index][break_item.first];
+                    right += BIG_M * (2.0
+                                      - carer_edges_[carer_index][begin_depot_node_][next_visit_node]
+                                      - carer_edges_[carer_index][next_visit_node][break_item.first]);
+                    model.addConstr(begin_depot_start_[carer_index] <= right);
                 }
             }
         }
@@ -1127,7 +1139,7 @@ private:
 
 //        for (const auto &break_element : solution.breaks()) {
 //            const auto carer_index = GetIndex(break_element.carer());
-//            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);
+//            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);15
 //
 //            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_Start,
 //                                                                  break_element.datetime().time_of_day().total_seconds());
@@ -1250,6 +1262,35 @@ private:
     std::vector<std::vector<std::vector<GRBVar>>> carer_edges_;
 };
 
+operations_research::RoutingSearchParameters CreateSearchParameters() {
+    operations_research::RoutingSearchParameters parameters = operations_research::RoutingModel::DefaultSearchParameters();
+    parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
+
+//    static const auto USE_ADVANCED_SEARCH = true;
+//    parameters.mutable_local_search_operators()->set_use_cross(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_extended_swap_active(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_full_path_lns(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_inactive_lns(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_lin_kernighan(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_make_chain_inactive(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_make_active(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_make_inactive(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_two_opt(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_or_opt(USE_ADVANCED_SEARCH);
+//
+//    parameters.mutable_local_search_operators()->set_use_path_lns(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_relocate_pair(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_relocate(USE_ADVANCED_SEARCH);
+//
+//    parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_cross_exchange(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
+//    parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
+
+    return parameters;
+}
+
 int main(int argc, char *argv[]) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
@@ -1262,14 +1303,15 @@ int main(int argc, char *argv[]) {
     boost::posix_time::time_duration visit_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration break_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration overtime_window{boost::posix_time::minutes(15)};
-    boost::posix_time::time_duration no_progress_time_limit{boost::posix_time::minutes(30)}; // TODO: short time limit
+    boost::posix_time::time_duration no_progress_time_limit{boost::posix_time::minutes(1)};
 
     boost::optional<rows::Solution> solution_opt = boost::none;
     if (!FLAGS_solution.empty()) {
         solution_opt = util::LoadSolution(FLAGS_solution, problem, visit_time_window);
     }
 
-    const auto search_params = rows::SolverWrapper::CreateSearchParameters();
+    static const auto USE_TABU_SEARCH = false;
+    const auto search_params = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
     std::unique_ptr<rows::SecondStepSolver> solver_wrapper
             = std::make_unique<rows::SecondStepSolver>(problem,
                                                        engine_config,

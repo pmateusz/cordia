@@ -78,7 +78,7 @@ namespace rows {
         static const int64 SECONDS_IN_DIMENSION;
         static const std::string TIME_DIMENSION;
 
-        static operations_research::RoutingSearchParameters CreateSearchParameters();
+        static operations_research::RoutingSearchParameters CreateSearchParameters(bool use_tabu_search);
 
         SolverWrapper(const rows::Problem &problem,
                       osrm::EngineConfig &config,

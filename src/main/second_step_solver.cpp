@@ -175,6 +175,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
 
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+    // TODO: prevent increasing the number of dropped visits
     model.AddSearchMonitor(solver_ptr->RevAlloc(new SolutionLogMonitor(&model, solution_repository_)));
     solution_collector_ = solver_ptr->RevAlloc(new MinDroppedVisitsSolutionCollector(&model));
     model.AddSearchMonitor(solution_collector_);

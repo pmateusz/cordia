@@ -250,7 +250,8 @@ int RunSingleStepSchedulingWorker() {
     }
 
     auto engine_config = util::CreateEngineConfig(FLAGS_maps);
-    auto search_parameters = rows::SolverWrapper::CreateSearchParameters();
+    static const auto USE_TABU_SEARCH = false;
+    auto search_parameters = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
     if (FLAGS_solutions_limit != DEFAULT_SOLUTION_LIMIT) {
         search_parameters.set_solution_limit(FLAGS_solutions_limit);
     }
@@ -279,10 +280,11 @@ int RunSingleStepSchedulingWorker() {
 int RunIncrementalSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
+    static const auto USE_TABU_SEARCH = false;
     rows::IncrementalSchedulingWorker worker{printer};
     if (worker.Init(util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
                     util::CreateEngineConfig(FLAGS_maps),
-                    rows::SolverWrapper::CreateSearchParameters(),
+                    rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH),
                     FLAGS_output)) {
         worker.Start();
         std::thread chat_thread(ChatBot, std::ref(worker));
@@ -295,8 +297,8 @@ int RunIncrementalSchedulingWorker() {
 
 int RunExperimentalSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
-
-    auto search_params = rows::SolverWrapper::CreateSearchParameters();
+    static const auto USE_TABU_SEARCH = false;
+    auto search_params = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
 
     rows::ExperimentalEnforcementWorker worker{printer};
     if (worker.Init(util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
