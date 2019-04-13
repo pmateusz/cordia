@@ -156,14 +156,6 @@ inline std::string FlagOrDefaultValue(const std::string &flag_value, const std::
     return flag_value;
 }
 
-inline boost::posix_time::time_duration GetTimeDurationOrDefault(const std::string &text,
-                                                                 boost::posix_time::time_duration default_value) {
-    if (text.empty()) {
-        return default_value;
-    }
-    return boost::posix_time::duration_from_string(text);
-}
-
 const std::string YES_OPTION{"yes"};
 const std::string NO_OPTION{"no"};
 
@@ -236,50 +228,6 @@ void ChatBot(rows::SchedulingWorker &worker) {
     }
 }
 
-rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem) {
-    boost::filesystem::path solution_file(boost::filesystem::canonical(solution_path));
-    std::ifstream solution_stream;
-    solution_stream.open(solution_file.c_str());
-    if (!solution_stream.is_open()) {
-        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
-                                     util::ErrorCode::ERROR);
-    }
-
-    rows::Solution original_solution;
-    const std::string file_extension{solution_file.extension().string()};
-    if (file_extension == ".json") {
-        nlohmann::json solution_json;
-        try {
-            solution_stream >> solution_json;
-        } catch (...) {
-            throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
-                                         boost::current_exception_diagnostic_information(),
-                                         util::ErrorCode::ERROR);
-        }
-
-
-        try {
-            rows::Solution::JsonLoader json_loader;
-            original_solution = json_loader.Load(solution_json);
-        } catch (const std::domain_error &ex) {
-            throw util::ApplicationError(
-                    (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % solution_file %
-                     ex.what()).str(),
-                    util::ErrorCode::ERROR);
-        }
-    } else if (file_extension == ".gexf") {
-        rows::Solution::XmlLoader xml_loader;
-        original_solution = xml_loader.Load(solution_file.string());
-    } else {
-        throw util::ApplicationError(
-                (boost::format("Unknown file format: '%1%'. Use 'json' or 'gexf' format instead.")
-                 % file_extension).str(), util::ErrorCode::ERROR);
-    }
-
-    const auto time_span = problem.Timespan();
-    return original_solution.Trim(time_span.first, time_span.second - time_span.first);
-}
-
 int RunSingleStepSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
@@ -287,13 +235,15 @@ int RunSingleStepSchedulingWorker() {
 
     boost::optional<rows::Solution> solution;
     if (!FLAGS_solution.empty()) {
-        solution = LoadSolution(FLAGS_solution, problem_to_use);
+        static const boost::posix_time::time_duration ZERO_DURATION;
+        solution = util::LoadSolution(FLAGS_solution, problem_to_use, ZERO_DURATION);
         solution.get().UpdateVisitProperties(problem_to_use.visits());
         problem_to_use.RemoveCancelled(solution.get().visits());
     }
 
     auto engine_config = util::CreateEngineConfig(FLAGS_maps);
-    auto search_parameters = rows::SolverWrapper::CreateSearchParameters();
+    static const auto USE_TABU_SEARCH = false;
+    auto search_parameters = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
     if (FLAGS_solutions_limit != DEFAULT_SOLUTION_LIMIT) {
         search_parameters.set_solution_limit(FLAGS_solutions_limit);
     }
@@ -322,10 +272,11 @@ int RunSingleStepSchedulingWorker() {
 int RunIncrementalSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
+    static const auto USE_TABU_SEARCH = false;
     rows::IncrementalSchedulingWorker worker{printer};
     if (worker.Init(util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
                     util::CreateEngineConfig(FLAGS_maps),
-                    rows::SolverWrapper::CreateSearchParameters(),
+                    rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH),
                     FLAGS_output)) {
         worker.Start();
         std::thread chat_thread(ChatBot, std::ref(worker));
@@ -338,8 +289,8 @@ int RunIncrementalSchedulingWorker() {
 
 int RunExperimentalSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
-
-    auto search_params = rows::SolverWrapper::CreateSearchParameters();
+    static const auto USE_TABU_SEARCH = false;
+    auto search_params = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
 
     rows::ExperimentalEnforcementWorker worker{printer};
     if (worker.Init(util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
@@ -453,18 +404,18 @@ int RunSchedulingWorkerEx(const std::shared_ptr<rows::Printer> &printer, const s
                                           util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
                                           FLAGS_output,
                                           engine_config,
-                                          GetTimeDurationOrDefault(FLAGS_visit_time_window,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_break_time_window,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
-                                                                   boost::posix_time::not_a_date_time));
+                                          util::GetTimeDurationOrDefault(FLAGS_visit_time_window,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_break_time_window,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
+                                                                         boost::posix_time::not_a_date_time));
 }
 
 int main(int argc, char **argv) {
@@ -500,18 +451,18 @@ int main(int argc, char **argv) {
         }
 
         auto engine_config = util::CreateEngineConfig(FLAGS_maps);
-        const auto visit_time_window = GetTimeDurationOrDefault(FLAGS_visit_time_window,
-                                                                boost::posix_time::not_a_date_time);
-        const auto break_time_window = GetTimeDurationOrDefault(FLAGS_break_time_window,
-                                                                boost::posix_time::not_a_date_time);
-        const auto begin_end_shift_time_extension = GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
-                                                                             boost::posix_time::not_a_date_time);
-        const auto pre_opt_no_progress_time_limit = GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
-                                                                             boost::posix_time::not_a_date_time);
-        const auto opt_no_progress_time_limit = GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
-                                                                         boost::posix_time::not_a_date_time);
-        const auto post_opt_no_progress_time_limit = GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
-                                                                              boost::posix_time::not_a_date_time);
+        const auto visit_time_window = util::GetTimeDurationOrDefault(FLAGS_visit_time_window,
+                                                                      boost::posix_time::not_a_date_time);
+        const auto break_time_window = util::GetTimeDurationOrDefault(FLAGS_break_time_window,
+                                                                      boost::posix_time::not_a_date_time);
+        const auto begin_end_shift_time_extension = util::GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
+                                                                                   boost::posix_time::not_a_date_time);
+        const auto pre_opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
+                                                                                   boost::posix_time::not_a_date_time);
+        const auto opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
+                                                                               boost::posix_time::not_a_date_time);
+        const auto post_opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
+                                                                                    boost::posix_time::not_a_date_time);
 
         int problem_count = -1;
         std::vector<std::future<int> > compute_tasks;

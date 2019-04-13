@@ -220,6 +220,9 @@ class Parser:
         make_instance_parser.add_argument('--disruption',
                                           help='the minimum and maximum deviation from the initial target',
                                           default=0.0)
+        make_instance_parser.add_argument('--multiple-carer-share',
+                                          help='the share of multiple carer visits',
+                                          default=0.2)
 
         visualisation_parser = subparsers.add_parser(name='visualise',
                                                      help='visualise the information of the optimal schedule'

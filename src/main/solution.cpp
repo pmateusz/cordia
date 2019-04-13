@@ -10,18 +10,25 @@
 #include <glog/logging.h>
 #include <util/aplication_error.h>
 
-#include "solution.h"
+#include "break.h"
 #include "route.h"
+#include "scheduled_visit.h"
+#include "solution.h"
 #include "solver_wrapper.h"
 
 rows::Solution::Solution()
-        : Solution(std::vector<rows::ScheduledVisit>()) {}
+        : Solution(std::vector<ScheduledVisit>(), std::vector<Break>()) {}
 
-rows::Solution::Solution(std::vector<rows::ScheduledVisit> visits)
-        : visits_(std::move(visits)) {}
+rows::Solution::Solution(std::vector<ScheduledVisit> visits, std::vector<Break> breaks)
+        : visits_(std::move(visits)),
+          breaks_(std::move(breaks)) {}
 
 const std::vector<rows::ScheduledVisit> &rows::Solution::visits() const {
     return visits_;
+}
+
+const std::vector<rows::Break> &rows::Solution::breaks() const {
+    return breaks_;
 }
 
 rows::Route rows::Solution::GetRoute(const rows::Carer &carer) const {
@@ -46,18 +53,24 @@ rows::Route rows::Solution::GetRoute(const rows::Carer &carer) const {
     return {carer, std::move(carer_visits)};
 }
 
-rows::Solution rows::Solution::Trim(boost::posix_time::ptime begin,
-                                    boost::posix_time::ptime::time_duration_type duration) const {
-    std::vector<rows::ScheduledVisit> visits_to_use;
-
-    const auto end = begin + duration;
+rows::Solution rows::Solution::Trim(boost::posix_time::ptime begin, boost::posix_time::ptime end) const {
+    std::vector<ScheduledVisit> visits_to_use;
     for (const auto &visit : visits_) {
-        if (begin <= visit.datetime() && visit.datetime() < end) {
+        if (begin <= visit.datetime() && visit.datetime() <= end) {
             visits_to_use.push_back(visit);
+        } else {
+            LOG(INFO) << begin << " " << end;
+            LOG(INFO) << "Skipped visit: " << visit;
         }
     }
 
-    return Solution(visits_to_use);
+    std::vector<Break> breaks_to_use;
+    for (const auto &break_element : breaks_) {
+        if (begin <= break_element.datetime() && break_element.datetime() < end) {
+            breaks_to_use.push_back(break_element);
+        }
+    }
+    return Solution(std::move(visits_to_use), std::move(breaks_to_use));
 }
 
 const std::vector<rows::Carer> rows::Solution::Carers() const {
@@ -255,6 +268,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
     std::unordered_map<std::string, rows::Carer> carers;
     std::unordered_map<std::string, rows::ScheduledVisit> visits;
     std::unordered_map<std::string, rows::ServiceUser> users;
+    std::unordered_map<std::string, rows::Break> breaks;
 
     auto nodes_set = EvalXPath("/local:gexf/local:graph/local:nodes/*", xpath_context.get());
     if (nodes_set && !xmlXPathNodeSetIsEmpty(nodes_set->nodesetval)) {
@@ -300,6 +314,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                     carer = rows::Carer(carer_find_it->second);
                 }
 
+                const auto id = std::stoul(GetCheckNotEmpty(properties, attributes.Id));
                 const auto duration = boost::posix_time::duration_from_string(
                         GetCheckNotEmpty(properties, attributes.Duration));
                 const auto start_time = boost::posix_time::time_from_string(
@@ -311,7 +326,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                                                              boost::none,
                                                              boost::none,
                                                              rows::CalendarVisit{
-                                                                     0,
+                                                                     id,
                                                                      rows::ServiceUser::DEFAULT,
                                                                      rows::Address::DEFAULT,
                                                                      rows::Location(
@@ -323,16 +338,26 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                                                                      start_time,
                                                                      duration,
                                                                      0}});
+            } else if (type_property_it->second == "break") {
+                const auto carer_find_it = properties.find(attributes.AssignedCarer);
+                CHECK(carer_find_it != std::end(properties));
+                CHECK(!carer_find_it->second.empty());
+                rows::Carer carer = rows::Carer(carer_find_it->second);
+
+                const auto start_time = boost::posix_time::time_from_string(
+                        GetCheckNotEmpty(properties, attributes.StartTime));
+
+                const auto duration = boost::posix_time::duration_from_string(
+                        GetCheckNotEmpty(properties, attributes.Duration));
+
+                breaks.emplace(node_id, Break(std::move(carer), start_time, duration));
             } else if (type_property_it->second == "user") {
-                users.emplace(node_id,
-                              rows::ServiceUser{GetCheckNotEmpty(properties, attributes.Id)});
+                users.emplace(node_id, rows::ServiceUser{GetCheckNotEmpty(properties, attributes.Id)});
             } else if (type_property_it->second == "carer") {
-                carers.emplace(node_id,
-                               rows::Carer{GetCheckNotEmpty(properties, attributes.SapNumber)});
+                carers.emplace(node_id, rows::Carer{GetCheckNotEmpty(properties, attributes.SapNumber)});
             } else {
-                throw util::ApplicationError(
-                        (boost::format("Unknown node type: %1%") % type_property_it->second).str(),
-                        util::ErrorCode::ERROR);
+                throw util::ApplicationError((boost::format("Unknown node type: %1%") % type_property_it->second).str(),
+                                             util::ErrorCode::ERROR);
             }
         }
     }
@@ -382,7 +407,12 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
         assigned_visits.push_back(visit);
     }
 
-    return rows::Solution(assigned_visits);
+    std::vector<rows::Break> assigned_breaks;
+    for (const auto &break_item : breaks) {
+        assigned_breaks.push_back(break_item.second);
+    }
+
+    return rows::Solution(std::move(assigned_visits), std::move(assigned_breaks));
 }
 
 std::unique_ptr<xmlXPathObject, rows::Solution::XmlLoader::XmlDeleters>

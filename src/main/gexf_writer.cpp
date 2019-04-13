@@ -12,6 +12,7 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::DROPPED{"5", "dropped", "bool", "false"};
     const GexfWriter::GephiAttributeMeta GexfWriter::SATISFACTION{"6", "satisfaction", "double", "0.0"};
     const GexfWriter::GephiAttributeMeta GexfWriter::USER{"7", "user", "string", "unknown"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::CARER_COUNT{"19", "carer_count", "long", "0"};
 
     const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"8", "start_time", "string", "2000-Jan-01 00:00:00"};
     const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"9", "duration", "string", "00:00:00"};
@@ -31,9 +32,17 @@ namespace rows {
     void GexfWriter::Write(const boost::filesystem::path &file_path,
                            SolverWrapper &solver,
                            const operations_research::RoutingModel &model,
-                           const operations_research::Assignment &solution) const {
+                           const operations_research::Assignment &solution,
+                           const boost::optional<
+                                   std::map<int,
+                                           std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >
+                                   > > &activities) const {
+
+        // TODO: output breaks
+
         static const auto VISIT_NODE = "visit";
         static const auto CARER_NODE = "carer";
+        static const auto BREAK_NODE = "break";
         static const auto SERVICE_USER_NODE = "user";
         static const auto TRUE_VALUE = "true";
         operations_research::RoutingDimension const *time_dim = model.GetMutableDimension(
@@ -45,9 +54,7 @@ namespace rows {
         const auto central_location = solver.depot();
         gexf.SetDefaultValues(central_location);
 
-        for (operations_research::RoutingModel::NodeIndex visit_index{1};
-             visit_index < model.nodes();
-             ++visit_index) {
+        for (operations_research::RoutingModel::NodeIndex visit_index{1}; visit_index < model.nodes(); ++visit_index) {
             const auto visit_id = gexf.VisitId(visit_index);
             const auto &visit = solver.NodeToVisit(visit_index);
 
@@ -69,6 +76,7 @@ namespace rows {
                                                        boost::posix_time::seconds(start_time_sec)});
             gexf.SetNodeValue(visit_id, DURATION, visit.duration());
             gexf.SetNodeValue(visit_id, USER, visit.service_user().id());
+            gexf.SetNodeValue(visit_id, CARER_COUNT, static_cast<size_t>(visit.carer_count()));
         }
 
         static const SolutionValidator validator{};
@@ -182,6 +190,25 @@ namespace rows {
 
                 start_visit_index = solution.Value(model.NextVar(start_visit_index));
             } while (!model.IsEnd(start_visit_index));
+
+            if (activities) {
+                const auto carer_node = operations_research::RoutingModel::NodeIndex{vehicle};
+                operations_research::RoutingModel::NodeIndex break_node{1};
+                for (const auto &local_activity : activities->at(vehicle)) {
+                    if (local_activity->activity_type() != rows::RouteValidatorBase::ActivityType::Break) {
+                        continue;
+                    }
+
+                    const auto break_id = gexf.BreakId(carer_node, break_node);
+                    gexf.AddNode(break_id, (boost::format("break %1% carer %2%") % break_node % carer_node).str());
+                    gexf.SetNodeValue(break_id, TYPE, BREAK_NODE);
+                    gexf.SetNodeValue(break_id, ASSIGNED_CARER, carer.sap_number());
+                    gexf.SetNodeValue(break_id, START_TIME, local_activity->period().begin());
+                    gexf.SetNodeValue(break_id, DURATION, local_activity->duration());
+
+                    ++break_node;
+                }
+            }
 
             if (route.empty()) {
                 continue;
@@ -320,6 +347,11 @@ namespace rows {
     std::string GexfWriter::GexfEnvironmentWrapper::VisitId(
             operations_research::RoutingModel::NodeIndex visit_index) const {
         return (boost::format("v%1%") % visit_index).str();
+    }
+
+    std::string GexfWriter::GexfEnvironmentWrapper::BreakId(operations_research::RoutingModel::NodeIndex carer_index,
+                                                            operations_research::RoutingModel::NodeIndex break_index) const {
+        return (boost::format("c%1%_b%2%") % carer_index % break_index).str();
     }
 
     std::string GexfWriter::GexfEnvironmentWrapper::EdgeId(const std::string &from_id,

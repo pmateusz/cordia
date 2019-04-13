@@ -11,24 +11,25 @@ set(_ORTOOLS_INCLUDE_LOCATIONS "")
 set(_ORTOOLS_LIB_LOCATIONS "")
 
 if (ORTOOLS_ROOT_DIR)
-    set(_ORTOOLS_INCLUDE_LOCATIONS "${ORTOOLS_ROOT_DIR}/ortools")
-    set(_ORTOOLS_INCLUDE_GEN_LOCATIONS "${_ORTOOLS_INCLUDE_LOCATIONS}/gen/ortools")
+    set(_ORTOOLS_INCLUDE_LOCATIONS "${ORTOOLS_ROOT_DIR}")
+    set(_ORTOOLS_INCLUDE_GEN_LOCATIONS "${ORTOOLS_ROOT_DIR}/ortools/gen")
     set(_ORTOOLS_LIB_LOCATIONS "${ORTOOLS_ROOT_DIR}/build" "${ORTOOLS_ROOT_DIR}/lib")
 
     set(CBC_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
     set(SPARSEHASH_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
-    set(Protobuf_SRC_ROOT_FOLDER "${ORTOOLS_ROOT_DIR}/dependencies/sources/protobuf-3.5.0/src")
+    set(Protobuf_SRC_ROOT_FOLDER "${ORTOOLS_ROOT_DIR}/dependencies/sources/protobuf-3.6.1")
+    set(Protobuf_PROTOC_EXECUTABLE "${ORTOOLS_ROOT_DIR}/dependencies/install/bin/protoc")
 endif ()
 
 find_path(ORTOOLS_INCLUDE_DIR
-        NAMES linear_solver/linear_solver.h
+        NAMES ortools/linear_solver/linear_solver.h
         HINTS ${_ORTOOLS_INCLUDE_LOCATIONS}
-        PATHS ${ORTOOLS_PKGCONF_INCLUDE_DIRS} "/usr/local/include/ortools")
+        PATHS ${ORTOOLS_PKGCONF_INCLUDE_DIRS} "/usr/local/include")
 
 find_path(ORTOOLS_INCLUDE_GEN_DIR
-        NAMES linear_solver/linear_solver.pb.h
+        NAMES ortools/linear_solver/linear_solver.pb.h
         HINTS "${_ORTOOLS_INCLUDE_GEN_LOCATIONS}"
-        PATHS ${ORTOOLS_PKGCONF_INCLUDE_DIRS} "/usr/local/include/ortools")
+        PATHS ${ORTOOLS_PKGCONF_INCLUDE_DIRS} "/usr/local/include")
 
 if (ORTOOLS_INCLUDE_GEN_DIR AND NOT (ORTOOLS_INCLUDE_GEN_DIR EQUAL ORTOOLS_INCLUDE_DIR))
     list(APPEND ORTOOLS_INCLUDE_DIR ${ORTOOLS_INCLUDE_GEN_DIR})

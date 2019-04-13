@@ -92,7 +92,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     printer_->operator<<(TracingEvent(TracingEventType::Started, "All"));
 
-    const auto search_params = rows::SolverWrapper::CreateSearchParameters();
+    const auto first_second_search_params = rows::SolverWrapper::CreateSearchParameters(false);
 
     std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
     std::unordered_map<rows::Carer, CarerTeam> teams;
@@ -120,7 +120,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
     std::unique_ptr<rows::SecondStepSolver> second_step_wrapper
             = std::make_unique<rows::SecondStepSolver>(problem_,
                                                        routing_parameters_,
-                                                       search_params,
+                                                       first_second_search_params,
                                                        visit_time_window_,
                                                        break_time_window_,
                                                        begin_end_shift_time_extension_,
@@ -143,7 +143,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
         std::unique_ptr<rows::SolverWrapper> first_stage_wrapper
                 = std::make_unique<rows::SingleStepSolver>(sub_problem,
                                                            routing_parameters_,
-                                                           search_params,
+                                                           first_second_search_params,
                                                            visit_time_window_,
                         // break time window is 0 for teams, because their breaks have to be synchronized
                                                            boost::posix_time::minutes(0),
@@ -157,7 +157,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage1"));
 //        first_step_model->solver()->set_fail_intercept(&FailureInterceptor);
-        first_step_assignment = first_step_model->SolveWithParameters(search_params);
+        first_step_assignment = first_step_model->SolveWithParameters(first_second_search_params);
         printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage1"));
 
         if (first_step_assignment == nullptr) {
@@ -243,7 +243,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2"));
     operations_research::Assignment const *second_stage_assignment
-            = second_stage_model->SolveFromAssignmentWithParameters(computed_assignment, search_params);
+            = second_stage_model->SolveFromAssignmentWithParameters(computed_assignment, first_second_search_params);
     printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage2"));
 
     if (second_stage_assignment == nullptr) {
@@ -260,10 +260,14 @@ void rows::ThreeStepSchedulingWorker::Run() {
         CHECK(validation_result.error() == nullptr);
     }
 
+    boost::filesystem::path output_path{output_file_};
+    std::string second_stage_output_file{"second_stage_"};
+    second_stage_output_file += output_path.filename().string();
+    boost::filesystem::path second_stage_output = boost::filesystem::absolute(second_stage_output_file, output_path.parent_path());
+
     const rows::GexfWriter solution_writer;
-    std::string second_stage_output{"second_stage_"};
-    second_stage_output.append(output_file_);
-    solution_writer.Write(second_stage_output, *second_step_wrapper, *second_stage_model, *second_stage_assignment);
+    solution_writer.Write(second_stage_output, *second_step_wrapper,
+                          *second_stage_model, *second_stage_assignment, boost::none);
 
     std::unique_ptr<operations_research::RoutingModel> third_stage_model
             = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
@@ -273,7 +277,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
     std::unique_ptr<rows::SecondStepSolver> intermediate_wrapper
             = std::make_unique<rows::SecondStepSolver>(problem_,
                                                        routing_parameters_,
-                                                       search_params,
+                                                       first_second_search_params,
                                                        visit_time_window_,
                                                        break_time_window_,
                                                        begin_end_shift_time_extension_,
@@ -299,7 +303,8 @@ void rows::ThreeStepSchedulingWorker::Run() {
         vehicle_metrics.emplace_back(validation_result.metrics());
     }
 
-    std::unique_ptr<rows::SolverWrapper> third_step_solver = CreateThirdStageSolver(search_params,
+    const auto third_search_params = rows::SolverWrapper::CreateSearchParameters(false);
+    std::unique_ptr<rows::SolverWrapper> third_step_solver = CreateThirdStageSolver(third_search_params,
                                                                                     second_step_wrapper->LastDroppedVisitPenalty(),
                                                                                     max_dropped_visits_count,
                                                                                     vehicle_metrics);
@@ -313,7 +318,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
     printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
     operations_research::Assignment const *third_stage_assignment
             = third_stage_model->SolveFromAssignmentWithParameters(third_stage_preassignment,
-                                                                   search_params);
+                                                                   third_search_params);
     printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
 
     second_stage_model.release();
@@ -325,7 +330,21 @@ void rows::ThreeStepSchedulingWorker::Run() {
     operations_research::Assignment third_validation_copy{third_stage_assignment};
     const auto is_third_solution_correct = third_stage_assignment->solver()->CheckAssignment(&third_validation_copy);
     DCHECK(is_third_solution_correct);
-    solution_writer.Write(output_file_, *third_step_solver, *third_stage_model, *third_stage_assignment);
+
+    std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > > activities;
+    for (int vehicle = 0; vehicle < third_stage_model->vehicles(); ++vehicle) {
+        const auto validation_result
+                = solution_validator.ValidateFull(vehicle,
+                                                  *third_stage_assignment,
+                                                  *third_stage_model,
+                                                  *third_step_solver);
+        CHECK(validation_result.error() == nullptr);
+
+        activities[vehicle] = validation_result.activities();
+    }
+
+    solution_writer.Write(output_file_, *third_step_solver, *third_stage_model, *third_stage_assignment,
+                          boost::make_optional(activities));
 
     printer_->operator<<(TracingEvent(TracingEventType::Finished, "All"));
     SetReturnCode(0);
@@ -386,7 +405,7 @@ rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
             }
         }
 
-        if (best_match && best_match_diary->duration() >= boost::posix_time::time_duration(2, 30, 0, 0)) {
+        if (best_match && best_match_diary->duration() >= boost::posix_time::time_duration(2, 15, 0, 0)) {
             if (!processed_carers.insert(best_match->first).second) {
                 throw util::ApplicationError(
                         (boost::format("Carer %1% cannot be a member of more than 1 team")

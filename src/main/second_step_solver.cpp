@@ -142,13 +142,15 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
 
             LOG(INFO) << "Carer:" << carer.sap_number() << " Vehicle:" << vehicle;
             for (const auto &break_item : breaks) {
-                LOG(INFO) << "[" << break_item->StartMin() << ", " << break_item->StartMax()
-                          << "] ["
-                          << break_item->EndMin() << ", " << break_item->EndMax() << "]";
+                LOG(INFO) << "[" << boost::posix_time::seconds(break_item->StartMin())
+                          << ", " << boost::posix_time::seconds(break_item->StartMax())
+                          << "] [" << boost::posix_time::seconds(break_item->EndMin())
+                          << ", " << boost::posix_time::seconds(break_item->EndMax()) << "]";
             }
 
             solver_ptr->AddConstraint(
                     solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+//            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle);
 
             variable_store_->SetBreakIntervalVars(vehicle, breaks);
         }
@@ -173,6 +175,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
 
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+    // TODO: prevent increasing the number of dropped visits
     model.AddSearchMonitor(solver_ptr->RevAlloc(new SolutionLogMonitor(&model, solution_repository_)));
     solution_collector_ = solver_ptr->RevAlloc(new MinDroppedVisitsSolutionCollector(&model));
     model.AddSearchMonitor(solution_collector_);

@@ -6,6 +6,7 @@
 
 #include "problem.h"
 #include "printer.h"
+#include "solution.h"
 
 #include <osrm/engine/engine_config.hpp>
 #include <osrm/coordinate.hpp>
@@ -13,6 +14,9 @@
 #include <osrm/json_container.hpp>
 #include <osrm/storage_config.hpp>
 #include <osrm/osrm.hpp>
+
+#include <boost/config.hpp>
+#include <boost/date_time.hpp>
 
 namespace util {
 
@@ -26,9 +30,16 @@ namespace util {
                                      const std::string &scheduling_date,
                                      std::shared_ptr<rows::Printer> printer);
 
+    rows::Solution LoadSolution(const std::string &solution_path,
+                                const rows::Problem &problem,
+                                const boost::posix_time::time_duration &visit_time_window);
+
     std::shared_ptr<rows::Printer> CreatePrinter(const std::string &format);
 
     bool ValidateConsoleFormat(const char *flagname, const std::string &value);
+
+    boost::posix_time::time_duration GetTimeDurationOrDefault(const std::string &text,
+                                                              boost::posix_time::time_duration default_value);
 
     osrm::EngineConfig CreateEngineConfig(const std::string &maps_file);
 }

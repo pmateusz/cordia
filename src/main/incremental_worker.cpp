@@ -4,6 +4,9 @@
 
 #include <glog/logging.h>
 
+#include <boost/config.hpp>
+#include <boost/optional.hpp>
+
 #include "gexf_writer.h"
 #include "constraint_operations.h"
 #include "multiple_visit_query.h"
@@ -304,7 +307,7 @@ void rows::IncrementalSchedulingWorker::Run() {
 
         // TODO: slow progression of the bound
         rows::GexfWriter solution_writer;
-        solution_writer.Write(output_file_, *solver_wrapper, *model, *patched_assignment);
+        solution_writer.Write(output_file_, *solver_wrapper, *model, *patched_assignment, boost::none);
         solver_wrapper->DisplayPlan(*model, *patched_assignment);
         SetReturnCode(STATUS_OK);
     } catch (util::ApplicationError &ex) {

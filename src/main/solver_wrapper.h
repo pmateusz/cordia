@@ -78,7 +78,7 @@ namespace rows {
         static const int64 SECONDS_IN_DIMENSION;
         static const std::string TIME_DIMENSION;
 
-        static operations_research::RoutingSearchParameters CreateSearchParameters();
+        static operations_research::RoutingSearchParameters CreateSearchParameters(bool use_tabu_search);
 
         SolverWrapper(const rows::Problem &problem,
                       osrm::EngineConfig &config,
@@ -108,6 +108,8 @@ namespace rows {
 
         bool Contains(const CalendarVisit &visit) const;
 
+        bool ContainsNear(const CalendarVisit &visit) const;
+
         const LocalServiceUser &User(const rows::ServiceUser &service_user) const;
 
         const rows::Carer &Carer(int vehicle) const;
@@ -130,11 +132,11 @@ namespace rows {
 
         int nodes() const;
 
-        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
-                const CalendarVisit &visit) const;
+        const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const CalendarVisit &visit) const;
 
-        const std::unordered_set<operations_research::RoutingModel::NodeIndex> &GetNodes(
-                const ScheduledVisit &visit) const;
+        const std::vector<operations_research::RoutingModel::NodeIndex> &GetNearNodes(const CalendarVisit &visit) const;
+
+        const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const ScheduledVisit &visit) const;
 
         std::pair<operations_research::RoutingModel::NodeIndex,
                 operations_research::RoutingModel::NodeIndex> GetNodePair(const rows::CalendarVisit &visit) const;
@@ -221,6 +223,8 @@ namespace rows {
 
         static std::string GetBreakLabel(const rows::Carer &carer, BreakType break_type);
 
+        bool IsNear(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const;
+
         const rows::Problem problem_;
         const Location depot_;
         const LocalServiceUser depot_service_user_;
@@ -236,7 +240,7 @@ namespace rows {
         operations_research::RoutingSearchParameters parameters_;
 
         std::unordered_map<rows::CalendarVisit,
-                std::unordered_set<operations_research::RoutingModel::NodeIndex>,
+                std::vector<operations_research::RoutingModel::NodeIndex>,
                 Problem::PartialVisitOperations,
                 Problem::PartialVisitOperations> visit_index_;
 

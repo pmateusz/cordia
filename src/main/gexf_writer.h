@@ -6,14 +6,16 @@
 #include <utility>
 #include <unordered_map>
 
+#include <ortools/constraint_solver/constraint_solver.h>
+#include <ortools/constraint_solver/routing.h>
+
 #include <libgexf/gexf.h>
 #include <libgexf/libgexf.h>
 
+#include <boost/config.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/date_time.hpp>
-
-#include <ortools/constraint_solver/constraint_solver.h>
-#include <ortools/constraint_solver/routing.h>
+#include <boost/optional.hpp>
 
 #include "location.h"
 #include "solver_wrapper.h"
@@ -47,6 +49,7 @@ namespace rows {
         static const GephiAttributeMeta TYPE;
         static const GephiAttributeMeta SATISFACTION;
         static const GephiAttributeMeta USER;
+        static const GephiAttributeMeta CARER_COUNT;
 
         static const GephiAttributeMeta TRAVEL_TIME;
 
@@ -63,7 +66,10 @@ namespace rows {
         void Write(const boost::filesystem::path &file_path,
                    SolverWrapper &solver,
                    const operations_research::RoutingModel &model,
-                   const operations_research::Assignment &solution) const;
+                   const operations_research::Assignment &solution,
+                   const boost::optional<
+                           std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > >
+                   > &activities) const;
 
     private:
         class GexfEnvironmentWrapper {
@@ -79,6 +85,9 @@ namespace rows {
             std::string CarerId(operations_research::RoutingModel::NodeIndex carer_index) const;
 
             std::string VisitId(operations_research::RoutingModel::NodeIndex visit_index) const;
+
+            std::string BreakId(operations_research::RoutingModel::NodeIndex carer_index,
+                                operations_research::RoutingModel::NodeIndex break_node) const;
 
             std::string EdgeId(const std::string &from_id,
                                const std::string &to_id,

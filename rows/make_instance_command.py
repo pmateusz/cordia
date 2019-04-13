@@ -1,7 +1,10 @@
 import collections
+import copy
 import datetime
 import json
 import sys
+import logging
+import os.path
 
 import rows.load
 
@@ -19,7 +22,8 @@ class Handler:
         solution_file = getattr(command, 'solution')
         num_carers = int(getattr(command, 'carers'))
         num_visits = int(getattr(command, 'visits'))
-        num_multiple_carer_visits = int(0.2 * num_visits)
+        multiple_carer_threshold = float(getattr(command, 'multiple_carer_share'))
+        num_multiple_carer_visits = int(multiple_carer_threshold * num_visits)
         disruption = float(getattr(command, 'disruption'))
 
         def low_disruption(value):
@@ -50,9 +54,9 @@ class Handler:
         for visit in visit_by_carers:
             visit_vars[visit] = model.NewBoolVar('v_{0}'.format(visit))
 
-        multiple_carer_visit_vars = [visit_vars[visit] for visit in visit_by_carers if len(visit_by_carers[visit]) == 2]
         model.AddSumConstraint(visit_vars.values(), low_disruption(num_visits), up_disruption(num_visits))
-        model.AddSumConstraint(carer_vars.values(), low_disruption(num_carers), up_disruption(num_carers))
+        model.AddSumConstraint(carer_vars.values(), num_carers, num_carers)
+        multiple_carer_visit_vars = [visit_vars[visit] for visit in visit_by_carers if len(visit_by_carers[visit]) == 2]
         model.AddSumConstraint(multiple_carer_visit_vars,
                                low_disruption(num_multiple_carer_visits),
                                up_disruption(num_multiple_carer_visits))
@@ -63,8 +67,8 @@ class Handler:
 
         solver = cp_model.CpSolver()
         status = solver.Solve(model)
-        if status == cp_model.INFEASIBLE:
-            print('Problem infeasible', file=sys.stderr)
+        if status != cp_model.FEASIBLE and status != cp_model.OPTIMAL:
+            print('Failed to find a solution. The solver returned status: {0}'.format(status), file=sys.stderr)
 
         visits_to_keep = set()
         for visit_id, visit_variable in visit_vars.items():
@@ -140,6 +144,33 @@ class Handler:
             for diary in diaries_to_remove:
                 carer_leaf['diaries'].remove(diary)
 
-        # save the problem
+        num_carers = len(carers_to_keep)
+        num_visits = len(visits_to_keep)
+        num_multiple_carer_visits = len([visit_vars[visit] for visit in visit_by_carers
+                                         if visit in visits_to_keep and len(visit_by_carers[visit]) == 2])
+
+        print('Generated problem with {0} carers, {1} visits and {2} multiple carer visits'
+              .format(num_carers, num_visits, num_multiple_carer_visits))
+
         with open(output_file, 'w') as output_stream:
             json.dump(problem_json, output_stream, indent=2)
+
+        no_multiple_problem = copy.deepcopy(problem_json)
+
+        num_visits_converted = 0
+        # make selected multiple carer visits single carer visits
+        logging.warning('Some multiple carer visits will be converted to single carer visits')
+        for visit_leaf in no_multiple_problem['visits']:
+            for visit in visit_leaf['visits']:
+                if visit['carer_count'] > 1:
+                    visit['carer_count'] = 1
+                    num_visits_converted += 1
+        logging.warning('Converted %d multiple carer visits into single carer visits', num_visits_converted)
+
+        print('Generated problem with {0} carers, {1} visits and 0 multiple carer visits'
+              .format(num_carers, num_visits))
+
+        filename, extension = os.path.splitext(output_file)
+        no_multiple_output_file = filename + '_no_multiple_visits' + extension
+        with open(no_multiple_output_file, 'w') as output_stream:
+            json.dump(no_multiple_problem, output_stream, indent=2)

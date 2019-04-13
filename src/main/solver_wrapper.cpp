@@ -120,7 +120,7 @@ namespace rows {
             DCHECK_GT(visit.carer_count(), 0);
 
             auto insert_pair = visit_index_.emplace(visit,
-                                                    std::unordered_set<operations_research::RoutingModel::NodeIndex>{});
+                                                    std::vector<operations_research::RoutingModel::NodeIndex>{});
             if (!insert_pair.second) {
                 // skip duplicate
                 continue;
@@ -130,8 +130,7 @@ namespace rows {
             const auto visit_start = visit.datetime().time_of_day();
             for (auto carer_count = 0; carer_count < visit.carer_count(); ++carer_count, ++current_visit_node) {
                 visit_by_node_.push_back(visit);
-                const auto index_inserted = node_index_set.insert(current_visit_node).second;
-                DCHECK(index_inserted);
+                node_index_set.push_back(current_visit_node);
             }
 
             start_horizon_ = std::min(start_horizon_, boost::posix_time::ptime(visit.datetime().date()));
@@ -402,32 +401,79 @@ namespace rows {
         LOG(INFO) << out.rdbuf();
     }
 
-    operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters() {
-        operations_research::RoutingSearchParameters parameters = operations_research::BuildSearchParametersFromFlags();
+    operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters(bool use_tabu_search) {
+        operations_research::RoutingSearchParameters parameters = operations_research::RoutingModel::DefaultSearchParameters();
         parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
 
-        static const auto USE_ADVANCED_SEARCH = true;
-        parameters.mutable_local_search_operators()->set_use_cross(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_extended_swap_active(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_full_path_lns(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_inactive_lns(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_lin_kernighan(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_make_chain_inactive(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_make_active(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_make_inactive(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_two_opt(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_or_opt(USE_ADVANCED_SEARCH);
+//        static const auto USE_ADVANCED_SEARCH = true;
+//        parameters.mutable_local_search_operators()->set_use_cross(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_extended_swap_active(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_full_path_lns(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_inactive_lns(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_lin_kernighan(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_make_chain_inactive(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_make_active(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_make_inactive(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_two_opt(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_or_opt(USE_ADVANCED_SEARCH);
+//
+//        parameters.mutable_local_search_operators()->set_use_path_lns(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_relocate_pair(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_relocate(USE_ADVANCED_SEARCH);
+//
+//        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_cross_exchange(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
+//        parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
 
-        parameters.mutable_local_search_operators()->set_use_path_lns(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_relocate_pair(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_relocate(USE_ADVANCED_SEARCH);
+//        LOG(INFO) << "Full Path LNS: " << parameters.mutable_local_search_operators()->use_full_path_lns();
+//        LOG(INFO) << "Path LNS: " << parameters.mutable_local_search_operators()->use_path_lns();
+//        LOG(INFO) << "Cross: " << parameters.mutable_local_search_operators()->use_cross();
+//        LOG(INFO) << "Cross Exchange: " << parameters.mutable_local_search_operators()->use_cross_exchange();
+//        LOG(INFO) << "Exchange: " << parameters.mutable_local_search_operators()->use_exchange();
+//        LOG(INFO) << "Or Opt: " << parameters.mutable_local_search_operators()->use_or_opt();
+//        LOG(INFO) << "Lin Kernighan: " << parameters.mutable_local_search_operators()->use_lin_kernighan();
+//        LOG(INFO) << "Make Active: " << parameters.mutable_local_search_operators()->use_make_active();
+//        LOG(INFO) << "Make Inactive: " << parameters.mutable_local_search_operators()->use_make_inactive();
+//        LOG(INFO) << "Make Chain Inactive: " << parameters.mutable_local_search_operators()->use_make_chain_inactive();
+//        LOG(INFO) << "Extended Swap Active: "
+//                  << parameters.mutable_local_search_operators()->use_extended_swap_active();
+//        LOG(INFO) << "Node Pair Swap Active: "
+//                  << parameters.mutable_local_search_operators()->use_node_pair_swap_active();
+//        LOG(INFO) << "Relocate Neighbors: " << parameters.mutable_local_search_operators()->use_relocate_neighbors();
+//        LOG(INFO) << "Relocate: " << parameters.mutable_local_search_operators()->use_relocate();
+//        LOG(INFO) << "Relocate Pair: " << parameters.mutable_local_search_operators()->use_relocate_pair();
+//        LOG(INFO) << "Relocate Make Active: "
+//                  << parameters.mutable_local_search_operators()->use_relocate_and_make_active();
+//        LOG(INFO) << "Inactive LNS: " << parameters.mutable_local_search_operators()->use_inactive_lns();
+//        LOG(INFO) << "Swap Active: " << parameters.mutable_local_search_operators()->use_swap_active();
+//        LOG(INFO) << "Two Opt: " << parameters.mutable_local_search_operators()->use_two_opt();
+//        LOG(INFO) << "LNS Time Limit: " << parameters.lns_time_limit_ms();
+//        LOG(INFO) << "Light Propagation: " << parameters.use_light_propagation();
+//        LOG(INFO) << "Local Search Metaheuristic: " << parameters.local_search_metaheuristic();
+//        LOG(INFO) << "Time Limit:" << parameters.time_limit_ms();
+//        LOG(INFO) << "Solution Limit:" << parameters.solution_limit();
 
-        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_cross_exchange(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
-        parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
 
+        parameters.mutable_local_search_operators()->set_use_path_lns(true);
+        parameters.set_lns_time_limit_ms(10000);
+
+        if (use_tabu_search) {
+            parameters.mutable_local_search_operators()->set_use_full_path_lns(false);
+            parameters.mutable_local_search_operators()->set_use_cross_exchange(true);
+            parameters.mutable_local_search_operators()->set_use_relocate_neighbors(true);
+            parameters.mutable_local_search_operators()->set_use_extended_swap_active(true);
+            parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(false);
+            parameters.set_local_search_metaheuristic(
+                    operations_research::LocalSearchMetaheuristic_Value::LocalSearchMetaheuristic_Value_GUIDED_LOCAL_SEARCH);
+        } else {
+            parameters.mutable_local_search_operators()->set_use_full_path_lns(true);
+            parameters.mutable_local_search_operators()->set_use_cross_exchange(true);
+            parameters.mutable_local_search_operators()->set_use_relocate_neighbors(true);
+            parameters.mutable_local_search_operators()->set_use_extended_swap_active(true);
+            parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(true);
+        }
         return parameters;
     }
 
@@ -451,11 +497,16 @@ namespace rows {
 
             const auto local_route = solution.GetRoute(carer);
             for (const auto &visit : local_route.visits()) {
-                if (!Contains(visit.calendar_visit().get())) {
+                if (!ContainsNear(visit.calendar_visit().get())) {
+                    LOG(INFO) << "Visit not found: " << visit.calendar_visit().get();
+                    for (const auto &visit_item: visit_index_) {
+                        LOG(INFO) << visit_item.first;
+                    }
+
                     continue;
                 }
 
-                const auto &visit_nodes = GetNodes(visit);
+                const auto &visit_nodes = GetNearNodes(visit.calendar_visit().get());
                 auto inserted = false;
                 for (const auto &node : visit_nodes) {
                     if (used_nodes.find(node) != std::end(used_nodes)) {
@@ -607,7 +658,7 @@ namespace rows {
 
         DCHECK_EQ(visits_to_release.size(), released_visits);
 
-        return rows::Solution(std::move(visits_to_use));
+        return rows::Solution(std::move(visits_to_use), std::vector<Break>());
     }
 
     bool SolverWrapper::HasTimeWindows() const {
@@ -771,7 +822,16 @@ namespace rows {
         return visit_index_.find(visit) != std::end(visit_index_);
     }
 
-    const std::unordered_set<operations_research::RoutingModel::NodeIndex> &
+    bool SolverWrapper::ContainsNear(const CalendarVisit &visit) const {
+        for (const auto &visit_item : visit_index_) {
+            if (IsNear(visit_item.first, visit)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    const std::vector<operations_research::RoutingModel::NodeIndex> &
     SolverWrapper::GetNodes(const CalendarVisit &visit) const {
         const auto find_it = visit_index_.find(visit);
         CHECK(find_it != std::end(visit_index_));
@@ -779,10 +839,23 @@ namespace rows {
         return find_it->second;
     }
 
-    const std::unordered_set<operations_research::RoutingModel::NodeIndex> &
+    const std::vector<operations_research::RoutingModel::NodeIndex> &
     SolverWrapper::GetNodes(const ScheduledVisit &visit) const {
         const auto &calendar_visit = visit.calendar_visit().get();
         return GetNodes(calendar_visit);
+    }
+
+    const std::vector<operations_research::RoutingModel::NodeIndex> &
+    SolverWrapper::GetNearNodes(const CalendarVisit &visit) const {
+        boost::optional<CalendarVisit> visit_opt = boost::none;
+        for (const auto &visit_item : visit_index_) {
+            if (IsNear(visit_item.first, visit)) {
+                visit_opt = visit_item.first;
+                break;
+            }
+        }
+        CHECK(visit_opt);
+        return GetNodes(visit_opt.get());
     }
 
     const CalendarVisit &
@@ -864,10 +937,11 @@ namespace rows {
             return std::numeric_limits<int64>::max();
         }
 
+        // TODO: use much higher penalty for dropping a visit
         std::sort(std::begin(distances), std::end(distances));
-        const auto distance_pos = static_cast<std::size_t>(distances.size() * 0.6);
+        const auto distance_pos = static_cast<std::size_t>(distances.size() * 0.9);
         CHECK_LT(distance_pos, distances.size());
-        return distances.at(distance_pos);
+        return 2 * distances.at(distance_pos);
     }
 
     std::string rows::SolverWrapper::GetModelStatus(int status) {
@@ -950,5 +1024,12 @@ namespace rows {
                 % CarerUtility.Median
                 % CarerUtility.Stddev
                 % CarerUtility.TotalMean).str();
+    }
+
+    bool SolverWrapper::IsNear(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const {
+        return left.duration() == right.duration()
+               && left.service_user() == right.service_user()
+               && GetBeginVisitWindow(left.datetime().time_of_day()) <= right.datetime().time_of_day().total_seconds()
+               && right.datetime().time_of_day().total_seconds() <= GetEndVisitWindow(left.datetime().time_of_day());
     }
 }

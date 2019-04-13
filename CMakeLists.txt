@@ -14,7 +14,7 @@ if (CMAKE_COMPILER_IS_GNUCXX)
 endif ()
 
 # uncomment for a debug mode build
-set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/or-tools-6.10.1-release)
+set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/or-tools-6.10-release)
 
 set(default_build_type "RELEASE")
 if (EXISTS "${CMAKE_SOURCE_DIR}/.git")
@@ -36,10 +36,10 @@ if (UNIX AND NOT APPLE)
     set(MAYBE_RT_LIBRARY ${RT_LIBRARY})
 endif ()
 
-# get_filename_component(_GFLAGS_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/build/external/gflags-install" REALPATH)
-# get_filename_component(_GLOG_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/build/external/glog-install" REALPATH)
-get_filename_component(_GFLAGS_ROOT_DIR "${ORTOOLS_ROOT_DIR}/build/gflags-build" REALPATH)
-get_filename_component(_GLOG_ROOT_DIR "${ORTOOLS_ROOT_DIR}/build/glog-build" REALPATH)
+# get_filename_component(_GFLAGS_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/install" REALPATH)
+# get_filename_component(_GLOG_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/install" REALPATH)
+get_filename_component(_GFLAGS_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install" REALPATH)
+get_filename_component(_GLOG_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install" REALPATH)
 get_filename_component(_SPARSEHASH_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/build/external/sparsehash-install" REALPATH)
 get_filename_component(_GTEST_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/gtest-install" REALPATH)
 get_filename_component(_JSON_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/json-install" REALPATH)
@@ -95,8 +95,8 @@ set(HEADER_DEP ${OSRM_INCLUDE_DIR}
         ${Boost_INCLUDE_DIR}
         ${JSON_INCLUDE_DIR}
         ${GEXF_INCLUDE_DIR}
-        ${LIBXML2_INCLUDE_DIR}
         ${ORTOOLS_INCLUDE_DIR}
+        ${LIBXML2_INCLUDE_DIR}
         ${GUROBI_INCLUDE_DIR}
         ${GFLAGS_INCLUDE_DIR}
         ${GLOG_INCLUDE_DIR})

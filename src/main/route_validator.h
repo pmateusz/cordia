@@ -6,6 +6,7 @@
 #include <ostream>
 #include <string>
 #include <vector>
+#include <list>
 
 #include <ortools/constraint_solver/routing.h>
 
@@ -164,11 +165,46 @@ namespace rows {
             boost::posix_time::time_duration travel_time_;
         };
 
+        enum class ActivityType {
+            Visit, Break, Travel
+        };
+
+        class FixedDurationActivity {
+        public:
+            FixedDurationActivity(std::string debug_info,
+                                  boost::posix_time::time_period start_window,
+                                  boost::posix_time::time_duration duration,
+                                  ActivityType activity_type);
+
+            boost::posix_time::ptime Perform(boost::posix_time::ptime current_time) const;
+
+            std::string debug_info() const;
+
+            boost::posix_time::time_duration duration() const;
+
+            boost::posix_time::time_period period() const;
+
+            ActivityType activity_type() const;
+
+            bool IsBefore(const FixedDurationActivity &other) const;
+
+            bool IsAfter(const FixedDurationActivity &other) const;
+
+        private:
+            ActivityType activity_type_;
+            std::string debug_info_;
+            boost::posix_time::time_period interval_;
+            boost::posix_time::time_period start_window_;
+            boost::posix_time::time_duration duration_;
+        };
+
         class ValidationResult {
         public:
             ValidationResult();
 
-            ValidationResult(Metrics metrics, Schedule schedule);
+            ValidationResult(Metrics metrics,
+                             Schedule schedule,
+                             std::list<std::shared_ptr<FixedDurationActivity> > activities);
 
             explicit ValidationResult(std::unique_ptr<ValidationError> &&error) noexcept;
 
@@ -184,6 +220,8 @@ namespace rows {
 
             const Schedule &schedule() const;
 
+            const std::list<std::shared_ptr<FixedDurationActivity> > &activities() const;
+
             const std::unique_ptr<ValidationError> &error() const;
 
             std::unique_ptr<ValidationError> &error();
@@ -191,6 +229,7 @@ namespace rows {
         private:
             Metrics metrics_;
             Schedule schedule_;
+            std::list<std::shared_ptr<FixedDurationActivity> > activities_;
             std::unique_ptr<ValidationError> error_;
         };
 
@@ -207,40 +246,6 @@ namespace rows {
     protected:
         static bool IsAssignedAndActive(const rows::ScheduledVisit &visit);
     };
-
-    enum class ActivityType {
-        Visit, Break, Travel
-    };
-
-    class FixedDurationActivity {
-    public:
-        FixedDurationActivity(std::string debug_info,
-                              boost::posix_time::time_period start_window,
-                              boost::posix_time::time_duration duration,
-                              ActivityType activity_type);
-
-        boost::posix_time::ptime Perform(boost::posix_time::ptime current_time) const;
-
-        std::string debug_info() const;
-
-        boost::posix_time::time_duration duration() const;
-
-        boost::posix_time::time_period period() const;
-
-        ActivityType activity_type() const;
-
-        bool IsBefore(const FixedDurationActivity &other) const;
-
-        bool IsAfter(const FixedDurationActivity &other) const;
-
-    private:
-        ActivityType activity_type_;
-        std::string debug_info_;
-        boost::posix_time::time_period interval_;
-        boost::posix_time::time_period start_window_;
-        boost::posix_time::time_duration duration_;
-    };
-
 
     class ValidationSession {
     public:
@@ -263,7 +268,7 @@ namespace rows {
 
         void Perform(const Event &interval);
 
-        void Perform(const FixedDurationActivity &activity);
+        void Perform(const RouteValidatorBase::FixedDurationActivity &activity);
 
         boost::posix_time::time_duration GetBeginWindow(const Event &interval) const;
 
@@ -289,6 +294,9 @@ namespace rows {
         bool error() const;
 
         boost::posix_time::time_duration current_time() const;
+
+        RouteValidatorBase::ValidationResult ToValidationResult(
+                std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > activities);
 
         RouteValidatorBase::ValidationResult ToValidationResult();
 
@@ -373,15 +381,15 @@ namespace rows {
                                                           const operations_research::RoutingModel &model,
                                                           rows::SolverWrapper &solver) const;
 
-        bool is_schedule_valid(std::list<std::shared_ptr<FixedDurationActivity> > &activities,
-                               const std::vector<std::shared_ptr<FixedDurationActivity> > &breaks,
+        bool is_schedule_valid(std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > &activities,
+                               const std::vector<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > &breaks,
                                boost::posix_time::ptime start_date_time,
-                               std::list<std::shared_ptr<FixedDurationActivity> >::iterator current_position,
-                               std::vector<std::shared_ptr<FixedDurationActivity> >::iterator current_break) const;
+                               std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >::iterator current_position,
+                               std::vector<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >::iterator current_break) const;
 
     private:
-        std::shared_ptr<FixedDurationActivity> try_get_failed_activity(
-                std::list<std::shared_ptr<FixedDurationActivity> > &activities,
+        std::shared_ptr<RouteValidatorBase::FixedDurationActivity> try_get_failed_activity(
+                std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > &activities,
                 const boost::posix_time::ptime &start_date_time) const;
     };
 

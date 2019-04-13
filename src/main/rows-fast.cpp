@@ -165,36 +165,6 @@ rows::Problem LoadReducedProblem(const std::string &problem_path) {
     return problem_to_use;
 }
 
-rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem) {
-    boost::filesystem::path solution_file(boost::filesystem::canonical(solution_path));
-    std::ifstream solution_stream;
-    solution_stream.open(solution_file.c_str());
-    if (!solution_stream.is_open()) {
-        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
-                                     util::ErrorCode::ERROR);
-    }
-
-    nlohmann::json solution_json;
-    try {
-        solution_stream >> solution_json;
-    } catch (...) {
-        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
-                                     boost::current_exception_diagnostic_information(),
-                                     util::ErrorCode::ERROR);
-    }
-
-    try {
-        rows::Solution::JsonLoader json_loader;
-        auto original_solution = json_loader.Load(solution_json);
-        const auto time_span = problem.Timespan();
-        return original_solution.Trim(time_span.first, time_span.second - time_span.first);
-    } catch (const std::domain_error &ex) {
-        throw util::ApplicationError(
-                (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % solution_file % ex.what()).str(),
-                util::ErrorCode::ERROR);
-    }
-}
-
 int main(int argc, char *argv[]) {
     static const auto TIME_WINDOW = boost::posix_time::minutes(30);
     auto problem = LoadReducedProblem("/home/pmateusz/dev/cordia/problem.json");
@@ -267,7 +237,7 @@ int main(int argc, char *argv[]) {
     for (const auto &visit : visits_to_schedule) {
         min_date_time = std::min(min_date_time, boost::posix_time::ptime{visit.datetime().date()});
     }
-    
+
     boost::posix_time::time_period time_horizon(min_date_time,
                                                 min_date_time + boost::posix_time::seconds(MAX_TIME_SLACK));
 

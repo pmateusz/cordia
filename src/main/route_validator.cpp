@@ -533,23 +533,29 @@ namespace rows {
 
     RouteValidatorBase::ValidationResult::ValidationResult()
             : metrics_{},
-              error_{nullptr} {}
+              error_{nullptr},
+              activities_{} {}
 
-    RouteValidatorBase::ValidationResult::ValidationResult(RouteValidatorBase::Metrics metrics, Schedule schedule)
+    RouteValidatorBase::ValidationResult::ValidationResult(RouteValidatorBase::Metrics metrics,
+                                                           Schedule schedule,
+                                                           std::list<std::shared_ptr<FixedDurationActivity> > activities)
             : metrics_{std::move(metrics)},
               schedule_{std::move(schedule)},
-              error_{nullptr} {}
+              error_{nullptr},
+              activities_{std::move(activities)} {}
 
     RouteValidatorBase::ValidationResult::ValidationResult(
             std::unique_ptr<RouteValidatorBase::ValidationError> &&error) noexcept
             : metrics_{},
               schedule_{},
-              error_{std::move(error)} {}
+              error_{std::move(error)},
+              activities_{} {}
 
     RouteValidatorBase::ValidationResult::ValidationResult(RouteValidatorBase::ValidationResult &&other) noexcept
             : metrics_{std::move(other.metrics_)},
               schedule_{std::move(other.schedule_)},
-              error_{std::move(other.error_)} {}
+              error_{std::move(other.error_)},
+              activities_{std::move(other.activities_)} {}
 
     std::unique_ptr<RouteValidatorBase::ValidationError> &RouteValidatorBase::ValidationResult::error() {
         return error_;
@@ -573,6 +579,11 @@ namespace rows {
 
     const Schedule &RouteValidatorBase::ValidationResult::schedule() const {
         return schedule_;
+    }
+
+    const std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > &
+    RouteValidatorBase::ValidationResult::activities() const {
+        return activities_;
     }
 
     RouteValidatorBase::Metrics::Metrics()
@@ -923,7 +934,8 @@ namespace rows {
         return GreaterEqual(GetEndWindow(visit), time_of_day + GetTravelTime(last_node_, current_node_));
     }
 
-    RouteValidatorBase::ValidationResult ValidationSession::ToValidationResult() {
+    RouteValidatorBase::ValidationResult ValidationSession::ToValidationResult(
+            std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > activities) {
         if (error_) {
             return RouteValidatorBase::ValidationResult(std::move(error_));
         }
@@ -932,7 +944,12 @@ namespace rows {
                 RouteValidatorBase::Metrics{total_available_time_,
                                             total_service_time_,
                                             total_travel_time_},
-                schedule_};
+                schedule_,
+                std::move(activities)};
+    }
+
+    RouteValidatorBase::ValidationResult ValidationSession::ToValidationResult() {
+        return ToValidationResult(std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >{});
     }
 
     boost::posix_time::time_duration ValidationSession::GetTravelTime(
@@ -1313,7 +1330,7 @@ namespace rows {
             return session.ToValidationResult();
         }
 
-        std::list<std::shared_ptr<FixedDurationActivity> > activities;
+        std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > activities;
         const auto &time_dim = model.GetDimensionOrDie(SolverWrapper::TIME_DIMENSION);
         const auto today = visits.front().datetime().date();
         const auto diary = solver.problem().diary(carer, today).get();
@@ -1357,18 +1374,18 @@ namespace rows {
                 const auto max_departure = std::min(last_max_visit_complete, max_departure_to_arrive_on_time);
                 CHECK_LE(last_min_visit_complete, max_departure);
 
-                activities.emplace_back(std::make_shared<FixedDurationActivity>(
+                activities.emplace_back(std::make_shared<RouteValidatorBase::FixedDurationActivity>(
                         (boost::format("Travel %1%-%2%") % last_visit_node % current_visit_node).str(),
                         boost::posix_time::time_period{last_min_visit_complete, max_departure},
                         travel_time,
-                        ActivityType::Travel));
+                        RouteValidatorBase::ActivityType::Travel));
             }
 
-            activities.emplace_back(std::make_shared<FixedDurationActivity>(
+            activities.emplace_back(std::make_shared<RouteValidatorBase::FixedDurationActivity>(
                     (boost::format("Visit %1%") % current_visit_node).str(),
                     boost::posix_time::time_period(min_arrival, (max_arrival - min_arrival)),
                     visit.duration(),
-                    ActivityType::Visit));
+                    RouteValidatorBase::ActivityType::Visit));
 
             last_visit_node = current_visit_node;
             last_min_visit_complete = min_arrival + visit.duration();
@@ -1377,16 +1394,16 @@ namespace rows {
 
         const auto effective_breaks = solver.GetEffectiveBreaks(diary);
         boost::posix_time::time_duration start_time;
-        std::vector<std::shared_ptr<FixedDurationActivity>> breaks_to_distribute;
+        std::vector<std::shared_ptr<RouteValidatorBase::FixedDurationActivity>> breaks_to_distribute;
         if (solver.out_office_hours_breaks_enabled()) {
-            activities.emplace_front(std::make_shared<FixedDurationActivity>("before working hours",
-                                                                             effective_breaks.front().period(),
-                                                                             effective_breaks.front().duration(),
-                                                                             ActivityType::Break));
-            activities.emplace_back(std::make_shared<FixedDurationActivity>("after working hours",
-                                                                            effective_breaks.back().period(),
-                                                                            effective_breaks.back().duration(),
-                                                                            ActivityType::Break));
+            activities.emplace_front(std::make_shared<RouteValidatorBase::FixedDurationActivity>("before working hours",
+                                                                                                 effective_breaks.front().period(),
+                                                                                                 effective_breaks.front().duration(),
+                                                                                                 RouteValidatorBase::ActivityType::Break));
+            activities.emplace_back(std::make_shared<RouteValidatorBase::FixedDurationActivity>("after working hours",
+                                                                                                effective_breaks.back().period(),
+                                                                                                effective_breaks.back().duration(),
+                                                                                                RouteValidatorBase::ActivityType::Break));
             auto break_index = 1;
             const auto end_it = effective_breaks.end() - 1;
             for (auto break_it = effective_breaks.begin() + 1; break_it != end_it; ++break_it) {
@@ -1394,11 +1411,11 @@ namespace rows {
                         solver.GetBeginBreakWindow(break_it->begin().time_of_day()))};
                 const ptime end_window{today, boost::posix_time::seconds(
                         solver.GetEndBreakWindow(break_it->begin().time_of_day()))};
-                breaks_to_distribute.emplace_back(std::make_shared<FixedDurationActivity>(
+                breaks_to_distribute.emplace_back(std::make_shared<RouteValidatorBase::FixedDurationActivity>(
                         "break " + std::to_string(break_index++),
                         boost::posix_time::time_period{begin_window, end_window},
                         break_it->duration(),
-                        ActivityType::Break));
+                        RouteValidatorBase::ActivityType::Break));
             }
         } else {
             start_time = boost::posix_time::seconds(solution.Min(time_dim.CumulVar(indices[1])));
@@ -1408,11 +1425,11 @@ namespace rows {
                         solver.GetBeginBreakWindow(break_event.begin().time_of_day()))};
                 const ptime end_window{today, boost::posix_time::seconds(
                         solver.GetEndBreakWindow(break_event.begin().time_of_day()))};
-                breaks_to_distribute.emplace_back(std::make_shared<FixedDurationActivity>(
+                breaks_to_distribute.emplace_back(std::make_shared<RouteValidatorBase::FixedDurationActivity>(
                         "break " + std::to_string(break_index++),
                         boost::posix_time::time_period{begin_window, end_window},
                         break_event.duration(),
-                        ActivityType::Break));
+                        RouteValidatorBase::ActivityType::Break));
             }
         }
 
@@ -1433,7 +1450,7 @@ namespace rows {
 
         if (is_schedule_valid(activities, breaks_to_distribute, ptime(today, start_time), std::begin(activities),
                               std::begin(breaks_to_distribute))) {
-            return session.ToValidationResult();
+            return session.ToValidationResult(activities);
         }
 
         LOG(INFO) << "Vehicle: " << vehicle;
@@ -1458,8 +1475,8 @@ namespace rows {
         return RouteValidatorBase::ValidationResult(std::move(error_ptr));
     }
 
-    std::shared_ptr<FixedDurationActivity> SolutionValidator::try_get_failed_activity(
-            std::list<std::shared_ptr<FixedDurationActivity>> &activities,
+    std::shared_ptr<RouteValidatorBase::FixedDurationActivity> SolutionValidator::try_get_failed_activity(
+            std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > &activities,
             const boost::posix_time::ptime &start_date_time) const {
         auto current_time = start_date_time;
         for (const auto &activity : activities) {
@@ -1472,11 +1489,11 @@ namespace rows {
     }
 
     bool SolutionValidator::is_schedule_valid(
-            std::list<std::shared_ptr<FixedDurationActivity> > &activities,
-            const std::vector<std::shared_ptr<FixedDurationActivity> > &normal_breaks,
+            std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > &activities,
+            const std::vector<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > &normal_breaks,
             const boost::posix_time::ptime start_date_time,
-            std::list<std::shared_ptr<rows::FixedDurationActivity> >::iterator current_position,
-            std::vector<std::shared_ptr<FixedDurationActivity> >::iterator current_break) const {
+            std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >::iterator current_position,
+            std::vector<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >::iterator current_break) const {
         if (current_break == std::end(normal_breaks)) {
             // no more breaks to distribute
             return try_get_failed_activity(activities, start_date_time) == nullptr;
@@ -1570,17 +1587,17 @@ namespace rows {
         return records_;
     }
 
-    FixedDurationActivity::FixedDurationActivity(std::string debug_info,
-                                                 boost::posix_time::time_period start_window,
-                                                 boost::posix_time::time_duration duration,
-                                                 ActivityType activity_type)
+    RouteValidatorBase::FixedDurationActivity::FixedDurationActivity(std::string debug_info,
+                                                                     boost::posix_time::time_period start_window,
+                                                                     boost::posix_time::time_duration duration,
+                                                                     ActivityType activity_type)
             : debug_info_{std::move(debug_info)},
               interval_{start_window.begin(), start_window.end() + duration},
               start_window_{start_window},
               duration_{std::move(duration)},
               activity_type_{activity_type} {}
 
-    boost::posix_time::ptime FixedDurationActivity::Perform(
+    boost::posix_time::ptime RouteValidatorBase::FixedDurationActivity::Perform(
             boost::posix_time::ptime current_time) const {
         if (duration_.total_seconds() == 0) {
             return current_time;
@@ -1601,7 +1618,7 @@ namespace rows {
         }
     }
 
-    std::string FixedDurationActivity::debug_info() const {
+    std::string RouteValidatorBase::FixedDurationActivity::debug_info() const {
         return (boost::format("%1% - [%2%..%3%] for %4%")
                 % debug_info_
                 % start_window_.begin().time_of_day()
@@ -1609,23 +1626,23 @@ namespace rows {
                 % duration_).str();
     }
 
-    ActivityType FixedDurationActivity::activity_type() const {
+    RouteValidatorBase::ActivityType RouteValidatorBase::FixedDurationActivity::activity_type() const {
         return activity_type_;
     }
 
-    boost::posix_time::time_duration FixedDurationActivity::duration() const {
+    boost::posix_time::time_duration RouteValidatorBase::FixedDurationActivity::duration() const {
         return duration_;
     }
 
-    bool FixedDurationActivity::IsBefore(const FixedDurationActivity &other) const {
+    bool RouteValidatorBase::FixedDurationActivity::IsBefore(const FixedDurationActivity &other) const {
         return interval_.is_before(other.interval_.begin());
     }
 
-    bool FixedDurationActivity::IsAfter(const FixedDurationActivity &other) const {
+    bool RouteValidatorBase::FixedDurationActivity::IsAfter(const FixedDurationActivity &other) const {
         return interval_.is_after(other.interval_.end());
     }
 
-    boost::posix_time::time_period FixedDurationActivity::period() const {
+    boost::posix_time::time_period RouteValidatorBase::FixedDurationActivity::period() const {
         return start_window_;
     }
 }
