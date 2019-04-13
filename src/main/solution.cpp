@@ -58,9 +58,6 @@ rows::Solution rows::Solution::Trim(boost::posix_time::ptime begin, boost::posix
     for (const auto &visit : visits_) {
         if (begin <= visit.datetime() && visit.datetime() <= end) {
             visits_to_use.push_back(visit);
-        } else {
-            LOG(INFO) << begin << " " << end;
-            LOG(INFO) << "Skipped visit: " << visit;
         }
     }
 
@@ -270,7 +267,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
     std::unordered_map<std::string, rows::ServiceUser> users;
     std::unordered_map<std::string, rows::Break> breaks;
 
-    auto nodes_set = EvalXPath("/local:gexf/local:graph/local:nodes/*", xpath_context.get());
+    auto nodes_set = EvalXPath("/ns:gexf/ns:graph/ns:nodes/*", xpath_context.get());
     if (nodes_set && !xmlXPathNodeSetIsEmpty(nodes_set->nodesetval)) {
         const auto node_set = nodes_set->nodesetval;
         for (auto item = 0; item < node_set->nodeNr; ++item) {
@@ -362,7 +359,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
         }
     }
 
-    auto edges_set = EvalXPath("/local:gexf/local:graph/local:edges/*", xpath_context.get());
+    auto edges_set = EvalXPath("/ns:gexf/ns:graph/ns:edges/*", xpath_context.get());
     if (edges_set && !xmlXPathNodeSetIsEmpty(edges_set->nodesetval)) {
         const auto edge_set = edges_set->nodesetval;
         for (auto item = 0; item < edge_set->nodeNr; ++item) {
@@ -438,18 +435,16 @@ bool rows::Solution::XmlLoader::NameEquals(xmlNodePtr node, const std::string &n
 std::unique_ptr<xmlXPathContext, rows::Solution::XmlLoader::XmlDeleters>
 rows::Solution::XmlLoader::CreateXPathContext(xmlDocPtr document) {
     std::unique_ptr<xmlXPathContext, XmlDeleters> xpath_context{xmlXPathNewContext(document)};
-    DCHECK_EQ(xmlXPathRegisterNs(xpath_context.get(),
-                                 reinterpret_cast<xmlChar const *> ("local"),
-                                 reinterpret_cast<xmlChar const *> ("http://www.gexf.net/1.1draft")), 0);
-    DCHECK_EQ(xmlXPathRegisterNs(xpath_context.get(),
-                                 reinterpret_cast<xmlChar const *> ("xsi"),
-                                 reinterpret_cast<xmlChar const *> ("http://www.w3.org/2001/XMLSchema-instance")), 0);
+    CHECK_EQ(xmlXPathRegisterNs(xpath_context.get(),
+                                reinterpret_cast<xmlChar const *> ("ns"),
+                                reinterpret_cast<xmlChar const *> ("http://www.gexf.net/1.1draft")), 0)
+        << "Failed to register the namespace http://www.gexf.net/1.1draft";
     return xpath_context;
 }
 
 void rows::Solution::XmlLoader::AttributeIndex::Load(xmlXPathContextPtr context) {
     std::unordered_map<std::string, std::string> node_property_index;
-    auto attribute_set = EvalXPath("/local:gexf/local:graph/local:attributes[@class='node']/*", context);
+    auto attribute_set = EvalXPath("/ns:gexf/ns:graph/ns:attributes[@class='node']/*", context);
     if (attribute_set && !xmlXPathNodeSetIsEmpty(attribute_set->nodesetval)) {
         const auto node_set = attribute_set->nodesetval;
         for (auto item = 0; item < node_set->nodeNr; ++item) {

@@ -1145,7 +1145,7 @@ private:
 
 //        for (const auto &break_element : solution.breaks()) {
 //            const auto carer_index = GetIndex(break_element.carer());
-//            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);15
+//            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);
 //
 //            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_Start,
 //                                                                  break_element.datetime().time_of_day().total_seconds());
@@ -1287,6 +1287,7 @@ int main(int argc, char *argv[]) {
     boost::optional<rows::Solution> solution_opt = boost::none;
     if (!FLAGS_solution.empty()) {
         solution_opt = util::LoadSolution(FLAGS_solution, problem, visit_time_window);
+        LOG(INFO) << "Loaded an initial guess from the file: " << FLAGS_solution;
     }
 
     static const auto USE_TABU_SEARCH = false;
