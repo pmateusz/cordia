@@ -427,33 +427,33 @@ namespace rows {
 //        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
 //        parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
 
-        LOG(INFO) << "Full Path LNS: " << parameters.mutable_local_search_operators()->use_full_path_lns();
-        LOG(INFO) << "Path LNS: " << parameters.mutable_local_search_operators()->use_path_lns();
-        LOG(INFO) << "Cross: " << parameters.mutable_local_search_operators()->use_cross();
-        LOG(INFO) << "Cross Exchange: " << parameters.mutable_local_search_operators()->use_cross_exchange();
-        LOG(INFO) << "Exchange: " << parameters.mutable_local_search_operators()->use_exchange();
-        LOG(INFO) << "Or Opt: " << parameters.mutable_local_search_operators()->use_or_opt();
-        LOG(INFO) << "Lin Kernighan: " << parameters.mutable_local_search_operators()->use_lin_kernighan();
-        LOG(INFO) << "Make Active: " << parameters.mutable_local_search_operators()->use_make_active();
-        LOG(INFO) << "Make Inactive: " << parameters.mutable_local_search_operators()->use_make_inactive();
-        LOG(INFO) << "Make Chain Inactive: " << parameters.mutable_local_search_operators()->use_make_chain_inactive();
-        LOG(INFO) << "Extended Swap Active: "
-                  << parameters.mutable_local_search_operators()->use_extended_swap_active();
-        LOG(INFO) << "Node Pair Swap Active: "
-                  << parameters.mutable_local_search_operators()->use_node_pair_swap_active();
-        LOG(INFO) << "Relocate Neighbors: " << parameters.mutable_local_search_operators()->use_relocate_neighbors();
-        LOG(INFO) << "Relocate: " << parameters.mutable_local_search_operators()->use_relocate();
-        LOG(INFO) << "Relocate Pair: " << parameters.mutable_local_search_operators()->use_relocate_pair();
-        LOG(INFO) << "Relocate Make Active: "
-                  << parameters.mutable_local_search_operators()->use_relocate_and_make_active();
-        LOG(INFO) << "Inactive LNS: " << parameters.mutable_local_search_operators()->use_inactive_lns();
-        LOG(INFO) << "Swap Active: " << parameters.mutable_local_search_operators()->use_swap_active();
-        LOG(INFO) << "Two Opt: " << parameters.mutable_local_search_operators()->use_two_opt();
-        LOG(INFO) << "LNS Time Limit: " << parameters.lns_time_limit_ms();
-        LOG(INFO) << "Light Propagation: " << parameters.use_light_propagation();
-        LOG(INFO) << "Local Search Metaheuristic: " << parameters.local_search_metaheuristic();
-        LOG(INFO) << "Time Limit:" << parameters.time_limit_ms();
-        LOG(INFO) << "Solution Limit:" << parameters.solution_limit();
+//        LOG(INFO) << "Full Path LNS: " << parameters.mutable_local_search_operators()->use_full_path_lns();
+//        LOG(INFO) << "Path LNS: " << parameters.mutable_local_search_operators()->use_path_lns();
+//        LOG(INFO) << "Cross: " << parameters.mutable_local_search_operators()->use_cross();
+//        LOG(INFO) << "Cross Exchange: " << parameters.mutable_local_search_operators()->use_cross_exchange();
+//        LOG(INFO) << "Exchange: " << parameters.mutable_local_search_operators()->use_exchange();
+//        LOG(INFO) << "Or Opt: " << parameters.mutable_local_search_operators()->use_or_opt();
+//        LOG(INFO) << "Lin Kernighan: " << parameters.mutable_local_search_operators()->use_lin_kernighan();
+//        LOG(INFO) << "Make Active: " << parameters.mutable_local_search_operators()->use_make_active();
+//        LOG(INFO) << "Make Inactive: " << parameters.mutable_local_search_operators()->use_make_inactive();
+//        LOG(INFO) << "Make Chain Inactive: " << parameters.mutable_local_search_operators()->use_make_chain_inactive();
+//        LOG(INFO) << "Extended Swap Active: "
+//                  << parameters.mutable_local_search_operators()->use_extended_swap_active();
+//        LOG(INFO) << "Node Pair Swap Active: "
+//                  << parameters.mutable_local_search_operators()->use_node_pair_swap_active();
+//        LOG(INFO) << "Relocate Neighbors: " << parameters.mutable_local_search_operators()->use_relocate_neighbors();
+//        LOG(INFO) << "Relocate: " << parameters.mutable_local_search_operators()->use_relocate();
+//        LOG(INFO) << "Relocate Pair: " << parameters.mutable_local_search_operators()->use_relocate_pair();
+//        LOG(INFO) << "Relocate Make Active: "
+//                  << parameters.mutable_local_search_operators()->use_relocate_and_make_active();
+//        LOG(INFO) << "Inactive LNS: " << parameters.mutable_local_search_operators()->use_inactive_lns();
+//        LOG(INFO) << "Swap Active: " << parameters.mutable_local_search_operators()->use_swap_active();
+//        LOG(INFO) << "Two Opt: " << parameters.mutable_local_search_operators()->use_two_opt();
+//        LOG(INFO) << "LNS Time Limit: " << parameters.lns_time_limit_ms();
+//        LOG(INFO) << "Light Propagation: " << parameters.use_light_propagation();
+//        LOG(INFO) << "Local Search Metaheuristic: " << parameters.local_search_metaheuristic();
+//        LOG(INFO) << "Time Limit:" << parameters.time_limit_ms();
+//        LOG(INFO) << "Solution Limit:" << parameters.solution_limit();
 
 
         parameters.mutable_local_search_operators()->set_use_path_lns(true);

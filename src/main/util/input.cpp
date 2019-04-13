@@ -176,3 +176,11 @@ rows::Solution util::LoadSolution(const std::string &solution_path,
     const auto time_span = problem.Timespan();
     return original_solution.Trim(time_span.first, time_span.second - time_span.first + visit_time_window);
 }
+
+boost::posix_time::time_duration util::GetTimeDurationOrDefault(const std::string &text,
+                                                                boost::posix_time::time_duration default_value) {
+    if (text.empty()) {
+        return default_value;
+    }
+    return boost::posix_time::duration_from_string(text);
+}

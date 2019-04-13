@@ -156,14 +156,6 @@ inline std::string FlagOrDefaultValue(const std::string &flag_value, const std::
     return flag_value;
 }
 
-inline boost::posix_time::time_duration GetTimeDurationOrDefault(const std::string &text,
-                                                                 boost::posix_time::time_duration default_value) {
-    if (text.empty()) {
-        return default_value;
-    }
-    return boost::posix_time::duration_from_string(text);
-}
-
 const std::string YES_OPTION{"yes"};
 const std::string NO_OPTION{"no"};
 
@@ -412,18 +404,18 @@ int RunSchedulingWorkerEx(const std::shared_ptr<rows::Printer> &printer, const s
                                           util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
                                           FLAGS_output,
                                           engine_config,
-                                          GetTimeDurationOrDefault(FLAGS_visit_time_window,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_break_time_window,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
-                                                                   boost::posix_time::not_a_date_time),
-                                          GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
-                                                                   boost::posix_time::not_a_date_time));
+                                          util::GetTimeDurationOrDefault(FLAGS_visit_time_window,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_break_time_window,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
+                                                                         boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
+                                                                         boost::posix_time::not_a_date_time));
 }
 
 int main(int argc, char **argv) {
@@ -459,18 +451,18 @@ int main(int argc, char **argv) {
         }
 
         auto engine_config = util::CreateEngineConfig(FLAGS_maps);
-        const auto visit_time_window = GetTimeDurationOrDefault(FLAGS_visit_time_window,
-                                                                boost::posix_time::not_a_date_time);
-        const auto break_time_window = GetTimeDurationOrDefault(FLAGS_break_time_window,
-                                                                boost::posix_time::not_a_date_time);
-        const auto begin_end_shift_time_extension = GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
-                                                                             boost::posix_time::not_a_date_time);
-        const auto pre_opt_no_progress_time_limit = GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
-                                                                             boost::posix_time::not_a_date_time);
-        const auto opt_no_progress_time_limit = GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
-                                                                         boost::posix_time::not_a_date_time);
-        const auto post_opt_no_progress_time_limit = GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
-                                                                              boost::posix_time::not_a_date_time);
+        const auto visit_time_window = util::GetTimeDurationOrDefault(FLAGS_visit_time_window,
+                                                                      boost::posix_time::not_a_date_time);
+        const auto break_time_window = util::GetTimeDurationOrDefault(FLAGS_break_time_window,
+                                                                      boost::posix_time::not_a_date_time);
+        const auto begin_end_shift_time_extension = util::GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
+                                                                                   boost::posix_time::not_a_date_time);
+        const auto pre_opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
+                                                                                   boost::posix_time::not_a_date_time);
+        const auto opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
+                                                                               boost::posix_time::not_a_date_time);
+        const auto post_opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
+                                                                                    boost::posix_time::not_a_date_time);
 
         int problem_count = -1;
         std::vector<std::future<int> > compute_tasks;

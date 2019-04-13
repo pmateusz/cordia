@@ -25,6 +25,7 @@
 #include "break.h"
 #include "single_step_solver.h"
 #include "second_step_solver.h"
+#include "gexf_writer.h"
 
 // TODO: create a solution and save it to a file
 
@@ -42,6 +43,12 @@ DEFINE_string(maps,
               "../data/scotland-latest.osrm", "a file path to the map");
 DEFINE_validator(maps, &util::file::Exists
 );
+
+DEFINE_string(output, "output.gexf", "an output file");
+
+static const auto DEFAULT_TIME_LIMIT_TEXT = "00:03:00";
+static const auto DEFAULT_TIME_LIMIT = boost::posix_time::duration_from_string(DEFAULT_TIME_LIMIT_TEXT);
+DEFINE_string(time_limit, DEFAULT_TIME_LIMIT_TEXT, "time limit for proving the optimality");
 
 void ParseArgs(int argc, char *argv[]) {
     gflags::SetVersionString("0.0.1");
@@ -237,13 +244,14 @@ public:
         }
     }
 
-    rows::Solution Solve(const boost::optional<rows::Solution> &initial_solution) {
+    rows::Solution Solve(const boost::optional<rows::Solution> &initial_solution,
+                         const boost::posix_time::time_duration &time_limit) {
         GRBEnv env = GRBEnv();
         GRBModel model = GRBModel(env);
 
         Build(model, initial_solution);
 
-        model.set(GRB_DoubleParam_TimeLimit, 60 * 10);
+        model.set(GRB_DoubleParam_TimeLimit, time_limit.total_seconds());
         model.set(GRB_IntParam_Presolve, 2); // max 2
         // model.set(GRB_DoubleParam_Heuristics, 0.2);
         // 1 - focus on feasible solutions, 2 - focus on proving optimality, 3 - focus on bound
@@ -1262,35 +1270,6 @@ private:
     std::vector<std::vector<std::vector<GRBVar>>> carer_edges_;
 };
 
-operations_research::RoutingSearchParameters CreateSearchParameters() {
-    operations_research::RoutingSearchParameters parameters = operations_research::RoutingModel::DefaultSearchParameters();
-    parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-
-//    static const auto USE_ADVANCED_SEARCH = true;
-//    parameters.mutable_local_search_operators()->set_use_cross(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_extended_swap_active(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_full_path_lns(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_inactive_lns(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_lin_kernighan(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_make_chain_inactive(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_make_active(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_make_inactive(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_two_opt(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_or_opt(USE_ADVANCED_SEARCH);
-//
-//    parameters.mutable_local_search_operators()->set_use_path_lns(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_relocate_pair(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_relocate(USE_ADVANCED_SEARCH);
-//
-//    parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_cross_exchange(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
-//    parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
-
-    return parameters;
-}
-
 int main(int argc, char *argv[]) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
@@ -1300,6 +1279,8 @@ int main(int argc, char *argv[]) {
     auto engine_config = util::CreateEngineConfig(FLAGS_maps);
     std::shared_ptr<std::atomic_bool> cancel_token{std::make_shared<std::atomic<bool> >(false)};
 
+    boost::posix_time::time_duration mip_time_limit
+            = util::GetTimeDurationOrDefault(FLAGS_time_limit, DEFAULT_TIME_LIMIT);
     boost::posix_time::time_duration visit_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration break_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration overtime_window{boost::posix_time::minutes(15)};
@@ -1342,8 +1323,7 @@ int main(int argc, char *argv[]) {
 
     auto problem_model = Model::Create(problem, engine_config, visit_time_window, break_time_window, overtime_window);
     problem_model.PrintStats();
-    const auto ip_solution = problem_model.Solve(solution_opt);
-
+    const auto ip_solution = problem_model.Solve(solution_opt, mip_time_limit);
 
     const auto routes = solver_wrapper->GetRoutes(ip_solution, *routing_model);
     operations_research::Assignment *assignment = routing_model->ReadAssignmentFromRoutes(routes, false);
@@ -1357,8 +1337,9 @@ int main(int argc, char *argv[]) {
         CHECK(validation_result.error() == nullptr);
     }
 
-    // TODO: compare cost of both solutions
-    // TODO: show differences between both solutions
+    const rows::GexfWriter solution_writer;
+    boost::filesystem::path output_file{FLAGS_output};
+    solution_writer.Write(output_file, *solver_wrapper, *routing_model, *assignment, boost::none);
 
     return 0;
 }

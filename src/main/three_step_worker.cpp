@@ -260,9 +260,12 @@ void rows::ThreeStepSchedulingWorker::Run() {
         CHECK(validation_result.error() == nullptr);
     }
 
+    boost::filesystem::path output_path{output_file_};
+    std::string second_stage_output_file{"second_stage_"};
+    second_stage_output_file += output_path.filename().string();
+    boost::filesystem::path second_stage_output = boost::filesystem::absolute(second_stage_output_file, output_path.parent_path());
+
     const rows::GexfWriter solution_writer;
-    std::string second_stage_output{"second_stage_"};
-    second_stage_output.append(output_file_);
     solution_writer.Write(second_stage_output, *second_step_wrapper,
                           *second_stage_model, *second_stage_assignment, boost::none);
 
@@ -300,7 +303,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
         vehicle_metrics.emplace_back(validation_result.metrics());
     }
 
-    const auto third_search_params = rows::SolverWrapper::CreateSearchParameters(true);
+    const auto third_search_params = rows::SolverWrapper::CreateSearchParameters(false);
     std::unique_ptr<rows::SolverWrapper> third_step_solver = CreateThirdStageSolver(third_search_params,
                                                                                     second_step_wrapper->LastDroppedVisitPenalty(),
                                                                                     max_dropped_visits_count,
