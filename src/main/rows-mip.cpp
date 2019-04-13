@@ -884,8 +884,8 @@ private:
                 for (const auto &break_item : carer_node_breaks_[carer_index]) {
                     break_inflow += carer_edges_[carer_index][break_item.first][visit_node];
                 }
+                model.addConstr(break_inflow <= 1.0);
             }
-            model.addConstr(break_inflow <= 1.0);
         }
 
         // >> one break can be connected to a begin depot

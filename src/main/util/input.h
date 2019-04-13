@@ -39,7 +39,7 @@ namespace util {
     bool ValidateConsoleFormat(const char *flagname, const std::string &value);
 
     boost::posix_time::time_duration GetTimeDurationOrDefault(const std::string &text,
-                                                                     boost::posix_time::time_duration default_value);
+                                                              boost::posix_time::time_duration default_value);
 
     osrm::EngineConfig CreateEngineConfig(const std::string &maps_file);
 }

@@ -35,7 +35,7 @@ namespace rows {
 
         Solution(std::vector<ScheduledVisit> visits, std::vector<Break> breaks);
 
-        Solution Trim(boost::posix_time::ptime begin, boost::posix_time::ptime::time_duration_type duration) const;
+        Solution Trim(boost::posix_time::ptime begin, boost::posix_time::ptime end) const;
 
         class JsonLoader : protected rows::JsonLoader {
         public:

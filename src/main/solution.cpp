@@ -53,14 +53,14 @@ rows::Route rows::Solution::GetRoute(const rows::Carer &carer) const {
     return {carer, std::move(carer_visits)};
 }
 
-rows::Solution rows::Solution::Trim(boost::posix_time::ptime begin,
-                                    boost::posix_time::ptime::time_duration_type duration) const {
-    const auto end = begin + duration;
-
+rows::Solution rows::Solution::Trim(boost::posix_time::ptime begin, boost::posix_time::ptime end) const {
     std::vector<ScheduledVisit> visits_to_use;
     for (const auto &visit : visits_) {
         if (begin <= visit.datetime() && visit.datetime() <= end) {
             visits_to_use.push_back(visit);
+        } else {
+            LOG(INFO) << begin << " " << end;
+            LOG(INFO) << "Skipped visit: " << visit;
         }
     }
 
