@@ -27,8 +27,6 @@
 #include "second_step_solver.h"
 #include "gexf_writer.h"
 
-// TODO: create a solution and save it to a file
-
 DEFINE_string(problem,
               "../problem.json", "a file path to the problem instance");
 DEFINE_validator(problem, &util::file::Exists
@@ -884,8 +882,8 @@ private:
                 for (const auto &break_item : carer_node_breaks_[carer_index]) {
                     break_inflow += carer_edges_[carer_index][break_item.first][visit_node];
                 }
-                model.addConstr(break_inflow <= 1.0);
             }
+            model.addConstr(break_inflow <= 1.0);
         }
 
         // >> one break can be connected to a begin depot

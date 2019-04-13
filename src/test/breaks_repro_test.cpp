@@ -29,6 +29,7 @@
 
 #include "util/aplication_error.h"
 #include "util/error_code.h"
+#include "util/input.h"
 #include "problem.h"
 #include "solution.h"
 
@@ -524,40 +525,10 @@ rows::Problem LoadReducedProblem(const std::string &problem_path) {
     return problem.Trim(timespan_pair.first, boost::posix_time::hours(24));
 }
 
-rows::Solution LoadSolution(const std::string &solution_path, const rows::Problem &problem) {
-    boost::filesystem::path solution_file(boost::filesystem::canonical(solution_path));
-    std::ifstream solution_stream;
-    solution_stream.open(solution_file.c_str());
-    if (!solution_stream.is_open()) {
-        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
-                                     util::ErrorCode::ERROR);
-    }
-
-    nlohmann::json solution_json;
-    try {
-        solution_stream >> solution_json;
-    } catch (...) {
-        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % solution_file).str(),
-                                     boost::current_exception_diagnostic_information(),
-                                     util::ErrorCode::ERROR);
-    }
-
-    try {
-        rows::Solution::JsonLoader json_loader;
-        auto original_solution = json_loader.Load(solution_json);
-        const auto time_span = problem.Timespan();
-        return original_solution.Trim(time_span.first, time_span.second - time_span.first);
-    } catch (const std::domain_error &ex) {
-        throw util::ApplicationError(
-                (boost::format("Failed to parse the file '%1%' due to error: '%2%'") % solution_file % ex.what()).str(),
-                util::ErrorCode::ERROR);
-    }
-}
-
 TEST(TestBreaksViolation, TestRealProblem) {
     static const auto TIME_WINDOW = boost::posix_time::minutes(30);
     auto problem = LoadReducedProblem("/home/pmateusz/dev/cordia/problem.json");
-    auto solution = LoadSolution("/home/pmateusz/dev/cordia/past_solution.json", problem);
+    auto solution = util::LoadSolution("/home/pmateusz/dev/cordia/past_solution.json", problem, TIME_WINDOW);
 
     solution.UpdateVisitProperties(problem.visits());
     problem.RemoveCancelled(solution.visits());
