@@ -27,20 +27,14 @@
 #include "second_step_solver.h"
 #include "gexf_writer.h"
 
-DEFINE_string(problem,
-              "../problem.json", "a file path to the problem instance");
-DEFINE_validator(problem, &util::file::Exists
-);
+DEFINE_string(problem, "../problem.json", "a file path to the problem instance");
+DEFINE_validator(problem, &util::file::Exists);
 
-DEFINE_string(solution,
-              "", "a file path to the solution file for warm start");
-DEFINE_validator(solution, &util::file::IsNullOrExists
-);
+DEFINE_string(solution, "", "a file path to the solution file for warm start");
+DEFINE_validator(solution, &util::file::IsNullOrExists);
 
-DEFINE_string(maps,
-              "../data/scotland-latest.osrm", "a file path to the map");
-DEFINE_validator(maps, &util::file::Exists
-);
+DEFINE_string(maps, "../data/scotland-latest.osrm", "a file path to the map");
+DEFINE_validator(maps, &util::file::Exists);
 
 DEFINE_string(output, "output.gexf", "an output file");
 
@@ -189,6 +183,7 @@ public:
         num_carers_ = carer_diaries_.size();
         carer_node_breaks_.resize(num_carers_);
         carer_break_start_times_.resize(num_carers_);
+        carer_break_potentials_.resize(num_carers_);
         carer_edges_.resize(num_carers_);
 
         auto current_node = 0;
@@ -254,12 +249,15 @@ public:
         // model.set(GRB_DoubleParam_Heuristics, 0.2);
         // 1 - focus on feasible solutions, 2 - focus on proving optimality, 3 - focus on bound
         model.set(GRB_IntParam_MIPFocus, 2);
+//        model.set(GRB_IntParam_SubMIPNodes, GRB_MAXINT); // set to max int if the initial solution is partial
         model.optimize();
 
         const auto solver_status = model.get(GRB_IntAttr_Status);
 
 
         if (solver_status != GRB_OPTIMAL && solver_status != GRB_TIME_LIMIT) {
+//            model.computeIIS();
+//            model.write("failed_model.ilp");
             LOG(FATAL) << "Invalid status: " << GetStatus(solver_status);
             return rows::Solution();
         }
@@ -523,10 +521,16 @@ public:
             LOG(INFO) << "Carer " << carer;
             LOG(INFO) << carer_diaries_[carer_index].first;
             for (const auto &edge : marked_edges[carer_index]) {
-                LOG(INFO) << boost::format("%|4t|%1% %|8t|%2% %|12t|%3%")
+                auto potential = edge.second + 1;
+                if (edge.second > end_depot_node_) {
+                    potential = carer_break_potentials_[carer_index][edge.second].get(GRB_DoubleAttr_X);
+                }
+
+                LOG(INFO) << boost::format("%|4t|%1% %|8t|%2% %|12t|%3% %|16t|(%4%)")
                              % carer_index
                              % edge.first
-                             % edge.second;
+                             % edge.second
+                             % potential;
             }
 
             for (const auto &activity : activities) {
@@ -610,6 +614,18 @@ private:
                 carer_break_start_times_[carer_index].emplace(
                         carer_break_item.first,
                         model.addVar(0.0, horizon_duration_.total_seconds(), 0.0, GRB_CONTINUOUS, label));
+            }
+        }
+
+        // define potentials for breaks
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            const auto num_carer_nodes = carer_edges_[carer_index].size();
+            for (const auto &carer_break_item : carer_node_breaks_[carer_index]) {
+                std::string label = "c_" + std::to_string(carer_index) + "_" + std::to_string(carer_break_item.first) +
+                                    "_potential";
+                carer_break_potentials_[carer_index].emplace(
+                        carer_break_item.first,
+                        model.addVar(1.0, num_carer_nodes + 1, 0.0, GRB_CONTINUOUS, label));
             }
         }
 
@@ -735,16 +751,16 @@ private:
         }
 
         // 7 - return from break to the same node
-        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                const auto break_node = break_item.first;
-
-                for (auto other_node = begin_depot_node_; other_node <= end_depot_node_; ++other_node) {
-                    model.addConstr(carer_edges_[carer_index][break_node][other_node]
-                                    == carer_edges_[carer_index][other_node][break_node]);
-                }
-            }
-        }
+//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+//            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+//                const auto break_node = break_item.first;
+//
+//                for (auto other_node = begin_depot_node_; other_node <= end_depot_node_; ++other_node) {
+//                    model.addConstr(carer_edges_[carer_index][break_node][other_node]
+//                                    == carer_edges_[carer_index][other_node][break_node]);
+//                }
+//            }
+//        }
 
         // 8 - carer taking break before a visit is scheduled to make that visit
         // cases for the begin and end depot are trivially satisfied
@@ -896,21 +912,97 @@ private:
         }
 
         // >> connections between breaks are not allowed
+//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+//            for (const auto &in_break_item : carer_node_breaks_[carer_index]) {
+//                for (const auto &out_break_item : carer_node_breaks_[carer_index]) {
+//                    model.addConstr(carer_edges_[carer_index][in_break_item.first][out_break_item.first] == 0.0);
+//                }
+//            }
+//        }
+
+        // for each node sum of outgoing breaks is equal to sum of the incoming edges
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            for (const auto &in_break_item : carer_node_breaks_[carer_index]) {
-                for (const auto &out_break_item : carer_node_breaks_[carer_index]) {
-                    model.addConstr(carer_edges_[carer_index][in_break_item.first][out_break_item.first] == 0.0);
+            for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+                GRBLinExpr break_outflow = 0;
+                GRBLinExpr break_inflow = 0;
+                for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                    break_outflow += carer_edges_[carer_index][node_index][break_item.first];
+                    break_inflow += carer_edges_[carer_index][break_item.first][node_index];
                 }
+                model.addConstr(break_outflow == break_inflow);
             }
         }
 
-        // >> at most one break can be connected to a end depot
+        // >> at least  one break can be connected to a end depot
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             GRBLinExpr break_inflow = 0;
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
                 break_inflow += carer_edges_[carer_index][end_depot_node_][break_item.first];
             }
-            model.addConstr(break_inflow == 1.0);
+            model.addConstr(break_inflow >= 1.0);
+        }
+
+        // one edge is incoming into a break
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            const auto num_carer_nodes = carer_edges_[carer_index].size();
+            for (const auto &break_item: carer_node_breaks_[carer_index]) {
+                GRBLinExpr break_inflow = 0;
+                for (auto node_index = 0; node_index < num_carer_nodes; ++node_index) {
+                    break_inflow += carer_edges_[carer_index][node_index][break_item.first];
+                }
+                model.addConstr(break_inflow == 1.0);
+            }
+        }
+
+        // >> set break potential for [visit] -> [break] or [depot] -> [break] connection
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
+                GRBLinExpr edge_inflow = 0;
+                GRBLinExpr potential_inflow = 0;
+                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+                    edge_inflow += carer_edges_[carer_index][node_index][potential_item.first];
+                    potential_inflow += (node_index + 1) * carer_edges_[carer_index][node_index][potential_item.first];
+                }
+
+                model.addConstr(potential_item.second <= potential_inflow + BIG_M * (1.0 - edge_inflow));
+            }
+        }
+
+        // set break potential for [break] -> [visit] or [break] -> [depot] connection
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+                for (const auto &potential_item : carer_break_potentials_[carer_index]) {
+                    model.addConstr((node_index + 1) * carer_edges_[carer_index][potential_item.first][node_index]
+                                    <= potential_item.second +
+                                       BIG_M * (1 - carer_edges_[carer_index][potential_item.first][node_index]));
+                }
+            }
+        }
+
+        // break potential propagation for [break] -> [break] connections
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &in_potential_item : carer_break_potentials_[carer_index]) {
+                for (const auto &out_potential_item : carer_break_potentials_[carer_index]) {
+                    if (in_potential_item.first == out_potential_item.first) { continue; }
+
+                    model.addConstr(out_potential_item.second <= in_potential_item.second + BIG_M * (1.0 -
+                                                                                                     carer_edges_[carer_index][in_potential_item.first][out_potential_item.first]));
+                }
+            }
+        }
+
+        // start time is propagated across connected breaks
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &input_break_item: carer_break_start_times_[carer_index]) {
+                for (const auto &output_break_item: carer_break_start_times_[carer_index]) {
+                    if (input_break_item.first == output_break_item.first) { continue; }
+                    model.addConstr(input_break_item.second +
+                                    carer_node_breaks_[carer_index].at(
+                                            input_break_item.first).duration().total_seconds()
+                                    <= output_break_item.second + BIG_M * (1 -
+                                                                           carer_edges_[carer_index][input_break_item.first][output_break_item.first]));
+                }
+            }
         }
 
         // 12 - active nodes
@@ -936,7 +1028,7 @@ private:
             model.addConstr(visit_start_times_[visit_nodes.first] == visit_start_times_[visit_nodes.second]);
         }
 
-        // 15 - start times for visits
+        // 15 - box constraints - start times for visits
         for (const auto &visit_nodes : visit_start_times_) {
             GRBLinExpr left = active_visits_[visit_nodes.first] *
                               (node_visits_[visit_nodes.first].datetime().time_of_day() -
@@ -950,7 +1042,7 @@ private:
             model.addConstr(visit_start_times_[visit_nodes.first] <= right);
         }
 
-        // 16 - start times for breaks
+        // 16 - box constraints - start times for breaks
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             const auto carer_num_nodes = carer_edges_[carer_index].size();
 
@@ -1015,79 +1107,6 @@ private:
         if (solution_opt) { SetInitialSolution(solution_opt.get()); }
     }
 
-//    void SetInitialSolution(const rows::Solution &solution) {
-//        std::unordered_set<std::size_t> visited_nodes;
-//
-//        for (const auto &carer : solution.Carers()) {
-//            const auto route = solution.GetRoute(carer);
-//            const auto carer_index = GetIndex(carer);
-//
-//            std::vector<std::pair<std::size_t, std::size_t>> solution_edges;
-//            auto last_node = begin_depot_node_;
-//            for (const auto &visit : route.visits()) {
-//                const auto node_ids = GetNodes(visit.calendar_visit().get());
-//                std::size_t current_node = 0;
-//                auto node_found = false;
-//                for (auto node_id : node_ids) {
-//                    if (visited_nodes.find(node_id) == std::end(visited_nodes)) {
-//                        current_node = node_id;
-//                        node_found = true;
-//                        visited_nodes.insert(node_id);
-//                        break;
-//                    }
-//                }
-//
-//                CHECK(node_found);
-//
-//                solution_edges.emplace_back(last_node, current_node);
-//                last_node = current_node;
-//            }
-//            solution_edges.emplace_back(last_node, end_depot_node_);
-//
-//            for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
-//                for (auto to_node = begin_depot_node_; to_node <= end_depot_node_; ++to_node) {
-//                    carer_edges_[carer_index][from_node][to_node].set(GRB_DoubleAttr_UB, 0.0);
-//                    carer_edges_[carer_index][from_node][to_node].set(GRB_DoubleAttr_LB, 0.0);
-//                }
-//            }
-//
-//            for (const auto &edge : solution_edges) {
-//                carer_edges_[carer_index][edge.first][edge.second].set(GRB_DoubleAttr_UB, 1.0);
-//                carer_edges_[carer_index][edge.first][edge.second].set(GRB_DoubleAttr_LB, 1.0);
-//            }
-//        }
-//
-//        for (const auto &visit : solution.visits()) {
-//            if (visit.carer()) {
-//                for (const auto visit_node : GetNodes(visit.calendar_visit().get())) {
-//                    visit_start_times_[visit_node].set(GRB_DoubleAttr_UB,
-//                                                       visit.datetime().time_of_day().total_seconds());
-//                    visit_start_times_[visit_node].set(GRB_DoubleAttr_LB,
-//                                                       visit.datetime().time_of_day().total_seconds());
-//                    active_visits_[visit_node].set(GRB_DoubleAttr_UB, 1.0);
-//                    active_visits_[visit_node].set(GRB_DoubleAttr_LB, 1.0);
-//                }
-//            } else {
-//                for (const auto visit_node: GetNodes(visit.calendar_visit().get())) {
-//                    visit_start_times_[visit_node].set(GRB_DoubleAttr_UB, 0.0);
-//                    visit_start_times_[visit_node].set(GRB_DoubleAttr_LB, 0.0);
-//                    active_visits_[visit_node].set(GRB_DoubleAttr_UB, 0.0);
-//                    active_visits_[visit_node].set(GRB_DoubleAttr_LB, 0.0);
-//                }
-//            }
-//        }
-//
-//        for (const auto &break_element : solution.breaks()) {
-//            const auto carer_index = GetIndex(break_element.carer());
-//            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);
-//
-//            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_UB,
-//                                                                  break_element.datetime().time_of_day().total_seconds());
-//            carer_break_start_times_[carer_index][break_node].set(GRB_DoubleAttr_LB,
-//                                                                  break_element.datetime().time_of_day().total_seconds());
-//        }
-//    }
-
     void SetInitialSolution(const rows::Solution &solution) {
         std::unordered_set<std::size_t> visited_nodes;
 
@@ -1131,8 +1150,9 @@ private:
         for (const auto &visit : solution.visits()) {
             if (visit.carer()) {
                 for (const auto visit_node : GetNodes(visit.calendar_visit().get())) {
-                    visit_start_times_[visit_node].set(GRB_DoubleAttr_Start,
-                                                       visit.datetime().time_of_day().total_seconds());
+//                    // DO NOT SET START TIME of visits - impossible to infer in the solution combined with breaks
+//                    visit_start_times_[visit_node].set(GRB_DoubleAttr_Start,
+//                                                       visit.datetime().time_of_day().total_seconds());
                     active_visits_[visit_node].set(GRB_DoubleAttr_Start, 1.0);
                 }
             } else {
@@ -1143,6 +1163,7 @@ private:
             }
         }
 
+//        // DO NOT SET BREAKS
 //        for (const auto &break_element : solution.breaks()) {
 //            const auto carer_index = GetIndex(break_element.carer());
 //            const auto break_node = GetNodeOrNeighbor(carer_index, break_element);
@@ -1264,6 +1285,7 @@ private:
 
     std::vector<std::unordered_map<std::size_t, rows::Break>> carer_node_breaks_;
     std::vector<std::unordered_map<std::size_t, GRBVar>> carer_break_start_times_;
+    std::vector<std::unordered_map<std::size_t, GRBVar>> carer_break_potentials_;
 
     std::vector<std::vector<std::vector<GRBVar>>> carer_edges_;
 };
@@ -1309,19 +1331,19 @@ int main(int argc, char *argv[]) {
 
     if (solution_opt) {
         for (const auto &visit : solution_opt.get().visits()) {
-            LOG(INFO) << visit;
+            VLOG(1) << visit;
         }
 
         const auto initial_routes = solver_wrapper->GetRoutes(solution_opt.get(), *routing_model);
-        operations_research::Assignment *initial_assignment = routing_model->ReadAssignmentFromRoutes(initial_routes,
-                                                                                                      false);
+        operations_research::Assignment *initial_assignment
+                = routing_model->ReadAssignmentFromRoutes(initial_routes, false);
         if (initial_assignment == nullptr || !routing_model->solver()->CheckAssignment(initial_assignment)) {
             throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
         }
     }
 
     auto problem_model = Model::Create(problem, engine_config, visit_time_window, break_time_window, overtime_window);
-    problem_model.PrintStats();
+//    problem_model.PrintStats();
     const auto ip_solution = problem_model.Solve(solution_opt, mip_time_limit);
 
     const auto routes = solver_wrapper->GetRoutes(ip_solution, *routing_model);

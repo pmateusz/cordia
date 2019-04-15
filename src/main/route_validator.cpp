@@ -1645,4 +1645,22 @@ namespace rows {
     boost::posix_time::time_period RouteValidatorBase::FixedDurationActivity::period() const {
         return start_window_;
     }
+
+    std::ostream &operator<<(std::ostream &out, RouteValidatorBase::ActivityType activity_type) {
+        switch (activity_type) {
+            case rows::RouteValidatorBase::ActivityType::Visit:
+                out << "visit";
+                break;
+            case rows::RouteValidatorBase::ActivityType::Break:
+                out << "break";
+                break;
+            case rows::RouteValidatorBase::ActivityType::Travel:
+                out << "travel";
+                break;
+            default:
+                LOG(FATAL) << "ActivityType " << static_cast<int>(activity_type)
+                           << " does not have a human readable name";
+        }
+        return out;
+    }
 }

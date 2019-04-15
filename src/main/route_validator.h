@@ -2,6 +2,7 @@
 #define ROWS_ROUTE_VALIDATOR_H
 
 #include <memory>
+#include <ostream>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -407,7 +408,8 @@ namespace rows {
     };
 
     std::ostream &operator<<(std::ostream &out, RouteValidatorBase::ErrorCode error_code);
-}
 
+    std::ostream &operator<<(std::ostream &out, RouteValidatorBase::ActivityType activity_type);
+}
 
 #endif //ROWS_ROUTE_VALIDATOR_H
