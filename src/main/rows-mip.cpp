@@ -734,6 +734,22 @@ private:
                 }
 
                 model.addConstr(node_inflow == node_outflow);
+                model.addConstr(node_outflow <= 1);
+            }
+        }
+
+        // for each visit or depot outgoing flow for breaks is equal to the incoming flow
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            const auto num_carers = carer_edges_[carer_index].size();
+            for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+                GRBLinExpr break_outflow = 0;
+                GRBLinExpr break_inflow = 0;
+                for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                    break_outflow += carer_edges_[carer_index][node_index][break_item.first];
+                    break_inflow += carer_edges_[carer_index][break_item.first][node_index];
+                }
+                model.addConstr(break_outflow == break_inflow);
+                model.addConstr(break_outflow <= 1);
             }
         }
 
@@ -909,65 +925,13 @@ private:
             model.addConstr(break_inflow == 1.0);
         }
 
-        // >> connections between breaks are not allowed
-//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-//            for (const auto &in_break_item : carer_node_breaks_[carer_index]) {
-//                for (const auto &out_break_item : carer_node_breaks_[carer_index]) {
-//                    model.addConstr(carer_edges_[carer_index][in_break_item.first][out_break_item.first] == 0.0);
-//                }
-//            }
-//        }
-
-        // for each node sum of outgoing breaks is equal to sum of the incoming edges
-        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            const auto num_carers = carer_edges_[carer_index].size();
-            for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                GRBLinExpr break_outflow = 0;
-                GRBLinExpr break_inflow = 0;
-                for (auto node_index = 0; node_index < num_carers; ++node_index) {
-                    break_outflow += carer_edges_[carer_index][node_index][break_item.first];
-                    break_inflow += carer_edges_[carer_index][break_item.first][node_index];
-                }
-                model.addConstr(break_outflow == break_inflow);
-                model.addConstr(break_outflow <= 1);
-            }
-        }
-
-        // for each node outgoing flow for breaks is equal to the incoming flow
-        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            const auto num_carers = carer_edges_[carer_index].size();
-            for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-                GRBLinExpr break_outflow = 0;
-                GRBLinExpr break_inflow = 0;
-                for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                    break_outflow += carer_edges_[carer_index][node_index][break_item.first];
-                    break_inflow += carer_edges_[carer_index][break_item.first][node_index];
-                }
-                model.addConstr(break_outflow == break_inflow);
-                model.addConstr(break_outflow <= 1);
-            }
-        }
-
-        // >> at least  one break can be connected to a end depot
+        // >> one break can be connected to a end depot
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             GRBLinExpr break_inflow = 0;
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
                 break_inflow += carer_edges_[carer_index][end_depot_node_][break_item.first];
             }
-            model.addConstr(break_inflow == 1.0); //used to be >=
-        }
-
-        // one edge is incoming into a break
-        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            const auto num_carer_nodes = carer_edges_[carer_index].size();
-            for (const auto &break_item: carer_node_breaks_[carer_index]) {
-                LOG(INFO) << carer_index << " " << break_item.first << " " << break_item.second.datetime();
-                GRBLinExpr break_inflow = 0;
-                for (auto node_index = 0; node_index < num_carer_nodes; ++node_index) {
-                    break_inflow += carer_edges_[carer_index][node_index][break_item.first];
-                }
-                model.addConstr(break_inflow == 1.0);
-            }
+            model.addConstr(break_inflow == 1.0);
         }
 
         // >> set break potential for [visit] -> [break] or [depot] -> [break] connection
