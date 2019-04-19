@@ -248,7 +248,7 @@ public:
         model.set(GRB_IntParam_Presolve, 2); // max 2
         // model.set(GRB_DoubleParam_Heuristics, 0.2);
         // 1 - focus on feasible solutions, 2 - focus on proving optimality, 3 - focus on bound
-        model.set(GRB_IntParam_MIPFocus, 2);
+        model.set(GRB_IntParam_MIPFocus, 3);
 //        model.set(GRB_IntParam_SubMIPNodes, GRB_MAXINT); // set to max int if the initial solution is partial
         model.optimize();
 
@@ -649,6 +649,7 @@ private:
             model.addConstr(flow_from_begin_depot == 1.0);
         }
 
+        // -> pre-processing
         // >> initial depot gets zero inflow
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             // self loop is forbidden for all
@@ -657,6 +658,7 @@ private:
             }
         }
 
+        // -> pre-processing
         // >> self loops are forbidden
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             // self loop is forbidden for all
@@ -695,6 +697,7 @@ private:
             }
         }
 
+        // -> this constraint seems redundant
         // >> each visit is performed at most once
         for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
             GRBLinExpr node_inflow = 0;
@@ -1053,6 +1056,31 @@ private:
             }
         }
 
+        // cover cuts for multiple carer visits
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &visit_item : multiple_carer_visit_nodes_) {
+                for (auto source_node = begin_depot_node_; source_node <= end_depot_node_; ++source_node) {
+                    model.addConstr(carer_edges_[carer_index][source_node][visit_item.first]
+                                    + carer_edges_[carer_index][source_node][visit_item.second] <= 1.0);
+                }
+            }
+        }
+
+        // symmetry breaking
+        for (auto parent_carer = 1; parent_carer < num_carers_; ++parent_carer) {
+            for (auto child_carer = 0; child_carer < parent_carer; ++child_carer) {
+                for (const auto &visit_pair : multiple_carer_visit_nodes_) {
+                    GRBLinExpr child_inflow = 0;
+                    for (auto inflow_node = begin_depot_node_; inflow_node <= last_visit_node_; ++inflow_node) {
+                        child_inflow += carer_edges_[child_carer][inflow_node][visit_pair.second];
+                    }
+                    for (auto inflow_node = begin_depot_node_; inflow_node <= last_visit_node_; ++inflow_node) {
+                        model.addConstr(child_inflow <= 1 - carer_edges_[parent_carer][inflow_node][visit_pair.first]);
+                    }
+                }
+            }
+        }
+
         // define cost function
         // distance component
         GRBLinExpr cost = 0;
@@ -1154,6 +1182,7 @@ private:
         if (result.empty()) {
             LOG(FATAL) << "Visit " << visit.id() << " is not present in the problem definition";
         }
+        std::sort(std::begin(result), std::end(result));
 
         return result;
     }
