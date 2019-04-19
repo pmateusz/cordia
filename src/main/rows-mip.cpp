@@ -640,6 +640,7 @@ private:
                     model.addVar(0.0, horizon_duration_.total_seconds(), 0.0, GRB_CONTINUOUS, end_label));
         }
 
+        // ok
         // 2 - all carers start their routes
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             GRBLinExpr flow_from_begin_depot = 0;
@@ -649,6 +650,7 @@ private:
             model.addConstr(flow_from_begin_depot == 1.0);
         }
 
+        // ok
         // -> pre-processing
         // >> initial depot gets zero inflow
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
@@ -658,6 +660,7 @@ private:
             }
         }
 
+        // ok
         // -> pre-processing
         // >> self loops are forbidden
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
@@ -668,6 +671,7 @@ private:
             }
         }
 
+        // ok
         // 3 - all carers end their routes
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             GRBLinExpr flow_to_end_depot = 0;
@@ -677,6 +681,8 @@ private:
             model.addConstr(flow_to_end_depot == 1.0);
         }
 
+        // ok
+        // -> preprocessing
         // >> final depot get zero outflow
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             const auto carer_num_nodes = carer_edges_[carer_index].size();
@@ -686,6 +692,8 @@ private:
             }
         }
 
+        // this can be stronger for all carers
+        // outflow from each visit is at most one from visit nodes
         // 4 - each visit is followed by travel to at most one node
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (auto in_index = first_visit_node_; in_index <= last_visit_node_; ++in_index) {
@@ -697,7 +705,8 @@ private:
             }
         }
 
-        // -> this constraint seems redundant
+        // inflow from each visit is at most one from visit nodes
+        // -> this constraint seems redundant - ignore
         // >> each visit is performed at most once
         for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
             GRBLinExpr node_inflow = 0;
@@ -709,6 +718,7 @@ private:
             model.addConstr(node_inflow <= 1.0);
         }
 
+        // ok
         // 5 - flow conservation
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             const auto carer_num_nodes = carer_edges_[carer_index].size();
@@ -741,6 +751,7 @@ private:
             }
         }
 
+        // ok
         // for each visit or depot outgoing flow for breaks is equal to the incoming flow
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             const auto num_carers = carer_edges_[carer_index].size();
@@ -752,10 +763,11 @@ private:
                     break_inflow += carer_edges_[carer_index][break_item.first][node_index];
                 }
                 model.addConstr(break_outflow == break_inflow);
-                model.addConstr(break_outflow <= 1);
+                model.addConstr(break_outflow <= 1); // seems redundant
             }
         }
 
+        // ok
         // 6 - each break is taken exactly once
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             const auto num_carer_nodes = carer_edges_[carer_index].size();
@@ -782,6 +794,7 @@ private:
 //            }
 //        }
 
+        // ok
         // 8 - carer taking break before a visit is scheduled to make that visit
         // cases for the begin and end depot are trivially satisfied
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
@@ -794,13 +807,14 @@ private:
                         visit_node_inflow += carer_edges_[carer_index][from_node][visit_node];
                     }
                     model.addConstr(carer_edges_[carer_index][visit_node][break_node] <= visit_node_inflow);
-                    model.addConstr(carer_edges_[carer_index][break_node][visit_node] <= visit_node_inflow);
+                    model.addConstr(carer_edges_[carer_index][break_node][visit_node] <= visit_node_inflow); // redundant
                 }
             }
         }
 
         const auto BIG_M = horizon_duration_.total_seconds();
 
+        // ok - merged into 9
         // >> begin start time is lower or equal to the first visits
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
@@ -810,6 +824,7 @@ private:
             }
         }
 
+        // ok - merged into 10
         // >> begin start time is greater than the break at begin depot
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
@@ -820,6 +835,7 @@ private:
             }
         }
 
+        // ok - merged into 9
         // >> end time is greater or equal the finish of the last visit
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
@@ -831,6 +847,7 @@ private:
             }
         }
 
+        // ok - merged into 10
         // >> last break is after end time
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (auto &break_item : carer_node_breaks_[carer_index]) {
@@ -841,6 +858,7 @@ private:
             }
         }
 
+        // ok
         // 9 - visit start times
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (auto from_node = first_visit_node_; from_node <= last_visit_node_; ++from_node) {
@@ -857,6 +875,7 @@ private:
             }
         }
 
+        // ok
         // 10 - visit start times after break
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
@@ -873,6 +892,7 @@ private:
             }
         }
 
+        // ok - merged into 11
         // >> break start times after the begin depot
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
@@ -887,7 +907,7 @@ private:
             }
         }
 
-        // >> break start times
+        // 11 - break start times
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
                 for (auto prev_visit_node = first_visit_node_; prev_visit_node <= last_visit_node_; ++prev_visit_node) {
@@ -908,6 +928,7 @@ private:
             }
         }
 
+        // ok - redundant
         // >> at most one break can be connected to a visit
         for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
             GRBLinExpr break_inflow = 0;
@@ -919,6 +940,7 @@ private:
             model.addConstr(break_inflow <= 1.0);
         }
 
+        // ok
         // >> one break can be connected to a begin depot
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             GRBLinExpr break_inflow = 0;
@@ -928,6 +950,7 @@ private:
             model.addConstr(break_inflow == 1.0);
         }
 
+        // ok
         // >> one break can be connected to a end depot
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             GRBLinExpr break_inflow = 0;
@@ -937,6 +960,7 @@ private:
             model.addConstr(break_inflow == 1.0);
         }
 
+        // ok
         // >> set break potential for [visit] -> [break] or [depot] -> [break] connection
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &potential_item : carer_break_potentials_[carer_index]) {
@@ -949,6 +973,7 @@ private:
             }
         }
 
+        // ok
         // set break potential for [break] -> [visit] or [break] -> [depot] connection
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &potential_item : carer_break_potentials_[carer_index]) {
@@ -961,6 +986,8 @@ private:
             }
         }
 
+
+        // ok
         // break potential propagation for [break] -> [break] connections
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &in_potential_item : carer_break_potentials_[carer_index]) {
@@ -973,6 +1000,7 @@ private:
             }
         }
 
+        // ok
         // start time is propagated across connected breaks
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &input_break_item: carer_break_start_times_[carer_index]) {
@@ -987,6 +1015,7 @@ private:
             }
         }
 
+        // ok
         // 12 - active nodes
         for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
             GRBLinExpr visit_inflow = 0;
@@ -1000,11 +1029,13 @@ private:
             model.addConstr(visit_inflow == active_visits_[visit_node]);
         }
 
+        // ok
         // 13 - both nodes of a multiple carer visit are active
         for (const auto &visit_nodes : multiple_carer_visit_nodes_) {
             model.addConstr(active_visits_[visit_nodes.first] == active_visits_[visit_nodes.second]);
         }
 
+        // ok
         // 14 - both nodes of a multiple carer visit start at the same time
         for (const auto &visit_nodes : multiple_carer_visit_nodes_) {
             model.addConstr(visit_start_times_[visit_nodes.first] == visit_start_times_[visit_nodes.second]);
@@ -1066,6 +1097,7 @@ private:
             }
         }
 
+        // ? can be sum ?
         // symmetry breaking
         for (auto parent_carer = 1; parent_carer < num_carers_; ++parent_carer) {
             for (auto child_carer = 0; child_carer < parent_carer; ++child_carer) {
@@ -1074,9 +1106,11 @@ private:
                     for (auto inflow_node = begin_depot_node_; inflow_node <= last_visit_node_; ++inflow_node) {
                         child_inflow += carer_edges_[child_carer][inflow_node][visit_pair.second];
                     }
+                    GRBLinExpr parent_inflow = 0;
                     for (auto inflow_node = begin_depot_node_; inflow_node <= last_visit_node_; ++inflow_node) {
-                        model.addConstr(child_inflow <= 1 - carer_edges_[parent_carer][inflow_node][visit_pair.first]);
+                        parent_inflow += carer_edges_[parent_carer][inflow_node][visit_pair.first];
                     }
+                    model.addConstr(child_inflow <= 1 - parent_inflow);
                 }
             }
         }
