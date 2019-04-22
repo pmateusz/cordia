@@ -27,20 +27,28 @@
 #include "second_step_solver.h"
 #include "gexf_writer.h"
 
-DEFINE_string(problem, "../problem.json", "a file path to the problem instance");
-DEFINE_validator(problem, &util::file::Exists);
+DEFINE_string(problem,
+              "../problem.json", "a file path to the problem instance");
+DEFINE_validator(problem, &util::file::Exists
+);
 
-DEFINE_string(solution, "", "a file path to the solution file for warm start");
-DEFINE_validator(solution, &util::file::IsNullOrExists);
+DEFINE_string(solution,
+              "", "a file path to the solution file for warm start");
+DEFINE_validator(solution, &util::file::IsNullOrExists
+);
 
-DEFINE_string(maps, "../data/scotland-latest.osrm", "a file path to the map");
-DEFINE_validator(maps, &util::file::Exists);
+DEFINE_string(maps,
+              "../data/scotland-latest.osrm", "a file path to the map");
+DEFINE_validator(maps, &util::file::Exists
+);
 
-DEFINE_string(output, "output.gexf", "an output file");
+DEFINE_string(output,
+              "output.gexf", "an output file");
 
 static const auto DEFAULT_TIME_LIMIT_TEXT = "00:03:00";
 static const auto DEFAULT_TIME_LIMIT = boost::posix_time::duration_from_string(DEFAULT_TIME_LIMIT_TEXT);
-DEFINE_string(time_limit, DEFAULT_TIME_LIMIT_TEXT, "time limit for proving the optimality");
+DEFINE_string(time_limit, DEFAULT_TIME_LIMIT_TEXT,
+              "time limit for proving the optimality");
 
 void ParseArgs(int argc, char *argv[]) {
     gflags::SetVersionString("0.0.1");
@@ -248,7 +256,7 @@ public:
         model.set(GRB_IntParam_Presolve, 2); // max 2
         // model.set(GRB_DoubleParam_Heuristics, 0.2);
         // 1 - focus on feasible solutions, 2 - focus on proving optimality, 3 - focus on bound
-        model.set(GRB_IntParam_MIPFocus, 3);
+        model.set(GRB_IntParam_MIPFocus, 2);
 //        model.set(GRB_IntParam_SubMIPNodes, GRB_MAXINT); // set to max int if the initial solution is partial
         model.optimize();
 
@@ -692,31 +700,42 @@ private:
             }
         }
 
+        // ok
         // this can be stronger for all carers
         // outflow from each visit is at most one from visit nodes
         // 4 - each visit is followed by travel to at most one node
-        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            for (auto in_index = first_visit_node_; in_index <= last_visit_node_; ++in_index) {
-                GRBLinExpr node_outflow = 0;
+//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+//            for (auto in_index = first_visit_node_; in_index <= last_visit_node_; ++in_index) {
+//                GRBLinExpr node_outflow = 0;
+//                for (auto out_index = first_visit_node_; out_index <= end_depot_node_; ++out_index) {
+//                    node_outflow += carer_edges_[carer_index][in_index][out_index];
+//                }
+//                model.addConstr(node_outflow <= 1.0);
+//            }
+//        }
+
+        for (auto in_index = first_visit_node_; in_index <= last_visit_node_; ++in_index) {
+            GRBLinExpr node_outflow = 0;
+            for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
                 for (auto out_index = first_visit_node_; out_index <= end_depot_node_; ++out_index) {
                     node_outflow += carer_edges_[carer_index][in_index][out_index];
                 }
-                model.addConstr(node_outflow <= 1.0);
             }
+            model.addConstr(node_outflow <= 1.0);
         }
 
         // inflow from each visit is at most one from visit nodes
-        // -> this constraint seems redundant - ignore
+        // -> this constraint seems redundant - ignore - can remove
         // >> each visit is performed at most once
-        for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
-            GRBLinExpr node_inflow = 0;
-            for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                for (auto prev_node = 0; prev_node <= last_visit_node_; ++prev_node) {
-                    node_inflow += carer_edges_[carer_index][prev_node][visit_node];
-                }
-            }
-            model.addConstr(node_inflow <= 1.0);
-        }
+//        for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+//            GRBLinExpr node_inflow = 0;
+//            for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+//                for (auto prev_node = 0; prev_node <= last_visit_node_; ++prev_node) {
+//                    node_inflow += carer_edges_[carer_index][prev_node][visit_node];
+//                }
+//            }
+//            model.addConstr(node_inflow <= 1.0);
+//        }
 
         // ok
         // 5 - flow conservation
@@ -763,7 +782,7 @@ private:
                     break_inflow += carer_edges_[carer_index][break_item.first][node_index];
                 }
                 model.addConstr(break_outflow == break_inflow);
-                model.addConstr(break_outflow <= 1); // seems redundant
+                model.addConstr(break_outflow <= 1); // seems redundant but should keep it
             }
         }
 
@@ -797,18 +816,39 @@ private:
         // ok
         // 8 - carer taking break before a visit is scheduled to make that visit
         // cases for the begin and end depot are trivially satisfied
-        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                const auto break_node = break_item.first;
+//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+//            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+//                const auto break_node = break_item.first;
+//
+//                for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+//                    GRBLinExpr visit_node_inflow = 0;
+//                    for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
+//                        visit_node_inflow += carer_edges_[carer_index][from_node][visit_node];
+//                    }
+//                    model.addConstr(carer_edges_[carer_index][visit_node][break_node] <= visit_node_inflow);
+//                    model.addConstr(carer_edges_[carer_index][break_node][visit_node] <=
+//                                    visit_node_inflow); // redundant but should keep it
+//                }
+//            }
+//        }
 
-                for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
-                    GRBLinExpr visit_node_inflow = 0;
-                    for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
-                        visit_node_inflow += carer_edges_[carer_index][from_node][visit_node];
-                    }
-                    model.addConstr(carer_edges_[carer_index][visit_node][break_node] <= visit_node_inflow);
-                    model.addConstr(carer_edges_[carer_index][break_node][visit_node] <= visit_node_inflow); // redundant
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+                GRBLinExpr visit_node_inflow = 0;
+                for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
+                    visit_node_inflow += carer_edges_[carer_index][from_node][visit_node];
                 }
+
+                GRBLinExpr visit_break_outflow;
+                GRBLinExpr break_visit_inflow;
+                for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                    const auto break_node = break_item.first;
+                    visit_break_outflow += carer_edges_[carer_index][visit_node][break_node];
+                    break_visit_inflow += carer_edges_[carer_index][break_node][visit_node];
+                }
+
+                model.addConstr(visit_break_outflow <= visit_node_inflow);
+                model.addConstr(break_visit_inflow <= visit_node_inflow); // redundant but should keep it
             }
         }
 
@@ -928,7 +968,7 @@ private:
             }
         }
 
-        // ok - redundant
+        // ok - redundant - should stay
         // >> at most one break can be connected to a visit
         for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
             GRBLinExpr break_inflow = 0;
@@ -960,32 +1000,56 @@ private:
             model.addConstr(break_inflow == 1.0);
         }
 
+        const auto SMALL_BIG_M = end_depot_node_ + 1;
         // ok
         // >> set break potential for [visit] -> [break] or [depot] -> [break] connection
+//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+//            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
+//                const auto break_node = potential_item.first;
+//                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+//                    model.addConstr(potential_item.second
+//                                    <= (node_index + 1) * carer_edges_[carer_index][node_index][break_node]
+//                                       + SMALL_BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]));
+//                }
+//            }
+//        }
+
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &potential_item : carer_break_potentials_[carer_index]) {
                 const auto break_node = potential_item.first;
+                GRBLinExpr potential_inflow = 0;
                 for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-                    model.addConstr(potential_item.second
-                                    <= (node_index + 1) * carer_edges_[carer_index][node_index][break_node]
-                                       + BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]));
+                    potential_inflow += (node_index + 1) * carer_edges_[carer_index][node_index][break_node];
+                    potential_inflow += SMALL_BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]);
                 }
+                model.addConstr(potential_item.second <= potential_inflow);
             }
         }
 
         // ok
         // set break potential for [break] -> [visit] or [break] -> [depot] connection
+//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+//            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
+//                const auto break_node = potential_item.first;
+//                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+//                    model.addConstr((node_index + 1) * carer_edges_[carer_index][break_node][node_index]
+//                                    <= potential_item.second
+//                                       + SMALL_BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]));
+//                }
+//            }
+//        }
+
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &potential_item : carer_break_potentials_[carer_index]) {
                 const auto break_node = potential_item.first;
+                GRBLinExpr potential_outflow = 0;
                 for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-                    model.addConstr((node_index + 1) * carer_edges_[carer_index][break_node][node_index]
-                                    <= potential_item.second
-                                       + BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]));
+                    potential_outflow += (node_index + 1) * carer_edges_[carer_index][break_node][node_index];
+                    potential_outflow -= SMALL_BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]);
                 }
+                model.addConstr(potential_outflow <= potential_item.second);
             }
         }
-
 
         // ok
         // break potential propagation for [break] -> [break] connections
@@ -994,8 +1058,8 @@ private:
                 for (const auto &out_potential_item : carer_break_potentials_[carer_index]) {
                     if (in_potential_item.first == out_potential_item.first) { continue; }
 
-                    model.addConstr(out_potential_item.second <= in_potential_item.second + BIG_M * (1.0 -
-                                                                                                     carer_edges_[carer_index][in_potential_item.first][out_potential_item.first]));
+                    model.addConstr(out_potential_item.second <= in_potential_item.second + SMALL_BIG_M * (1.0 -
+                                                                                                           carer_edges_[carer_index][in_potential_item.first][out_potential_item.first]));
                 }
             }
         }
@@ -1087,13 +1151,17 @@ private:
             }
         }
 
+        // ? can be sum ?
         // cover cuts for multiple carer visits
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &visit_item : multiple_carer_visit_nodes_) {
+                GRBLinExpr first_inflow = 0;
+                GRBLinExpr second_inflow = 0;
                 for (auto source_node = begin_depot_node_; source_node <= end_depot_node_; ++source_node) {
-                    model.addConstr(carer_edges_[carer_index][source_node][visit_item.first]
-                                    + carer_edges_[carer_index][source_node][visit_item.second] <= 1.0);
+                    first_inflow += carer_edges_[carer_index][source_node][visit_item.first];
+                    second_inflow += carer_edges_[carer_index][source_node][visit_item.second];
                 }
+                model.addConstr(first_inflow + second_inflow <= 1.0);
             }
         }
 
