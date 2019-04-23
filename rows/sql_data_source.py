@@ -1113,10 +1113,12 @@ ORDER BY carer_visits.VisitID"""
     def get_visits_carers_from_schedule(self, area, begin_date, end_date, duration_estimator):
         duration_estimator.reload(self.__console, self.__get_connection, area, begin_date, end_date)
 
+        end_date_plus_one = datetime.datetime.combine(end_date, datetime.time()) + datetime.timedelta(days=1)
+
         carer_counts = {}
         for row in self.__get_connection().cursor().execute(SqlDataSource.LIST_MULTIPLE_CARER_VISITS_QUERY.format(
                 begin_date,
-                end_date)).fetchall():
+                end_date_plus_one.date())).fetchall():
             visit_id, carer_count = row
             carer_counts[visit_id] = carer_count
 

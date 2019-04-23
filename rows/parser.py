@@ -217,9 +217,9 @@ class Parser:
         make_instance_parser.add_argument('--visits', help='the number of visits', required=True)
         make_instance_parser.add_argument('--carers', help='the number of carers', required=True)
         make_instance_parser.add_argument('--output', help='the output file', required=True)
-        make_instance_parser.add_argument('--disruption',
-                                          help='the minimum and maximum deviation from the initial target',
-                                          default=0.0)
+        # make_instance_parser.add_argument('--disruption',
+        #                                   help='the minimum and maximum deviation from the initial target',
+        #                                   default=0.0)
         make_instance_parser.add_argument('--multiple-carer-share',
                                           help='the share of multiple carer visits',
                                           default=0.2)
