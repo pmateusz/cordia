@@ -6,6 +6,7 @@ import functools
 import itertools
 import logging
 import os
+import warnings
 
 import numpy
 
@@ -399,7 +400,7 @@ def compute_kmeans_clusters(visits):
             n_cluster_candidates = [count for count, freq in visit_frequency_counter.items() if
                                     freq >= MIN_CLUSTER_SIZE]
             if not n_cluster_candidates:
-                logging.warning('User %s has not enough visits to distinguish clusters', visit_group[0].user)
+                # logging.warning('User %s has not enough visits to distinguish clusters', visit_group[0].user)
                 return None
 
             n_clusters = max(count for count, freq in visit_frequency_counter.items() if freq >= MIN_CLUSTER_SIZE)
@@ -446,13 +447,15 @@ def compute_kmeans_clusters(visits):
     groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures_list = [executor.submit(compute_user_clusters, visit_group) for user_id, visit_group in groups]
-        for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
-                           total=len(futures_list),
-                           unit='users',
-                           desc='Clustering', leave=False):
-            partial_result = f.result()
-            if partial_result:
-                results.append(partial_result)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', tqdm.TqdmSynchronisationWarning)
+            for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
+                               total=len(futures_list),
+                               unit='users',
+                               desc='Clustering', leave=False):
+                partial_result = f.result()
+                if partial_result:
+                    results.append(partial_result)
     return results
 
 
@@ -503,10 +506,13 @@ def compute_dbscan_clusters(visits):
     groups = [(user_id, list(group)) for user_id, group in itertools.groupby(visits, lambda v: v.user)]
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures_list = [executor.submit(compute_user_clusters, visit_group) for user_id, visit_group in groups]
-        for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
-                           total=len(futures_list), unit='users',
-                           desc='Clustering', leave=False):
-            results.append(f.result())
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', tqdm.TqdmSynchronisationWarning)
+            warnings.simplefilter('ignore', statsmodels.debug_warnings.ConvergenceWarning)
+            for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
+                               total=len(futures_list), unit='users',
+                               desc='Clustering', leave=False):
+                results.append(f.result())
     return results
 
 
@@ -539,12 +545,13 @@ class Paths:
 
 def save_clusters(clusters, output_directory):
     paths = Paths(output_directory)
-
-    for user_clusters in tqdm.tqdm(clusters, total=len(clusters), leave=False):
-        if user_clusters:
-            user = next((cluster.user for cluster in user_clusters if cluster.user), None)
-            if user:
-                plot_clusters(user_clusters, user, output_directory)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', tqdm.TqdmSynchronisationWarning)
+        for user_clusters in tqdm.tqdm(clusters, total=len(clusters), leave=False):
+            if user_clusters:
+                user = next((cluster.user for cluster in user_clusters if cluster.user), None)
+                if user:
+                    plot_clusters(user_clusters, user, output_directory)
 
     def save_user_clusters(clusters):
         for cluster in clusters:
@@ -561,8 +568,10 @@ def save_clusters(clusters, output_directory):
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures_list = [executor.submit(save_user_clusters, user_clusters) for user_clusters in clusters]
-        for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list), total=len(futures_list), leave=False):
-            f.result()
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', tqdm.TqdmSynchronisationWarning)
+            for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list), total=len(futures_list), leave=False):
+                f.result()
 
 
 def save_forecasts(cluster_groups, output_directory):
@@ -614,10 +623,12 @@ def save_forecasts(cluster_groups, output_directory):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures_list = [executor.submit(forecast_cluster, cluster) for cluster_group in cluster_groups for cluster in
                         cluster_group]
-        for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
-                           total=len(futures_list), unit='users',
-                           desc='Forecasting', leave=False):
-            f.result()
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', tqdm.TqdmSynchronisationWarning)
+            for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
+                               total=len(futures_list), unit='users',
+                               desc='Forecasting', leave=False):
+                f.result()
 
 
 def load_clusters(input_directory):
@@ -701,12 +712,14 @@ def test_models(cluster_groups, error_file):
         futures_list = [executor.submit(test_model, cluster)
                         for cluster_group in cluster_groups
                         for cluster in cluster_group]
-        for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
-                           total=len(futures_list), unit='users',
-                           desc='Testing models', leave=False):
-            result = f.result()
-            if result:
-                results.append(result)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', tqdm.TqdmSynchronisationWarning)
+            for f in tqdm.tqdm(concurrent.futures.as_completed(futures_list),
+                               total=len(futures_list), unit='users',
+                               desc='Testing models', leave=False):
+                result = f.result()
+                if result:
+                    results.append(result)
     results_data_frame = pandas.DataFrame(data=results,
                                           columns=['FillFactor', 'Days', 'HoltWintersError', 'AverageError'])
     results_data_frame.to_pickle(error_file)

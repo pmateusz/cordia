@@ -134,8 +134,6 @@ namespace rows {
 
         const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const CalendarVisit &visit) const;
 
-        const std::vector<operations_research::RoutingModel::NodeIndex> &GetNearNodes(const CalendarVisit &visit) const;
-
         const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const ScheduledVisit &visit) const;
 
         std::pair<operations_research::RoutingModel::NodeIndex,

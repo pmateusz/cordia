@@ -253,10 +253,10 @@ public:
         Build(model, initial_solution);
 
         model.set(GRB_DoubleParam_TimeLimit, time_limit.total_seconds());
-        model.set(GRB_IntParam_Presolve, 2); // max 2
+        model.set(GRB_IntParam_Presolve, GRB_PRESOLVE_AGGRESSIVE); // max 2
         // model.set(GRB_DoubleParam_Heuristics, 0.2);
-        // 1 - focus on feasible solutions, 2 - focus on proving optimality, 3 - focus on bound
-        model.set(GRB_IntParam_MIPFocus, 2);
+        model.set(GRB_IntParam_MIPFocus, GRB_MIPFOCUS_OPTIMALITY);
+        model.set(GRB_IntParam_Cuts, GRB_CUTS_VERYAGGRESSIVE);
 //        model.set(GRB_IntParam_SubMIPNodes, GRB_MAXINT); // set to max int if the initial solution is partial
         model.optimize();
 
@@ -1560,7 +1560,7 @@ int main(int argc, char *argv[]) {
     const auto routes = solver_wrapper->GetRoutes(ip_solution, *routing_model);
     operations_research::Assignment *assignment = routing_model->ReadAssignmentFromRoutes(routes, false);
     if (assignment == nullptr || !routing_model->solver()->CheckAssignment(assignment)) {
-        throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
+        throw util::ApplicationError("Final solution is not valid.", util::ErrorCode::ERROR);
     }
 
     for (auto vehicle = 0; vehicle < solver_wrapper->vehicles(); ++vehicle) {

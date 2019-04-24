@@ -485,10 +485,49 @@ namespace rows {
         return depot_;
     }
 
+    boost::posix_time::time_duration abs_time_distance(const boost::posix_time::ptime &left,
+                                                       const boost::posix_time::ptime &right) {
+        auto time_distance = left - right;
+        if (time_distance.is_negative()) {
+            return -time_distance;
+        }
+        return time_distance;
+    }
+
     std::vector<std::vector<operations_research::RoutingModel::NodeIndex> >
     SolverWrapper::GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const {
         std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > routes;
         std::unordered_set<operations_research::RoutingModel::NodeIndex> used_nodes;
+
+        // for each scheduled visit find its calendar visit
+        std::unordered_map<rows::CalendarVisit, boost::optional<rows::CalendarVisit> > matching;
+        const auto max_node_index = visit_by_node_.size();
+        for (auto node_index = 1; node_index < max_node_index; ++node_index) {
+            matching.emplace(visit_by_node_[node_index], boost::none);
+        }
+
+        for (const auto &visit : solution.visits()) {
+            for (auto &item : matching) {
+                if (IsNear(item.first, visit.calendar_visit().get())) {
+                    if (!item.second) {
+                        item.second = visit.calendar_visit().get();
+                    } else {
+                        const auto current_distance = abs_time_distance(item.first.datetime(), item.second->datetime());
+                        const auto other_distance = abs_time_distance(item.first.datetime(), visit.datetime());
+                        if (other_distance < current_distance) {
+                            item.second = visit.calendar_visit().get();
+                        }
+                    }
+                }
+            }
+        }
+
+        for (const auto &item : matching) { CHECK(item.second) << "Visit not matched " << item.first; }
+
+        std::unordered_map<rows::CalendarVisit, rows::CalendarVisit> reverse_matching;
+        for (const auto &item : matching) {
+            reverse_matching.emplace(item.second.get(), item.first);
+        }
 
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto carer = Carer(vehicle);
@@ -497,7 +536,8 @@ namespace rows {
 
             const auto local_route = solution.GetRoute(carer);
             for (const auto &visit : local_route.visits()) {
-                if (!ContainsNear(visit.calendar_visit().get())) {
+                const auto find_it = reverse_matching.find(visit.calendar_visit().get());
+                if (find_it == std::end(reverse_matching)) {
                     LOG(INFO) << "Visit not found: " << visit.calendar_visit().get();
                     for (const auto &visit_item: visit_index_) {
                         LOG(INFO) << visit_item.first;
@@ -506,7 +546,7 @@ namespace rows {
                     continue;
                 }
 
-                const auto &visit_nodes = GetNearNodes(visit.calendar_visit().get());
+                const auto &visit_nodes = GetNodes(find_it->second);
                 auto inserted = false;
                 for (const auto &node : visit_nodes) {
                     if (used_nodes.find(node) != std::end(used_nodes)) {
@@ -843,19 +883,6 @@ namespace rows {
     SolverWrapper::GetNodes(const ScheduledVisit &visit) const {
         const auto &calendar_visit = visit.calendar_visit().get();
         return GetNodes(calendar_visit);
-    }
-
-    const std::vector<operations_research::RoutingModel::NodeIndex> &
-    SolverWrapper::GetNearNodes(const CalendarVisit &visit) const {
-        boost::optional<CalendarVisit> visit_opt = boost::none;
-        for (const auto &visit_item : visit_index_) {
-            if (IsNear(visit_item.first, visit)) {
-                visit_opt = visit_item.first;
-                break;
-            }
-        }
-        CHECK(visit_opt);
-        return GetNodes(visit_opt.get());
     }
 
     const CalendarVisit &
