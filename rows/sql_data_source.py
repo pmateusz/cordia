@@ -8,6 +8,7 @@ import math
 import itertools
 import datetime
 import pdb
+import warnings
 
 import numpy
 
@@ -578,6 +579,7 @@ ORDER BY carer_visits.VisitID"""
             import statsmodels.stats.stattools
             import statsmodels.tsa.stattools
             import statsmodels.api
+            import statsmodels.tools.sm_exceptions
             import scipy.optimize
 
             cluster_groups = compute_kmeans_clusters(visits)
@@ -660,10 +662,12 @@ ORDER BY carer_visits.VisitID"""
                                                                   trend.Duration.mean(),
                                                                   season_df)
 
-            self.__cluster_models = {}
-            for user, clusters in self.__user_clusters.items():
-                for cluster in clusters:
-                    self.__cluster_models[cluster] = compute_prediction_model(cluster)
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', statsmodels.tools.sm_exceptions.ConvergenceWarning)
+                self.__cluster_models = {}
+                for user, clusters in self.__user_clusters.items():
+                    for cluster in clusters:
+                        self.__cluster_models[cluster] = compute_prediction_model(cluster)
 
         @property
         def should_reload(self):
@@ -696,7 +700,8 @@ ORDER BY carer_visits.VisitID"""
                     return self.__cluster_models[cluster].forecast(simple_visit.original_start.date())
                 return local_visit.duration
             else:
-                logging.warning('Failed to find a cluster for user %s', local_visit.service_user)
+                # logging.warning('Failed to find a cluster for user %s', local_visit.service_user)
+                pass
             return local_visit.duration
 
     class GlobalPercentileEstimator(IntervalEstimatorBase):

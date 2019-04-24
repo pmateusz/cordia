@@ -891,6 +891,7 @@ private:
             for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
                 auto adjust_big_m = AdjustBigM(node_visits_[visit_node].datetime(), Start(carer_index));
                 adjust_big_m += visit_time_window_;
+                adjust_big_m += overtime_window_;
 
                 model.addConstr(begin_depot_start_[carer_index]
                                 <= visit_start_times_[visit_node] +
@@ -918,27 +919,16 @@ private:
                            + adjust_big_m.total_seconds()
                              * (1 - carer_edges_[carer_index][break_item.first][begin_depot_node_]));
             }
-
-//            const auto first_break_node = end_depot_node_ + 1;
-//            const auto &first_break = carer_node_breaks_[carer_index].at(first_break_node);
-//            auto adjust_big_m = AdjustBigM(Start(carer_index),
-//                                           boost::posix_time::ptime(first_break.datetime().date(),
-//                                                                    first_break.duration()));
-//            adjust_big_m += break_time_window_;
-//            model.addConstr(first_break.duration().total_seconds()
-//                            <= begin_depot_start_[carer_index]
-//                               + adjust_big_m.total_seconds()
-//                                 //                               + BIG_M
-//                                 * (1 - carer_edges_[carer_index][first_break_node][begin_depot_node_]));
         }
 
-        // ok - merged into 9
+        // ok - merged into 9 --
         // >> end time is greater or equal the finish of the last visit
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
                 const auto &visit = node_visits_[visit_node];
                 auto adjust_big_m = AdjustBigM(End(carer_index), visit.datetime() + visit.duration());
                 adjust_big_m += visit_time_window_;
+                adjust_big_m += overtime_window_;
 
                 model.addConstr(visit_start_times_[visit_node] + visit.duration().total_seconds()
                                 <= end_depot_start_[carer_index]
@@ -955,24 +945,14 @@ private:
                 const auto &break_ref = carer_node_breaks_[carer_index].at(break_item.first);
                 auto adjust_big_m = AdjustBigM(break_ref.datetime(), End(carer_index));
                 adjust_big_m += break_time_window_;
+                adjust_big_m += overtime_window_;
 
                 model.addConstr(end_depot_start_[carer_index]
                                 <= carer_break_start_times_[carer_index][break_item.first]
                                    //                                   + BIG_M
                                    + adjust_big_m.total_seconds()
-                                     * (1 - carer_edges_[carer_index][break_item.first][end_depot_node_]));
+                                     * (1 - carer_edges_[carer_index][end_depot_node_][break_item.first]));
             }
-
-//            const auto last_break_node = carer_edges_[carer_index].size() - 1;
-//            const auto &last_break = carer_node_breaks_[carer_index].at(last_break_node);
-//            auto adjust_big_m = AdjustBigM(last_break.datetime(), End(carer_index));
-//            adjust_big_m += break_time_window_;
-//
-//            model.addConstr(end_depot_start_[carer_index]
-//                            <= carer_break_start_times_[carer_index][last_break_node]
-//                               + adjust_big_m.total_seconds()
-//                                 //                               + BIG_M
-//                                 * (1 - carer_edges_[carer_index][last_break_node][end_depot_node_]));
         }
 
         // ok
@@ -1121,18 +1101,6 @@ private:
             }
         }
 
-//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-//            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
-//                const auto break_node = potential_item.first;
-//                GRBLinExpr inflow = 0;
-//                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-//                    inflow += (node_index + 1) * carer_edges_[carer_index][node_index][break_node];
-//                    inflow += SMALL_BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]);
-//                }
-//                model.addConstr(potential_item.second <= inflow);
-//            }
-//        }
-
         // ok
         // set break potential for [break] -> [visit] or [break] -> [depot] connection
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
@@ -1146,18 +1114,6 @@ private:
             }
         }
 
-//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-//            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
-//                const auto break_node = potential_item.first;
-//                GRBLinExpr outflow = 0;
-//                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-//                    outflow += (node_index + 1) * carer_edges_[carer_index][break_node][node_index];
-//                    outflow -= SMALL_BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]);
-//                }
-//                model.addConstr(outflow <= potential_item.second);
-//            }
-//        }
-
         // ok
         // break potential propagation for [break] -> [break] connections
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
@@ -1165,8 +1121,9 @@ private:
                 for (const auto &in_potential_item : carer_break_potentials_[carer_index]) {
                     if (in_potential_item.first == out_potential_item.first) { continue; }
 
-                    model.addConstr(in_potential_item.second <= out_potential_item.second + SMALL_BIG_M * (1.0 -
-                                                                                                           carer_edges_[carer_index][out_potential_item.first][in_potential_item.first]));
+                    model.addConstr(in_potential_item.second <= out_potential_item.second
+                                                                + SMALL_BIG_M * (1.0 -
+                                                                                 carer_edges_[carer_index][out_potential_item.first][in_potential_item.first]));
                 }
             }
         }
@@ -1181,16 +1138,16 @@ private:
                     if (input_break_item.first == output_break_item.first) { continue; }
 
                     const auto &output_break = carer_node_breaks_[carer_index].at(output_break_item.first);
-//                    auto adjust_big_m = AdjustBigM(output_break.datetime(),
-//                                                   input_break.datetime() + input_break.duration());
-//                    adjust_big_m += break_time_window_;
-//                    adjust_big_m += break_time_window_;
+                    auto adjust_big_m = AdjustBigM(output_break.datetime(),
+                                                   input_break.datetime() + input_break.duration());
+                    adjust_big_m += break_time_window_;
+                    adjust_big_m += break_time_window_;
 
                     model.addConstr(input_break_item.second +
                                     input_break.duration().total_seconds()
                                     <= output_break_item.second
-                                       //                                       + adjust_big_m.total_seconds()
-                                       + BIG_M
+                                       + adjust_big_m.total_seconds()
+                                         //                                       + BIG_M
                                          * (1 -
                                             carer_edges_[carer_index][input_break_item.first][output_break_item.first]));
                 }
@@ -1572,8 +1529,11 @@ int main(int argc, char *argv[]) {
     const auto ip_solution = problem_model.Solve(solution_opt, mip_time_limit);
 
     const auto routes = solver_wrapper->GetRoutes(ip_solution, *routing_model);
+
+
     operations_research::Assignment *assignment = routing_model->ReadAssignmentFromRoutes(routes, false);
-    if (assignment == nullptr || !routing_model->solver()->CheckAssignment(assignment)) {
+//    || !routing_model->solver()->CheckAssignment(assignment)
+    if (assignment == nullptr) {
         throw util::ApplicationError("Final solution is not valid.", util::ErrorCode::ERROR);
     }
 
