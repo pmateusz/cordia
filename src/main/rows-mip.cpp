@@ -903,24 +903,33 @@ private:
         // ok - merged into 10
         // >> begin start time is greater than the break at begin depot
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-//            for (const auto &break_item : carer_node_breaks_[carer_index]) {
-//                model.addConstr( // break_item.second.datetime().time_of_day().total_seconds() +
-//                        break_item.second.duration().total_seconds()
-//                        <= begin_depot_start_[carer_index]
-//                           + BIG_M * (1 - carer_edges_[carer_index][break_item.first][begin_depot_node_]));
-//            }
+            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                const auto &break_ref = carer_node_breaks_[carer_index].at(break_item.first);
+                auto adjust_big_m = AdjustBigM(Start(carer_index),
+                                               break_ref.datetime() + break_ref.duration());
+                adjust_big_m += break_time_window_;
+                adjust_big_m += overtime_window_;
 
-            const auto first_break_node = end_depot_node_ + 1;
-            const auto &first_break = carer_node_breaks_[carer_index].at(first_break_node);
-            auto adjust_big_m = AdjustBigM(Start(carer_index),
-                                           boost::posix_time::ptime(first_break.datetime().date(),
-                                                                    first_break.duration()));
-            adjust_big_m += break_time_window_;
-            model.addConstr(first_break.duration().total_seconds()
-                            <= begin_depot_start_[carer_index]
-                               + adjust_big_m.total_seconds()
-                                 //                               + BIG_M
-                                 * (1 - carer_edges_[carer_index][first_break_node][begin_depot_node_]));
+                model.addConstr( // break_item.second.datetime().time_of_day().total_seconds() +
+                        carer_break_start_times_[carer_index][break_item.first]
+                        + break_item.second.duration().total_seconds()
+                        <= begin_depot_start_[carer_index]
+                           //                           + BIG_M
+                           + adjust_big_m.total_seconds()
+                             * (1 - carer_edges_[carer_index][break_item.first][begin_depot_node_]));
+            }
+
+//            const auto first_break_node = end_depot_node_ + 1;
+//            const auto &first_break = carer_node_breaks_[carer_index].at(first_break_node);
+//            auto adjust_big_m = AdjustBigM(Start(carer_index),
+//                                           boost::posix_time::ptime(first_break.datetime().date(),
+//                                                                    first_break.duration()));
+//            adjust_big_m += break_time_window_;
+//            model.addConstr(first_break.duration().total_seconds()
+//                            <= begin_depot_start_[carer_index]
+//                               + adjust_big_m.total_seconds()
+//                                 //                               + BIG_M
+//                                 * (1 - carer_edges_[carer_index][first_break_node][begin_depot_node_]));
         }
 
         // ok - merged into 9
@@ -942,23 +951,28 @@ private:
         // ok - merged into 10
         // >> last break is after end time
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-//            for (auto &break_item : carer_node_breaks_[carer_index]) {
-//                model.addConstr(end_depot_start_[carer_index]
-//                                - BIG_M
-//                                + BIG_M * carer_edges_[carer_index][break_item.first][end_depot_node_]
-//                                <= carer_break_start_times_[carer_index][break_item.first]);
-//            }
+            for (auto &break_item : carer_node_breaks_[carer_index]) {
+                const auto &break_ref = carer_node_breaks_[carer_index].at(break_item.first);
+                auto adjust_big_m = AdjustBigM(break_ref.datetime(), End(carer_index));
+                adjust_big_m += break_time_window_;
 
-            const auto last_break_node = carer_edges_[carer_index].size() - 1;
-            const auto &last_break = carer_node_breaks_[carer_index].at(last_break_node);
-            auto adjust_big_m = AdjustBigM(last_break.datetime(), End(carer_index));
-            adjust_big_m += break_time_window_;
+                model.addConstr(end_depot_start_[carer_index]
+                                <= carer_break_start_times_[carer_index][break_item.first]
+                                   //                                   + BIG_M
+                                   + adjust_big_m.total_seconds()
+                                     * (1 - carer_edges_[carer_index][break_item.first][end_depot_node_]));
+            }
 
-            model.addConstr(end_depot_start_[carer_index]
-                            <= carer_break_start_times_[carer_index][last_break_node]
-                               + adjust_big_m.total_seconds()
-                                 //                               + BIG_M
-                                 * (1 - carer_edges_[carer_index][last_break_node][end_depot_node_]));
+//            const auto last_break_node = carer_edges_[carer_index].size() - 1;
+//            const auto &last_break = carer_node_breaks_[carer_index].at(last_break_node);
+//            auto adjust_big_m = AdjustBigM(last_break.datetime(), End(carer_index));
+//            adjust_big_m += break_time_window_;
+//
+//            model.addConstr(end_depot_start_[carer_index]
+//                            <= carer_break_start_times_[carer_index][last_break_node]
+//                               + adjust_big_m.total_seconds()
+//                                 //                               + BIG_M
+//                                 * (1 - carer_edges_[carer_index][last_break_node][end_depot_node_]));
         }
 
         // ok
@@ -1096,63 +1110,63 @@ private:
         const auto SMALL_BIG_M = end_depot_node_ + 1;
         // ok
         // >> set break potential for [visit] -> [break] or [depot] -> [break] connection
-//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-//            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
-//                const auto break_node = potential_item.first;
-//                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-//                    model.addConstr(potential_item.second
-//                                    <= (node_index + 1) * carer_edges_[carer_index][node_index][break_node]
-//                                       + SMALL_BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]));
-//                }
-//            }
-//        }
-
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &potential_item : carer_break_potentials_[carer_index]) {
                 const auto break_node = potential_item.first;
-                GRBLinExpr potential_inflow = 0;
                 for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-                    potential_inflow += (node_index + 1) * carer_edges_[carer_index][node_index][break_node];
-                    potential_inflow += SMALL_BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]);
+                    model.addConstr(potential_item.second
+                                    <= (node_index + 1) * carer_edges_[carer_index][node_index][break_node]
+                                       + SMALL_BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]));
                 }
-                model.addConstr(potential_item.second <= potential_inflow);
             }
         }
+
+//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+//            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
+//                const auto break_node = potential_item.first;
+//                GRBLinExpr inflow = 0;
+//                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+//                    inflow += (node_index + 1) * carer_edges_[carer_index][node_index][break_node];
+//                    inflow += SMALL_BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]);
+//                }
+//                model.addConstr(potential_item.second <= inflow);
+//            }
+//        }
 
         // ok
         // set break potential for [break] -> [visit] or [break] -> [depot] connection
-//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-//            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
-//                const auto break_node = potential_item.first;
-//                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-//                    model.addConstr((node_index + 1) * carer_edges_[carer_index][break_node][node_index]
-//                                    <= potential_item.second
-//                                       + SMALL_BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]));
-//                }
-//            }
-//        }
-
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &potential_item : carer_break_potentials_[carer_index]) {
                 const auto break_node = potential_item.first;
-                GRBLinExpr potential_outflow = 0;
                 for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-                    potential_outflow += (node_index + 1) * carer_edges_[carer_index][break_node][node_index];
-                    potential_outflow -= SMALL_BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]);
+                    model.addConstr((node_index + 1) * carer_edges_[carer_index][break_node][node_index]
+                                    <= potential_item.second
+                                       + SMALL_BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]));
                 }
-                model.addConstr(potential_outflow <= potential_item.second);
             }
         }
+
+//        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+//            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
+//                const auto break_node = potential_item.first;
+//                GRBLinExpr outflow = 0;
+//                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+//                    outflow += (node_index + 1) * carer_edges_[carer_index][break_node][node_index];
+//                    outflow -= SMALL_BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]);
+//                }
+//                model.addConstr(outflow <= potential_item.second);
+//            }
+//        }
 
         // ok
         // break potential propagation for [break] -> [break] connections
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            for (const auto &in_potential_item : carer_break_potentials_[carer_index]) {
-                for (const auto &out_potential_item : carer_break_potentials_[carer_index]) {
+            for (const auto &out_potential_item : carer_break_potentials_[carer_index]) {
+                for (const auto &in_potential_item : carer_break_potentials_[carer_index]) {
                     if (in_potential_item.first == out_potential_item.first) { continue; }
 
-                    model.addConstr(out_potential_item.second <= in_potential_item.second + SMALL_BIG_M * (1.0 -
-                                                                                                           carer_edges_[carer_index][in_potential_item.first][out_potential_item.first]));
+                    model.addConstr(in_potential_item.second <= out_potential_item.second + SMALL_BIG_M * (1.0 -
+                                                                                                           carer_edges_[carer_index][out_potential_item.first][in_potential_item.first]));
                 }
             }
         }
@@ -1167,16 +1181,16 @@ private:
                     if (input_break_item.first == output_break_item.first) { continue; }
 
                     const auto &output_break = carer_node_breaks_[carer_index].at(output_break_item.first);
-                    auto adjust_big_m = AdjustBigM(output_break.datetime(),
-                                                   input_break.datetime() + input_break.duration());
-                    adjust_big_m += break_time_window_;
-                    adjust_big_m += break_time_window_;
+//                    auto adjust_big_m = AdjustBigM(output_break.datetime(),
+//                                                   input_break.datetime() + input_break.duration());
+//                    adjust_big_m += break_time_window_;
+//                    adjust_big_m += break_time_window_;
 
                     model.addConstr(input_break_item.second +
                                     input_break.duration().total_seconds()
                                     <= output_break_item.second
-                                       + adjust_big_m.total_seconds()
-                                         //                                       + BIG_M
+                                       //                                       + adjust_big_m.total_seconds()
+                                       + BIG_M
                                          * (1 -
                                             carer_edges_[carer_index][input_break_item.first][output_break_item.first]));
                 }
