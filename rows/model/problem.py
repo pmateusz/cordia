@@ -122,6 +122,10 @@ class Problem(rows.model.object.DataObject):
 
             return self.__service_user
 
+        @service_user.setter
+        def service_user(self, value):
+            self.__service_user = value
+
         @property
         def date(self):
             """Return a property"""

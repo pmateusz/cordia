@@ -457,7 +457,8 @@ namespace rows {
 
 
         parameters.mutable_local_search_operators()->set_use_path_lns(true);
-        parameters.set_lns_time_limit_ms(10000);
+        parameters.set_lns_time_limit_ms(15000);
+        parameters.set_use_light_propagation(true);
 
         if (use_tabu_search) {
             parameters.mutable_local_search_operators()->set_use_full_path_lns(false);
@@ -522,11 +523,17 @@ namespace rows {
             }
         }
 
-        for (const auto &item : matching) { CHECK(item.second) << "Visit not matched " << item.first; }
+        for (const auto &item : matching) {
+            if (!item.second) {
+                LOG(WARNING) << "Visit not matched " << item.first;
+            }
+        }
 
         std::unordered_map<rows::CalendarVisit, rows::CalendarVisit> reverse_matching;
         for (const auto &item : matching) {
-            reverse_matching.emplace(item.second.get(), item.first);
+            if (item.second) {
+                reverse_matching.emplace(item.second.get(), item.first);
+            }
         }
 
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {

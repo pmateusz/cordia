@@ -1169,7 +1169,8 @@ ORDER BY carer_visits.VisitID"""
 
             if isinstance(suggested_duration, str):
                 if not suggested_duration.isdigit():
-                    raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+                    # raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+                    suggested_duration = original_duration
             elif isinstance(suggested_duration, numpy.float):
                 if math.isnan(suggested_duration) or numpy.isnan(suggested_duration):
                     raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
