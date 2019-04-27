@@ -2,7 +2,6 @@ import collections
 import copy
 import datetime
 import json
-import sys
 import logging
 import os.path
 
@@ -24,13 +23,13 @@ class Handler:
         num_visits = int(getattr(command, 'visits'))
         multiple_carer_threshold = float(getattr(command, 'multiple_carer_share'))
         num_multiple_carer_visits = int(multiple_carer_threshold * num_visits)
-        disruption = float(getattr(command, 'disruption'))
-
-        def low_disruption(value):
-            return int((1.0 - disruption) * value)
-
-        def up_disruption(value):
-            return int((1.0 + disruption) * value)
+        # disruption = float(getattr(command, 'disruption'))
+        #
+        # def low_disruption(value):
+        #     return int((1.0 - disruption) * value)
+        #
+        # def up_disruption(value):
+        #     return int((1.0 + disruption) * value)
 
         solution = rows.load.load_schedule(solution_file)
         solution_date = solution.metadata.begin
@@ -54,21 +53,35 @@ class Handler:
         for visit in visit_by_carers:
             visit_vars[visit] = model.NewBoolVar('v_{0}'.format(visit))
 
-        model.AddSumConstraint(visit_vars.values(), low_disruption(num_visits), up_disruption(num_visits))
-        model.AddSumConstraint(carer_vars.values(), num_carers, num_carers)
+        model.AddSumConstraint(visit_vars.values(), num_visits, num_visits)
+        # model.AddSumConstraint(carer_vars.values(), num_carers, num_carers)
         multiple_carer_visit_vars = [visit_vars[visit] for visit in visit_by_carers if len(visit_by_carers[visit]) == 2]
-        model.AddSumConstraint(multiple_carer_visit_vars,
-                               low_disruption(num_multiple_carer_visits),
-                               up_disruption(num_multiple_carer_visits))
+        model.AddSumConstraint(multiple_carer_visit_vars, num_multiple_carer_visits, num_multiple_carer_visits)
 
         for visit in visit_by_carers:
             for carer in visit_by_carers[visit]:
                 model.Add(visit_vars[visit] <= carer_vars[carer])
 
+        # tmp_abs = []
+        # for visit in visit_by_carers:
+        #     for carer in visit_by_carers[visit]:
+        #         tmp_var = model.NewIntVar(-1, 1, 'tmp_{0}_{1}'.format(visit, carer))
+        #         abs_tmp_var = model.NewIntVar(0, 1, 'abs_tmp_{0}_{1}'.format(visit, carer))
+        #         model.Add(tmp_var == carer_vars[carer] - visit_vars[visit])
+        #         model.AddAbsEquality(abs_tmp_var, tmp_var)
+        #         tmp_abs.append(abs_tmp_var)
+
+        tmp_var = model.NewIntVar(-len(carer_vars), len(carer_vars), 'carers_deviation')
+        model.Add(tmp_var == num_carers - sum(carer_vars.values()))
+        abs_tmp_var = model.NewIntVar(0, len(carer_vars), 'abs_carers_deviation')
+        model.AddAbsEquality(abs_tmp_var, tmp_var)
+        objective = abs_tmp_var
+        model.Minimize(objective)
+
         solver = cp_model.CpSolver()
         status = solver.Solve(model)
         if status != cp_model.FEASIBLE and status != cp_model.OPTIMAL:
-            print('Failed to find a solution. The solver returned status: {0}'.format(status), file=sys.stderr)
+            raise RuntimeError('Failed to find a solution. The solver returned status: {0}'.format(status))
 
         visits_to_keep = set()
         for visit_id, visit_variable in visit_vars.items():
@@ -148,11 +161,18 @@ class Handler:
         num_visits = len(visits_to_keep)
         num_multiple_carer_visits = len([visit_vars[visit] for visit in visit_by_carers
                                          if visit in visits_to_keep and len(visit_by_carers[visit]) == 2])
+        penalty = solver.Value(objective)
 
-        print('Generated problem with {0} carers, {1} visits and {2} multiple carer visits'
-              .format(num_carers, num_visits, num_multiple_carer_visits))
+        def generate_output_name(output_file, num_carers, num_visits, num_multiple_carer_visits):
+            filename, extension = os.path.splitext(output_file)
+            return '{0}_v{1}m{2}c{3}{4}' \
+                .format(filename, num_visits, num_multiple_carer_visits, num_carers, extension)
 
-        with open(output_file, 'w') as output_stream:
+        print('Generated problem with {0} carers, {1} visits and {2} multiple carer visits. Penalty {3}.'
+              .format(num_carers, num_visits, num_multiple_carer_visits, penalty))
+
+        output_file_to_use = generate_output_name(output_file, num_carers, num_visits, num_multiple_carer_visits)
+        with open(output_file_to_use, 'w') as output_stream:
             json.dump(problem_json, output_stream, indent=2)
 
         no_multiple_problem = copy.deepcopy(problem_json)
@@ -167,10 +187,9 @@ class Handler:
                     num_visits_converted += 1
         logging.warning('Converted %d multiple carer visits into single carer visits', num_visits_converted)
 
-        print('Generated problem with {0} carers, {1} visits and 0 multiple carer visits'
-              .format(num_carers, num_visits))
+        print('Generated problem with {0} carers, {1} visits and 0 multiple carer visits. Penalty {2}.'
+              .format(num_carers, num_visits, penalty))
 
-        filename, extension = os.path.splitext(output_file)
-        no_multiple_output_file = filename + '_no_multiple_visits' + extension
-        with open(no_multiple_output_file, 'w') as output_stream:
+        output_file_to_use = generate_output_name(output_file, num_carers, num_visits, 0)
+        with open(output_file_to_use, 'w') as output_stream:
             json.dump(no_multiple_problem, output_stream, indent=2)

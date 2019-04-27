@@ -115,6 +115,10 @@ class PastVisit(rows.model.object.DatabaseObject):  # pylint: disable=too-many-i
 
         return self.__duration
 
+    @duration.setter
+    def duration(self, value):
+        self.__duration = value
+
     @property
     def carer(self):
         """Return a property"""
@@ -127,11 +131,19 @@ class PastVisit(rows.model.object.DatabaseObject):  # pylint: disable=too-many-i
 
         return self.__check_in
 
+    @check_in.setter
+    def check_in(self, value):
+        self.__check_in = value
+
     @property
     def check_out(self):
         """Return a property"""
 
         return self.__check_out
+
+    @check_out.setter
+    def check_out(self, value):
+        self.__check_out = value
 
     @property
     def cancelled(self):

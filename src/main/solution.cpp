@@ -80,7 +80,12 @@ const std::vector<rows::Carer> rows::Solution::Carers() const {
         }
     }
 
-    return {std::begin(carers), std::end(carers)};
+    std::vector<rows::Carer> sorted_carers{std::begin(carers), std::end(carers)};
+    std::sort(std::begin(sorted_carers), std::end(sorted_carers),
+              [](const rows::Carer &left, const rows::Carer &right) -> bool {
+                  return std::stoll(left.sap_number()) <= std::stoll(right.sap_number());
+              });
+    return sorted_carers;
 }
 
 struct PartialVisitContainerContract {

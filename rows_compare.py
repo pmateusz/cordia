@@ -12,6 +12,7 @@ import os
 import os.path
 import re
 import sys
+import pprint
 
 import matplotlib
 import matplotlib.dates
@@ -23,6 +24,7 @@ import pandas
 
 import rows.console
 import rows.location_finder
+import rows.load
 import rows.model.area
 import rows.model.carer
 import rows.model.json
@@ -138,8 +140,8 @@ def configure_parser():
     compare_workload_parser.add_argument(__CANDIDATE_SCHEDULE_PATTERN)
 
     debug_parser = subparsers.add_parser(__DEBUG_COMMAND)
-    debug_parser.add_argument(__PROBLEM_FILE_ARG)
-    debug_parser.add_argument(__SOLUTION_FILE_ARG)
+    # debug_parser.add_argument(__PROBLEM_FILE_ARG)
+    # debug_parser.add_argument(__SOLUTION_FILE_ARG)
 
     compare_trace_parser = subparsers.add_parser(__COMPARE_TRACE_COMMAND)
     compare_trace_parser.add_argument(__PROBLEM_FILE_ARG)
@@ -1217,7 +1219,203 @@ def compare_prediction_error(args, settings):
         matplotlib.pyplot.close(figure)
 
 
-def debug(args, settings):
+def compare_schedule_quality(args, settings):
+    problem_file = getattr(args, __PROBLEM_FILE_ARG)
+    human_planner_schedule = getattr(args, __BASE_FILE_ARG)
+    optimizer_schedule = getattr(args, __CANDIDATE_FILE_ARG)
+
+    problem = rows.load.load_problem(problem_file)
+    base_schedule = rows.load.load_schedule(human_planner_schedule)
+    candidate_schedule = rows.load.load_schedule(optimizer_schedule)
+
+    if base_schedule.metadata.begin != candidate_schedule.metadata.begin:
+        raise ValueError('Schedules begin at a different date: {0} vs {1}'
+                         .format(base_schedule.metadata.begin, candidate_schedule.metadata.begin))
+
+    if base_schedule.metadata.end != candidate_schedule.metadata.end:
+        raise ValueError('Schedules end at a different date: {0} vs {1}'
+                         .format(base_schedule.metadata.end, candidate_schedule.metadata.end))
+
+    # DO NOT PASS DURATION
+    # pass visit duration from base schedule to candidate
+    # for candidate_visit in candidate_schedule.visits:
+    #     base_visit_match = None
+    #     for base_visit in base_schedule.visits:
+    #         if base_visit.visit.key == candidate_visit.visit.key:
+    #             base_visit_match = base_visit
+    #             break
+    #
+    #     if base_visit_match:
+    #         candidate_visit.check_in = base_visit.check_in
+    #         candidate_visit.check_out = base_visit.check_out
+    #         if candidate_visit.check_in and candidate_visit.check_out:
+    #             candidate_duration = candidate_visit.check_out - candidate_visit.check_in
+    #             if candidate_duration > datetime.timedelta(seconds=0):
+    #                 candidate_visit.duration = candidate_duration
+    #             else:
+    #                 candidate_visit.duration = base_visit.duration
+
+    location_finder = rows.location_finder.UserLocationFinder(settings)
+    location_finder.reload()
+
+    diary_by_date_by_carer = collections.defaultdict(dict)
+    for carer_shift in problem.carers:
+        for diary in carer_shift.diaries:
+            diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
+
+    date = base_schedule.metadata.begin
+    problem_file_base = os.path.basename(problem_file)
+    problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
+
+    with create_routing_session() as routing_session:
+        observed_duration_by_visit = calculate_expected_visit_duration(candidate_schedule)
+        base_schedule_frame = rows.plot.get_schedule_data_frame(base_schedule,
+                                                                routing_session,
+                                                                location_finder,
+                                                                diary_by_date_by_carer[date],
+                                                                observed_duration_by_visit)
+        candidate_schedule_frame = rows.plot.get_schedule_data_frame(candidate_schedule,
+                                                                     routing_session,
+                                                                     location_finder,
+                                                                     diary_by_date_by_carer[date],
+                                                                     observed_duration_by_visit)
+
+    def carer_client_frequency(schedule):
+        client_assigned_carers = collections.defaultdict(collections.Counter)
+        for visit in schedule.visits:
+            client_assigned_carers[visit.visit.service_user][visit.carer.sap_number] += 1
+        return client_assigned_carers
+
+    # number of different carers assigned throughout the day
+    base_carer_frequency = carer_client_frequency(base_schedule)
+    candidate_carer_frequency = carer_client_frequency(candidate_schedule)
+
+    base_schedule_squared = []
+    candidate_schedule_squared = []
+    for client in base_carer_frequency:
+        base_schedule_squared.append(sum(base_carer_frequency[client][carer] ** 2
+                                         for carer in base_carer_frequency[client]))
+        candidate_schedule_squared.append(sum(candidate_carer_frequency[client][carer] ** 2
+                                              for carer in candidate_carer_frequency[client]))
+
+    base_matching_dominates = 0
+    candidate_matching_dominates = 0
+    total_matching = len(base_schedule_squared)
+    for index in range(len(base_schedule_squared)):
+        base_matching_dominates += base_schedule_squared[index] > candidate_schedule_squared[index]
+        candidate_matching_dominates += base_schedule_squared[index] < candidate_schedule_squared[index]
+
+    def compute_span(schedule, start_time_operator):
+        client_visits = collections.defaultdict(list)
+        for visit in schedule.visits:
+            client_visits[visit.visit.service_user].append(visit)
+        for client in client_visits:
+            visits = client_visits[client]
+
+            used_keys = set()
+            unique_visits = []
+            for visit in visits:
+                date_time = start_time_operator(visit)
+                if date_time.hour == 0 and date_time.minute == 0:
+                    continue
+
+                if visit.visit.key not in used_keys:
+                    used_keys.add(visit.visit.key)
+                    unique_visits.append(visit)
+            unique_visits.sort(key=start_time_operator)
+            client_visits[client] = unique_visits
+
+        client_span = dict()
+        for client in client_visits:
+            if len(client_visits[client]) < 2:
+                continue
+
+            last_visit = client_visits[client][0]
+            total_span = datetime.timedelta()
+            for next_visit in client_visits[client][1:]:
+                total_span += start_time_operator(next_visit) - start_time_operator(last_visit)
+                last_visit = next_visit
+            client_span[client] = total_span
+        return client_span
+
+    base_schedule_span = compute_span(base_schedule, lambda visit: visit.check_in)
+    candidate_schedule_span = compute_span(candidate_schedule,
+                                           lambda visit: datetime.datetime.combine(visit.date, visit.time))
+
+    base_span_dominates = 0
+    candidate_span_dominates = 0
+    total_span = len(base_schedule_span)
+    for client in base_schedule_span:
+        if base_schedule_span[client] > candidate_schedule_span[client]:
+            base_span_dominates += 1
+        elif base_schedule_span[client] < candidate_schedule_span[client]:
+            candidate_span_dominates += 1
+
+    visits = set()
+    for local_visits in problem.visits:
+        for visit in local_visits.visits:
+            if base_schedule.metadata.begin != visit.date:
+                continue
+            visit.service_user = local_visits.service_user
+            visits.add(visit)
+
+    clients = set()
+    for visit in visits:
+        clients.add(visit.service_user)
+
+    multiple_carer_visit_keys = set()
+    for visit in visits:
+        if visit.carer_count > 1:
+            multiple_carer_visit_keys.add(visit.key)
+
+    def get_teams(schedule):
+        client_visit_carers = collections.defaultdict(lambda: collections.defaultdict(list))
+        for visit in schedule.visits:
+            if visit.visit.key not in multiple_carer_visit_keys:
+                continue
+            client_visit_carers[visit.visit.service_user][visit.visit.key].append(int(visit.carer.sap_number))
+        for client in client_visit_carers:
+            for visit_key in client_visit_carers[client]:
+                client_visit_carers[client][visit_key].sort()
+        teams = set()
+        for client in client_visit_carers:
+            for visit_key in client_visit_carers[client]:
+                teams.add(tuple(client_visit_carers[client][visit_key]))
+        return teams
+
+    base_teams = get_teams(base_schedule)
+    candidate_teams = get_teams(candidate_schedule)
+    candidate_schedule_frame['Overtime'] = compute_overtime(candidate_schedule_frame)
+    base_schedule_frame['Overtime'] = compute_overtime(base_schedule_frame)
+
+    total_base_schedule_span = datetime.timedelta()
+    total_candidate_schedule_span = datetime.timedelta()
+    for value in base_schedule_span.values():
+        total_base_schedule_span += value
+
+    for value in candidate_schedule_span.values():
+        total_candidate_schedule_span += value
+
+    results = {'problem': str(base_schedule.metadata.begin),
+               'visits': len(visits) - len(multiple_carer_visit_keys) / 2,
+               'clients': len(clients),
+               'multiple carer visits': len(multiple_carer_visit_keys) / 2,
+               'base_total_travel_time': str(base_schedule_frame['Travel'].sum()),
+               'candidate_total_travel_time': str(candidate_schedule_frame['Travel'].sum()),
+               'base_overtime': str(base_schedule_frame['Overtime'].sum()),
+               'candidate_overtime': str(candidate_schedule_frame['Overtime'].sum()),
+               'base_teams': len(base_teams),
+               'candidate_teams': len(candidate_teams),
+               'base_span': str(total_base_schedule_span),
+               'candidate_span': str(total_candidate_schedule_span),
+               'base_matching': base_matching_dominates,
+               'candidate_matching': candidate_matching_dominates}
+
+    printer = pprint.PrettyPrinter(indent=2)
+    printer.pprint(results)
+
+
+def old_debug(args, settings):
     problem = rows.plot.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
     solution_file = get_or_raise(args, __SOLUTION_FILE_ARG)
     schedule = rows.plot.load_schedule(solution_file)
@@ -1300,7 +1498,6 @@ def debug(args, settings):
     axis.legend((travel_handle, service_handle, idle_handle, overtime_handle),
                 ('Travel', 'Service', 'Idle', 'Overtime'), loc='upper right')
     matplotlib.pyplot.show()
-    pass
 
 
 def show_working_hours(args, settings):
@@ -1348,6 +1545,19 @@ def show_working_hours(args, settings):
         finally:
             matplotlib.pyplot.cla()
             matplotlib.pyplot.close(figure)
+
+
+def compute_overtime(frame):
+    idle_overtime_series = list(frame.Availability - frame.Travel - frame.Service)
+    idle_series = numpy.array(
+        list(map(lambda value: value if value.days >= 0 else datetime.timedelta(), idle_overtime_series)))
+    overtime_series = numpy.array(list(map(lambda value: datetime.timedelta(
+        seconds=abs(value.total_seconds())) if value.days < 0 else datetime.timedelta(), idle_overtime_series)))
+    return overtime_series
+
+
+def debug(args, settings):
+    pass
 
 
 if __name__ == '__main__':

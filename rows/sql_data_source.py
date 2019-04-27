@@ -8,6 +8,7 @@ import math
 import itertools
 import datetime
 import pdb
+import warnings
 
 import numpy
 
@@ -578,6 +579,7 @@ ORDER BY carer_visits.VisitID"""
             import statsmodels.stats.stattools
             import statsmodels.tsa.stattools
             import statsmodels.api
+            import statsmodels.tools.sm_exceptions
             import scipy.optimize
 
             cluster_groups = compute_kmeans_clusters(visits)
@@ -660,10 +662,12 @@ ORDER BY carer_visits.VisitID"""
                                                                   trend.Duration.mean(),
                                                                   season_df)
 
-            self.__cluster_models = {}
-            for user, clusters in self.__user_clusters.items():
-                for cluster in clusters:
-                    self.__cluster_models[cluster] = compute_prediction_model(cluster)
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', statsmodels.tools.sm_exceptions.ConvergenceWarning)
+                self.__cluster_models = {}
+                for user, clusters in self.__user_clusters.items():
+                    for cluster in clusters:
+                        self.__cluster_models[cluster] = compute_prediction_model(cluster)
 
         @property
         def should_reload(self):
@@ -696,7 +700,8 @@ ORDER BY carer_visits.VisitID"""
                     return self.__cluster_models[cluster].forecast(simple_visit.original_start.date())
                 return local_visit.duration
             else:
-                logging.warning('Failed to find a cluster for user %s', local_visit.service_user)
+                # logging.warning('Failed to find a cluster for user %s', local_visit.service_user)
+                pass
             return local_visit.duration
 
     class GlobalPercentileEstimator(IntervalEstimatorBase):
@@ -1113,10 +1118,12 @@ ORDER BY carer_visits.VisitID"""
     def get_visits_carers_from_schedule(self, area, begin_date, end_date, duration_estimator):
         duration_estimator.reload(self.__console, self.__get_connection, area, begin_date, end_date)
 
+        end_date_plus_one = datetime.datetime.combine(end_date, datetime.time()) + datetime.timedelta(days=1)
+
         carer_counts = {}
         for row in self.__get_connection().cursor().execute(SqlDataSource.LIST_MULTIPLE_CARER_VISITS_QUERY.format(
                 begin_date,
-                end_date)).fetchall():
+                end_date_plus_one.date())).fetchall():
             visit_id, carer_count = row
             carer_counts[visit_id] = carer_count
 
@@ -1162,7 +1169,8 @@ ORDER BY carer_visits.VisitID"""
 
             if isinstance(suggested_duration, str):
                 if not suggested_duration.isdigit():
-                    raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+                    # raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+                    suggested_duration = original_duration
             elif isinstance(suggested_duration, numpy.float):
                 if math.isnan(suggested_duration) or numpy.isnan(suggested_duration):
                     raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))

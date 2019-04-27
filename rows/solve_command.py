@@ -117,7 +117,8 @@ class Handler:
             elif message_type == 'tracing_event':
                 pass
             else:
-                logging.error('Failed to decode message: {0}', message)
+                # logging.error('Failed to decode message: {0}', message)
+                pass
 
         def __control_loop(self):
             try:
@@ -137,7 +138,8 @@ class Handler:
                                     self.__handle_message(message)
                                 except json.decoder.JSONDecodeError:
                                     if line:
-                                        logging.warning('Failed to decode message: ' + line.lstrip())
+                                        # logging.warning('Failed to decode message: ' + line.lstrip())
+                                        pass
                                 except Exception as ex:
                                     logging.error(ex, exc_info=True)
                             else:
