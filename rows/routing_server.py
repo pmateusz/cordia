@@ -14,8 +14,8 @@ class RoutingServer:
         EXIT_TIMEOUT = 5
 
         def __init__(self,
-                     server_executable='./build/rows-routing-server',
-                     maps_file='./data/scotland-latest.osrm'):
+                     server_executable='/home/pmateusz/dev/cordia/build/rows-routing-server',
+                     maps_file='/home/pmateusz/dev/cordia/data/scotland-latest.osrm'):
             self.__process = subprocess.Popen([server_executable, '--maps=' + maps_file],
                                               stdin=subprocess.PIPE,
                                               stdout=subprocess.PIPE,
@@ -47,7 +47,7 @@ class RoutingServer:
                 self.__process.kill()
                 self.__process.__exit__(exc, value, tb)
 
-    def __init__(self, server_executable='./build/rows-routing-server', maps_file='./data/scotland-latest.osrm'):
+    def __init__(self, server_executable='/home/pmateusz/dev/cordia/build/rows-routing-server', maps_file='/home/pmateusz/dev/cordia/data/scotland-latest.osrm'):
         self.__server_executable = server_executable
         self.__maps_file = maps_file
 
