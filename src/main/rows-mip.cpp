@@ -1530,11 +1530,9 @@ int main(int argc, char *argv[]) {
 
     const auto routes = solver_wrapper->GetRoutes(ip_solution, *routing_model);
 
-
     operations_research::Assignment *assignment = routing_model->ReadAssignmentFromRoutes(routes, false);
-//    || !routing_model->solver()->CheckAssignment(assignment)
     if (assignment == nullptr) {
-        throw util::ApplicationError("Final solution is not valid.", util::ErrorCode::ERROR);
+        throw util::ApplicationError("Failed to create a CP assignment for the solution.", util::ErrorCode::ERROR);
     }
 
     for (auto vehicle = 0; vehicle < solver_wrapper->vehicles(); ++vehicle) {
@@ -1546,6 +1544,12 @@ int main(int argc, char *argv[]) {
     const rows::GexfWriter solution_writer;
     boost::filesystem::path output_file{FLAGS_output};
     solution_writer.Write(output_file, *solver_wrapper, *routing_model, *assignment, boost::none);
+
+
+    if (!routing_model->solver()->CheckAssignment(assignment)) {
+        throw util::ApplicationError("Final solution rejected by the CP solver in the validation phase.",
+                                     util::ErrorCode::ERROR);
+    }
 
     return 0;
 }
