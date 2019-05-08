@@ -283,8 +283,8 @@ public:
             for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
                 for (auto to_node = begin_depot_node_; to_node < carer_num_nodes; ++to_node) {
                     const auto value = carer_edges_[carer_index][from_node][to_node].get(GRB_DoubleAttr_X);
-                    CHECK(value == 0.0 || value == 1.0);
-                    if (value == 1.0) {
+                    CHECK(value <= 0.000001 || value >= 0.999999);
+                    if (value >= 0.999999) {
                         if (to_node <= end_depot_node_) { // handle visit
                             if (from_node <= end_depot_node_) { // coming back from prior breaks is ignored
                                 CHECK_EQ(next_visit_nodes.at(from_node), BLANK_NODE) << " at " << to_node;
@@ -721,7 +721,7 @@ private:
         }
 
         // ok
-        // -> preprocessing
+        // -> pre-processing
         // >> final depot get zero outflow
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             const auto carer_num_nodes = carer_edges_[carer_index].size();
@@ -894,10 +894,10 @@ private:
                 adjust_big_m += overtime_window_;
 
                 model.addConstr(begin_depot_start_[carer_index]
-                                <= visit_start_times_[visit_node] +
-                                   adjust_big_m.total_seconds()
-//                                                                      BIG_M
-                                   * (1 - carer_edges_[carer_index][begin_depot_node_][visit_node]));
+                                <= visit_start_times_[visit_node] + adjust_big_m.total_seconds()
+                                                                    // BIG_M
+                                                                    * (1 -
+                                                                       carer_edges_[carer_index][begin_depot_node_][visit_node]));
             }
         }
 
@@ -915,7 +915,7 @@ private:
                         carer_break_start_times_[carer_index][break_item.first]
                         + break_item.second.duration().total_seconds()
                         <= begin_depot_start_[carer_index]
-//                                                      + BIG_M
+                           // + BIG_M
                            + adjust_big_m.total_seconds()
                              * (1 - carer_edges_[carer_index][break_item.first][begin_depot_node_]));
             }
@@ -934,7 +934,7 @@ private:
                 model.addConstr(visit_start_times_[visit_node] + visit.duration().total_seconds()
                                 <= end_depot_start_[carer_index]
                                    + adjust_big_m.total_seconds()
-//                                                                        + BIG_M
+                                     // + BIG_M
                                      * (1 - carer_edges_[carer_index][visit_node][end_depot_node_]));
             }
         }
@@ -950,7 +950,7 @@ private:
 
                 model.addConstr(end_depot_start_[carer_index]
                                 <= carer_break_start_times_[carer_index][break_item.first]
-//                                                                      + BIG_M
+                                   // + BIG_M
                                    + adjust_big_m.total_seconds()
                                      * (1 - carer_edges_[carer_index][end_depot_node_][break_item.first]));
             }
@@ -978,7 +978,7 @@ private:
                                                                    node_visits_[to_node].location().get())
                                     <= visit_start_times_[to_node]
                                        + adjust_big_m.total_seconds()
-//                                                                                + BIG_M
+                                         // + BIG_M
                                          * (1 - carer_edges_[carer_index][from_node][to_node]));
                 }
             }
@@ -986,23 +986,30 @@ private:
 
         // ok
         // 10 - visit start times after break
+        // -> special added begin depot node
         for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (const auto &break_item : carer_node_breaks_[carer_index]) {
                 const auto break_node = break_item.first;
-                for (auto to_node = first_visit_node_; to_node <= last_visit_node_; ++to_node) {
-                    const auto &visit = node_visits_[to_node];
+                for (auto from_node = begin_depot_node_; from_node <= last_visit_node_; ++from_node) {
+                    for (auto to_node = first_visit_node_; to_node <= last_visit_node_; ++to_node) {
+                        const auto &visit = node_visits_[to_node];
 
-                    auto adjust_big_m = AdjustBigM(visit.datetime(), break_item.second.datetime()
-                                                                     + break_item.second.duration());
-                    adjust_big_m += visit_time_window_;
-                    adjust_big_m += break_time_window_;
+                        auto adjust_big_m = AdjustBigM(visit.datetime(), break_item.second.datetime()
+                                                                         + break_item.second.duration());
+                        adjust_big_m += visit_time_window_;
+                        adjust_big_m += break_time_window_;
 
-                    model.addConstr(carer_break_start_times_[carer_index][break_node]
-                                    + break_item.second.duration().total_seconds()
-                                    <= visit_start_times_[to_node]
-                                       + adjust_big_m.total_seconds()
-//                                                                                + BIG_M
-                                         * (1.0 - carer_edges_[carer_index][break_node][to_node]));
+                        model.addConstr(carer_break_start_times_[carer_index][break_node]
+                                        + break_item.second.duration().total_seconds()
+                                        // warning - assuming travel happens after the last break
+                                        // + location_container_.Distance(node_visits_[from_node].location().get(),
+                                        // node_visits_[to_node].location().get())
+                                        <= visit_start_times_[to_node]
+                                           + adjust_big_m.total_seconds()
+                                             // + BIG_M
+                                             * (2.0 - carer_edges_[carer_index][break_node][to_node]
+                                                - carer_edges_[carer_index][from_node][to_node]));
+                    }
                 }
             }
         }
@@ -1018,7 +1025,7 @@ private:
                     model.addConstr(begin_depot_start_[carer_index]
                                     <= carer_break_start_times_[carer_index][break_item.first]
                                        + adjust_big_m.total_seconds()
-//                                                                                + BIG_M
+                                         // + BIG_M
                                          * (2.0
                                             - carer_edges_[carer_index][begin_depot_node_][next_visit_node]
                                             - carer_edges_[carer_index][next_visit_node][break_item.first]));
@@ -1036,19 +1043,24 @@ private:
 
                         auto adjust_big_m = AdjustBigM(break_item.second.datetime(),
                                                        prev_visit.datetime()
-                                                       + node_visits_[prev_visit_node].duration());
+                                                       + prev_visit.duration());
                         adjust_big_m += visit_time_window_;
                         adjust_big_m += break_time_window_;
 
                         GRBLinExpr left = 0;
                         left += visit_start_times_[prev_visit_node];
-                        left += node_visits_[prev_visit_node].duration().total_seconds();
+                        left += prev_visit.duration().total_seconds();
+
+                        // warning - assuming travel time must happen before the first break
+                        left += location_container_.Distance(prev_visit.location().get(),
+                                                             node_visits_[next_visit_node].location().get());
 
                         GRBLinExpr right = 0;
                         right += carer_break_start_times_[carer_index][break_item.first];
                         right += adjust_big_m.total_seconds()
-//                                                                 BIG_M
-                                 * (2.0 - carer_edges_[carer_index][prev_visit_node][next_visit_node]
+                                 // BIG_M
+                                 * (2.0
+                                    - carer_edges_[carer_index][prev_visit_node][next_visit_node]
                                     - carer_edges_[carer_index][next_visit_node][break_item.first]);
                         model.addConstr(left <= right);
                     }
@@ -1148,7 +1160,7 @@ private:
                                     input_break.duration().total_seconds()
                                     <= output_break_item.second
                                        + adjust_big_m.total_seconds()
-//                                                                                + BIG_M
+                                         // + BIG_M
                                          * (1 -
                                             carer_edges_[carer_index][input_break_item.first][output_break_item.first]));
                 }
@@ -1520,14 +1532,13 @@ int main(int argc, char *argv[]) {
         operations_research::Assignment *initial_assignment
                 = routing_model->ReadAssignmentFromRoutes(initial_routes, false);
         if (initial_assignment == nullptr || !routing_model->solver()->CheckAssignment(initial_assignment)) {
-            throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
+            LOG(WARNING) << "Solution for warm start was rejected by the CP solver.";
         }
     }
 
     auto problem_model = Model::Create(problem, engine_config, visit_time_window, break_time_window, overtime_window);
-//    problem_model.PrintStats();
+    problem_model.PrintStats();
     const auto ip_solution = problem_model.Solve(solution_opt, mip_time_limit);
-
     const auto routes = solver_wrapper->GetRoutes(ip_solution, *routing_model);
 
     operations_research::Assignment *assignment = routing_model->ReadAssignmentFromRoutes(routes, false);

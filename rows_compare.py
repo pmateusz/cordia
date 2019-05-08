@@ -56,6 +56,7 @@ __INFO_COMMAND = 'info'
 __SHOW_WORKING_HOURS_COMMAND = 'show-working-hours'
 __COMPARE_DISTANCE_COMMAND = 'compare-distance'
 __COMPARE_WORKLOAD_COMMAND = 'compare-workload'
+__COMPARE_QUALITY_COMMAND = 'compare-quality'
 __CONTRAST_WORKLOAD_COMMAND = 'contrast-workload'
 __COMPARE_PREDICTION_ERROR_COMMAND = 'compare-prediction-error'
 __TYPE_ARG = 'type'
@@ -172,6 +173,11 @@ def configure_parser():
     show_working_hours_parser = subparsers.add_parser(__SHOW_WORKING_HOURS_COMMAND)
     show_working_hours_parser.add_argument(__FILE_ARG)
     show_working_hours_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
+
+    compare_quality_parser = subparsers.add_parser(__COMPARE_QUALITY_COMMAND)
+    compare_quality_parser.add_argument(__PROBLEM_FILE_ARG)
+    compare_quality_parser.add_argument(__BASE_FILE_ARG)
+    compare_quality_parser.add_argument(__CANDIDATE_FILE_ARG)
 
     return parser
 
@@ -1589,6 +1595,8 @@ if __name__ == '__main__':
         compare_prediction_error(__args, __settings)
     elif __command == __SHOW_WORKING_HOURS_COMMAND:
         show_working_hours(__args, __settings)
+    elif __command == __COMPARE_QUALITY_COMMAND:
+        compare_schedule_quality(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:
