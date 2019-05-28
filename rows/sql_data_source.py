@@ -1,3 +1,5 @@
+import concurrent
+import concurrent.futures
 import logging
 import pandas
 import pathlib
@@ -7,12 +9,13 @@ import operator
 import math
 import itertools
 import datetime
-import pdb
 import warnings
 
 import numpy
 
 import pyodbc
+
+import tqdm
 
 import scipy.stats
 
@@ -496,7 +499,163 @@ ORDER BY carer_visits.VisitID"""
                 return value
             return super(SqlDataSource.IntervalEstimatorBase, self).__call__(local_visit)
 
-    class ForecastEstimator(object):
+    class ProphetForecastEstimator(object):
+
+        NAME = 'prophet-forecast'
+
+        def __init__(self):
+            super(SqlDataSource.ProphetForecastEstimator, self).__init__()
+
+            self.__user_clusters = collections.defaultdict(list)
+            self.__cluster_models = {}
+
+        def reload(self, console, connection_factory, area, start_date, end_date):
+            import rows.forecast.cluster
+            import rows.forecast.visit
+            import rows.forecast.forecast
+
+            cursor = connection_factory().cursor()
+            visits = []
+
+            for row in cursor.execute(
+                    SqlDataSource.LIST_PAST_VISITS_QUERY_WITH_CHECKOUT_INFO.format(area.code, start_date)) \
+                    .fetchall():
+                visit_raw_id, \
+                user_raw_id, \
+                planned_carer_id, \
+                planned_start_date_time, \
+                planned_end_date_time, \
+                planned_duration, \
+                original_start_date_time, \
+                original_end_date_time, \
+                original_duration, \
+                real_start_date_time, \
+                real_end_date_time, \
+                real_duration, \
+                check_out_raw_method, \
+                raw_tasks, \
+                area_code = row
+
+                visit = rows.forecast.visit.Visit(
+                    visit_id=int(visit_raw_id),
+                    client_id=int(user_raw_id),
+                    tasks=rows.forecast.visit.Tasks(raw_tasks),
+                    area=area_code,
+                    carer_id=int(planned_carer_id),
+                    planned_start=planned_start_date_time,
+                    planned_end=planned_end_date_time,
+                    planned_duration=(planned_end_date_time - planned_start_date_time),
+                    real_start=real_start_date_time,
+                    real_end=real_end_date_time,
+                    real_duration=(real_end_date_time - real_start_date_time),
+                    check_in_processed=bool(check_out_raw_method))
+
+                visits.append(visit)
+
+            def cluster(visit_group):
+                model = rows.forecast.cluster.AgglomerativeModel(
+                    rows.forecast.cluster.NoSameDayPlannedStarDurationDistanceMatrix())
+                return model.cluster(visit_group)
+
+            def build_model(cluster, start_time, end_time):
+                model = rows.forecast.forecast.ForecastModel()
+                model.train(cluster.visits, start_time, end_time)
+                return cluster, model
+
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', '', tqdm.TqdmSynchronisationWarning)
+                visits_to_use = rows.forecast.visit.filter_incorrect_visits(visits)
+                visits_to_use.sort(key=lambda v: v.client_id)
+                visit_groups = {client_id: list(visit_group)
+                                for client_id, visit_group in itertools.groupby(visits_to_use, lambda v: v.client_id)}
+
+                # test_visit_groups = {}
+                # test_visit_groups[9097728] = visit_groups[9097728]
+                # test_visit_groups[9093121] = visit_groups[9093121]
+                # test_visit_groups[9088515] = visit_groups[9088515]
+                # test_visit_groups[9098240] = visit_groups[9098240]
+                # visit_groups = test_visit_groups
+
+                user_clusters = collections.defaultdict(list)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', '', tqdm.TqdmSynchronisationWarning)
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        futures_list = [executor.submit(cluster, visit_groups[visit_group])
+                                        for visit_group in visit_groups]
+                        with tqdm.tqdm(desc='Computing clusters', total=len(futures_list),
+                                       leave=False) as cluster_progress_bar:
+                            for f in concurrent.futures.as_completed(futures_list):
+                                try:
+                                    client_clusters = f.result()
+                                    for cluster in client_clusters:
+                                        user_clusters[cluster.client_id].append(cluster)
+                                    cluster_progress_bar.update(1)
+                                except:
+                                    logging.exception('Exception in processing results')
+                                    pass
+
+                        self.__user_clusters = dict(user_clusters)
+
+                        start_time = datetime.datetime.combine(start_date, datetime.time())
+                        end_time = datetime.datetime.combine(end_date, datetime.time())
+                        cluster_models = dict()
+                        futures_list = []
+                        for client_id, clusters in self.__user_clusters.items():
+                            for cluster in clusters:
+                                future_handle = executor.submit(build_model, cluster, start_time, end_time)
+                                futures_list.append(future_handle)
+
+                        with tqdm.tqdm(desc='Forecasting', total=len(futures_list),
+                                       leave=False) as forecast_progress_bar:
+                            for f in concurrent.futures.as_completed(futures_list):
+                                try:
+                                    cluster, model = f.result()
+                                    cluster_models[cluster] = model
+                                    forecast_progress_bar.update(1)
+                                except:
+                                    logging.exception('Exception in processing results')
+
+                        self.__cluster_models = cluster_models
+
+        @property
+        def should_reload(self):
+            return True
+
+        def __call__(self, local_visit):
+            import rows.forecast.visit
+            import rows.forecast.cluster
+
+            planned_start_time = datetime.datetime.combine(local_visit.date, local_visit.time)
+            planned_duration = datetime.timedelta(seconds=int(local_visit.duration))
+            planned_end_time = planned_start_time + planned_duration
+            tasks = rows.forecast.visit.Tasks(local_visit.tasks)
+
+            visit_to_use = rows.forecast.visit.Visit(visit_id=local_visit.key,
+                                                     client_id=local_visit.service_user,
+                                                     carer_id=None,
+                                                     area=None,
+                                                     tasks=tasks,
+                                                     planned_start=planned_start_time,
+                                                     planned_end=planned_end_time,
+                                                     planned_duration=planned_duration,
+                                                     real_start=None,
+                                                     real_end=None,
+                                                     real_duration=None,
+                                                     check_in_processed=False)
+
+            if visit_to_use.client_id not in self.__user_clusters:
+                return visit_to_use.planned_duration
+
+            user_clusters = self.__user_clusters[visit_to_use.client_id]
+            assert user_clusters
+
+            distances = [(cluster, cluster.distance(visit_to_use)) for cluster in user_clusters]
+            cluster, min_score = min(distances, key=operator.itemgetter(1))
+            if min_score <= rows.forecast.cluster.AgglomerativeModel.DISTANCE_THRESHOLD and len(cluster.visits) >= 16:
+                return self.__cluster_models[cluster].forecast(visit_to_use.planned_start.date())
+            return visit_to_use.planned_duration
+
+    class ArimaForecastEstimator(object):
 
         NAME = 'forecast'
 
@@ -528,7 +687,7 @@ ORDER BY carer_visits.VisitID"""
                 return forecast[0][-1] + self.__trend_mean + self.__season_series.Duration[date_to_use]
 
         def __init__(self):
-            super(SqlDataSource.ForecastEstimator, self).__init__()
+            super(SqlDataSource.ArimaForecastEstimator, self).__init__()
 
             self.__cluster_models = {}
             self.__user_clusters = collections.defaultdict(list)
@@ -1174,8 +1333,11 @@ ORDER BY carer_visits.VisitID"""
             elif isinstance(suggested_duration, numpy.float):
                 if math.isnan(suggested_duration) or numpy.isnan(suggested_duration):
                     raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+            elif isinstance(suggested_duration, datetime.timedelta):
+                suggested_duration = str(int(suggested_duration.total_seconds()))
             else:
                 raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+
             visit.duration = suggested_duration
             duration_to_use = int(float(visit.duration))
             time_change.append(duration_to_use - original_duration)

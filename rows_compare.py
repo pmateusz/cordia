@@ -59,6 +59,8 @@ __COMPARE_WORKLOAD_COMMAND = 'compare-workload'
 __COMPARE_QUALITY_COMMAND = 'compare-quality'
 __CONTRAST_WORKLOAD_COMMAND = 'contrast-workload'
 __COMPARE_PREDICTION_ERROR_COMMAND = 'compare-prediction-error'
+__COMPARE_BENCHMARK_COMMAND = 'compare-benchmark'
+__COMPARE_QUALITY_OPTIMIZER_COMMAND = 'compare-quality-optimizer'
 __TYPE_ARG = 'type'
 __ACTIVITY_TYPE = 'activity'
 __VISITS_TYPE = 'visits'
@@ -83,6 +85,10 @@ __SCHEDULE_PATTERNS = 'schedule_patterns'
 __LABELS = 'labels'
 __OUTPUT = 'output'
 __ARROWS = 'arrows'
+
+__color_map = matplotlib.pyplot.get_cmap('tab20c')
+FOREGROUND_COLOR = __color_map.colors[0]
+FOREGROUND_COLOR2 = 'black'
 
 
 def get_or_raise(obj, prop):
@@ -178,6 +184,12 @@ def configure_parser():
     compare_quality_parser.add_argument(__PROBLEM_FILE_ARG)
     compare_quality_parser.add_argument(__BASE_FILE_ARG)
     compare_quality_parser.add_argument(__CANDIDATE_FILE_ARG)
+
+    compare_quality_optimizer_parser = subparsers.add_parser(__COMPARE_QUALITY_OPTIMIZER_COMMAND)
+    compare_quality_optimizer_parser.add_argument(__FILE_ARG)
+
+    compare_benchmark_parser = subparsers.add_parser(__COMPARE_BENCHMARK_COMMAND)
+    compare_benchmark_parser.add_argument(__FILE_ARG)
 
     return parser
 
@@ -351,12 +363,11 @@ def compare_distance(args, settings):
         ax3.set_xlabel('Day of October 2017')
 
         legend = rows.plot.add_legend(ax3, handles, labels, ncol=3, bbox_to_anchor=(0.5, -0.68))
-
         matplotlib.pyplot.tight_layout()
 
         figure.subplots_adjust(bottom=0.15)
 
-        rows.plot.save_figure(output_file + '.' + rows.plot.FILE_FORMAT)
+        rows.plot.save_figure(output_file)
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -420,8 +431,7 @@ def compare_workload(args, settings):
                                                                          observed_duration_by_visit)
 
             base_schedule_stem, base_schedule_ext = os.path.splitext(os.path.basename(base_schedule_file))
-            rows.plot.save_workforce_histogram(base_schedule_data_frame,
-                                               base_schedule_stem + '.' + rows.plot.FILE_FORMAT)
+            rows.plot.save_workforce_histogram(base_schedule_data_frame, base_schedule_stem)
 
             candidate_schedule_file = candidate_schedules[candidate_schedule]
             candidate_schedule_data_frame = rows.plot.get_schedule_data_frame(candidate_schedule,
@@ -429,14 +439,13 @@ def compare_workload(args, settings):
                                                                               location_finder,
                                                                               diary_by_date_by_carer[date],
                                                                               observed_duration_by_visit)
-            candidate_schedule_stem, candidate_schedule_ext = os.path.splitext(
-                os.path.basename(candidate_schedule_file))
-            rows.plot.save_workforce_histogram(candidate_schedule_data_frame,
-                                               candidate_schedule_stem + '.' + rows.plot.FILE_FORMAT)
+            candidate_schedule_stem, candidate_schedule_ext \
+                = os.path.splitext(os.path.basename(candidate_schedule_file))
+            rows.plot.save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem)
             rows.plot.save_combined_histogram(candidate_schedule_data_frame,
                                               base_schedule_data_frame,
                                               ['2nd Stage', '3rd Stage'],
-                                              'contrast_workforce_{0}_combined.{1}'.format(date, rows.plot.FILE_FORMAT))
+                                              'contrast_workforce_{0}_combined'.format(date))
 
 
 def contrast_workload(args, settings):
@@ -785,14 +794,30 @@ def traces_to_data_frame(trace_logs):
     return pandas.DataFrame(data=data, columns=columns)
 
 
-# compare formulations on one plot
+def parse_pandas_duration(value):
+    raw_hours, raw_minutes, raw_seconds = value.split(':')
+    return datetime.timedelta(hours=int(raw_hours), minutes=int(raw_minutes), seconds=int(raw_seconds))
+
 
 def format_timedelta(x, pos=None):
+    if x < 0:
+        return None
+
     delta = datetime.timedelta(seconds=x)
     time_point = datetime.datetime(2017, 1, 1) + delta
     # if time_point.hour == 0:
     #     return time_point.strftime('%M:%S')
     return time_point.strftime('%H:%M:%S')
+
+
+def format_timedelta_pandas(x, pos=None):
+    if x < 0:
+        return None
+
+    time_delta = pandas.to_timedelta(x)
+    hours = int(time_delta.total_seconds() / matplotlib.dates.SEC_PER_HOUR)
+    minutes = int(time_delta.total_seconds() / matplotlib.dates.SEC_PER_MIN) - 60 * hours
+    return '{0:02d}:{1:02d}'.format(hours, minutes)
 
 
 def format_time(x, pos=None):
@@ -1068,7 +1093,7 @@ def get_schedule_stats(data_frame):
 
 def contrast_trace(args, settings):
     problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
-    problem = rows.plot.load_problem(problem_file)
+    problem = rows.load.load_problem(problem_file)
 
     problem_file_base = os.path.basename(problem_file)
     problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
@@ -1180,13 +1205,14 @@ def contrast_trace(args, settings):
         stage3_started = \
             candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage3']['stage_started'].iloc[0]
 
-        ax1.set_xlim(left=860.0, right=stage3_started.total_seconds())
-        ax1.set_ylim(bottom=0.0, top=400000)
+        oscillation_started = datetime.timedelta(seconds=360)
+        ax1.set_xlim(left=oscillation_started.total_seconds(), right=stage3_started.total_seconds())
+        # ax1.set_ylim(bottom=0.0, top=400000)
         ax1.set_ylabel('Cost Function')
         ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
         ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
 
-        ax2.set_xlim(left=860.0, right=stage3_started.total_seconds())
+        ax2.set_xlim(left=oscillation_started.total_seconds(), right=stage3_started.total_seconds())
         ax2.set_ylim(bottom=-5.0, top=40)
         ax2.set_ylabel('Declined Visits')
         ax2.set_xlabel('Computation Time')
@@ -1403,9 +1429,11 @@ def compare_schedule_quality(args, settings):
         total_candidate_schedule_span += value
 
     results = {'problem': str(base_schedule.metadata.begin),
-               'visits': len(visits) - len(multiple_carer_visit_keys) / 2,
+               'visits': len(visits),
                'clients': len(clients),
-               'multiple carer visits': len(multiple_carer_visit_keys) / 2,
+               'multiple carer visits': len(multiple_carer_visit_keys),
+               'base_carers': len(base_schedule.carers()),
+               'candidate_carers': len(candidate_schedule.carers()),
                'base_total_travel_time': str(base_schedule_frame['Travel'].sum()),
                'candidate_total_travel_time': str(candidate_schedule_frame['Travel'].sum()),
                'base_overtime': str(base_schedule_frame['Overtime'].sum()),
@@ -1414,11 +1442,207 @@ def compare_schedule_quality(args, settings):
                'candidate_teams': len(candidate_teams),
                'base_span': str(total_base_schedule_span),
                'candidate_span': str(total_candidate_schedule_span),
-               'base_matching': base_matching_dominates,
-               'candidate_matching': candidate_matching_dominates}
+               'base_matching': int(base_matching_dominates),
+               'candidate_matching': int(candidate_matching_dominates)}
 
     printer = pprint.PrettyPrinter(indent=2)
     printer.pprint(results)
+
+
+def compare_planner_optimizer_quality(args, settings):
+    data_file = getattr(args, __FILE_ARG)
+    data_frame = pandas.read_csv(data_file)
+
+    figsize = (2.5, 5)
+    labels = ['Planners', 'Algorithm']
+
+    data_frame['travel_time'] = data_frame['Travel Time'].apply(parse_pandas_duration)
+    data_frame['span'] = data_frame['Span'].apply(parse_pandas_duration)
+    data_frame['overtime'] = data_frame['Overtime'].apply(parse_pandas_duration)
+
+    data_frame_planners = data_frame[data_frame['Type'] == 'Planners']
+    data_frame_solver = data_frame[data_frame['Type'] == 'Solver']
+
+    overtime_per_carer = [list((data_frame_planners['overtime'] / data_frame_planners['Carers']).values),
+                          list((data_frame_solver['overtime'] / data_frame_solver['Carers']).values)]
+
+    def to_matplotlib_minutes(value):
+        return value * 60 * 1000000000
+
+    fig, ax = matplotlib.pyplot.subplots(1, 1, figsize=figsize)
+    ax.boxplot(overtime_per_carer, flierprops=dict(marker='.'), medianprops=dict(color=FOREGROUND_COLOR))
+    ax.set_xticklabels(labels, rotation=45)
+    ax.set_ylabel('Overtime per Carer [HH:MM]')
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta_pandas))
+    ax.set_yticks([0, to_matplotlib_minutes(10), to_matplotlib_minutes(20), to_matplotlib_minutes(30)])
+    fig.tight_layout()
+    rows.plot.save_figure('quality_boxplot_overtime')
+
+    travel_time_per_carer = [list((data_frame_planners['travel_time'] / data_frame_planners['Carers']).values),
+                             list((data_frame_solver['travel_time'] / data_frame_solver['Carers']).values)]
+    fig, ax = matplotlib.pyplot.subplots(1, 1, figsize=figsize)
+    ax.boxplot(travel_time_per_carer, flierprops=dict(marker='.'), medianprops=dict(color=FOREGROUND_COLOR))
+    ax.set_xticklabels(labels, rotation=45)
+    ax.set_ylabel('Travel Time per Carer [HH:MM]')
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta_pandas))
+    ax.set_yticks([0, to_matplotlib_minutes(30), to_matplotlib_minutes(60),
+                   to_matplotlib_minutes(90), to_matplotlib_minutes(120)])
+    fig.tight_layout()
+    rows.plot.save_figure('quality_boxplot_travel_time')
+
+    span_per_client = [list((data_frame_planners['span'] / data_frame_planners['Clients']).values),
+                       list((data_frame_solver['span'] / data_frame_solver['Clients']).values)]
+    fig, ax = matplotlib.pyplot.subplots(1, 1, figsize=figsize)
+    ax.boxplot(span_per_client, flierprops=dict(marker='.'), medianprops=dict(color=FOREGROUND_COLOR))
+    ax.set_xticklabels(labels, rotation=45)
+    ax.set_ylabel('Visit Span per Client [HH:MM]')
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta_pandas))
+    ax.set_yticks([0, to_matplotlib_minutes(6 * 60), to_matplotlib_minutes(7 * 60), to_matplotlib_minutes(8 * 60),
+                   to_matplotlib_minutes(9 * 60)])
+    ax.set_ylim(bottom=6 * 60 * 60 * 1000000000)
+    fig.tight_layout()
+    rows.plot.save_figure('quality_span')
+
+    teams = [list(data_frame_planners['Teams'].values), list(data_frame_solver['Teams'].values)]
+    fig, ax = matplotlib.pyplot.subplots(1, 1, figsize=figsize)
+    ax.boxplot(teams, flierprops=dict(marker='.'), medianprops=dict(color=FOREGROUND_COLOR))
+    ax.set_xticklabels(labels, rotation=45)
+    ax.set_ylabel('Teams of 2 Carers')
+    fig.tight_layout()
+    rows.plot.save_figure('quality_teams')
+
+    better_matching = [list(data_frame_planners['Better Matching'].values),
+                       list(data_frame_solver['Better Matching'].values)]
+    fig, ax = matplotlib.pyplot.subplots(1, 1, figsize=figsize)
+    ax.boxplot(better_matching, flierprops=dict(marker='.'), medianprops=dict(color=FOREGROUND_COLOR))
+    ax.set_xticklabels(labels, rotation=45)
+    ax.set_ylabel('Better Client-Carer Matching')
+    fig.tight_layout()
+    rows.plot.save_figure('quality_matching')
+
+
+def parse_percent(value):
+    value_to_use = value.replace('%', '')
+    return float(value_to_use) / 100.0
+
+
+def parse_duration_seconds(value):
+    return datetime.timedelta(seconds=value)
+
+
+def compare_benchmark(args, settings):
+    data_file_path = getattr(args, __FILE_ARG)
+    data_frame = pandas.read_csv(data_file_path)
+
+    data_frame['relative_cost_difference'] = data_frame['Relative Cost Difference'].apply(parse_percent)
+    data_frame['relative_gap'] = data_frame['Relative Gap'].apply(parse_percent)
+    data_frame['time'] = data_frame['Time'].apply(parse_duration_seconds)
+
+    matplotlib.rcParams.update({'font.size': 18})
+
+    labels = ['MS', 'IP']
+    low_labels = ['Gap', 'Delta', 'Time']
+
+    cp_frame = data_frame[data_frame['Solver'] == 'CP']
+    mip_frame = data_frame[data_frame['Solver'] == 'MIP']
+
+    def get_series(frame, configuration):
+        num_visits, num_visits_of_2 = configuration
+        filtered_frame = frame[(frame['Visits'] == num_visits) & (frame['Synchronized Visits'] == num_visits_of_2)]
+        return [filtered_frame['relative_gap'].values, filtered_frame['relative_cost_difference'].values,
+                filtered_frame['time'].values]
+
+    def seconds(value):
+        return value * 1000000000
+
+    def minutes(value):
+        return 60 * seconds(value)
+
+    def hours(value):
+        return 3600 * seconds(value)
+
+    limit_configurations = [[[None, minutes(1) + seconds(15)], [0, minutes(9)]],
+                            [[None, minutes(1) + seconds(30)], [0, hours(4) + minutes(30)]],
+                            [[0, minutes(3) + seconds(30)], [0, hours(4) + minutes(30)]],
+                            [[0, minutes(3) + seconds(30)], [0, hours(4) + minutes(30)]]]
+
+    yticks_configurations = [
+        [[0, seconds(15), seconds(30), seconds(45), minutes(1)], [0, minutes(1), minutes(2), minutes(4), minutes(8)]],
+        [[0, seconds(15), seconds(30), seconds(45), minutes(1), minutes(1) + seconds(15)],
+         [0, hours(1), hours(2), hours(3), hours(4)]],
+        [[0, minutes(1), minutes(2), minutes(3)], [0, hours(1), hours(2), hours(3), hours(4)]],
+        [[0, minutes(1), minutes(2), minutes(3)], [0, hours(1), hours(2), hours(3), hours(4)]]]
+
+    problem_configurations = [(25, 0), (25, 5), (50, 0), (50, 10)]
+
+    def format_timedelta_pandas(x, pos=None):
+        if x < 0:
+            return None
+
+        time_delta = pandas.to_timedelta(x)
+        hours = int(time_delta.total_seconds() / matplotlib.dates.SEC_PER_HOUR)
+        minutes = int(time_delta.total_seconds() / matplotlib.dates.SEC_PER_MIN) - 60 * hours
+        seconds = int(time_delta.total_seconds() - 3600 * hours - 60 * minutes)
+        return '{0:01d}:{1:02d}:{2:02d}'.format(hours, minutes, seconds)
+
+    def format_percent(x, pox=None):
+        return int(x * 100.0)
+
+    for index, problem_config in enumerate(problem_configurations):
+        fig, axes = matplotlib.pyplot.subplots(1, 2)
+
+        cp_gap, cp_delta, cp_time = get_series(cp_frame, problem_config)
+        mip_gap, mip_delta, mip_time = get_series(mip_frame, problem_config)
+
+        cp_time_limit, mip_time_limit = limit_configurations[index]
+        cp_yticks, mip_yticks = yticks_configurations[index]
+
+        cp_ax, mip_ax = axes
+
+        first_color_config = dict(flierprops=dict(marker='.'),
+                                  medianprops=dict(color=FOREGROUND_COLOR),
+                                  boxprops=dict(color=FOREGROUND_COLOR),
+                                  whiskerprops=dict(color=FOREGROUND_COLOR),
+                                  capprops=dict(color=FOREGROUND_COLOR))
+
+        second_color_config = dict(flierprops=dict(marker='.'),
+                                   medianprops=dict(color=FOREGROUND_COLOR2),
+                                   boxprops=dict(color=FOREGROUND_COLOR2),
+                                   whiskerprops=dict(color=FOREGROUND_COLOR2),
+                                   capprops=dict(color=FOREGROUND_COLOR2))
+
+        cp_ax.boxplot([cp_gap, cp_delta, []], **second_color_config)
+        cp_twinx = cp_ax.twinx()
+        cp_twinx.boxplot([[], [], cp_time], **first_color_config)
+        cp_twinx.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta_pandas))
+        cp_ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_percent))
+        cp_twinx.tick_params(axis='y', labelcolor=FOREGROUND_COLOR)
+        cp_ax.set_xlabel('Multistage')
+        cp_ax.set_xticklabels(low_labels, rotation=45)
+        cp_ax.set_ylim(bottom=-0.05, top=1)
+        cp_ax.set_ylabel('Delta, Gap [%]')
+        cp_twinx.set_ylim(bottom=cp_time_limit[0], top=cp_time_limit[1])
+        if cp_yticks:
+            cp_twinx.set_yticks(cp_yticks)
+
+        mip_ax.boxplot([mip_gap, mip_delta, []], **second_color_config)
+        mip_twinx = mip_ax.twinx()
+        mip_twinx.boxplot([[], [], mip_time], **first_color_config)
+        mip_twinx.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta_pandas))
+        mip_twinx.tick_params(axis='y', labelcolor=FOREGROUND_COLOR)
+        mip_ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_percent))
+        mip_ax.set_xlabel('IP')
+        mip_ax.set_xticklabels(low_labels, rotation=45)
+        mip_ax.set_ylim(bottom=-0.05, top=1)
+        mip_twinx.set_ylabel('Computation Time [H:MM:SS]', color=FOREGROUND_COLOR)
+        mip_twinx.set_ylim(bottom=mip_time_limit[0], top=mip_time_limit[1])
+        if mip_yticks:
+            mip_twinx.set_yticks(mip_yticks)
+
+        fig.tight_layout(w_pad=0.0)
+        rows.plot.save_figure('benchmark_boxplot_{0}_{1}'.format(problem_config[0], problem_config[1]))
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(fig)
 
 
 def old_debug(args, settings):
@@ -1597,6 +1821,10 @@ if __name__ == '__main__':
         show_working_hours(__args, __settings)
     elif __command == __COMPARE_QUALITY_COMMAND:
         compare_schedule_quality(__args, __settings)
+    elif __command == __COMPARE_QUALITY_OPTIMIZER_COMMAND:
+        compare_planner_optimizer_quality(__args, __settings)
+    elif __command == __COMPARE_BENCHMARK_COMMAND:
+        compare_benchmark(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:

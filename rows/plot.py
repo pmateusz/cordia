@@ -159,14 +159,14 @@ def add_legend(axis, handles, labels, ncol, bbox_to_anchor):
     return legend
 
 
-FILE_FORMAT = 'png'
+FILE_FORMAT = 'pdf'
 
 
 def save_figure(file_path):
     matplotlib.pyplot.savefig(file_path + '.' + FILE_FORMAT,
                               format=FILE_FORMAT,
                               transparent=True,
-                              dpi=300)
+                              dpi=1200)
     # bbox_extra_artists=(legend,))
 
 

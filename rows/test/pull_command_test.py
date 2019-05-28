@@ -40,7 +40,7 @@ class HandlerTestCase(unittest.TestCase):
     def test_pull_with_forecast(self):
         """Test pull method with forecast"""
         with self.application.data_source as local_connection:
-            estimator = SqlDataSource.ForecastEstimator()
+            estimator = SqlDataSource.ArimaForecastEstimator()
             estimator.reload(self.application.console,
                              local_connection,
                              self.example_area,

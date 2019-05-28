@@ -89,8 +89,10 @@ class Handler:
             return SqlDataSource.PlannedDurationEstimator()
         elif name_to_use == SqlDataSource.PastDurationEstimator.NAME:
             return SqlDataSource.PastDurationEstimator()
-        elif name_to_use == SqlDataSource.ForecastEstimator.NAME:
-            return SqlDataSource.ForecastEstimator()
+        elif name_to_use == SqlDataSource.ArimaForecastEstimator.NAME:
+            return SqlDataSource.ArimaForecastEstimator()
+        elif name_to_use == SqlDataSource.ProphetForecastEstimator.NAME:
+            return SqlDataSource.ProphetForecastEstimator()
         return SqlDataSource.PlannedDurationEstimator()
 
     @staticmethod

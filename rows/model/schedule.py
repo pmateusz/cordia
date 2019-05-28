@@ -88,6 +88,12 @@ class Schedule(rows.model.object.DataObject):
 
         return self.__visits
 
+    def carers(self):
+        unique_carers = set()
+        for visit in self.visits:
+            unique_carers.add(visit.carer)
+        return list(unique_carers)
+
     @staticmethod
     def from_json(schedule_json):
         metadata = None
