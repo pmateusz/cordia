@@ -65,6 +65,7 @@ namespace rows {
 
         void Write(const boost::filesystem::path &file_path,
                    SolverWrapper &solver,
+                   const operations_research::RoutingIndexManager &index_manager,
                    const operations_research::RoutingModel &model,
                    const operations_research::Assignment &solution,
                    const boost::optional<
@@ -78,16 +79,16 @@ namespace rows {
 
             void SetDefaultValues(const rows::Location &location);
 
-            std::string DepotId(operations_research::RoutingModel::NodeIndex depot_index) const;
+            std::string DepotId(operations_research::RoutingNodeIndex depot_index) const;
 
-            std::string ServiceUserId(operations_research::RoutingModel::NodeIndex service_user_id) const;
+            std::string ServiceUserId(operations_research::RoutingNodeIndex service_user_id) const;
 
-            std::string CarerId(operations_research::RoutingModel::NodeIndex carer_index) const;
+            std::string CarerId(operations_research::RoutingNodeIndex carer_index) const;
 
-            std::string VisitId(operations_research::RoutingModel::NodeIndex visit_index) const;
+            std::string VisitId(operations_research::RoutingNodeIndex visit_index) const;
 
-            std::string BreakId(operations_research::RoutingModel::NodeIndex carer_index,
-                                operations_research::RoutingModel::NodeIndex break_node) const;
+            std::string BreakId(operations_research::RoutingNodeIndex carer_index,
+                                operations_research::RoutingNodeIndex break_node) const;
 
             std::string EdgeId(const std::string &from_id,
                                const std::string &to_id,

@@ -26,6 +26,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <absl/time/time.h>
+#include <ortools/base/protoutil.h>
 #include <ortools/constraint_solver/routing.h>
 #include <ortools/constraint_solver/routing_flags.h>
 
@@ -250,7 +252,9 @@ int RunSingleStepSchedulingWorker() {
 
     if (!FLAGS_opt_noprogress_time_limit.empty()) {
         const auto duration_limit = boost::posix_time::duration_from_string(FLAGS_opt_noprogress_time_limit);
-        search_parameters.set_time_limit_ms(duration_limit.total_milliseconds());
+        CHECK_OK(util_time::EncodeGoogleApiProto(
+                absl::Milliseconds(duration_limit.total_milliseconds()),
+                search_parameters.mutable_time_limit()));
     }
 
     rows::SingleStepSchedulingWorker worker{printer};

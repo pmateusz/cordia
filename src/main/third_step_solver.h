@@ -20,7 +20,8 @@ namespace rows {
                         int64 max_dropped_visits,
                         std::vector<RouteValidatorBase::Metrics> vehicle_metrics);
 
-        void ConfigureModel(operations_research::RoutingModel &model,
+        void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
+                            operations_research::RoutingModel &model,
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 

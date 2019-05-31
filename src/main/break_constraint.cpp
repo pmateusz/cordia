@@ -6,11 +6,13 @@
 namespace rows {
 
     BreakConstraint::BreakConstraint(const operations_research::RoutingDimension *dimension,
+                                     const operations_research::RoutingIndexManager *index_manager,
                                      int vehicle,
                                      std::vector<operations_research::IntervalVar *> break_intervals,
                                      SolverWrapper &solver_wrapper)
             : Constraint(dimension->model()->solver()),
               dimension_(dimension),
+              index_manager_(index_manager),
               vehicle_(vehicle),
               break_intervals_(std::move(break_intervals)),
               status_(solver()->MakeBoolVar((boost::format("status %1%") % vehicle).str())),
@@ -56,9 +58,9 @@ namespace rows {
         operations_research::RoutingModel *const model = dimension_->model();
         int64 current_index = model->Start(vehicle_);
         while (!model->IsEnd(current_index)) {
-            const auto current_node = model->IndexToNode(current_index);
+            const auto current_node = index_manager_->IndexToNode(current_index);
             const auto next_index = model->NextVar(current_index)->Value();
-            const auto next_node = model->IndexToNode(next_index);
+            const auto next_node = index_manager_->IndexToNode(next_index);
 
             // create visit interval
             if (SolverWrapper::DEPOT != current_node) {

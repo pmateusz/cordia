@@ -7,12 +7,9 @@
 
 namespace util {
 
-    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > GetRoutes(
-            const operations_research::RoutingModel &model);
+    std::vector<std::vector<int64> > GetRoutes(const operations_research::RoutingModel &model);
 
-    std::unordered_set<operations_research::RoutingModel::NodeIndex> GetVisitedNodes(
-            const std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes,
-            const operations_research::RoutingModel::NodeIndex depot_index);
+    std::unordered_set<int64> GetVisitedNodes(const std::vector<std::vector<int64> > &routes, int64 depot_index);
 
     std::size_t GetDroppedVisitCount(const operations_research::RoutingModel &model);
 

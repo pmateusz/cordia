@@ -12,6 +12,7 @@ namespace rows {
     class MultipleVisitQuery {
     public:
         MultipleVisitQuery(rows::SolverWrapper &solver_wrapper,
+                           operations_research::RoutingIndexManager &index_manager,
                            operations_research::RoutingModel &model,
                            operations_research::Assignment const *solution,
                            bool avoid_symmetry);
@@ -26,6 +27,7 @@ namespace rows {
 
     private:
         const rows::SolverWrapper &solver_wrapper_;
+        const operations_research::RoutingIndexManager &index_manager_;
         const operations_research::RoutingModel &model_;
         operations_research::RoutingDimension const *time_dim_;
         operations_research::Assignment const *solution_;

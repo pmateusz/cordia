@@ -59,7 +59,7 @@ const rows::Diary &rows::ThreeStepSchedulingWorker::CarerTeam::Diary() const {
 }
 
 int64 GetMaxDistance(rows::SolverWrapper &solver,
-                     const std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &solution) {
+                     const std::vector<std::vector<operations_research::RoutingNodeIndex> > &solution) {
     int64 max_distance = 0;
     for (const auto &route : solution) {
         const auto route_it_end = std::end(route);
@@ -126,6 +126,11 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                        begin_end_shift_time_extension_,
                                                        opt_time_limit_);
 
+    std::unique_ptr<operations_research::RoutingIndexManager> second_stage_index_manager
+            = std::make_unique<operations_research::RoutingIndexManager>(second_step_wrapper->nodes(),
+                                                                         second_step_wrapper->vehicles(),
+                                                                         rows::SolverWrapper::DEPOT);
+
     if (second_step_wrapper->vehicles() == 0) {
         LOG(ERROR) << "No carers available.";
         printer_->operator<<(TracingEvent(TracingEventType::Finished, "All"));
@@ -133,7 +138,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
         return;
     }
 
-    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > second_step_locks{
+    std::vector<std::vector<int64> > second_step_locks{
             static_cast<std::size_t>(second_step_wrapper->vehicles())};
 
     if (!team_visits.empty()) {
@@ -149,11 +154,13 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                            boost::posix_time::minutes(0),
                                                            boost::posix_time::not_a_date_time,
                                                            pre_opt_time_limit_);
+        std::unique_ptr<operations_research::RoutingIndexManager> first_step_index_manager
+                = std::make_unique<operations_research::RoutingIndexManager>(first_stage_wrapper->nodes(),
+                                                                             first_stage_wrapper->vehicles(),
+                                                                             rows::SolverWrapper::DEPOT);
         std::unique_ptr<operations_research::RoutingModel> first_step_model
-                = std::make_unique<operations_research::RoutingModel>(first_stage_wrapper->nodes(),
-                                                                      first_stage_wrapper->vehicles(),
-                                                                      rows::SolverWrapper::DEPOT);
-        first_stage_wrapper->ConfigureModel(*first_step_model, printer_, CancelToken());
+                = std::make_unique<operations_research::RoutingModel>(*first_step_index_manager);
+        first_stage_wrapper->ConfigureModel(*first_step_index_manager, *first_step_model, printer_, CancelToken());
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage1"));
 //        first_step_model->solver()->set_fail_intercept(&FailureInterceptor);
@@ -168,7 +175,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
         const auto is_first_solution_correct = first_step_model->solver()->CheckAssignment(&first_validation_copy);
         DCHECK(is_first_solution_correct);
 
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex>> first_step_solution;
+        std::vector<std::vector<int64> > first_step_solution;
         first_step_model->AssignmentToRoutes(*first_step_assignment, &first_step_solution);
 
         auto time_dim = first_step_model->GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
@@ -178,14 +185,14 @@ void rows::ThreeStepSchedulingWorker::Run() {
             const auto team_carer_find_it = teams.find(team_carer);
             DCHECK(team_carer_find_it != std::end(teams));
 
-            for (const auto node : route) {
-                const auto &visit = first_stage_wrapper->NodeToVisit(node);
+            for (const auto node_index : route) {
+                const auto &visit = first_stage_wrapper->NodeToVisit(first_step_index_manager->IndexToNode(node_index));
 
                 std::vector<int> vehicle_numbers;
                 boost::posix_time::ptime visit_start_time{
                         team_carer_find_it->second.Diary().date(),
                         boost::posix_time::seconds(
-                                first_step_assignment->Min(time_dim->CumulVar(first_step_model->NodeToIndex(node))))
+                                first_step_assignment->Min(time_dim->CumulVar(node_index)))
                 };
 
                 for (const auto &carer : team_carer_find_it->second.AvailableMembers(visit_start_time,
@@ -197,10 +204,8 @@ void rows::ThreeStepSchedulingWorker::Run() {
                 DCHECK_NE(vehicle_numbers[0], vehicle_numbers[1]);
 
                 const auto visit_nodes = second_step_wrapper->GetNodes(visit);
-                std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes_to_use{
-                        std::begin(visit_nodes),
-                        std::end(visit_nodes)};
-                DCHECK_EQ(visit_nodes_to_use.size(), vehicle_numbers.size());
+                std::vector<int64> visit_indices_to_use = second_stage_index_manager->NodesToIndices(visit_nodes);
+                DCHECK_EQ(visit_indices_to_use.size(), vehicle_numbers.size());
 
 
                 auto first_vehicle_to_use = vehicle_numbers[0];
@@ -209,8 +214,8 @@ void rows::ThreeStepSchedulingWorker::Run() {
                     std::swap(first_vehicle_to_use, second_vehicle_to_use);
                 }
 
-                auto first_visit_to_use = visit_nodes_to_use[0];
-                auto second_visit_to_use = visit_nodes_to_use[1];
+                auto first_visit_to_use = visit_indices_to_use[0];
+                auto second_visit_to_use = visit_indices_to_use[1];
                 if (first_visit_to_use > second_visit_to_use) {
                     std::swap(first_visit_to_use, second_visit_to_use);
                 }
@@ -221,16 +226,15 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
             ++route_number;
         }
-
-        first_step_model.release();
     }
 
     std::unique_ptr<operations_research::RoutingModel> second_stage_model
-            = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
-                                                                  second_step_wrapper->vehicles(),
-                                                                  rows::SolverWrapper::DEPOT);
+            = std::make_unique<operations_research::RoutingModel>(*second_stage_index_manager);
 //    second_stage_model->solver()->set_fail_intercept(&FailureInterceptor);
-    second_step_wrapper->ConfigureModel(*second_stage_model, printer_, CancelToken());
+    second_step_wrapper->ConfigureModel(*second_stage_index_manager,
+                                        *second_stage_model,
+                                        printer_,
+                                        CancelToken());
 
     operations_research::Assignment const *computed_assignment = nullptr;
     computed_assignment = second_stage_model->ReadAssignmentFromRoutes(second_step_locks, true);
@@ -252,27 +256,32 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     auto variable_store_ptr = second_step_wrapper->variable_store();
     for (int vehicle = 0; vehicle < second_stage_model->vehicles(); ++vehicle) {
-        const auto validation_result
-                = solution_validator.ValidateFull(vehicle,
-                                                  *second_stage_assignment,
-                                                  *second_stage_model,
-                                                  *second_step_wrapper);
+        const auto validation_result = solution_validator.ValidateFull(vehicle,
+                                                                       *second_stage_assignment,
+                                                                       *second_stage_index_manager,
+                                                                       *second_stage_model,
+                                                                       *second_step_wrapper);
         CHECK(validation_result.error() == nullptr);
     }
 
     boost::filesystem::path output_path{output_file_};
     std::string second_stage_output_file{"second_stage_"};
     second_stage_output_file += output_path.filename().string();
-    boost::filesystem::path second_stage_output = boost::filesystem::absolute(second_stage_output_file, output_path.parent_path());
+    boost::filesystem::path second_stage_output = boost::filesystem::absolute(second_stage_output_file,
+                                                                              output_path.parent_path());
 
     const rows::GexfWriter solution_writer;
     solution_writer.Write(second_stage_output, *second_step_wrapper,
+                          *second_stage_index_manager,
                           *second_stage_model, *second_stage_assignment, boost::none);
 
+    std::unique_ptr<operations_research::RoutingIndexManager> third_stage_index_manager
+            = std::make_unique<operations_research::RoutingIndexManager>(second_step_wrapper->nodes(),
+                                                                         second_step_wrapper->vehicles(),
+                                                                         rows::SolverWrapper::DEPOT);
+
     std::unique_ptr<operations_research::RoutingModel> third_stage_model
-            = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
-                                                                  second_step_wrapper->vehicles(),
-                                                                  rows::SolverWrapper::DEPOT);
+            = std::make_unique<operations_research::RoutingModel>(*third_stage_index_manager);
 
     std::unique_ptr<rows::SecondStepSolver> intermediate_wrapper
             = std::make_unique<rows::SecondStepSolver>(problem_,
@@ -282,14 +291,16 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                        break_time_window_,
                                                        begin_end_shift_time_extension_,
                                                        boost::date_time::not_a_date_time);
+    std::unique_ptr<operations_research::RoutingIndexManager> intermediate_index_manager
+            = std::make_unique<operations_research::RoutingIndexManager>(second_step_wrapper->nodes(),
+                                                                         second_step_wrapper->vehicles(),
+                                                                         rows::SolverWrapper::DEPOT);
     std::unique_ptr<operations_research::RoutingModel> intermediate_model
-            = std::make_unique<operations_research::RoutingModel>(second_step_wrapper->nodes(),
-                                                                  second_step_wrapper->vehicles(),
-                                                                  rows::SolverWrapper::DEPOT);
-    intermediate_wrapper->ConfigureModel(*intermediate_model, printer_, CancelToken());
+            = std::make_unique<operations_research::RoutingModel>(*intermediate_index_manager);
+    intermediate_wrapper->ConfigureModel(*intermediate_index_manager, *intermediate_model, printer_, CancelToken());
     const auto routes = second_step_wrapper->solution_repository()->GetSolution();
     const auto max_dropped_visits_count =
-            third_stage_model->nodes() - util::GetVisitedNodes(routes, rows::SolverWrapper::DEPOT).size() - 1;
+            third_stage_model->nodes() - util::GetVisitedNodes(routes, intermediate_model->GetDepot()).size() - 1;
     auto assignment_to_use = intermediate_model->ReadAssignmentFromRoutes(routes, true);
     CHECK(assignment_to_use);
     std::vector<rows::RouteValidatorBase::Metrics> vehicle_metrics;
@@ -297,11 +308,14 @@ void rows::ThreeStepSchedulingWorker::Run() {
         const auto validation_result
                 = solution_validator.ValidateFull(vehicle,
                                                   *assignment_to_use,
+                                                  *intermediate_index_manager,
                                                   *intermediate_model,
                                                   *intermediate_wrapper);
         CHECK(validation_result.error() == nullptr);
         vehicle_metrics.emplace_back(validation_result.metrics());
     }
+    intermediate_model.reset();
+    intermediate_wrapper.reset();
 
     const auto third_search_params = rows::SolverWrapper::CreateSearchParameters(false);
     std::unique_ptr<rows::SolverWrapper> third_step_solver = CreateThirdStageSolver(third_search_params,
@@ -309,7 +323,10 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                                                     max_dropped_visits_count,
                                                                                     vehicle_metrics);
 
-    third_step_solver->ConfigureModel(*third_stage_model, printer_, CancelToken());
+    second_stage_model.reset();
+    second_step_wrapper.reset();
+
+    third_step_solver->ConfigureModel(*third_stage_index_manager, *third_stage_model, printer_, CancelToken());
 
 //    third_stage_model->solver()->set_fail_intercept(FailureInterceptor);
     const auto third_stage_preassignment = third_stage_model->ReadAssignmentFromRoutes(routes, true);
@@ -321,8 +338,6 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                                                    third_search_params);
     printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
 
-    second_stage_model.release();
-    intermediate_model.release();
     if (third_stage_assignment == nullptr) {
         throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
     }
@@ -336,6 +351,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
         const auto validation_result
                 = solution_validator.ValidateFull(vehicle,
                                                   *third_stage_assignment,
+                                                  *third_stage_index_manager,
                                                   *third_stage_model,
                                                   *third_step_solver);
         CHECK(validation_result.error() == nullptr);
@@ -343,7 +359,8 @@ void rows::ThreeStepSchedulingWorker::Run() {
         activities[vehicle] = validation_result.activities();
     }
 
-    solution_writer.Write(output_file_, *third_step_solver, *third_stage_model, *third_stage_assignment,
+    solution_writer.Write(output_file_, *third_step_solver, *third_stage_index_manager, *third_stage_model,
+                          *third_stage_assignment,
                           boost::make_optional(activities));
 
     printer_->operator<<(TracingEvent(TracingEventType::Finished, "All"));

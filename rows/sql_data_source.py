@@ -569,13 +569,6 @@ ORDER BY carer_visits.VisitID"""
                 visit_groups = {client_id: list(visit_group)
                                 for client_id, visit_group in itertools.groupby(visits_to_use, lambda v: v.client_id)}
 
-                # test_visit_groups = {}
-                # test_visit_groups[9097728] = visit_groups[9097728]
-                # test_visit_groups[9093121] = visit_groups[9093121]
-                # test_visit_groups[9088515] = visit_groups[9088515]
-                # test_visit_groups[9098240] = visit_groups[9098240]
-                # visit_groups = test_visit_groups
-
                 user_clusters = collections.defaultdict(list)
                 with warnings.catch_warnings():
                     warnings.filterwarnings('ignore', '', tqdm.TqdmSynchronisationWarning)

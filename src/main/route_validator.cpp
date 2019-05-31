@@ -953,12 +953,12 @@ namespace rows {
     }
 
     boost::posix_time::time_duration ValidationSession::GetTravelTime(
-            operations_research::RoutingModel::NodeIndex from_node,
-            operations_research::RoutingModel::NodeIndex to_node) const {
+            operations_research::RoutingNodeIndex from_node,
+            operations_research::RoutingNodeIndex to_node) const {
         return boost::posix_time::seconds(solver_.Distance(from_node, to_node));
     }
 
-    operations_research::RoutingModel::NodeIndex ValidationSession::GetNode(const ScheduledVisit &visit) const {
+    operations_research::RoutingNodeIndex ValidationSession::GetNode(const ScheduledVisit &visit) const {
         return *std::begin(solver_.GetNodes(visit));
     }
 
@@ -972,6 +972,7 @@ namespace rows {
 
     RouteValidatorBase::ValidationResult SolutionValidator::Validate(int vehicle,
                                                                      const operations_research::Assignment &solution,
+                                                                     const operations_research::RoutingIndexManager &index_manager,
                                                                      const operations_research::RoutingModel &model,
                                                                      SolverWrapper &solver) const {
         static const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> NO_OVERRIDE_ARRIVAL;
@@ -995,7 +996,7 @@ namespace rows {
             const auto node_index = indices[node_pos];
             visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
                                 carer,
-                                solver.NodeToVisit(model.IndexToNode(node_index)));
+                                solver.NodeToVisit(index_manager.IndexToNode(node_index)));
         }
 
         Route route{carer, visits};
@@ -1018,7 +1019,7 @@ namespace rows {
         boost::posix_time::time_duration last_travel_time = boost::posix_time::seconds(0);
         for (auto node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {
             const auto visit_index = indices[node_pos];
-            const auto visit_node = model.IndexToNode(visit_index);
+            const auto visit_node = index_manager.IndexToNode(visit_index);
             const auto &visit = visits[node_pos - 1];
             const ptime fastest_arrival{date, seconds(solver.GetBeginVisitWindow(visit.datetime().time_of_day()))};
             const ptime latest_arrival{date, seconds(solver.GetEndVisitWindow(visit.datetime().time_of_day()))};
@@ -1060,7 +1061,7 @@ namespace rows {
                 }
             }
 
-            const auto next_node = model.IndexToNode(indices[node_pos + 1]);
+            const auto next_node = index_manager.IndexToNode(indices[node_pos + 1]);
             last_visit_finish = arrival + visit.duration();
             last_travel_time = session.GetTravelTime(visit_node, next_node);
         }
@@ -1107,8 +1108,11 @@ namespace rows {
     }
 
     RouteValidatorBase::ValidationResult
-    SolutionValidator::Validate(int vehicle, const operations_research::Assignment &solution,
-                                const operations_research::RoutingModel &model, rows::SolverWrapper &solver,
+    SolutionValidator::Validate(int vehicle,
+                                const operations_research::Assignment &solution,
+                                const operations_research::RoutingIndexManager &index_manager,
+                                const operations_research::RoutingModel &model,
+                                rows::SolverWrapper &solver,
                                 rows::RoutingVariablesStore &variable_store) const {
         static const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> NO_OVERRIDE_ARRIVAL;
 
@@ -1131,7 +1135,7 @@ namespace rows {
             const auto node_index = indices[node_pos];
             visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
                                 carer,
-                                solver.NodeToVisit(model.IndexToNode(node_index)));
+                                solver.NodeToVisit(index_manager.IndexToNode(node_index)));
         }
 
         Route route{carer, visits};
@@ -1155,7 +1159,7 @@ namespace rows {
         boost::posix_time::time_duration last_travel_time = boost::posix_time::seconds(0);
         for (auto node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {
             const auto visit_index = indices[node_pos];
-            const auto visit_node = model.IndexToNode(visit_index);
+            const auto visit_node = index_manager.IndexToNode(visit_index);
             const auto &visit = visits[node_pos - 1];
             const ptime fastest_arrival{date, seconds(solver.GetBeginVisitWindow(visit.datetime().time_of_day()))};
             const ptime latest_arrival{date, seconds(solver.GetEndVisitWindow(visit.datetime().time_of_day()))};
@@ -1210,7 +1214,7 @@ namespace rows {
                 }
             }
 
-            const auto next_node = model.IndexToNode(indices[node_pos + 1]);
+            const auto next_node = index_manager.IndexToNode(indices[node_pos + 1]);
             last_visit_finish = arrival + visit.duration();
             last_travel_time = session.GetTravelTime(visit_node, next_node);
         }
@@ -1294,6 +1298,7 @@ namespace rows {
 
     RouteValidatorBase::ValidationResult SolutionValidator::ValidateFull(int vehicle,
                                                                          const operations_research::Assignment &solution,
+                                                                         const operations_research::RoutingIndexManager &index_manager,
                                                                          const operations_research::RoutingModel &model,
                                                                          rows::SolverWrapper &solver) const {
         static const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> NO_OVERRIDE_ARRIVAL;
@@ -1319,7 +1324,7 @@ namespace rows {
             const auto node_index = indices[node_pos];
             visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
                                 carer,
-                                solver.NodeToVisit(model.IndexToNode(node_index)));
+                                solver.NodeToVisit(index_manager.IndexToNode(node_index)));
         }
 
         Route route{carer, visits};
@@ -1339,7 +1344,7 @@ namespace rows {
         boost::posix_time::ptime last_max_visit_complete = boost::posix_time::not_a_date_time;
         for (auto node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {
             const auto visit_index = indices[node_pos];
-            const auto current_visit_node = model.IndexToNode(visit_index);
+            const auto current_visit_node = index_manager.IndexToNode(visit_index);
             const auto &visit = visits[node_pos - 1];
             const ptime fastest_arrival{today, seconds(solver.GetBeginVisitWindow(visit.datetime().time_of_day()))};
             const ptime latest_arrival{today, seconds(solver.GetEndVisitWindow(visit.datetime().time_of_day()))};

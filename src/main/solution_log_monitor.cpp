@@ -4,9 +4,11 @@
 
 #include "util/routing.h"
 
-rows::SolutionLogMonitor::SolutionLogMonitor(operations_research::RoutingModel const *model,
+rows::SolutionLogMonitor::SolutionLogMonitor(operations_research::RoutingIndexManager const *index_manager,
+                                             operations_research::RoutingModel const *model,
                                              std::shared_ptr<rows::SolutionRepository> solution_repository)
         : SearchLimit(model->solver()),
+          index_manager_{index_manager},
           model_{model},
           min_dropped_visits_{std::numeric_limits<int>::max()},
           dropped_visits_buffer_{5},
@@ -18,7 +20,7 @@ bool rows::SolutionLogMonitor::AtSolution() {
     const auto routes = util::GetRoutes(*model_);
     const auto dropped_visits_count = static_cast<int>(util::GetDroppedVisitCount(*model_));
     CHECK_EQ(model_->nodes(),
-             dropped_visits_count + util::GetVisitedNodes(routes, model_->IndexToNode(model_->GetDepot())).size() + 1);
+             dropped_visits_count + util::GetVisitedNodes(routes, model_->GetDepot()).size() + 1);
 
     if (dropped_visits_count <= min_dropped_visits_) {
         min_dropped_visits_ = dropped_visits_count;
@@ -69,5 +71,5 @@ void rows::SolutionLogMonitor::Copy(const operations_research::SearchLimit *limi
 }
 
 operations_research::SearchLimit *rows::SolutionLogMonitor::MakeClone() const {
-    return solver()->RevAlloc(new SolutionLogMonitor(model_, solution_repository_));
+    return solver()->RevAlloc(new SolutionLogMonitor(index_manager_, model_, solution_repository_));
 }

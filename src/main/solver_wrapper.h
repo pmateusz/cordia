@@ -73,7 +73,7 @@ namespace rows {
             virtual std::string RenderDescription() const;
         };
 
-        static const operations_research::RoutingModel::NodeIndex DEPOT;
+        static const operations_research::RoutingNodeIndex DEPOT;
         static const int64 SECONDS_IN_DAY;
         static const int64 SECONDS_IN_DIMENSION;
         static const std::string TIME_DIMENSION;
@@ -91,20 +91,22 @@ namespace rows {
                       boost::posix_time::time_duration break_time_window,
                       boost::posix_time::time_duration begin_end_work_day_adjustment);
 
-        virtual void ConfigureModel(operations_research::RoutingModel &model,
+        virtual void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
+                                    operations_research::RoutingModel &model,
                                     const std::shared_ptr<Printer> &printer,
                                     std::shared_ptr<const std::atomic<bool> > cancel_token) = 0;
 
-        virtual std::string GetDescription(const operations_research::RoutingModel &model,
+        virtual std::string GetDescription(const operations_research::RoutingIndexManager &index_manager,
+                                           const operations_research::RoutingModel &model,
                                            const operations_research::Assignment &solution);
 
-        int64 Distance(operations_research::RoutingModel::NodeIndex from,
-                       operations_research::RoutingModel::NodeIndex to);
+        int64 Distance(operations_research::RoutingNodeIndex from,
+                       operations_research::RoutingNodeIndex to);
 
-        int64 ServiceTime(operations_research::RoutingModel::NodeIndex node);
+        int64 ServiceTime(operations_research::RoutingNodeIndex node);
 
-        int64 ServicePlusTravelTime(operations_research::RoutingModel::NodeIndex from,
-                                    operations_research::RoutingModel::NodeIndex to);
+        int64 ServicePlusTravelTime(operations_research::RoutingNodeIndex from,
+                                    operations_research::RoutingNodeIndex to);
 
         bool Contains(const CalendarVisit &visit) const;
 
@@ -132,12 +134,12 @@ namespace rows {
 
         int nodes() const;
 
-        const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const CalendarVisit &visit) const;
+        const std::vector<operations_research::RoutingNodeIndex> &GetNodes(const CalendarVisit &visit) const;
 
-        const std::vector<operations_research::RoutingModel::NodeIndex> &GetNodes(const ScheduledVisit &visit) const;
+        const std::vector<operations_research::RoutingNodeIndex> &GetNodes(const ScheduledVisit &visit) const;
 
-        std::pair<operations_research::RoutingModel::NodeIndex,
-                operations_research::RoutingModel::NodeIndex> GetNodePair(const rows::CalendarVisit &visit) const;
+        std::pair<operations_research::RoutingNodeIndex,
+                operations_research::RoutingNodeIndex> GetNodePair(const rows::CalendarVisit &visit) const;
 
         int64 GetBeginVisitWindow(boost::posix_time::time_duration value) const;
 
@@ -153,19 +155,24 @@ namespace rows {
 
         boost::posix_time::time_duration GetAdjustment() const;
 
-        const CalendarVisit &NodeToVisit(const operations_research::RoutingModel::NodeIndex &node) const;
+        const CalendarVisit &NodeToVisit(const operations_research::RoutingNodeIndex &node) const;
 
-        void DisplayPlan(const operations_research::RoutingModel &routing, const operations_research::Assignment &plan);
+        void DisplayPlan(const operations_research::RoutingIndexManager &index_manager,
+                         const operations_research::RoutingModel &routing,
+                         const operations_research::Assignment &plan);
 
         Solution ResolveValidationErrors(const rows::Solution &solution,
+                                         const operations_research::RoutingIndexManager &index_manager,
                                          const operations_research::RoutingModel &model);
 
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > GetRoutes(
-                const rows::Solution &solution, const operations_research::RoutingModel &model) const;
+        std::vector<std::vector<int64> > GetRoutes(const rows::Solution &solution,
+                                                   const operations_research::RoutingIndexManager &index_manager,
+                                                   const operations_research::RoutingModel &model) const;
 
         std::string GetModelStatus(int status);
 
-        int64 GetDroppedVisitPenalty(const operations_research::RoutingModel &model);
+        int64 GetDroppedVisitPenalty(const operations_research::RoutingIndexManager &index_manager,
+                                     const operations_research::RoutingModel &model);
 
         bool out_office_hours_breaks_enabled() const;
 
@@ -178,7 +185,8 @@ namespace rows {
                       boost::posix_time::time_duration break_time_window,
                       boost::posix_time::time_duration begin_end_work_day_adjustment);
 
-        void OnConfigureModel(const operations_research::RoutingModel &model);
+        void OnConfigureModel(const operations_research::RoutingIndexManager &index_manager,
+                              const operations_research::RoutingModel &model);
 
         std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
                                                                              const rows::Carer &carer,
@@ -238,7 +246,7 @@ namespace rows {
         operations_research::RoutingSearchParameters parameters_;
 
         std::unordered_map<rows::CalendarVisit,
-                std::vector<operations_research::RoutingModel::NodeIndex>,
+                std::vector<operations_research::RoutingNodeIndex>,
                 Problem::PartialVisitOperations,
                 Problem::PartialVisitOperations> visit_index_;
 

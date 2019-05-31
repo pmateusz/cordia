@@ -14,7 +14,8 @@ namespace rows {
 
     class SolutionLogMonitor : public operations_research::SearchLimit {
     public:
-        SolutionLogMonitor(operations_research::RoutingModel const *model,
+        SolutionLogMonitor(operations_research::RoutingIndexManager const *index_manager,
+                           operations_research::RoutingModel const *model,
                            std::shared_ptr<rows::SolutionRepository> solution_repository);
 
         bool Check() override;
@@ -30,6 +31,7 @@ namespace rows {
         operations_research::SearchLimit *MakeClone() const override;
 
     private:
+        operations_research::RoutingIndexManager const *index_manager_;
         operations_research::RoutingModel const *model_;
         std::shared_ptr<rows::SolutionRepository> solution_repository_;
 

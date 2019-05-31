@@ -283,8 +283,8 @@ namespace rows {
 
         boost::posix_time::time_duration GetExpectedFinish(const ScheduledVisit &visit) const;
 
-        boost::posix_time::time_duration GetTravelTime(operations_research::RoutingModel::NodeIndex from_node,
-                                                       operations_research::RoutingModel::NodeIndex to_node) const;
+        boost::posix_time::time_duration GetTravelTime(operations_research::RoutingNodeIndex from_node,
+                                                       operations_research::RoutingNodeIndex to_node) const;
 
         bool StartsAfter(boost::posix_time::time_duration time_of_day, const ScheduledVisit &visit) const;
 
@@ -337,7 +337,7 @@ namespace rows {
                                                                         const ScheduledVisit &visit);
 
     private:
-        operations_research::RoutingModel::NodeIndex GetNode(const ScheduledVisit &visit) const;
+        operations_research::RoutingNodeIndex GetNode(const ScheduledVisit &visit) const;
 
         const Route &route_;
         SolverWrapper &solver_;
@@ -350,10 +350,10 @@ namespace rows {
 
         bool reached_current_node_;
         std::vector<ScheduledVisit> visits_;
-        std::vector<operations_research::RoutingModel::NodeIndex> nodes_;
-        operations_research::RoutingModel::NodeIndex last_node_;
-        operations_research::RoutingModel::NodeIndex current_node_;
-        operations_research::RoutingModel::NodeIndex next_node_;
+        std::vector<operations_research::RoutingNodeIndex> nodes_;
+        operations_research::RoutingNodeIndex last_node_;
+        operations_research::RoutingNodeIndex current_node_;
+        operations_research::RoutingNodeIndex next_node_;
         std::size_t current_visit_;
 
         std::vector<rows::Event> breaks_;
@@ -368,17 +368,20 @@ namespace rows {
     public:
         RouteValidatorBase::ValidationResult Validate(int vehicle,
                                                       const operations_research::Assignment &solution,
+                                                      const operations_research::RoutingIndexManager &index_manager,
                                                       const operations_research::RoutingModel &model,
                                                       rows::SolverWrapper &solver) const;
 
         RouteValidatorBase::ValidationResult Validate(int vehicle,
                                                       const operations_research::Assignment &solution,
+                                                      const operations_research::RoutingIndexManager &index_manager,
                                                       const operations_research::RoutingModel &model,
                                                       rows::SolverWrapper &solver,
                                                       rows::RoutingVariablesStore &variable_store) const;
 
         RouteValidatorBase::ValidationResult ValidateFull(int vehicle,
                                                           const operations_research::Assignment &solution,
+                                                          const operations_research::RoutingIndexManager &index_manager,
                                                           const operations_research::RoutingModel &model,
                                                           rows::SolverWrapper &solver) const;
 

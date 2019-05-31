@@ -17,8 +17,11 @@ if (ORTOOLS_ROOT_DIR)
 
     set(CBC_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
     set(SPARSEHASH_ROOT_DIR "${ORTOOLS_ROOT_DIR}/dependencies/install")
-    set(Protobuf_SRC_ROOT_FOLDER "${ORTOOLS_ROOT_DIR}/dependencies/sources/protobuf-3.6.1")
-    set(Protobuf_PROTOC_EXECUTABLE "${ORTOOLS_ROOT_DIR}/dependencies/install/bin/protoc")
+    set(Protobuf_VERSION "3.7.1")
+    set(Protobuf_SRC_ROOT_FOLDER "${ORTOOLS_ROOT_DIR}/dependencies/sources/protobuf-3.7.1")
+    set(Protobuf_LIBRARIES "${ORTOOLS_ROOT_DIR}/dependencies/install/lib/libprotobuf.so")
+    set(Protobuf_PROTOC_EXECUTABLE "${ORTOOLS_ROOT_DIR}/dependencies/install/bin/protoc-3.7.1.0")
+    set(Protobuf_INCLUDE_DIRS "${ORTOOLS_ROOT_DIR}/dependencies/install/include")
 endif ()
 
 find_path(ORTOOLS_INCLUDE_DIR
@@ -55,11 +58,11 @@ if (ORTOOLS_FOUND)
     find_package(GFlags REQUIRED)
     # find sparsehash 2.0.3 header files
     find_package(Sparsehash REQUIRED)
-    find_package(Protobuf REQUIRED)
+#    find_package(Protobuf REQUIRED)
     find_package(Cbc REQUIRED)
 
     get_filename_component(UNIX_GFLAGS_DIR ${GFLAGS_INCLUDE_DIR} DIRECTORY)
-    get_filename_component(UNIX_PROTOBUF_DIR ${PROTOBUF_INCLUDE_DIR} DIRECTORY)
+    get_filename_component(UNIX_PROTOBUF_DIR ${Protobuf_INCLUDE_DIRS} DIRECTORY)
     get_filename_component(UNIX_SPARSEHASH_DIR ${SPARSEHASH_INCLUDE_DIR} DIRECTORY)
     get_filename_component(UNIX_CBC_DIR ${CBC_INCLUDE_DIR} DIRECTORY)
 

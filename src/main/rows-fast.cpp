@@ -91,8 +91,8 @@ struct Environment {
               Breaks(std::move(breaks)),
               Distances(std::move(distances)) {}
 
-    int64 distance(operations_research::RoutingModel::NodeIndex from_node,
-                   operations_research::RoutingModel::NodeIndex to_node) const {
+    int64 distance(operations_research::RoutingNodeIndex from_node,
+                   operations_research::RoutingNodeIndex to_node) const {
         if (from_node == Depot || to_node == Depot) {
             return 0;
         }
@@ -102,8 +102,8 @@ struct Environment {
         return Distances.at(from).at(to);
     }
 
-    int64 service_plus_distance(operations_research::RoutingModel::NodeIndex from_node,
-                                operations_research::RoutingModel::NodeIndex to_node) const {
+    int64 service_plus_distance(operations_research::RoutingNodeIndex from_node,
+                                operations_research::RoutingNodeIndex to_node) const {
         if (from_node == Depot) {
             return 0;
         }
@@ -112,11 +112,11 @@ struct Environment {
         return service_time + distance(from_node, to_node);
     }
 
-    const Visit &NodeToVisit(operations_research::RoutingModel::NodeIndex node) const {
+    const Visit &NodeToVisit(operations_research::RoutingNodeIndex node) const {
         return Visits.at(static_cast<std::size_t>(node.value() - 1));
     }
 
-    const operations_research::RoutingModel::NodeIndex Depot;
+    const operations_research::RoutingNodeIndex Depot;
     const std::vector<Visit> Visits;
     const std::vector<std::vector<Break> > Breaks;
     const std::vector<std::vector<int64> > Distances;
@@ -255,14 +255,25 @@ int main(int argc, char *argv[]) {
 
     const Environment data{visits, breaks, distances};
 
-    operations_research::RoutingModel model(static_cast<int>(data.Visits.size() + 1),
-                                            static_cast<int>(data.Breaks.size()),
-                                            data.Depot);
+    operations_research::RoutingIndexManager index_manager(static_cast<int>(data.Visits.size() + 1),
+                                                           static_cast<int>(data.Breaks.size()),
+                                                           data.Depot);
 
-    model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(&data, &Environment::distance));
+    operations_research::RoutingModel model(index_manager);
 
+    const auto transit_callback_handle = model.RegisterTransitCallback(
+            [&data, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return data.distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
+            });
 
-    model.AddDimension(NewPermanentCallback(&data, &Environment::service_plus_distance),
+    model.SetArcCostEvaluatorOfAllVehicles(transit_callback_handle);
+
+    const auto service_time_callback_handle = model.RegisterTransitCallback(
+            [&data, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return data.service_plus_distance(index_manager.IndexToNode(from_index),
+                                                  index_manager.IndexToNode(to_index));
+            });
+    model.AddDimension(service_time_callback_handle,
                        MAX_TIME_SLACK,
                        CAPACITY,
                        FIX_CUMULATIVE_TO_ZERO,
@@ -272,14 +283,14 @@ int main(int argc, char *argv[]) {
 
     for (auto visit_node = data.Depot + 1; visit_node < model.nodes(); ++visit_node) {
         const auto &visit = data.NodeToVisit(visit_node);
-        const auto visit_index = model.NodeToIndex(visit_node);
+        const auto visit_index = index_manager.NodeToIndex(visit_node);
 
         time_dimension->CumulVar(visit_index)->SetRange(visit.Begin.total_seconds(), visit.End.total_seconds());
         model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(visit_index));
         model.AddToAssignment(time_dimension->SlackVar(visit_index));
 
         static const auto DROP_PENALTY = 1000000;
-        model.AddDisjunction({visit_node}, DROP_PENALTY);
+        model.AddDisjunction({visit_index}, DROP_PENALTY);
     }
 
     for (auto variable_index = 0; variable_index < model.Size(); ++variable_index) {
@@ -298,7 +309,7 @@ int main(int argc, char *argv[]) {
             break_intervals.emplace_back(interval);
         }
 
-        time_dimension->SetBreakIntervalsOfVehicle(std::move(break_intervals), vehicle);
+        time_dimension->SetBreakIntervalsOfVehicle(std::move(break_intervals), vehicle, {});
         model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.Start(vehicle)));
         model.AddVariableMinimizedByFinalizer(time_dimension->CumulVar(model.End(vehicle)));
     }
@@ -336,7 +347,7 @@ int main(int argc, char *argv[]) {
         if (!model.IsEnd(assignment->Value(model.NextVar(current_visit_index)))) {
             current_visit_index = assignment->Value(model.NextVar(current_visit_index));
             while (!model.IsEnd(current_visit_index)) {
-                const auto visit_node = model.IndexToNode(current_visit_index);
+                const auto visit_node = index_manager.IndexToNode(current_visit_index);
                 CHECK_NE(visit_node, data.Depot);
 
                 const auto &visit = data.NodeToVisit(visit_node);

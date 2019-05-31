@@ -31,6 +31,7 @@ namespace rows {
 
     void GexfWriter::Write(const boost::filesystem::path &file_path,
                            SolverWrapper &solver,
+                           const operations_research::RoutingIndexManager &index_manager,
                            const operations_research::RoutingModel &model,
                            const operations_research::Assignment &solution,
                            const boost::optional<
@@ -49,12 +50,12 @@ namespace rows {
                 rows::SolverWrapper::TIME_DIMENSION);
 
         GexfEnvironmentWrapper gexf;
-        gexf.SetDescription(solver.GetDescription(model, solution));
+        gexf.SetDescription(solver.GetDescription(index_manager, model, solution));
 
         const auto central_location = solver.depot();
         gexf.SetDefaultValues(central_location);
 
-        for (operations_research::RoutingModel::NodeIndex visit_index{1}; visit_index < model.nodes(); ++visit_index) {
+        for (operations_research::RoutingNodeIndex visit_index{1}; visit_index < model.nodes(); ++visit_index) {
             const auto visit_id = gexf.VisitId(visit_index);
             const auto &visit = solver.NodeToVisit(visit_index);
 
@@ -69,7 +70,7 @@ namespace rows {
                 gexf.SetNodeValue(visit_id, DROPPED, TRUE_VALUE);
             }
 
-            const auto start_time_sec = solution.Min(time_dim->CumulVar(model.NodeToIndex(visit_index)));
+            const auto start_time_sec = solution.Min(time_dim->CumulVar(index_manager.NodeToIndex(visit_index)));
             gexf.SetNodeValue(visit_id,
                               START_TIME,
                               boost::posix_time::ptime{visit.datetime().date(),
@@ -80,9 +81,9 @@ namespace rows {
         }
 
         static const SolutionValidator validator{};
-        operations_research::RoutingModel::NodeIndex next_user_node{0};
+        operations_research::RoutingNodeIndex next_user_node{0};
         std::unordered_map<rows::ServiceUser,
-                operations_research::RoutingModel::NodeIndex> user_ids;
+                operations_research::RoutingNodeIndex> user_ids;
         for (const auto &service_user : solver.problem().service_users()) {
             const auto user_node = next_user_node++;
             const auto inserted = user_ids.emplace(service_user, user_node);
@@ -101,7 +102,7 @@ namespace rows {
                               std::to_string(solver.User(service_user).visit_count()));
 
             auto visit_counter = 1;
-            for (operations_research::RoutingModel::NodeIndex visit_index{1};
+            for (operations_research::RoutingNodeIndex visit_index{1};
                  visit_index < model.nodes();
                  ++visit_index) {
                 const auto &visit = solver.NodeToVisit(visit_index);
@@ -122,7 +123,7 @@ namespace rows {
 
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto &carer = solver.Carer(vehicle);
-            const auto carer_id = gexf.CarerId(operations_research::RoutingModel::NodeIndex{vehicle});
+            const auto carer_id = gexf.CarerId(operations_research::RoutingNodeIndex{vehicle});
 
             std::vector<rows::ScheduledVisit> route;
 
@@ -139,7 +140,7 @@ namespace rows {
             auto start_visit_index = model.Start(vehicle);
             DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit_index))));
             do {
-                const auto start_visit_node = model.IndexToNode(start_visit_index);
+                const auto start_visit_node = index_manager.IndexToNode(start_visit_index);
                 if (start_visit_node != SolverWrapper::DEPOT) {
                     std::string start_visit_id = gexf.VisitId(start_visit_node);
 
@@ -168,7 +169,7 @@ namespace rows {
                     }
 
                     const auto end_visit_index = solution.Value(model.NextVar(start_visit_index));
-                    const auto end_visit_node = model.IndexToNode(end_visit_index);
+                    const auto end_visit_node = index_manager.IndexToNode(end_visit_index);
                     if (end_visit_node != SolverWrapper::DEPOT) {
                         std::string end_visit_id = gexf.VisitId(end_visit_node);
 
@@ -192,8 +193,8 @@ namespace rows {
             } while (!model.IsEnd(start_visit_index));
 
             if (activities) {
-                const auto carer_node = operations_research::RoutingModel::NodeIndex{vehicle};
-                operations_research::RoutingModel::NodeIndex break_node{1};
+                const auto carer_node = operations_research::RoutingNodeIndex{vehicle};
+                operations_research::RoutingNodeIndex break_node{1};
                 for (const auto &local_activity : activities->at(vehicle)) {
                     if (local_activity->activity_type() != rows::RouteValidatorBase::ActivityType::Break) {
                         continue;
@@ -215,7 +216,7 @@ namespace rows {
             }
 
             gexf.SetNodeValue(carer_id, UTIL_VISITS_COUNT, std::to_string(route.size()));
-            const auto validation_result = validator.ValidateFull(vehicle, solution, model, solver);
+            const auto validation_result = validator.ValidateFull(vehicle, solution, index_manager, model, solver);
             if (validation_result.error()) {
                 LOG(ERROR) << (boost::format("Route %1% is invalid %2%")
                                % carer
@@ -334,23 +335,20 @@ namespace rows {
         env_ptr_->getData().setNodeValue(node_id, attribute.Id, value);
     }
 
-    std::string GexfWriter::GexfEnvironmentWrapper::DepotId(
-            operations_research::RoutingModel::NodeIndex depot_index) const {
+    std::string GexfWriter::GexfEnvironmentWrapper::DepotId(operations_research::RoutingNodeIndex depot_index) const {
         return (boost::format("d%1%") % depot_index).str();
     }
 
-    std::string GexfWriter::GexfEnvironmentWrapper::CarerId(
-            operations_research::RoutingModel::NodeIndex carer_index) const {
+    std::string GexfWriter::GexfEnvironmentWrapper::CarerId(operations_research::RoutingNodeIndex carer_index) const {
         return (boost::format("c%1%") % carer_index).str();
     }
 
-    std::string GexfWriter::GexfEnvironmentWrapper::VisitId(
-            operations_research::RoutingModel::NodeIndex visit_index) const {
+    std::string GexfWriter::GexfEnvironmentWrapper::VisitId(operations_research::RoutingNodeIndex visit_index) const {
         return (boost::format("v%1%") % visit_index).str();
     }
 
-    std::string GexfWriter::GexfEnvironmentWrapper::BreakId(operations_research::RoutingModel::NodeIndex carer_index,
-                                                            operations_research::RoutingModel::NodeIndex break_index) const {
+    std::string GexfWriter::GexfEnvironmentWrapper::BreakId(operations_research::RoutingNodeIndex carer_index,
+                                                            operations_research::RoutingNodeIndex break_index) const {
         return (boost::format("c%1%_b%2%") % carer_index % break_index).str();
     }
 
@@ -364,7 +362,7 @@ namespace rows {
     }
 
     std::string GexfWriter::GexfEnvironmentWrapper::ServiceUserId(
-            operations_research::RoutingModel::NodeIndex service_user_id) const {
+            operations_research::RoutingNodeIndex service_user_id) const {
         return (boost::format("u%1%")
                 % service_user_id).str();
     }

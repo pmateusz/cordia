@@ -1,9 +1,11 @@
 #include "multiple_visit_query.h"
 
 rows::MultipleVisitQuery::MultipleVisitQuery(rows::SolverWrapper &solver_wrapper,
+                                             operations_research::RoutingIndexManager &index_manager,
                                              operations_research::RoutingModel &model,
                                              operations_research::Assignment const *solution, bool avoid_symmetry)
         : solver_wrapper_(solver_wrapper),
+          index_manager_(index_manager),
           model_(model),
           time_dim_(model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION)),
           solution_(solution),
@@ -15,8 +17,8 @@ bool rows::MultipleVisitQuery::IsRelaxed(const rows::CalendarVisit &visit) const
     }
 
     const auto &nodes = solver_wrapper_.GetNodePair(visit);
-    const auto first_index = model_.NodeToIndex(nodes.first);
-    const auto second_index = model_.NodeToIndex(nodes.second);
+    const auto first_index = index_manager_.NodeToIndex(nodes.first);
+    const auto second_index = index_manager_.NodeToIndex(nodes.second);
     const auto first_vehicle = solution_->Min(model_.VehicleVar(first_index));
     const auto second_vehicle = solution_->Min(model_.VehicleVar(second_index));
 
@@ -55,8 +57,8 @@ bool rows::MultipleVisitQuery::IsSatisfied(const rows::CalendarVisit &visit) con
 
 
     const auto &nodes = solver_wrapper_.GetNodePair(visit);
-    const auto first_index = model_.NodeToIndex(nodes.first);
-    const auto second_index = model_.NodeToIndex(nodes.second);
+    const auto first_index = index_manager_.NodeToIndex(nodes.first);
+    const auto second_index = index_manager_.NodeToIndex(nodes.second);
     const auto first_vehicle = solution_->Min(model_.VehicleVar(first_index));
     const auto second_vehicle = solution_->Min(model_.VehicleVar(second_index));
 
@@ -83,8 +85,8 @@ void rows::MultipleVisitQuery::Print(std::shared_ptr<rows::Printer> printer) con
         const auto first_visit_node = *node_it;
         const auto second_visit_node = *std::next(node_it);
 
-        auto first_visit_index = model_.NodeToIndex(first_visit_node);
-        auto second_visit_index = model_.NodeToIndex(second_visit_node);
+        auto first_visit_index = index_manager_.NodeToIndex(first_visit_node);
+        auto second_visit_index = index_manager_.NodeToIndex(second_visit_node);
         const auto first_vehicle = solution_->Min(model_.VehicleVar(first_visit_index));
         const auto second_vehicle = solution_->Min(model_.VehicleVar(second_visit_index));
         const auto first_time = solution_->Min(time_dim_->CumulVar(first_visit_index));

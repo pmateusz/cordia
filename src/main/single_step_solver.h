@@ -34,11 +34,13 @@ namespace rows {
                          boost::posix_time::time_duration begin_end_work_day_adjustment,
                          boost::posix_time::time_duration no_progress_time_limit);
 
-        void ConfigureModel(operations_research::RoutingModel &model,
+        void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
+                            operations_research::RoutingModel &model,
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 
-        std::string GetDescription(const operations_research::RoutingModel &model,
+        std::string GetDescription(const operations_research::RoutingIndexManager &index_manager,
+                                   const operations_research::RoutingModel &model,
                                    const operations_research::Assignment &solution) override;
 
         std::shared_ptr<rows::RoutingVariablesStore> variable_store();
@@ -48,11 +50,11 @@ namespace rows {
         public:
             CareContinuityMetrics(const SingleStepSolver &solver, const rows::Carer &carer);
 
-            int64 operator()(operations_research::RoutingModel::NodeIndex from,
-                             operations_research::RoutingModel::NodeIndex to) const;
+            int64 operator()(operations_research::RoutingNodeIndex from,
+                             operations_research::RoutingNodeIndex to) const;
 
         private:
-            std::unordered_map<operations_research::RoutingModel::NodeIndex, int64> values_;
+            std::unordered_map<operations_research::RoutingNodeIndex, int64> values_;
         };
 
         boost::posix_time::time_duration no_progress_time_limit_;

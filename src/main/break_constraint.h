@@ -14,6 +14,7 @@ namespace rows {
     class BreakConstraint : public operations_research::Constraint {
     public:
         BreakConstraint(const operations_research::RoutingDimension *dimension,
+                        const operations_research::RoutingIndexManager *index_manager,
                         int vehicle,
                         std::vector<operations_research::IntervalVar *> break_intervals,
                         SolverWrapper &solver_wrapper);
@@ -28,6 +29,7 @@ namespace rows {
         void OnPathClosed();
 
         const operations_research::RoutingDimension *dimension_;
+        const operations_research::RoutingIndexManager *index_manager_;
         const int vehicle_;
         std::vector<operations_research::IntervalVar *> break_intervals_;
         operations_research::IntVar *const status_;

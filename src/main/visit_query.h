@@ -12,9 +12,11 @@ namespace rows {
     class VisitQuery {
     public:
         VisitQuery(rows::SolverWrapper &solver_wrapper,
+                   operations_research::RoutingIndexManager &index_manager,
                    operations_research::RoutingModel &model,
                    operations_research::Assignment const *solution)
                 : solver_wrapper_(solver_wrapper),
+                  index_manager_{index_manager},
                   model_(model),
                   time_dim_(model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION)),
                   solution_(solution) {}
@@ -25,6 +27,7 @@ namespace rows {
 
     private:
         const rows::SolverWrapper &solver_wrapper_;
+        const operations_research::RoutingIndexManager &index_manager_;
         const operations_research::RoutingModel &model_;
         operations_research::RoutingDimension const *time_dim_;
         operations_research::Assignment const *solution_;

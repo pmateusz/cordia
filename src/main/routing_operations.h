@@ -11,20 +11,15 @@ namespace rows {
 
     class RoutingOperations {
     public:
-        int Remove(std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes,
-                   operations_research::RoutingModel::NodeIndex node) const;
+        int Remove(std::vector<std::vector<int64> > &routes, int64 node) const;
 
-        int Swap(std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes,
-                 operations_research::RoutingModel::NodeIndex left,
-                 operations_research::RoutingModel::NodeIndex right) const;
+        int Swap(std::vector<std::vector<int64> > &routes, int64 left, int64 right) const;
 
-        int Replace(std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes,
-                    operations_research::RoutingModel::NodeIndex from,
-                    operations_research::RoutingModel::NodeIndex to,
-                    std::size_t route_index) const;
+        int Replace(std::vector<std::vector<int64> > &routes,
+                    int64 from, int64 to, std::size_t route_index) const;
 
         void PrintRoutes(std::shared_ptr<rows::Printer> printer,
-                         const std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes) const;
+                         const std::vector<std::vector<int64> > &routes) const;
     };
 }
 

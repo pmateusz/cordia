@@ -29,15 +29,26 @@ rows::IncrementalSchedulingWorker::IncrementalSolver::IncrementalSolver(const ro
                         std::move(break_time_window),
                         std::move(begin_end_work_day_adjustment_time_window)) {}
 
-void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operations_research::RoutingModel &model,
-                                                                          const std::shared_ptr<rows::Printer> &printer,
-                                                                          std::shared_ptr<const std::atomic<bool> > cancel_token) {
-    OnConfigureModel(model);
+void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(
+        const operations_research::RoutingIndexManager &index_manager,
+        operations_research::RoutingModel &model,
+        const std::shared_ptr<rows::Printer> &printer,
+        std::shared_ptr<const std::atomic<bool> > cancel_token) {
+    OnConfigureModel(index_manager, model);
 
     static const auto START_FROM_ZERO_TIME = false;
+    const auto distance_callback_handle = model.RegisterTransitCallback(
+            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return this->Distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
+            });
+    model.SetArcCostEvaluatorOfAllVehicles(distance_callback_handle);
 
-    model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
-    model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
+    const auto service_time_callback_handle = model.RegisterTransitCallback(
+            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return this->ServicePlusTravelTime(index_manager.IndexToNode(from_index),
+                                                   index_manager.IndexToNode(to_index));
+            });
+    model.AddDimension(service_time_callback_handle,
                        SECONDS_IN_DAY,
                        SECONDS_IN_DAY,
                        START_FROM_ZERO_TIME,
@@ -45,7 +56,7 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operat
 
     auto time_dimension = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
-    time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DAY);
+    time_dimension->CumulVar(index_manager.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DAY);
 
     // visit that needs multiple carers is referenced by multiple nodes
     // all such nodes must be either performed or unperformed
@@ -55,7 +66,7 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operat
 
         std::vector<int64> visit_indices;
         for (const auto &visit_node : visit_index_pair.second) {
-            const auto visit_index = model.NodeToIndex(visit_node);
+            const auto visit_index = index_manager.NodeToIndex(visit_node);
             visit_indices.push_back(visit_index);
 
             if (HasTimeWindows()) {
@@ -120,7 +131,8 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operat
 
             const auto breaks = CreateBreakIntervals(model.solver(), carer, diary);
             model.solver()->AddConstraint(
-                    model.solver()->RevAlloc(new rows::BreakConstraint(time_dimension, vehicle, breaks, *this)));
+                    model.solver()->RevAlloc(
+                            new rows::BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
         }
 
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time_to_use, end_time);
@@ -135,11 +147,10 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(operat
                                           break_time_window_,
                                           GetAdjustment()));
 
-    const int64 kPenalty = GetDroppedVisitPenalty(model);
+    const int64 kPenalty = GetDroppedVisitPenalty(index_manager, model);
     for (const auto &visit_bundle : visit_index_) {
-        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
-                                                                              std::end(visit_bundle.second)};
-        model.AddDisjunction(visit_nodes, kPenalty, static_cast<int64>(visit_nodes.size()));
+        std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
+        model.AddDisjunction(visit_indices, kPenalty, static_cast<int64>(visit_indices.size()));
     }
 
     model.CloseModelWithParameters(parameters_);
@@ -178,12 +189,15 @@ void rows::IncrementalSchedulingWorker::Run() {
                                                       boost::posix_time::minutes(120),
                                                       boost::posix_time::minutes(15));
 
-        std::unique_ptr<operations_research::RoutingModel> model
-                = std::make_unique<operations_research::RoutingModel>(solver_wrapper->nodes(),
-                                                                      solver_wrapper->vehicles(),
-                                                                      rows::SolverWrapper::DEPOT);
+        std::unique_ptr<operations_research::RoutingIndexManager> index_manager
+                = std::make_unique<operations_research::RoutingIndexManager>(solver_wrapper->nodes(),
+                                                                             solver_wrapper->vehicles(),
+                                                                             rows::SolverWrapper::DEPOT);
 
-        solver_wrapper->ConfigureModel(*model, printer_, CancelToken());
+        std::unique_ptr<operations_research::RoutingModel> model
+                = std::make_unique<operations_research::RoutingModel>(*index_manager);
+
+        solver_wrapper->ConfigureModel(*index_manager, *model, printer_, CancelToken());
 
         operations_research::Assignment const *assignment = nullptr;
         if (boost::filesystem::exists(CACHED_ASSIGNMENT_PATH)) {
@@ -213,7 +227,7 @@ void rows::IncrementalSchedulingWorker::Run() {
         }
 
         operations_research::Assignment *patched_assignment = nullptr;
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > local_routes;
+        std::vector<std::vector<int64>> local_routes;
         model->AssignmentToRoutes(*assignment, &local_routes);
 
         const auto time_dim = model->GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
@@ -227,7 +241,8 @@ void rows::IncrementalSchedulingWorker::Run() {
             std::vector<rows::CalendarVisit> relaxed_visits;
             {
                 static const auto AVOID_SYMMETRY = true;
-                rows::MultipleVisitQuery query{*solver_wrapper, *model, patched_assignment, AVOID_SYMMETRY};
+                rows::MultipleVisitQuery query{*solver_wrapper, *index_manager, *model, patched_assignment,
+                                               AVOID_SYMMETRY};
                 relaxed_visits = problem_.Visits(
                         [&query](const rows::CalendarVisit &visit) -> bool { return query.IsRelaxed(visit); }
                 );
@@ -261,31 +276,31 @@ void rows::IncrementalSchedulingWorker::Run() {
             model->AssignmentToRoutes(*patched_assignment, &local_routes);
             for (const auto &relaxed_visit: relaxed_visits_to_use) {
                 const auto nodes = solver_wrapper->GetNodePair(relaxed_visit);
-                const auto first_index = model->NodeToIndex(nodes.first);
-                const auto second_index = model->NodeToIndex(nodes.second);
+                const auto first_index = index_manager->NodeToIndex(nodes.first);
+                const auto second_index = index_manager->NodeToIndex(nodes.second);
                 CHECK_LT(first_index, second_index);
                 auto first_vehicle = patched_assignment->Min(model->VehicleVar(first_index));
                 auto second_vehicle = patched_assignment->Min(model->VehicleVar(second_index));
                 if (first_vehicle != -1 && second_vehicle != -1) {
                     if (first_vehicle > second_vehicle) {
-                        CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(first_index)), 1);
-                        CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(second_index)), 1);
+                        CHECK_EQ(routing_operations.Remove(local_routes, first_index), 1);
+                        CHECK_EQ(routing_operations.Remove(local_routes, second_index), 1);
                         constraint_operations.FirstVehicleNumberIsSmaller(first_index, second_index);
                         LOG(INFO) << "FirstVehicleNumberIsSmaller: " << first_index << " " << second_index;
                     } else if (first_vehicle == second_vehicle) {
-                        CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(first_index)), 1);
-                        CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(second_index)), 1);
+                        CHECK_EQ(routing_operations.Remove(local_routes, first_index), 1);
+                        CHECK_EQ(routing_operations.Remove(local_routes, second_index), 1);
                         constraint_operations.FirstVehicleNumberIsSmaller(first_index, second_index);
                         LOG(INFO) << "FirstVehicleNumberIsSmaller: eq " << first_index << " " << second_index;
                     } else if (patched_assignment->Min(time_dim->CumulVar(first_index))
                                != patched_assignment->Min(time_dim->CumulVar(second_index))) {
-                        CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(first_index)), 1);
-                        CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(second_index)), 1);
+                        CHECK_EQ(routing_operations.Remove(local_routes, first_index), 1);
+                        CHECK_EQ(routing_operations.Remove(local_routes, second_index), 1);
                         LOG(INFO) << "FirstVehicleArrivesNoLaterThanSecond: " << first_index << " " << second_index;
                         constraint_operations.FirstVehicleArrivesNoLaterThanSecond(first_index, second_index);
                     }
                 } else if (!(first_vehicle == -1 && second_vehicle == -1)) {
-                    CHECK_EQ(routing_operations.Remove(local_routes, model->IndexToNode(second_index)), 1);
+                    CHECK_EQ(routing_operations.Remove(local_routes, second_index), 1);
                     constraint_operations.FirstVisitIsActiveIfSecondIs(first_index, second_index);
 
                     LOG(INFO) << "FirstVisitIsActiveIfSecondIs: " << first_index << " " << second_index;
@@ -307,8 +322,8 @@ void rows::IncrementalSchedulingWorker::Run() {
 
         // TODO: slow progression of the bound
         rows::GexfWriter solution_writer;
-        solution_writer.Write(output_file_, *solver_wrapper, *model, *patched_assignment, boost::none);
-        solver_wrapper->DisplayPlan(*model, *patched_assignment);
+        solution_writer.Write(output_file_, *solver_wrapper, *index_manager, *model, *patched_assignment, boost::none);
+        solver_wrapper->DisplayPlan(*index_manager, *model, *patched_assignment);
         SetReturnCode(STATUS_OK);
     } catch (util::ApplicationError &ex) {
         LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();

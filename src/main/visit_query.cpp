@@ -6,8 +6,8 @@ bool rows::VisitQuery::operator()(const rows::CalendarVisit &visit) const {
     }
 
     const auto &nodes = solver_wrapper_.GetNodePair(visit);
-    const auto first_index = model_.NodeToIndex(nodes.first);
-    const auto second_index = model_.NodeToIndex(nodes.second);
+    const auto first_index = index_manager_.NodeToIndex(nodes.first);
+    const auto second_index = index_manager_.NodeToIndex(nodes.second);
     const auto first_vehicle = solution_->Min(model_.VehicleVar(first_index));
     const auto second_vehicle = solution_->Min(model_.VehicleVar(second_index));
 
@@ -50,8 +50,8 @@ void rows::VisitQuery::PrintMultipleCarerVisits(std::shared_ptr<rows::Printer> p
         const auto first_visit_node = *node_it;
         const auto second_visit_node = *std::next(node_it);
 
-        auto first_visit_index = model_.NodeToIndex(first_visit_node);
-        auto second_visit_index = model_.NodeToIndex(second_visit_node);
+        auto first_visit_index = index_manager_.NodeToIndex(first_visit_node);
+        auto second_visit_index = index_manager_.NodeToIndex(second_visit_node);
         const auto first_vehicle = solution_->Min(model_.VehicleVar(first_visit_index));
         const auto second_vehicle = solution_->Min(model_.VehicleVar(second_visit_index));
         const auto first_time = solution_->Min(time_dim_->CumulVar(first_visit_index));

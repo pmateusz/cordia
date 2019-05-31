@@ -17,12 +17,13 @@ namespace rows {
                               osrm::EngineConfig &config,
                               const operations_research::RoutingSearchParameters &search_parameters);
 
-        void ConfigureModel(operations_research::RoutingModel &model,
+        void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
+                            operations_research::RoutingModel &model,
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 
-        int64 ServiceTimeWithInstantTransfer(operations_research::RoutingModel::NodeIndex from,
-                                             operations_research::RoutingModel::NodeIndex to);
+        int64 ServiceTimeWithInstantTransfer(operations_research::RoutingNodeIndex from,
+                                             operations_research::RoutingNodeIndex to);
     };
 }
 

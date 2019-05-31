@@ -28,18 +28,28 @@ rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
           solution_repository_{std::make_shared<rows::SolutionRepository>()},
           variable_store_{nullptr} {}
 
-void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &model,
+void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
+                                            operations_research::RoutingModel &model,
                                             const std::shared_ptr<Printer> &printer,
                                             std::shared_ptr<const std::atomic<bool> > cancel_token) {
-    OnConfigureModel(model);
+    OnConfigureModel(index_manager, model);
 
-    last_dropped_visit_penalty_ = GetDroppedVisitPenalty(model);
+    last_dropped_visit_penalty_ = GetDroppedVisitPenalty(index_manager, model);
     variable_store_ = std::make_shared<rows::RoutingVariablesStore>(model.nodes(), model.vehicles());
 
-    model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
+    const auto transit_callback_handle = model.RegisterTransitCallback(
+            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return this->Distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
+            });
+    model.SetArcCostEvaluatorOfAllVehicles(transit_callback_handle);
 
+    const auto service_time_callback_handle = model.RegisterTransitCallback(
+            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return this->ServicePlusTravelTime(index_manager.IndexToNode(from_index),
+                                                   index_manager.IndexToNode(to_index));
+            });
     static const auto START_FROM_ZERO_TIME = false;
-    model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
+    model.AddDimension(service_time_callback_handle,
                        SECONDS_IN_DIMENSION,
                        SECONDS_IN_DIMENSION,
                        START_FROM_ZERO_TIME,
@@ -49,7 +59,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
             = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
     operations_research::Solver *const solver = model.solver();
-    time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
+    time_dimension->CumulVar(index_manager.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
 
     // visit that needs multiple carers is referenced by multiple nodes
     // all such nodes must be either performed or unperformed
@@ -61,7 +71,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
         // TODO: sort visit indices, but don't remember why...
         std::vector<int64> visit_indices;
         for (const auto &visit_node : visit_index_pair.second) {
-            const auto visit_index = model.NodeToIndex(visit_node);
+            const auto visit_index = index_manager.NodeToIndex(visit_node);
             visit_indices.push_back(visit_index);
 
             if (HasTimeWindows()) {
@@ -149,7 +159,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
             }
 
             solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
 //            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle);
 
             variable_store_->SetBreakIntervalVars(vehicle, breaks);
@@ -168,15 +178,14 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
                                           GetAdjustment()));
 
     for (const auto &visit_bundle : visit_index_) {
-        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
-                                                                              std::end(visit_bundle.second)};
-        model.AddDisjunction(visit_nodes, last_dropped_visit_penalty_, static_cast<int64>(visit_nodes.size()));
+        std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
+        model.AddDisjunction(visit_indices, last_dropped_visit_penalty_, static_cast<int64>(visit_indices.size()));
     }
 
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
     // TODO: prevent increasing the number of dropped visits
-    model.AddSearchMonitor(solver_ptr->RevAlloc(new SolutionLogMonitor(&model, solution_repository_)));
+    model.AddSearchMonitor(solver_ptr->RevAlloc(new SolutionLogMonitor(&index_manager, &model, solution_repository_)));
     solution_collector_ = solver_ptr->RevAlloc(new MinDroppedVisitsSolutionCollector(&model));
     model.AddSearchMonitor(solution_collector_);
 

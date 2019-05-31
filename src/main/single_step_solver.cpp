@@ -63,18 +63,29 @@ namespace rows {
         return service_user_it->second;
     }
 
-    void SingleStepSolver::ConfigureModel(operations_research::RoutingModel &model,
+    void SingleStepSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
+                                          operations_research::RoutingModel &model,
                                           const std::shared_ptr<Printer> &printer,
                                           std::shared_ptr<const std::atomic<bool> > cancel_token) {
         static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
         static const auto START_FROM_ZERO_TIME = false;
 
-        OnConfigureModel(model);
+        OnConfigureModel(index_manager, model);
 
         variable_store_ = std::make_shared<rows::RoutingVariablesStore>(model.nodes(), model.vehicles());
 
-        model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
-        model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
+        const auto transit_callback_handle = model.RegisterTransitCallback(
+                [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                    return this->Distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
+                });
+        model.SetArcCostEvaluatorOfAllVehicles(transit_callback_handle);
+
+        const auto service_time_callback_handle = model.RegisterTransitCallback(
+                [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                    return this->ServicePlusTravelTime(index_manager.IndexToNode(from_index),
+                                                       index_manager.IndexToNode(to_index));
+                });
+        model.AddDimension(service_time_callback_handle,
                            SECONDS_IN_DIMENSION,
                            SECONDS_IN_DIMENSION,
                            START_FROM_ZERO_TIME,
@@ -84,7 +95,7 @@ namespace rows {
                 = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
         operations_research::Solver *const solver = model.solver();
-        time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
+        time_dimension->CumulVar(index_manager.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
 
         // visit that needs multiple carers is referenced by multiple nodes
         // all such nodes must be either performed or unperformed
@@ -95,7 +106,7 @@ namespace rows {
 
             std::vector<int64> visit_indices;
             for (const auto &visit_node : visit_index_pair.second) {
-                const auto visit_index = model.NodeToIndex(visit_node);
+                const auto visit_index = index_manager.NodeToIndex(visit_node);
                 visit_indices.push_back(visit_index);
 
                 if (HasTimeWindows()) {
@@ -173,7 +184,8 @@ namespace rows {
 
                 const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
                 solver_ptr->AddConstraint(
-                        solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+                        solver_ptr->RevAlloc(
+                                new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
 
                 variable_store_->SetBreakIntervalVars(vehicle, breaks);
             }
@@ -193,7 +205,7 @@ namespace rows {
         // Adding penalty costs to allow skipping orders.
         auto max_distance = std::numeric_limits<int64>::min();
         const auto max_node = model.nodes() - 1;
-        for (operations_research::RoutingModel::NodeIndex source{0}; source < max_node; ++source) {
+        for (operations_research::RoutingNodeIndex source{0}; source < max_node; ++source) {
             for (auto destination = source + 1; destination < max_node; ++destination) {
                 const auto distance = Distance(source, destination);
                 if (max_distance < distance) {
@@ -206,9 +218,8 @@ namespace rows {
         static const decltype(max_distance) MAX_DISTANCE_OVERRIDE = 3600 * 4;
         const int64 kPenalty = std::max(max_distance, MAX_DISTANCE_OVERRIDE);
         for (const auto &visit_bundle : visit_index_) {
-            std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
-                                                                                  std::end(visit_bundle.second)};
-            model.AddDisjunction(visit_nodes, kPenalty, static_cast<int64>(visit_nodes.size()));
+            std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
+            model.AddDisjunction(visit_indices, kPenalty, static_cast<int64>(visit_indices.size()));
         }
 
         if (care_continuity_enabled_) {
@@ -216,14 +227,17 @@ namespace rows {
                 care_continuity_metrics_.emplace_back(*this, carer_pair.first);
             }
 
-            std::vector<operations_research::RoutingModel::NodeEvaluator2 *> care_continuity_evaluators;
+            std::vector<int> care_continuity_callback_handles;
             for (const auto &carer_metrics :care_continuity_metrics_) {
-                care_continuity_evaluators.
-                        push_back(
-                        NewPermanentCallback(&carer_metrics, &CareContinuityMetrics::operator()));
+                care_continuity_callback_handles.push_back(
+                        model.RegisterTransitCallback(
+                                [&carer_metrics, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                                    return carer_metrics(index_manager.IndexToNode(from_index),
+                                                         index_manager.IndexToNode(to_index));
+                                }));
             }
 
-            model.AddDimensionWithVehicleTransits(care_continuity_evaluators,
+            model.AddDimensionWithVehicleTransits(care_continuity_callback_handles,
                                                   0,
                                                   CARE_CONTINUITY_MAX,
                                                   START_FROM_ZERO_SERVICE_SATISFACTION,
@@ -245,7 +259,7 @@ namespace rows {
                     DCHECK(visit_it != std::end(visit_index_));
                     for (const auto &visit_node : visit_it->second) {
                         service_user_visits.push_back(
-                                care_continuity_dimension->TransitVar(model.NodeToIndex(visit_node)));
+                                care_continuity_dimension->TransitVar(index_manager.NodeToIndex(visit_node)));
                     }
                 }
 
@@ -281,9 +295,10 @@ namespace rows {
         }
     }
 
-    std::string SingleStepSolver::GetDescription(const operations_research::RoutingModel &model,
+    std::string SingleStepSolver::GetDescription(const operations_research::RoutingIndexManager &index_manager,
+                                                 const operations_research::RoutingModel &model,
                                                  const operations_research::Assignment &solution) {
-        auto description = SolverWrapper::GetDescription(model, solution);
+        auto description = SolverWrapper::GetDescription(index_manager, model, solution);
 
         if (care_continuity_enabled_) {
             boost::accumulators::accumulator_set<double,
@@ -324,8 +339,8 @@ namespace rows {
         }
     }
 
-    int64 SingleStepSolver::CareContinuityMetrics::operator()(operations_research::RoutingModel::NodeIndex from,
-                                                              operations_research::RoutingModel::NodeIndex to) const {
+    int64 SingleStepSolver::CareContinuityMetrics::operator()(operations_research::RoutingNodeIndex from,
+                                                              operations_research::RoutingNodeIndex to) const {
         const auto to_it = values_.find(to);
         if (to_it == std::end(values_)) {
             return 0;

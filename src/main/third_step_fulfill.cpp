@@ -28,15 +28,25 @@ rows::ThirdStepFulfillSolver::ThirdStepFulfillSolver(const rows::Problem &proble
           max_dropped_visits_{max_dropped_visits},
           vehicle_metrics_{std::move(vehicle_metrics)} {}
 
-void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingModel &model,
+void rows::ThirdStepFulfillSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
+                                                  operations_research::RoutingModel &model,
                                                   const std::shared_ptr<Printer> &printer,
                                                   std::shared_ptr<const std::atomic<bool> > cancel_token) {
-    OnConfigureModel(model);
+    OnConfigureModel(index_manager, model);
 
-    model.SetArcCostEvaluatorOfAllVehicles(NewPermanentCallback(this, &rows::SolverWrapper::Distance));
+    const auto transit_callback_handle = model.RegisterTransitCallback(
+            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return this->Distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
+            });
+    model.SetArcCostEvaluatorOfAllVehicles(transit_callback_handle);
 
+    const auto service_time_callback_handle = model.RegisterTransitCallback(
+            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return this->ServicePlusTravelTime(index_manager.IndexToNode(from_index),
+                                                   index_manager.IndexToNode(to_index));
+            });
     static const auto START_FROM_ZERO_TIME = false;
-    model.AddDimension(NewPermanentCallback(this, &rows::SolverWrapper::ServicePlusTravelTime),
+    model.AddDimension(service_time_callback_handle,
                        SECONDS_IN_DIMENSION,
                        SECONDS_IN_DIMENSION,
                        START_FROM_ZERO_TIME,
@@ -44,25 +54,25 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingMo
 
     const auto FIXED_COST = 5 * 3600;
     for (auto vehicle_number = 0; vehicle_number < vehicle_metrics_.size(); ++vehicle_number) {
-//        const auto vehicle_metrics = vehicle_metrics_[vehicle_number];
-//        if (vehicle_metrics.available_time().total_seconds() > 0) {
-//            const auto working_time_fraction = static_cast<double>(vehicle_metrics.travel_time().total_seconds() +
-//                                                                   vehicle_metrics.service_time().total_seconds())
-//                                               / vehicle_metrics.available_time().total_seconds();
-//            CHECK_GT(working_time_fraction, 0.0);
-//            const auto vehicle_cost = static_cast<int64>(FIXED_COST / working_time_fraction);
-//            CHECK_GT(vehicle_cost, 0.0);
-//            model.SetFixedCostOfVehicle(vehicle_cost, vehicle_number);
-//        }
-
-        model.SetFixedCostOfVehicle(0, vehicle_number);
+        const auto vehicle_metrics = vehicle_metrics_[vehicle_number];
+        if (vehicle_metrics.available_time().total_seconds() > 0) {
+            const auto working_time_fraction = static_cast<double>(vehicle_metrics.travel_time().total_seconds() +
+                                                                   vehicle_metrics.service_time().total_seconds())
+                                               / vehicle_metrics.available_time().total_seconds();
+            CHECK_GT(working_time_fraction, 0.0);
+            const auto vehicle_cost = static_cast<int64>(FIXED_COST / working_time_fraction);
+            CHECK_GT(vehicle_cost, 0.0);
+            model.SetFixedCostOfVehicle(vehicle_cost, vehicle_number);
+        }
+        // when comparing with mip the cost of a vehicle should be set to zero
+        // model.SetFixedCostOfVehicle(0, vehicle_number);
     }
 
     operations_research::RoutingDimension *time_dimension
             = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
     operations_research::Solver *const solver = model.solver();
-    time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
+    time_dimension->CumulVar(index_manager.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
 
     // visit that needs multiple carers is referenced by multiple nodes
     // all such nodes must be either performed or unperformed
@@ -73,7 +83,7 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingMo
 
         std::vector<int64> visit_indices;
         for (const auto &visit_node : visit_index_pair.second) {
-            const auto visit_index = model.NodeToIndex(visit_node);
+            const auto visit_index = index_manager.NodeToIndex(visit_node);
             visit_indices.push_back(visit_index);
 
             if (HasTimeWindows()) {
@@ -145,7 +155,7 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingMo
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
         }
 
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
@@ -160,22 +170,21 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingMo
                                           break_time_window_,
                                           GetAdjustment()));
 
+    CHECK_GT(max_dropped_visits_, 0);
     if (max_dropped_visits_ > 0) {
         for (const auto &visit_bundle : visit_index_) {
-            std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
-                                                                                  std::end(visit_bundle.second)};
-            model.AddDisjunction(visit_nodes, dropped_visit_penalty_, static_cast<int64>(visit_nodes.size()));
+            std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
+            model.AddDisjunction(visit_indices, dropped_visit_penalty_, static_cast<int64>(visit_indices.size()));
         }
-
-        std::vector<operations_research::IntVar *> visit_nodes;
-        for (const auto &visit_bundle : visit_index_) {
-            const auto visit_node = *std::begin(visit_bundle.second);
-            visit_nodes.push_back(model.VehicleVar(model.NodeToIndex(visit_node)));
-        }
-        solver->AddConstraint(solver->MakeAtMost(visit_nodes, -1, max_dropped_visits_));
-    } else {
-        model.AddAllActive();
     }
+
+    std::vector<operations_research::IntVar *> all_visits;
+    for (const auto &visit_bundle : visit_index_) {
+        const auto visit_node = *std::begin(visit_bundle.second);
+        all_visits.push_back(model.VehicleVar(index_manager.NodeToIndex(visit_node)));
+    }
+    solver->AddConstraint(solver->MakeAtMost(all_visits, -1, max_dropped_visits_));
+
 
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));

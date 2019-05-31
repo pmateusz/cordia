@@ -16,12 +16,12 @@ namespace rows {
 
         ~SolutionRepository();
 
-        void Store(std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > routes);
+        void Store(std::vector<std::vector<int64> > routes);
 
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > GetSolution() const;
+        std::vector<std::vector<int64> > GetSolution() const;
 
     private:
-        std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > solution_;
+        std::vector<std::vector<int64> > solution_;
     };
 }
 

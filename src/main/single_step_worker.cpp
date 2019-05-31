@@ -22,17 +22,20 @@ bool rows::SingleStepSchedulingWorker::Init(rows::Problem problem, osrm::EngineC
                                             std::string output_file) {
     try {
         solver_ = std::make_unique<rows::SingleStepSolver>(problem, engine_config, search_parameters);
-        model_ = std::make_unique<operations_research::RoutingModel>(solver_->nodes(),
-                                                                     solver_->vehicles(),
-                                                                     rows::SolverWrapper::DEPOT);
+        index_manager_ = std::make_unique<operations_research::RoutingIndexManager>(solver_->nodes(),
+                                                                                    solver_->vehicles(),
+                                                                                    rows::SolverWrapper::DEPOT);
+        model_ = std::make_unique<operations_research::RoutingModel>(*index_manager_);
 
-        solver_->ConfigureModel(*model_, printer_, CancelToken());
+        solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken());
         VLOG(1) << "Completed routing model configuration with status: " << solver_->GetModelStatus(model_->status());
         if (past_solution) {
             VLOG(1) << "Starting with a solution.";
-            VLOG(1) << past_solution->DebugStatus(*solver_, *model_);
-            const auto solution_to_use = solver_->ResolveValidationErrors(past_solution.get(), *model_);
-            VLOG(1) << solution_to_use.DebugStatus(*solver_, *model_);
+            VLOG(1) << past_solution->DebugStatus(*solver_, *index_manager_, *model_);
+            const auto solution_to_use = solver_->ResolveValidationErrors(past_solution.get(),
+                                                                          *index_manager_,
+                                                                          *model_);
+            VLOG(1) << solution_to_use.DebugStatus(*solver_, *index_manager_, *model_);
 
             if (VLOG_IS_ON(2)) {
                 for (const auto &visit : solution_to_use.visits()) {
@@ -42,7 +45,7 @@ bool rows::SingleStepSchedulingWorker::Init(rows::Problem problem, osrm::EngineC
                 }
             }
 
-            const auto routes = solver_->GetRoutes(solution_to_use, *model_);
+            const auto routes = solver_->GetRoutes(solution_to_use, *index_manager_, *model_);
             initial_assignment_ = model_->ReadAssignmentFromRoutes(routes, false);
             if (initial_assignment_ == nullptr || !model_->solver()->CheckAssignment(initial_assignment_)) {
                 throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
@@ -75,11 +78,13 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
                                                            break_time_window,
                                                            begin_end_shift_time_extension,
                                                            opt_time_limit);
-        model_ = std::make_unique<operations_research::RoutingModel>(solver_->nodes(),
-                                                                     solver_->vehicles(),
-                                                                     rows::SolverWrapper::DEPOT);
 
-        solver_->ConfigureModel(*model_, printer_, CancelToken());
+        index_manager_ = std::make_unique<operations_research::RoutingIndexManager>(solver_->nodes(),
+                                                                                    solver_->vehicles(),
+                                                                                    rows::SolverWrapper::DEPOT);
+        model_ = std::make_unique<operations_research::RoutingModel>(*index_manager_);
+
+        solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken());
         VLOG(1) << "Completed routing model configuration with status: " << solver_->GetModelStatus(model_->status());
 
         output_file_ = output_file;
@@ -116,8 +121,8 @@ void rows::SingleStepSchedulingWorker::Run() {
         DCHECK(is_solution_correct);
 
         rows::GexfWriter solution_writer;
-        solution_writer.Write(output_file_, *solver_, *model_, *assignment, boost::none);
-        solver_->DisplayPlan(*model_, *assignment);
+        solution_writer.Write(output_file_, *solver_, *index_manager_, *model_, *assignment, boost::none);
+        solver_->DisplayPlan(*index_manager_, *model_, *assignment);
         SetReturnCode(STATUS_OK);
     } catch (util::ApplicationError &ex) {
         LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();

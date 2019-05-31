@@ -46,6 +46,7 @@ namespace rows {
         std::shared_ptr<rows::Printer> printer_;
 
         operations_research::Assignment *initial_assignment_;
+        std::unique_ptr<operations_research::RoutingIndexManager> index_manager_;
         std::unique_ptr<operations_research::RoutingModel> model_;
         std::unique_ptr<rows::SolverWrapper> solver_;
     };

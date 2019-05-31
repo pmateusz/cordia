@@ -117,7 +117,9 @@ namespace rows {
 
         const std::vector<Break> &breaks() const;
 
-        std::string DebugStatus(SolverWrapper &solver, const operations_research::RoutingModel &model) const;
+        std::string DebugStatus(SolverWrapper &solver,
+                const operations_research::RoutingIndexManager &index_manager,
+                const operations_research::RoutingModel &model) const;
 
     private:
         std::vector<ScheduledVisit> visits_;

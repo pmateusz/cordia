@@ -13,19 +13,29 @@ rows::InstantTransferSolver::InstantTransferSolver(const rows::Problem &problem,
                                                    const operations_research::RoutingSearchParameters &search_parameters)
         : SolverWrapper(problem, config, search_parameters) {}
 
-void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingModel &model,
+void rows::InstantTransferSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
+                                                 operations_research::RoutingModel &model,
                                                  const std::shared_ptr<rows::Printer> &printer,
                                                  std::shared_ptr<const std::atomic<bool> > cancel_token) {
     static const auto START_FROM_ZERO_TIME = false;
 
-    model.SetArcCostEvaluatorOfAllVehicles(
-            NewPermanentCallback(this, &rows::InstantTransferSolver::ServiceTimeWithInstantTransfer));
-    model.AddDimension(
-            NewPermanentCallback(this, &rows::InstantTransferSolver::ServiceTimeWithInstantTransfer),
-            SECONDS_IN_DAY,
-            SECONDS_IN_DAY,
-            START_FROM_ZERO_TIME,
-            TIME_DIMENSION);
+    const auto transit_callback_handle = model.RegisterTransitCallback(
+            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return this->ServiceTimeWithInstantTransfer(index_manager.IndexToNode(from_index),
+                                                            index_manager.IndexToNode(to_index));
+            });
+    model.SetArcCostEvaluatorOfAllVehicles(transit_callback_handle);
+
+    const auto service_time_callback_handle = model.RegisterTransitCallback(
+            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                return this->ServiceTimeWithInstantTransfer(index_manager.IndexToNode(from_index),
+                                                            index_manager.IndexToNode(to_index));
+            });
+    model.AddDimension(service_time_callback_handle,
+                       SECONDS_IN_DAY,
+                       SECONDS_IN_DAY,
+                       START_FROM_ZERO_TIME,
+                       TIME_DIMENSION);
 
     operations_research::RoutingDimension *time_dimension
             = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
@@ -34,9 +44,9 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
         throw util::ApplicationError("Model contains no visits.", util::ErrorCode::ERROR);
     }
 
-    const auto schedule_day = NodeToVisit(operations_research::RoutingModel::NodeIndex{1}).datetime().date();
+    const auto schedule_day = NodeToVisit(operations_research::RoutingNodeIndex{1}).datetime().date();
     if (model.nodes() > 1) {
-        for (operations_research::RoutingModel::NodeIndex visit_node{2}; visit_node < model.nodes(); ++visit_node) {
+        for (operations_research::RoutingNodeIndex visit_node{2}; visit_node < model.nodes(); ++visit_node) {
             const auto &visit = NodeToVisit(visit_node);
             if (visit.datetime().date() != schedule_day) {
                 throw util::ApplicationError("Visits span across multiple days.", util::ErrorCode::ERROR);
@@ -45,9 +55,9 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
     }
 
     operations_research::Solver *const solver = model.solver();
-    time_dimension->CumulVar(model.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DAY);
+    time_dimension->CumulVar(index_manager.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DAY);
 
-    std::set<operations_research::RoutingModel::NodeIndex> covered_nodes;
+    std::set<operations_research::RoutingNodeIndex> covered_nodes;
     covered_nodes.insert(DEPOT);
 
     // visit that needs multiple carers is referenced by multiple nodes
@@ -60,7 +70,7 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
         std::vector<operations_research::IntVar *> active_visit_vars;
         for (const auto &visit_node : visit_index_pair.second) {
             covered_nodes.insert(visit_node);
-            const auto visit_index = model.NodeToIndex(visit_node);
+            const auto visit_index = index_manager.NodeToIndex(visit_node);
             if (HasTimeWindows()) {
                 const auto start_window = GetBeginVisitWindow(visit_start);
                 const auto end_window = GetEndVisitWindow(visit_start);
@@ -112,7 +122,7 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, vehicle, breaks, *this)));
+                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
         }
 
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
@@ -130,9 +140,8 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
     // Adding penalty costs to allow skipping orders.
     const int64 kPenalty = 10000000;
     for (const auto &visit_bundle : visit_index_) {
-        std::vector<operations_research::RoutingModel::NodeIndex> visit_nodes{std::begin(visit_bundle.second),
-                                                                              std::end(visit_bundle.second)};
-        model.AddDisjunction(visit_nodes, kPenalty, static_cast<int64>(visit_nodes.size()));
+        std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
+        model.AddDisjunction(visit_indices, kPenalty, static_cast<int64>(visit_indices.size()));
     }
 
     model.CloseModelWithParameters(parameters_);
@@ -140,8 +149,8 @@ void rows::InstantTransferSolver::ConfigureModel(operations_research::RoutingMod
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 }
 
-int64 rows::InstantTransferSolver::ServiceTimeWithInstantTransfer(operations_research::RoutingModel::NodeIndex from,
-                                                                  operations_research::RoutingModel::NodeIndex to) {
+int64 rows::InstantTransferSolver::ServiceTimeWithInstantTransfer(operations_research::RoutingNodeIndex from,
+                                                                  operations_research::RoutingNodeIndex to) {
     if (from == DEPOT) {
         return 0;
     }

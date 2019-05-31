@@ -1,18 +1,17 @@
 #include "routing.h"
 
-std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > util::GetRoutes(
-        const operations_research::RoutingModel &model) {
-    std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > routes;
+std::vector<std::vector<int64> > util::GetRoutes(const operations_research::RoutingModel &model) {
+    std::vector<std::vector<int64> > routes;
     routes.resize(static_cast<std::size_t>(model.vehicles()));
     for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
-        std::vector<operations_research::RoutingModel::NodeIndex> *const vehicle_route = &routes.at(vehicle);
+        std::vector<int64> *const vehicle_route = &routes.at(vehicle);
         vehicle_route->clear();
 
         const int64 first_index = model.Start(vehicle);
         const operations_research::IntVar *const first_var = model.NextVar(first_index);
         int64 current_index = first_var->Value();
         while (!model.IsEnd(current_index)) {
-            vehicle_route->push_back(model.IndexToNode(current_index));
+            vehicle_route->push_back(current_index);
 
             const operations_research::IntVar *const next_var = model.NextVar(current_index);
             current_index = next_var->Value();
@@ -21,10 +20,8 @@ std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > util::Ge
     return routes;
 }
 
-std::unordered_set<operations_research::RoutingModel::NodeIndex> util::GetVisitedNodes(
-        const std::vector<std::vector<operations_research::RoutingModel::NodeIndex> > &routes,
-        const operations_research::RoutingModel::NodeIndex depot_index) {
-    std::unordered_set<operations_research::RoutingModel::NodeIndex> visited_nodes;
+std::unordered_set<int64> util::GetVisitedNodes(const std::vector<std::vector<int64> > &routes, int64 depot_index) {
+    std::unordered_set<int64> visited_nodes;
     for (const auto &route : routes) {
         for (const auto &node : route) {
             const auto inserted_pair = visited_nodes.insert(node);
