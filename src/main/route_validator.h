@@ -250,8 +250,6 @@ namespace rows {
 
     class ValidationSession {
     public:
-        static const boost::posix_time::time_duration ERROR_MARGIN;
-
         ValidationSession(const Route &route, SolverWrapper &solver);
 
         void Initialize(
@@ -286,11 +284,11 @@ namespace rows {
         boost::posix_time::time_duration GetTravelTime(operations_research::RoutingNodeIndex from_node,
                                                        operations_research::RoutingNodeIndex to_node) const;
 
-        bool StartsAfter(boost::posix_time::time_duration time_of_day, const ScheduledVisit &visit) const;
+        bool StartsAfter(const boost::posix_time::time_duration &time_of_day, const ScheduledVisit &visit) const;
 
-        bool CanPerformAfter(boost::posix_time::time_duration time_of_day, const Event &break_interval) const;
+        bool CanPerformAfter(const boost::posix_time::time_duration &time_of_day, const Event &break_interval) const;
 
-        bool CanPerformAfter(boost::posix_time::time_duration time_of_day, const ScheduledVisit &visit) const;
+        bool CanPerformAfter(const boost::posix_time::time_duration &time_of_day, const ScheduledVisit &visit) const;
 
         bool error() const;
 
@@ -300,12 +298,6 @@ namespace rows {
                 std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > activities);
 
         RouteValidatorBase::ValidationResult ToValidationResult();
-
-        static bool GreaterThan(const boost::posix_time::time_duration &left,
-                                const boost::posix_time::time_duration &right);
-
-        static bool GreaterEqual(const boost::posix_time::time_duration &left,
-                                 const boost::posix_time::time_duration &right);
 
         static RouteValidatorBase::ScheduledVisitError CreateMissingInformationError(const rows::Route &route,
                                                                                      const rows::ScheduledVisit &visit,
@@ -366,18 +358,11 @@ namespace rows {
 
     class SolutionValidator {
     public:
-        RouteValidatorBase::ValidationResult Validate(int vehicle,
-                                                      const operations_research::Assignment &solution,
-                                                      const operations_research::RoutingIndexManager &index_manager,
-                                                      const operations_research::RoutingModel &model,
-                                                      rows::SolverWrapper &solver) const;
-
-        RouteValidatorBase::ValidationResult Validate(int vehicle,
-                                                      const operations_research::Assignment &solution,
-                                                      const operations_research::RoutingIndexManager &index_manager,
-                                                      const operations_research::RoutingModel &model,
-                                                      rows::SolverWrapper &solver,
-                                                      rows::RoutingVariablesStore &variable_store) const;
+        RouteValidatorBase::ValidationResult ValidateFast(int vehicle,
+                                                          const operations_research::Assignment &solution,
+                                                          const operations_research::RoutingIndexManager &index_manager,
+                                                          const operations_research::RoutingModel &model,
+                                                          rows::SolverWrapper &solver) const;
 
         RouteValidatorBase::ValidationResult ValidateFull(int vehicle,
                                                           const operations_research::Assignment &solution,

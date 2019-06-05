@@ -17,9 +17,8 @@ rows::SolutionDumper::SolutionDumper(boost::filesystem::path export_directory,
 
 bool rows::SolutionDumper::AtSolution() {
     const auto dropped_visits = util::GetDroppedVisitCount(model());
-    const auto solutions = solver()->solutions();
 
-    if (dropped_visits == 10) {
+    if (dropped_visits < 10) {
         const auto solution_file
                 = export_directory_ / (boost::format(file_name_pattern_) % dropped_visits).str();
         const auto solution_saved = model().WriteAssignment(solution_file.string());

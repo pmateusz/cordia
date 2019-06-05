@@ -461,9 +461,9 @@ namespace rows {
 
 
         parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-        CHECK_OK(util_time::EncodeGoogleApiProto(
-                absl::Milliseconds(15000),
-                parameters.mutable_lns_time_limit()));
+//        CHECK_OK(util_time::EncodeGoogleApiProto(
+//                absl::Milliseconds(15000),
+//                parameters.mutable_lns_time_limit()));
 
         parameters.set_use_full_propagation(false);
 
@@ -512,17 +512,20 @@ namespace rows {
         return time_distance;
     }
 
-    std::vector<std::vector<int64> >
+    std::vector<std::vector<int64>>
     SolverWrapper::GetRoutes(const rows::Solution &solution,
                              const operations_research::RoutingIndexManager &index_manager,
                              const operations_research::RoutingModel &model) const {
-        std::vector<std::vector<int64> > routes;
+        std::vector<std::vector<int64>> routes;
         std::unordered_set<operations_research::RoutingNodeIndex> used_nodes;
 
+
         // for each scheduled visit find its calendar visit
-        std::unordered_map<rows::CalendarVisit, boost::optional<rows::CalendarVisit> > matching;
-        const auto max_node_index = visit_by_node_.size();
-        for (auto node_index = 1; node_index < max_node_index; ++node_index) {
+        std::unordered_map<rows::CalendarVisit, boost::optional<rows::CalendarVisit>> matching;
+        CHECK_EQ(index_manager.num_nodes(), visit_by_node_.size());
+
+        // counting from 1 to handle depot
+        for (auto node_index = 1; node_index < index_manager.num_nodes(); ++node_index) {
             matching.emplace(visit_by_node_[node_index], boost::none);
         }
 
@@ -531,7 +534,7 @@ namespace rows {
                 if (IsNear(item.first, visit.calendar_visit().get())) {
                     if (!item.second) {
                         item.second = visit.calendar_visit().get();
-                    } else {
+                    } else if (item.first.id() != item.second->id()) {
                         const auto current_distance = abs_time_distance(item.first.datetime(), item.second->datetime());
                         const auto other_distance = abs_time_distance(item.first.datetime(), visit.datetime());
                         if (other_distance < current_distance) {
@@ -542,9 +545,11 @@ namespace rows {
             }
         }
 
+        auto not_matched_visits = 0;
         for (const auto &item : matching) {
             if (!item.second) {
                 LOG(WARNING) << "Visit not matched " << item.first;
+                ++not_matched_visits;
             }
         }
 
@@ -555,17 +560,19 @@ namespace rows {
             }
         }
 
+        std::unordered_set<rows::Carer> used_carers;
+        CHECK_EQ(model.vehicles(), solution.Carers().size());
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto carer = Carer(vehicle);
+            used_carers.insert(carer);
 
             std::vector<int64> route;
-
             const auto local_route = solution.GetRoute(carer);
             for (const auto &visit : local_route.visits()) {
                 const auto find_it = reverse_matching.find(visit.calendar_visit().get());
                 if (find_it == std::end(reverse_matching)) {
                     LOG(INFO) << "Visit not found: " << visit.calendar_visit().get();
-                    for (const auto &visit_item: visit_index_) {
+                    for (const auto &visit_item: reverse_matching) {
                         LOG(INFO) << visit_item.first;
                     }
 
@@ -573,6 +580,8 @@ namespace rows {
                 }
 
                 const auto &visit_nodes = GetNodes(find_it->second);
+                CHECK(!visit_nodes.empty());
+
                 auto inserted = false;
                 for (const auto &node : visit_nodes) {
                     if (used_nodes.find(node) != std::end(used_nodes)) {
@@ -584,11 +593,67 @@ namespace rows {
                     break;
                 }
 
-                DCHECK(inserted);
+                CHECK(inserted);
             }
 
+            CHECK_EQ(route.size(), local_route.visits().size());
             routes.emplace_back(std::move(route));
         }
+
+        CHECK_EQ(used_carers.size(), solution.Carers().size());
+        CHECK_EQ(routes.size(), solution.Carers().size());
+
+        for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+            const auto carer = Carer(vehicle);
+
+            const auto local_route = solution.GetRoute(carer);
+            CHECK_EQ(routes.at(vehicle).size(), local_route.visits().size());
+        }
+
+        const auto solution_visits = solution.visits();
+        for (const auto &visit_item: visit_index_) {
+            const auto find_it = matching.find(visit_item.first);
+            if (find_it == std::end(matching) || !find_it->second) {
+                continue;
+            }
+
+            auto solution_count = 0;
+            for (const auto &carer : solution.Carers()) {
+                const auto &route = solution.GetRoute(carer);
+                for (const auto visit_candidate :route.visits()) {
+                    if (visit_candidate.calendar_visit()->id() == visit_item.first.id()) {
+                        ++solution_count;
+                    }
+                }
+            }
+
+            auto routes_count = 0;
+            for (const auto &route : routes) {
+                for (const auto index : route) {
+                    const auto visit_node = index_manager.IndexToNode(index);
+                    const auto find_it
+                            = std::find(std::cbegin(visit_item.second), std::cend(visit_item.second), visit_node);
+                    if (find_it != std::cend(visit_item.second)) {
+                        ++routes_count;
+                    }
+                }
+            }
+
+            CHECK_EQ(routes_count, solution_count) << visit_item.first;
+        }
+
+        auto total_nodes_visited = 0;
+        for (const auto &route : routes) {
+            total_nodes_visited += route.size();
+        }
+
+        auto total_nodes_solution = 0;
+        for (const auto &carer : solution.Carers()) {
+            const auto &solution_route = solution.GetRoute(carer);
+            total_nodes_solution += solution_route.visits().size();
+        }
+        CHECK_EQ(total_nodes_visited, total_nodes_solution);
+
         return routes;
     }
 
@@ -602,7 +667,7 @@ namespace rows {
         const auto start_error_resolution = std::chrono::high_resolution_clock::now();
         rows::Solution solution_to_use{solution};
         while (true) {
-            std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > validation_errors;
+            std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>> validation_errors;
             std::vector<rows::Route> routes;
             for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
                 const auto carer = Carer(vehicle);
@@ -635,8 +700,8 @@ namespace rows {
                                                     std::end(solution_to_use.visits()),
                                                     is_assigned);
             VLOG_IF(1, initial_size != reduced_size)
-                            << boost::format("Removed %1% visit assignments due to constrain violations.")
-                               % (initial_size - reduced_size);
+                    << boost::format("Removed %1% visit assignments due to constrain violations.")
+                       % (initial_size - reduced_size);
         }
         VLOG(1) << boost::format("Validation of the solution for warm start completed in %1% seconds")
                    % std::chrono::duration_cast<std::chrono::seconds>(
@@ -646,7 +711,7 @@ namespace rows {
     }
 
     rows::Solution SolverWrapper::Resolve(const rows::Solution &solution,
-                                          const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError> > &validation_errors) const {
+                                          const std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>> &validation_errors) const {
         std::unordered_set<ScheduledVisit> visits_to_ignore;
         std::unordered_set<ScheduledVisit> visits_to_release;
         std::unordered_set<ScheduledVisit> visits_to_move;
@@ -787,7 +852,7 @@ namespace rows {
         boost::posix_time::time_duration total_work_time;
 
         auto total_errors = 0;
-        std::vector<std::pair<rows::Route, RouteValidatorBase::ValidationResult> > route_pairs;
+        std::vector<std::pair<rows::Route, RouteValidatorBase::ValidationResult>> route_pairs;
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             auto carer = Carer(vehicle);
             std::vector<rows::ScheduledVisit> carer_visits;
@@ -805,12 +870,11 @@ namespace rows {
 
             rows::Route route{carer, carer_visits};
             VLOG(2) << "Route: " << vehicle;
-            RouteValidatorBase::ValidationResult validation_result = route_validator.Validate(vehicle,
-                                                                                              solution,
-                                                                                              index_manager,
-                                                                                              model,
-                                                                                              *this);
-
+            RouteValidatorBase::ValidationResult validation_result = route_validator.ValidateFull(vehicle,
+                                                                                                  solution,
+                                                                                                  index_manager,
+                                                                                                  model,
+                                                                                                  *this);
             if (validation_result.error()) {
                 ++total_errors;
             } else {
@@ -1085,9 +1149,17 @@ namespace rows {
     }
 
     bool SolverWrapper::IsNear(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const {
-        return left.duration() == right.duration()
-               && left.service_user() == right.service_user()
-               && GetBeginVisitWindow(left.datetime().time_of_day()) <= right.datetime().time_of_day().total_seconds()
-               && right.datetime().time_of_day().total_seconds() <= GetEndVisitWindow(left.datetime().time_of_day());
+        const auto is_within_windows =
+                GetBeginVisitWindow(left.datetime().time_of_day()) <= right.datetime().time_of_day().total_seconds()
+                && right.datetime().time_of_day().total_seconds() <= GetEndVisitWindow(left.datetime().time_of_day());
+
+        if (left.id() == right.id()) {
+            CHECK_EQ(left.duration(), right.duration());
+            CHECK_EQ(left.service_user(), right.service_user());
+            CHECK(is_within_windows);
+            return true;
+        }
+
+        return left.duration() == right.duration() && left.service_user() == right.service_user() && is_within_windows;
     }
 }

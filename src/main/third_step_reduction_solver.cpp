@@ -132,6 +132,18 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
         }
     }
 
+    // could be interesting to use the Google constraint for breaks
+    // initial results show violation of some breaks
+    std::vector<int64> service_times(model.Size());
+    for (int node = 0; node < model.Size(); node++) {
+        if (node >= model.nodes() || node == 0) {
+            service_times[node] = 0;
+        } else {
+            const auto &visit = visit_by_node_.at(node);
+            service_times[node] = visit.duration().total_seconds();
+        }
+    }
+
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
     for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
@@ -147,13 +159,14 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
             end_time = GetAdjustedWorkdayFinish(diary.end_time());
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
-            solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
+//            solver_ptr->AddConstraint(
+//                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
+            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
         }
-
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
+    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
 
     printer->operator<<(ProblemDefinition(model.vehicles(),
                                           model.nodes() - 1,
@@ -163,7 +176,7 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
                                           break_time_window_,
                                           GetAdjustment()));
 
-    CHECK_GT(max_dropped_visits_, 0);
+    CHECK_GE(max_dropped_visits_, 0);
     if (max_dropped_visits_ > 0) {
         for (const auto &visit_bundle : visit_index_) {
             std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);

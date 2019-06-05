@@ -257,7 +257,7 @@ class AgglomerativeModel:
 
         sample = self.build_sample(records)
         clustering = sklearn.cluster.AgglomerativeClustering(affinity='precomputed',
-                                                             linkage='complete',
+                                                             linkage='average',
                                                              n_clusters=None,
                                                              distance_threshold=AgglomerativeModel.DISTANCE_THRESHOLD)
         cluster_batches = collections.defaultdict(list)

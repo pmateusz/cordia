@@ -113,7 +113,7 @@ namespace rows {
                                                                               operations_research::Solver::STARTS_AFTER_END,
                                                                               last_visit_interval));
                     solver()->AddConstraint(
-                            solver()->MakeGreaterOrEqual(last_visit_interval->EndExpr(), travel_interval->StartExpr()));
+                            solver()->MakeLessOrEqual(last_visit_interval->EndExpr(), travel_interval->StartExpr()));
                     CHECK_GE(travel_interval->StartMin(), last_visit_interval->EndMin());
                 }
 
@@ -145,7 +145,6 @@ namespace rows {
         }
 
         const auto current_number_of_failures = solver()->failures();
-
         if (current_number_of_failures > initial_number_of_failures) {
             LOG(WARNING) << "Registered a failure and have no way to jump...";
         } else {

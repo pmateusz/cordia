@@ -1,5 +1,6 @@
 #include <util/routing.h>
 
+#include "util/input.h"
 #include "three_step_worker.h"
 #include "third_step_solver.h"
 #include "third_step_reduction_solver.h"
@@ -254,7 +255,6 @@ void rows::ThreeStepSchedulingWorker::Run() {
         throw util::ApplicationError("No second stage solution found.", util::ErrorCode::ERROR);
     }
 
-    auto variable_store_ptr = second_step_wrapper->variable_store();
     for (int vehicle = 0; vehicle < second_stage_model->vehicles(); ++vehicle) {
         const auto validation_result = solution_validator.ValidateFull(vehicle,
                                                                        *second_stage_assignment,
@@ -298,6 +298,14 @@ void rows::ThreeStepSchedulingWorker::Run() {
     std::unique_ptr<operations_research::RoutingModel> intermediate_model
             = std::make_unique<operations_research::RoutingModel>(*intermediate_index_manager);
     intermediate_wrapper->ConfigureModel(*intermediate_index_manager, *intermediate_model, printer_, CancelToken());
+
+// useful for debugging
+//    const auto warm_start_solution = util::LoadSolution(
+//            "/home/pmateusz/dev/cordia/simulations/conference/problems/second_stage_c070_3level_forecast_rv90b90e15m2m4m8_20171001.gexf",
+//            problem_, visit_time_window_);
+//
+//    const auto routes = intermediate_wrapper->GetRoutes(warm_start_solution, *intermediate_index_manager, *intermediate_model);
+
     const auto routes = second_step_wrapper->solution_repository()->GetSolution();
     const auto max_dropped_visits_count =
             third_stage_model->nodes() - util::GetVisitedNodes(routes, intermediate_model->GetDepot()).size() - 1;

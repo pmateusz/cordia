@@ -122,6 +122,18 @@ void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIn
         }
     }
 
+    // could be interesting to use the Google constraint for breaks
+    // initial results show violation of some breaks
+    std::vector<int64> service_times(model.Size());
+    for (int node = 0; node < model.Size(); node++) {
+        if (node >= model.nodes() || node == 0) {
+            service_times[node] = 0;
+        } else {
+            const auto &visit = visit_by_node_.at(node);
+            service_times[node] = visit.duration().total_seconds();
+        }
+    }
+
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
     for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
@@ -158,16 +170,22 @@ void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIn
                         << ", " << boost::posix_time::seconds(break_item->EndMax()) << "]";
             }
 
-            solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
-//            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle);
+//            solver_ptr->AddConstraint(
+//                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
 
+//            ,
+//                                                       [this, &index_manager](int64 from, int64 to) -> int64 {
+//                                                           return Distance(index_manager.IndexToNode(from),
+//                                                                           index_manager.IndexToNode(to));
+//                                                       });
+            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
             variable_store_->SetBreakIntervalVars(vehicle, breaks);
         }
 
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
+    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
 
     printer->operator<<(ProblemDefinition(model.vehicles(),
                                           model.nodes() - 1,

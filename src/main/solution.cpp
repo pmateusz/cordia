@@ -36,7 +36,7 @@ rows::Route rows::Solution::GetRoute(const rows::Carer &carer) const {
 
     for (const auto &visit : visits_) {
         if (visit.calendar_visit()
-            && carer == visit.carer()
+            && carer.sap_number() == visit.carer()->sap_number()
             && (visit.type() != ScheduledVisit::VisitType::CANCELLED
                 && visit.type() != ScheduledVisit::VisitType::INVALID
                 && visit.type() != ScheduledVisit::VisitType::MOVED)) {

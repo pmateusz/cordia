@@ -155,7 +155,7 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
                                           break_time_window_,
                                           GetAdjustment()));
 
-    CHECK_GT(max_dropped_visits_, 0);
+    CHECK_GE(max_dropped_visits_, 0);
     if (max_dropped_visits_ > 0) {
         for (const auto &visit_bundle : visit_index_) {
             std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);

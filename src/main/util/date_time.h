@@ -5,22 +5,38 @@
 
 namespace util {
 
-    inline bool COMP_GT(const boost::posix_time::time_duration &left,
-                        const boost::posix_time::time_duration &right,
+    template<typename TimeAwareType>
+    inline bool COMP_GT(TimeAwareType left,
+                        TimeAwareType right,
                         const boost::posix_time::time_duration &margin) {
         return left > (right + margin);
     }
 
-    inline bool COMP_LT(const boost::posix_time::time_duration &left,
-                        const boost::posix_time::time_duration &right,
+    template<typename TimeAwareType>
+    inline bool COMP_LT(TimeAwareType left,
+                        TimeAwareType right,
                         const boost::posix_time::time_duration &margin) {
         return (left + margin) < right;
     }
 
-    inline bool COMP_NEAR(const boost::posix_time::time_duration &left,
-                          const boost::posix_time::time_duration &right,
+    template<typename TimeAwareType>
+    inline bool COMP_NEAR(TimeAwareType left,
+                          TimeAwareType right,
                           const boost::posix_time::time_duration &margin) {
         return !(COMP_GT(left, right, margin) && COMP_LT(left, right, margin));
+    }
+
+    const boost::posix_time::time_duration ERROR_MARGIN = boost::posix_time::seconds(1);
+
+    template<typename TimeAwareType>
+    inline bool COMP_GT(TimeAwareType left, TimeAwareType right) {
+        return util::COMP_GT(left, right, ERROR_MARGIN);
+    }
+
+    template<typename TimeAwareType>
+    inline bool COMP_GE(TimeAwareType left, TimeAwareType right) {
+        return util::COMP_GT(left, right, ERROR_MARGIN) || util::COMP_NEAR(left, right, ERROR_MARGIN);
+        //(abs(left.total_seconds() - right.total_seconds()) <= ERROR_MARGIN.total_seconds());
     }
 }
 
