@@ -85,6 +85,7 @@ __SCHEDULE_PATTERNS = 'schedule_patterns'
 __LABELS = 'labels'
 __OUTPUT = 'output'
 __ARROWS = 'arrows'
+__FILE_FORMAT_ARG = 'output_format'
 
 __color_map = matplotlib.pyplot.get_cmap('tab20c')
 FOREGROUND_COLOR = __color_map.colors[0]
@@ -140,11 +141,13 @@ def configure_parser():
     compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __SCHEDULE_PATTERNS, nargs='+', required=True)
     compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __LABELS, nargs='+', required=True)
     compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
+    compare_distance_parser.add_argument(__OPTIONAL_ARG_PREFIX + __FILE_FORMAT_ARG, default=rows.plot.FILE_FORMAT)
 
     compare_workload_parser = subparsers.add_parser(__COMPARE_WORKLOAD_COMMAND)
     compare_workload_parser.add_argument(__PROBLEM_FILE_ARG)
     compare_workload_parser.add_argument(__BASE_SCHEDULE_PATTERN)
     compare_workload_parser.add_argument(__CANDIDATE_SCHEDULE_PATTERN)
+    compare_workload_parser.add_argument(__OPTIONAL_ARG_PREFIX + __FILE_FORMAT_ARG, default=rows.plot.FILE_FORMAT)
 
     debug_parser = subparsers.add_parser(__DEBUG_COMMAND)
     # debug_parser.add_argument(__PROBLEM_FILE_ARG)
@@ -266,6 +269,7 @@ def compare_distance(args, settings):
     schedule_patterns = getattr(args, __SCHEDULE_PATTERNS)
     labels = getattr(args, __LABELS)
     output_file = getattr(args, __OUTPUT, 'distance')
+    output_file_format = getattr(args, __FILE_FORMAT_ARG)
 
     data_frame_file = 'data_frame_cache.bin'
 
@@ -367,7 +371,7 @@ def compare_distance(args, settings):
 
         figure.subplots_adjust(bottom=0.15)
 
-        rows.plot.save_figure(output_file)
+        rows.plot.save_figure(output_file, output_file_format)
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -403,6 +407,8 @@ def compare_workload(args, settings):
     location_finder = rows.location_finder.UserLocationFinder(settings)
     location_finder.reload()
 
+    output_file_format = getattr(args, __FILE_FORMAT_ARG)
+
     dates = set(candidate_schedule_by_date.keys())
     for date in base_schedule_by_date.keys():
         dates.add(date)
@@ -431,7 +437,7 @@ def compare_workload(args, settings):
                                                                          observed_duration_by_visit)
 
             base_schedule_stem, base_schedule_ext = os.path.splitext(os.path.basename(base_schedule_file))
-            rows.plot.save_workforce_histogram(base_schedule_data_frame, base_schedule_stem)
+            rows.plot.save_workforce_histogram(base_schedule_data_frame, base_schedule_stem, output_file_format)
 
             candidate_schedule_file = candidate_schedules[candidate_schedule]
             candidate_schedule_data_frame = rows.plot.get_schedule_data_frame(candidate_schedule,
@@ -441,11 +447,14 @@ def compare_workload(args, settings):
                                                                               observed_duration_by_visit)
             candidate_schedule_stem, candidate_schedule_ext \
                 = os.path.splitext(os.path.basename(candidate_schedule_file))
-            rows.plot.save_workforce_histogram(candidate_schedule_data_frame, candidate_schedule_stem)
+            rows.plot.save_workforce_histogram(candidate_schedule_data_frame,
+                                               candidate_schedule_stem,
+                                               output_file_format)
             rows.plot.save_combined_histogram(candidate_schedule_data_frame,
                                               base_schedule_data_frame,
                                               ['2nd Stage', '3rd Stage'],
-                                              'contrast_workforce_{0}_combined'.format(date))
+                                              'contrast_workforce_{0}_combined'.format(date),
+                                              output_file_format)
 
 
 def contrast_workload(args, settings):

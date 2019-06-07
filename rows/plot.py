@@ -162,15 +162,15 @@ def add_legend(axis, handles, labels, ncol, bbox_to_anchor):
 FILE_FORMAT = 'pdf'
 
 
-def save_figure(file_path):
-    matplotlib.pyplot.savefig(file_path + '.' + FILE_FORMAT,
-                              format=FILE_FORMAT,
+def save_figure(file_path, file_format=FILE_FORMAT):
+    matplotlib.pyplot.savefig(file_path + '.' + file_format,
+                              format=file_format,
                               transparent=True,
-                              dpi=1200)
+                              dpi=300)
     # bbox_extra_artists=(legend,))
 
 
-def save_workforce_histogram(data_frame, file_path):
+def save_workforce_histogram(data_frame, file_path, output_format):
     __width = 0.35
     figure, axis = matplotlib.pyplot.subplots()
     try:
@@ -209,13 +209,13 @@ def save_workforce_histogram(data_frame, file_path):
 
         figure.subplots_adjust(bottom=0.15)
 
-        save_figure(file_path)
+        save_figure(file_path, output_format)
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
 
 
-def save_combined_histogram(top_data_frame, bottom_data_frame, labels, file_path):
+def save_combined_histogram(top_data_frame, bottom_data_frame, labels, file_path, output_file_format):
     __width = 0.35
 
     y_label1, y_label2 = labels
@@ -271,7 +271,7 @@ def save_combined_histogram(top_data_frame, bottom_data_frame, labels, file_path
 
         figure.subplots_adjust(bottom=0.15, right=0.96, hspace=0.05)
 
-        save_figure(file_path)
+        save_figure(file_path, output_file_format)
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
