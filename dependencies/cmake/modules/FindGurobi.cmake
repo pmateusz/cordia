@@ -35,7 +35,7 @@ find_path(GUROBI_INCLUDE_DIR gurobi_c++.h
         HINTS "${_GUROBI_INCLUDE_LOCATIONS}"
         PATHS "/usr/local/include")
 
-find_library(GUROBI_LIBRARY gurobi gurobi80
+find_library(GUROBI_LIBRARY gurobi gurobi81
         HINTS  "${_GUROBI_LIB_LOCATIONS}"
         PATHS "/usr/local/lib/gurobi"
         PATH_SUFFIXES lib)

@@ -44,7 +44,7 @@ get_filename_component(_SPARSEHASH_ROOT_DIR "${CMAKE_SOURCE_DIR}/dependencies/bu
 get_filename_component(_GTEST_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/gtest-install" REALPATH)
 get_filename_component(_JSON_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/json-install" REALPATH)
 get_filename_component(_GEXF_ROOT "${CMAKE_SOURCE_DIR}/dependencies/build/external/gexf-install" REALPATH)
-get_filename_component(_GUROBI_ROOT "/opt/gurobi801" REALPATH)
+get_filename_component(_GUROBI_ROOT "/opt/gurobi811" REALPATH)
 
 set(GFLAGS_ROOT_DIR ${_GFLAGS_ROOT_DIR})
 set(GLOG_ROOT_DIR ${_GLOG_ROOT_DIR})
@@ -103,8 +103,8 @@ set(HEADER_DEP ${OSRM_INCLUDE_DIR}
 
 set(LIBRARY_DEP ${ORTOOLS_LIBRARY}
         ${Protobuf_LIBRARIES}
-        ${GUROBI_LIBRARY}
         ${GUROBI_STATIC_LIBRARY}
+        ${GUROBI_LIBRARY}
         ${OSRM_LIBRARY}
         ${Boost_LIBRARIES}
         ${ZLIB_LIBRARIES}
