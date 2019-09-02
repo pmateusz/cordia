@@ -146,11 +146,11 @@ def calculate_observed_visit_duration(schedule):
     return observed_duration_by_visit
 
 
-def add_legend(axis, handles, labels, ncol, bbox_to_anchor):
+def add_legend(axis, handles, labels, ncol, bbox_to_anchor, loc='lower center'):
     legend = axis.legend(handles,
                          labels,
-                         loc='lower center',
                          ncol=ncol,
+                         loc=loc,
                          bbox_to_anchor=bbox_to_anchor,
                          fancybox=None,
                          edgecolor=None,

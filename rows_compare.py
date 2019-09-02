@@ -363,13 +363,18 @@ def compare_distance(args, settings):
 
         ax3.yaxis_date()
         ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
-        ax3.set_ylabel('Overtime')
+        ax3.set_ylabel('Total Overtime')
         ax3.set_xlabel('Day of October 2017')
 
-        legend = rows.plot.add_legend(ax3, handles, labels, ncol=3, bbox_to_anchor=(0.5, -0.68))
-        matplotlib.pyplot.tight_layout()
+        translate_labels = {
+            '3rd Stage': 'Optimizer',
+            'Human Planners': 'Human Planners'
+        }
+        labels_to_use = [translate_labels[label] if label in translate_labels else label for label in labels]
 
-        figure.subplots_adjust(bottom=0.15)
+        rows.plot.add_legend(ax3, handles, labels_to_use, ncol=3, loc='lower center', bbox_to_anchor=(0.5, -1.1))
+        figure.tight_layout()
+        figure.subplots_adjust(bottom=0.20)
 
         rows.plot.save_figure(output_file, output_file_format)
     finally:
@@ -1801,6 +1806,9 @@ def debug(args, settings):
 
 if __name__ == '__main__':
     sys.excepthook = handle_exception
+
+    matplotlib.rcParams.update({'font.size': 14, 'pdf.fonttype': 42})
+    matplotlib.rc('font', **{'sans-serif': ['Roboto']})
 
     __script_file = os.path.realpath(__file__)
     __install_directory = os.path.dirname(__script_file)
