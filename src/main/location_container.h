@@ -39,6 +39,8 @@ namespace rows {
 
         int64 Distance(const Location &from, const Location &to);
 
+        std::vector<int64> LargestDistances(std::size_t top);
+
         std::size_t ComputeDistances();
 
     private:

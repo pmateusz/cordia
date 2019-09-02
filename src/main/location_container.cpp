@@ -163,6 +163,24 @@ namespace rows {
         return distance;
     }
 
+    std::vector<int64> CachedLocationContainer::LargestDistances(std::size_t top) {
+        const auto num_locations = location_index_.size();
+
+        std::vector<int64> distances;
+        distances.reserve(num_locations * (num_locations - 1) / 2);
+        const auto location_index_end = std::cend(location_index_);
+        for (auto left = std::cbegin(location_index_); left != location_index_end; ++left) {
+            for (auto right = left; right != location_index_end; ++right) {
+                if (left == right) { continue; }
+                distances.emplace_back(Distance(left->first, right->first));
+            }
+        }
+
+        std::sort(distances.begin(), distances.end(), std::greater<>());
+        distances.resize(top);
+        return distances;
+    }
+
     std::size_t CachedLocationContainer::ComputeDistances() {
         std::size_t distance_pairs = 0;
 
@@ -177,6 +195,7 @@ namespace rows {
                 int64 distance = 0;
                 if (source_index != target_index) {
                     distance = location_container_.Distance(source_location, target_location);
+                    CHECK_GE(distance, 0);
                     ++distance_pairs;
                 }
 
