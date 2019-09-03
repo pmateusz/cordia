@@ -23,27 +23,19 @@
 #include "location_container.h"
 #include "solver_wrapper.h"
 #include "break.h"
-#include "single_step_solver.h"
 #include "second_step_solver.h"
 #include "gexf_writer.h"
 
-DEFINE_string(problem,
-              "../problem.json", "a file path to the problem instance");
-DEFINE_validator(problem, &util::file::Exists
-);
+DEFINE_string(problem, "../problem.json", "a file path to the problem instance");
+DEFINE_validator(problem, &util::file::Exists);
 
-DEFINE_string(solution,
-              "", "a file path to the solution file for warm start");
-DEFINE_validator(solution, &util::file::IsNullOrExists
-);
+DEFINE_string(solution, "", "a file path to the solution file for warm start");
+DEFINE_validator(solution, &util::file::IsNullOrExists);
 
-DEFINE_string(maps,
-              "../data/scotland-latest.osrm", "a file path to the map");
-DEFINE_validator(maps, &util::file::Exists
-);
+DEFINE_string(maps, "../data/scotland-latest.osrm", "a file path to the map");
+DEFINE_validator(maps, &util::file::Exists);
 
-DEFINE_string(output,
-              "output.gexf", "an output file");
+DEFINE_string(output, "output.gexf", "an output file");
 
 static const auto DEFAULT_TIME_LIMIT_TEXT = "00:03:00";
 static const auto DEFAULT_TIME_LIMIT = boost::posix_time::duration_from_string(DEFAULT_TIME_LIMIT_TEXT);
@@ -66,6 +58,12 @@ void ParseArgs(int argc, char *argv[]) {
                              "maps: %2%\n") % FLAGS_problem % FLAGS_maps;
 }
 
+inline bool IsOne(double value) { return value >= 0.95; }
+
+inline bool IsZero(double value) { return value <= 0.05; }
+
+inline bool IsBinary(double value) { return IsZero(value) || IsOne(value); }
+
 std::string GetStatus(int gurobi_status) {
     switch (gurobi_status) {
         case GRB_INF_OR_UNBD:
@@ -82,15 +80,6 @@ std::string GetStatus(int gurobi_status) {
             return "UNKNOWN";
     }
 }
-
-std::vector<rows::Location> getLocations(const rows::Problem &problem) {
-    std::vector<rows::Location> locations;
-    for (const auto &visit : problem.visits()) {
-        locations.push_back(visit.location().get());
-    }
-    return locations;
-}
-
 
 struct Activity {
 public:
@@ -151,37 +140,105 @@ std::ostream &operator<<(std::ostream &out, const Activity &activity) {
     return out;
 }
 
-class MultipleBeakModel {
-public:
-    static MultipleBeakModel Create(const rows::Problem &problem,
-                                    osrm::EngineConfig engine_config,
-                                    boost::posix_time::time_duration visit_time_window,
-                                    boost::posix_time::time_duration break_time_window,
-                                    boost::posix_time::time_duration overtime_allowance) {
-
-        std::vector<rows::Location> locations;
-        for (const auto &visit : problem.visits()) {
-            locations.push_back(visit.location().get());
-        }
-
-        rows::CachedLocationContainer location_container(std::cbegin(locations), std::cend(locations), engine_config);
-        location_container.ComputeDistances();
-
-        return MultipleBeakModel{problem,
-                                 std::move(location_container),
-                                 std::move(visit_time_window),
-                                 std::move(break_time_window),
-                                 std::move(overtime_allowance)};
+boost::posix_time::time_period GetTimeHorizon(const rows::Problem &problem) {
+    boost::posix_time::ptime min_visit_start = boost::posix_time::max_date_time;
+    for (const auto &visit : problem.visits()) {
+        min_visit_start = std::min(min_visit_start, visit.datetime());
     }
 
-    MultipleBeakModel(const rows::Problem &problem,
-                      rows::CachedLocationContainer location_container,
-                      boost::posix_time::time_duration visit_time_window,
-                      boost::posix_time::time_duration break_time_window,
-                      boost::posix_time::time_duration overtime_allowance)
-            : visits_(problem.visits()),
+    return {boost::posix_time::ptime(min_visit_start.date(), boost::posix_time::time_duration()),
+            boost::posix_time::seconds(rows::SolverWrapper::SECONDS_IN_DIMENSION)};
+}
+
+class Model {
+public:
+    explicit Model(rows::CachedLocationContainer location_container)
+            : location_container_{std::move(location_container)} {}
+
+    rows::Solution Solve(const boost::optional<rows::Solution> &initial_solution,
+                         const boost::posix_time::time_duration &time_limit) {
+        GRBEnv env;
+        GRBModel model{env};
+
+        model.set(GRB_DoubleParam_TimeLimit, time_limit.total_seconds());
+        model.set(GRB_DoubleParam_MIPGap, FLAGS_gap_limit);
+        model.set(GRB_IntParam_VarBranch, GRB_VARBRANCH_AUTO);
+//      model.set(GRB_DoubleParam_Heuristics, 0.2);
+//      model.set(GRB_IntParam_MIPFocus, GRB_MIPFOCUS_OPTIMALITY);
+//      model.set(GRB_IntParam_Cuts, GRB_CUTS_VERYAGGRESSIVE);
+//      model.set(GRB_IntParam_SubMIPNodes, GRB_MAXINT); // set to max int if the initial solution is partial
+
+        Build(model, initial_solution);
+        model.optimize();
+
+        const auto solver_status = model.get(GRB_IntAttr_Status);
+
+        if (solver_status != GRB_OPTIMAL && solver_status != GRB_TIME_LIMIT) {
+            LOG(FATAL) << "Invalid status: " << GetStatus(solver_status);
+            return {};
+        }
+
+        const auto solution = GetSolution();
+
+        Print(solution);
+
+        return solution;
+    }
+
+    rows::CachedLocationContainer &LocationContainer() { return location_container_; }
+
+protected:
+    virtual void Build(GRBModel &model, const boost::optional<rows::Solution> &solution_opt) = 0;
+
+    virtual rows::Solution GetSolution() = 0;
+
+    virtual void Print(const rows::Solution &solution) {}
+
+    inline int64 Distance(const rows::Location &source, const rows::Location &destination) {
+        return location_container_.Distance(source, destination);
+    }
+
+private:
+    rows::CachedLocationContainer location_container_;
+};
+
+class SingleBreakModel : public Model {
+public:
+    SingleBreakModel(const rows::Problem &problem,
+                     rows::CachedLocationContainer location_container,
+                     boost::posix_time::time_duration visit_time_window,
+                     boost::posix_time::time_duration break_time_window,
+                     boost::posix_time::time_duration overtime_allowance)
+            : Model(std::move(location_container)),
+              visit_time_window_{std::move(visit_time_window)},
+              break_time_window_{std::move(break_time_window)},
+              overtime_window_{std::move(overtime_allowance)} {}
+
+protected:
+    void Build(GRBModel &model, const boost::optional<rows::Solution> &solution_opt) override {
+
+    }
+
+    rows::Solution GetSolution() override {
+        return rows::Solution();
+    }
+
+private:
+    boost::posix_time::time_duration visit_time_window_;
+    boost::posix_time::time_duration break_time_window_;
+    boost::posix_time::time_duration overtime_window_;
+};
+
+class MultipleBreakModel : public Model {
+public:
+    MultipleBreakModel(const rows::Problem &problem,
+                       rows::CachedLocationContainer location_container,
+                       boost::posix_time::time_duration visit_time_window,
+                       boost::posix_time::time_duration break_time_window,
+                       boost::posix_time::time_duration overtime_allowance)
+            : Model(std::move(location_container)),
+              visits_(problem.visits()),
               carer_diaries_(GetCarers(problem)),
-              location_container_(std::move(location_container)),
               node_visits_{},
               multiple_carer_visit_nodes_{},
               begin_depot_node_{0},
@@ -250,34 +307,10 @@ public:
         }
     }
 
-    rows::Solution Solve(const boost::optional<rows::Solution> &initial_solution,
-                         const boost::posix_time::time_duration &time_limit) {
-        GRBEnv env = GRBEnv();
-        GRBModel model = GRBModel(env);
-
-        Build(model, initial_solution);
-
-        model.set(GRB_DoubleParam_TimeLimit, time_limit.total_seconds());
-        model.set(GRB_DoubleParam_MIPGap, FLAGS_gap_limit);
-        model.set(GRB_IntParam_VarBranch, GRB_VARBRANCH_AUTO);
-        // model.set(GRB_DoubleParam_Heuristics, 0.2);
-//        model.set(GRB_IntParam_MIPFocus, GRB_MIPFOCUS_OPTIMALITY);
-//        model.set(GRB_IntParam_Cuts, GRB_CUTS_VERYAGGRESSIVE);
-//        model.set(GRB_IntParam_SubMIPNodes, GRB_MAXINT); // set to max int if the initial solution is partial
-        model.optimize();
-
-        const auto solver_status = model.get(GRB_IntAttr_Status);
-
-        if (solver_status != GRB_OPTIMAL && solver_status != GRB_TIME_LIMIT) {
-//            model.computeIIS();
-//            model.write("failed_model.ilp");
-            LOG(FATAL) << "Invalid status: " << GetStatus(solver_status);
-            return rows::Solution();
-        }
-
+protected:
+    rows::Solution GetSolution() override {
         std::vector<rows::ScheduledVisit> visits;
         std::vector<rows::Break> breaks;
-
         std::vector<std::vector<decltype(carer_edges_)::size_type>> carer_paths;
         static const auto BLANK_NODE = -1;
         for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
@@ -377,238 +410,10 @@ public:
             }
         }
 
-        const auto solution = rows::Solution(std::move(visits), std::move(breaks));
-
-        Print(solution);
-
-        return solution;
+        return rows::Solution(std::move(visits), std::move(breaks));
     }
 
-    inline bool IsOne(double value) const {
-        return value >= 0.95;
-    }
-
-    inline bool IsBinary(double value) const {
-        return (value <= 0.05) || (value >= 0.95);
-    }
-
-    void Print(const rows::Solution &solution) {
-        std::vector<std::vector<std::pair<std::size_t, std::size_t> > > marked_edges{num_carers_};
-        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            const auto carer_num_nodes = carer_edges_[carer_index].size();
-            for (auto from_index = 0; from_index < carer_num_nodes; ++from_index) {
-                for (auto to_index = 0; to_index < carer_num_nodes; ++to_index) {
-                    CHECK(IsBinary(carer_edges_[carer_index][from_index][to_index].get(GRB_DoubleAttr_X)));
-                    if (IsOne(carer_edges_[carer_index][from_index][to_index].get(GRB_DoubleAttr_X))) {
-                        marked_edges[carer_index].emplace_back(from_index, to_index);
-                    }
-                }
-            }
-        }
-
-        for (const auto &carer : solution.Carers()) {
-            const auto carer_index = GetIndex(carer);
-
-            const auto get_visit_node = [&carer_index, &marked_edges, this](const rows::CalendarVisit &visit) -> std::size_t const {
-                const auto visit_nodes = this->GetNodes(visit);
-                for (const std::size_t visit_node : visit_nodes) {
-                    for (const auto edge : marked_edges[carer_index]) {
-                        if (edge.first == visit_node || edge.second == visit_node) {
-                            return visit_node;
-                        }
-                    }
-                }
-
-                LOG(FATAL) << "Failed to find the visit node for visit: " << visit.id();
-            };
-
-
-            std::vector<rows::ScheduledVisit> carer_visits;
-            for (const auto &visit : solution.visits()) {
-                const auto &visit_carer_opt = visit.carer();
-                if (visit_carer_opt.get() == carer) {
-                    carer_visits.push_back(visit);
-                }
-            }
-            std::sort(std::begin(carer_visits),
-                      std::end(carer_visits),
-                      [](const rows::ScheduledVisit &left, const rows::ScheduledVisit &right) -> bool {
-                          return left.datetime() <= right.datetime();
-                      });
-
-            std::vector<rows::Break> carer_breaks;
-            for (const auto &break_element : solution.breaks()) {
-                if (break_element.carer() == carer) {
-                    carer_breaks.push_back(break_element);
-                }
-            }
-            std::sort(std::begin(carer_breaks), std::end(carer_breaks),
-                      [](const rows::Break &left, const rows::Break &right) -> bool {
-                          return left.datetime() <= right.datetime();
-                      });
-
-            auto break_it = std::begin(carer_breaks);
-            const auto break_end_it = std::end(carer_breaks);
-            CHECK(break_it != break_end_it);
-
-            auto visit_it = std::begin(carer_visits);
-            const auto visit_end_it = std::end(carer_visits);
-
-            boost::posix_time::ptime current_time = break_it->datetime();
-            if (visit_it != visit_end_it) {
-                current_time = std::min(current_time, visit_it->datetime());
-            }
-
-            std::vector<Activity> activities;
-            boost::optional<rows::Location> current_location = boost::none;
-            while (break_it != break_end_it || visit_it != visit_end_it) {
-                if (break_it != break_end_it && visit_it != visit_end_it) {
-                    CHECK(visit_it->location());
-
-                    boost::posix_time::ptime arrival_time = current_time;
-                    boost::posix_time::time_duration travel_duration;
-                    if (current_location && current_location != visit_it->location()) {
-                        travel_duration = boost::posix_time::seconds(
-                                location_container_.Distance(current_location.get(), visit_it->location().get()));
-                        arrival_time += travel_duration;
-                    }
-
-                    if (break_it->datetime() <= visit_it->datetime()) {
-                        if (arrival_time <= break_it->datetime()) {
-                            if (current_location && current_location != visit_it->location()) {
-                                activities.emplace_back(Activity::CreateTravel(current_time, travel_duration));
-                            }
-                            current_location = visit_it->location().get();
-                            current_time = arrival_time;
-                        }
-
-                        const auto waiting_time = break_it->datetime() - current_time;
-                        const auto break_node = GetNodeOrNeighbor(carer_index, *break_it);
-                        activities.emplace_back(
-                                Activity::CreateBreak(break_node,
-                                                      break_it->datetime(),
-                                                      break_it->duration(),
-                                                      waiting_time));
-
-                        current_time = break_it->datetime() + break_it->duration();
-                        ++break_it;
-                    } else {
-                        if (current_location && current_location != visit_it->location()) {
-                            activities.emplace_back(Activity::CreateTravel(current_time, travel_duration));
-                        }
-                        current_location = visit_it->location().get();
-                        current_time = arrival_time;
-
-                        const auto waiting_time = visit_it->datetime() - current_time;
-                        const auto visit_node = get_visit_node(visit_it->calendar_visit().get());
-                        activities.emplace_back(Activity::CreateVisit(visit_node,
-                                                                      visit_it->datetime(),
-                                                                      visit_it->duration(),
-                                                                      waiting_time));
-                        current_time = visit_it->datetime() + visit_it->duration();
-                        ++visit_it;
-                    }
-                } else if (break_it != break_end_it) {
-                    const auto waiting_time = break_it->datetime() - current_time;
-                    const auto break_node = GetNodeOrNeighbor(carer_index, *break_it);
-                    activities.emplace_back(Activity::CreateBreak(break_node,
-                                                                  break_it->datetime(),
-                                                                  break_it->duration(),
-                                                                  waiting_time));
-                    current_time = break_it->datetime() + break_it->duration();
-                    ++break_it;
-                } else {
-                    if (current_location && current_location != visit_it->location()) {
-                        const auto travel_duration = boost::posix_time::seconds(
-                                location_container_.Distance(current_location.get(), visit_it->location().get()));
-                        if (current_location) {
-                            activities.emplace_back(Activity::CreateTravel(current_time, travel_duration));
-                        }
-                        current_time += travel_duration;
-                    }
-                    current_location = visit_it->location().get();
-
-                    const auto waiting_time = visit_it->datetime() - current_time;
-                    const auto visit_node = get_visit_node(visit_it->calendar_visit().get());
-                    activities.emplace_back(Activity::CreateVisit(visit_node,
-                                                                  visit_it->datetime(),
-                                                                  visit_it->duration(),
-                                                                  waiting_time));
-                    current_time = visit_it->datetime() + visit_it->duration();
-                    ++visit_it;
-                }
-            }
-
-            LOG(INFO) << "Carer " << carer;
-            LOG(INFO) << carer_diaries_[carer_index].first;
-            for (const auto &edge : marked_edges[carer_index]) {
-                auto potential = edge.second + 1;
-                if (edge.second > end_depot_node_) {
-                    potential = carer_break_potentials_[carer_index][edge.second].get(GRB_DoubleAttr_X);
-                }
-
-                LOG(INFO) << boost::format("%|4t|%1% %|8t|%2% %|12t|%3% %|16t|(%4%)")
-                             % carer_index
-                             % edge.first
-                             % edge.second
-                             % potential;
-            }
-
-            for (const auto &activity : activities) {
-                LOG(INFO) << activity;
-            }
-        }
-    }
-
-    void PrintStats() const {
-        for (const auto &visit_item : node_visits_) {
-            LOG(INFO) << visit_item.first << " " << visit_item.second;
-        }
-
-        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
-            LOG(INFO) << carer_diaries_[carer_index].first;
-
-            for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                LOG(INFO) << break_item.second;
-            }
-        }
-    }
-
-    rows::CachedLocationContainer &LocationContainer() { return location_container_; }
-
-private:
-    static std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > GetCarers(const rows::Problem &problem) {
-        std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > carer_diaries = problem.carers();
-        std::sort(std::begin(carer_diaries), std::end(carer_diaries), [](
-                const std::pair<rows::Carer, std::vector<rows::Diary> > &left,
-                const std::pair<rows::Carer, std::vector<rows::Diary> > &right) -> bool {
-            return std::stoll(left.first.sap_number()) <= std::stoll(right.first.sap_number());
-        });
-        return carer_diaries;
-    }
-
-    boost::posix_time::time_duration AdjustBigM(boost::posix_time::ptime left_start,
-                                                boost::posix_time::ptime right_start) {
-        if (left_start <= right_start) {
-            return right_start - left_start;
-        }
-
-        return boost::posix_time::time_duration{};
-    }
-
-    boost::posix_time::ptime Start(std::size_t carer_index) const {
-        const auto first_break_node = end_depot_node_ + 1;
-        const auto &carer_break = carer_node_breaks_[carer_index].at(first_break_node);
-        return {carer_break.datetime().date(), carer_break.duration() - overtime_window_};
-    }
-
-    boost::posix_time::ptime End(std::size_t carer_index) const {
-        const auto last_break_node = carer_edges_[carer_index].size() - 1;
-        const auto &carer_break = carer_node_breaks_[carer_index].at(last_break_node);
-        return carer_break.datetime() + overtime_window_;
-    }
-
-    void Build(GRBModel &model, const boost::optional<rows::Solution> &solution_opt) {
+    void Build(GRBModel &model, const boost::optional<rows::Solution> &solution_opt) override {
         auto one_break_in_working_hours = true;
         for (const auto &break_nodes : carer_node_breaks_) {
             if (break_nodes.size() > 3) {
@@ -1042,14 +847,14 @@ private:
                         model.addGenConstrIndicator(carer_edges_[carer_index][from_node][to_node], TRUE,
                                                     visit_start_times_[from_node]
                                                     + node_visits_[from_node].duration().total_seconds()
-                                                    + location_container_.Distance(node_visits_[from_node].location().get(),
-                                                                                   node_visits_[to_node].location().get())
+                                                    + Distance(node_visits_[from_node].location().get(),
+                                                               node_visits_[to_node].location().get())
                                                     <= visit_start_times_[to_node]);
                     } else {
                         auto adjust_big_m = AdjustBigM(node_visits_[to_node].datetime(),
                                                        node_visits_[from_node].datetime()
                                                        + node_visits_[from_node].duration()
-                                                       + boost::posix_time::seconds(location_container_.Distance(
+                                                       + boost::posix_time::seconds(Distance(
                                                                node_visits_[from_node].location().get(),
                                                                node_visits_[to_node].location().get())));
                         adjust_big_m += visit_time_window_;
@@ -1057,8 +862,7 @@ private:
 
                         model.addConstr(visit_start_times_[from_node]
                                         + node_visits_[from_node].duration().total_seconds()
-                                        + location_container_.Distance(node_visits_[from_node].location().get(),
-                                                                       node_visits_[to_node].location().get())
+                                        + Distance(node_visits_[from_node].location().get(), node_visits_[to_node].location().get())
                                         <= visit_start_times_[to_node]
                                            + adjust_big_m.total_seconds()
                                              // + BIG_M
@@ -1142,8 +946,7 @@ private:
                         left += prev_visit.duration().total_seconds();
 
                         // warning - assuming travel time must happen before the first break
-                        left += location_container_.Distance(prev_visit.location().get(),
-                                                             node_visits_[next_visit_node].location().get());
+                        left += Distance(prev_visit.location().get(), node_visits_[next_visit_node].location().get());
 
                         GRBLinExpr right = 0;
                         right += carer_break_start_times_[carer_index][break_item.first];
@@ -1276,15 +1079,14 @@ private:
         for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
             for (auto from_node = first_visit_node_; from_node <= last_visit_node_; ++from_node) {
                 for (auto to_node = first_visit_node_; to_node <= last_visit_node_; ++to_node) {
-                    const auto distance = location_container_.Distance(node_visits_[from_node].location().get(),
-                                                                       node_visits_[to_node].location().get());
+                    const auto distance = Distance(node_visits_[from_node].location().get(), node_visits_[to_node].location().get());
                     cost += distance * carer_edges_[carer_index][from_node][to_node];
                 }
             }
         }
 
         if (optional_orders_) {
-            const auto largest_distances = location_container_.LargestDistances(2);
+            const auto largest_distances = LocationContainer().LargestDistances(2);
             const auto VISIT_NOT_SCHEDULED_PENALTY = std::accumulate(largest_distances.begin(), largest_distances.end(), 0.0);
             CHECK_LT(VISIT_NOT_SCHEDULED_PENALTY, horizon_duration_.total_seconds());
 
@@ -1329,6 +1131,38 @@ private:
         model.setObjective(cost, GRB_MINIMIZE);
 
         if (solution_opt) { SetInitialSolution(solution_opt.get()); }
+    }
+
+private:
+    static std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > GetCarers(const rows::Problem &problem) {
+        std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > carer_diaries = problem.carers();
+        std::sort(std::begin(carer_diaries), std::end(carer_diaries), [](
+                const std::pair<rows::Carer, std::vector<rows::Diary> > &left,
+                const std::pair<rows::Carer, std::vector<rows::Diary> > &right) -> bool {
+            return std::stoll(left.first.sap_number()) <= std::stoll(right.first.sap_number());
+        });
+        return carer_diaries;
+    }
+
+    boost::posix_time::time_duration AdjustBigM(boost::posix_time::ptime left_start,
+                                                boost::posix_time::ptime right_start) {
+        if (left_start <= right_start) {
+            return right_start - left_start;
+        }
+
+        return boost::posix_time::time_duration{};
+    }
+
+    boost::posix_time::ptime Start(std::size_t carer_index) const {
+        const auto first_break_node = end_depot_node_ + 1;
+        const auto &carer_break = carer_node_breaks_[carer_index].at(first_break_node);
+        return {carer_break.datetime().date(), carer_break.duration() - overtime_window_};
+    }
+
+    boost::posix_time::ptime End(std::size_t carer_index) const {
+        const auto last_break_node = carer_edges_[carer_index].size() - 1;
+        const auto &carer_break = carer_node_breaks_[carer_index].at(last_break_node);
+        return carer_break.datetime() + overtime_window_;
     }
 
     void SetInitialSolution(const rows::Solution &solution) {
@@ -1476,6 +1310,186 @@ private:
         LOG(FATAL) << "Carer " << carer.sap_number() << " is not present in the problem definition";
     }
 
+    void PrintStats() const {
+        for (const auto &visit_item : node_visits_) {
+            LOG(INFO) << visit_item.first << " " << visit_item.second;
+        }
+
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            LOG(INFO) << carer_diaries_[carer_index].first;
+
+            for (const auto &break_item : carer_node_breaks_[carer_index]) {
+                LOG(INFO) << break_item.second;
+            }
+        }
+    }
+
+    void Print(const rows::Solution &solution) {
+        std::vector<std::vector<std::pair<std::size_t, std::size_t> > > marked_edges{num_carers_};
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            const auto carer_num_nodes = carer_edges_[carer_index].size();
+            for (auto from_index = 0; from_index < carer_num_nodes; ++from_index) {
+                for (auto to_index = 0; to_index < carer_num_nodes; ++to_index) {
+                    CHECK(IsBinary(carer_edges_[carer_index][from_index][to_index].get(GRB_DoubleAttr_X)));
+                    if (IsOne(carer_edges_[carer_index][from_index][to_index].get(GRB_DoubleAttr_X))) {
+                        marked_edges[carer_index].emplace_back(from_index, to_index);
+                    }
+                }
+            }
+        }
+
+        for (const auto &carer : solution.Carers()) {
+            const auto carer_index = GetIndex(carer);
+
+            const auto get_visit_node = [&carer_index, &marked_edges, this](const rows::CalendarVisit &visit) -> std::size_t const {
+                const auto visit_nodes = this->GetNodes(visit);
+                for (const std::size_t visit_node : visit_nodes) {
+                    for (const auto edge : marked_edges[carer_index]) {
+                        if (edge.first == visit_node || edge.second == visit_node) {
+                            return visit_node;
+                        }
+                    }
+                }
+
+                LOG(FATAL) << "Failed to find the visit node for visit: " << visit.id();
+            };
+
+
+            std::vector<rows::ScheduledVisit> carer_visits;
+            for (const auto &visit : solution.visits()) {
+                const auto &visit_carer_opt = visit.carer();
+                if (visit_carer_opt.get() == carer) {
+                    carer_visits.push_back(visit);
+                }
+            }
+            std::sort(std::begin(carer_visits),
+                      std::end(carer_visits),
+                      [](const rows::ScheduledVisit &left, const rows::ScheduledVisit &right) -> bool {
+                          return left.datetime() <= right.datetime();
+                      });
+
+            std::vector<rows::Break> carer_breaks;
+            for (const auto &break_element : solution.breaks()) {
+                if (break_element.carer() == carer) {
+                    carer_breaks.push_back(break_element);
+                }
+            }
+            std::sort(std::begin(carer_breaks), std::end(carer_breaks),
+                      [](const rows::Break &left, const rows::Break &right) -> bool {
+                          return left.datetime() <= right.datetime();
+                      });
+
+            auto break_it = std::begin(carer_breaks);
+            const auto break_end_it = std::end(carer_breaks);
+            CHECK(break_it != break_end_it);
+
+            auto visit_it = std::begin(carer_visits);
+            const auto visit_end_it = std::end(carer_visits);
+
+            boost::posix_time::ptime current_time = break_it->datetime();
+            if (visit_it != visit_end_it) {
+                current_time = std::min(current_time, visit_it->datetime());
+            }
+
+            std::vector<Activity> activities;
+            boost::optional<rows::Location> current_location = boost::none;
+            while (break_it != break_end_it || visit_it != visit_end_it) {
+                if (break_it != break_end_it && visit_it != visit_end_it) {
+                    CHECK(visit_it->location());
+
+                    boost::posix_time::ptime arrival_time = current_time;
+                    boost::posix_time::time_duration travel_duration;
+                    if (current_location && current_location != visit_it->location()) {
+                        travel_duration = boost::posix_time::seconds(Distance(current_location.get(), visit_it->location().get()));
+                        arrival_time += travel_duration;
+                    }
+
+                    if (break_it->datetime() <= visit_it->datetime()) {
+                        if (arrival_time <= break_it->datetime()) {
+                            if (current_location && current_location != visit_it->location()) {
+                                activities.emplace_back(Activity::CreateTravel(current_time, travel_duration));
+                            }
+                            current_location = visit_it->location().get();
+                            current_time = arrival_time;
+                        }
+
+                        const auto waiting_time = break_it->datetime() - current_time;
+                        const auto break_node = GetNodeOrNeighbor(carer_index, *break_it);
+                        activities.emplace_back(
+                                Activity::CreateBreak(break_node,
+                                                      break_it->datetime(),
+                                                      break_it->duration(),
+                                                      waiting_time));
+
+                        current_time = break_it->datetime() + break_it->duration();
+                        ++break_it;
+                    } else {
+                        if (current_location && current_location != visit_it->location()) {
+                            activities.emplace_back(Activity::CreateTravel(current_time, travel_duration));
+                        }
+                        current_location = visit_it->location().get();
+                        current_time = arrival_time;
+
+                        const auto waiting_time = visit_it->datetime() - current_time;
+                        const auto visit_node = get_visit_node(visit_it->calendar_visit().get());
+                        activities.emplace_back(Activity::CreateVisit(visit_node,
+                                                                      visit_it->datetime(),
+                                                                      visit_it->duration(),
+                                                                      waiting_time));
+                        current_time = visit_it->datetime() + visit_it->duration();
+                        ++visit_it;
+                    }
+                } else if (break_it != break_end_it) {
+                    const auto waiting_time = break_it->datetime() - current_time;
+                    const auto break_node = GetNodeOrNeighbor(carer_index, *break_it);
+                    activities.emplace_back(Activity::CreateBreak(break_node,
+                                                                  break_it->datetime(),
+                                                                  break_it->duration(),
+                                                                  waiting_time));
+                    current_time = break_it->datetime() + break_it->duration();
+                    ++break_it;
+                } else {
+                    if (current_location && current_location != visit_it->location()) {
+                        const auto travel_duration = boost::posix_time::seconds(Distance(current_location.get(), visit_it->location().get()));
+                        if (current_location) {
+                            activities.emplace_back(Activity::CreateTravel(current_time, travel_duration));
+                        }
+                        current_time += travel_duration;
+                    }
+                    current_location = visit_it->location().get();
+
+                    const auto waiting_time = visit_it->datetime() - current_time;
+                    const auto visit_node = get_visit_node(visit_it->calendar_visit().get());
+                    activities.emplace_back(Activity::CreateVisit(visit_node,
+                                                                  visit_it->datetime(),
+                                                                  visit_it->duration(),
+                                                                  waiting_time));
+                    current_time = visit_it->datetime() + visit_it->duration();
+                    ++visit_it;
+                }
+            }
+
+            LOG(INFO) << "Carer " << carer;
+            LOG(INFO) << carer_diaries_[carer_index].first;
+            for (const auto &edge : marked_edges[carer_index]) {
+                auto potential = edge.second + 1;
+                if (edge.second > end_depot_node_) {
+                    potential = carer_break_potentials_[carer_index][edge.second].get(GRB_DoubleAttr_X);
+                }
+
+                LOG(INFO) << boost::format("%|4t|%1% %|8t|%2% %|12t|%3% %|16t|(%4%)")
+                             % carer_index
+                             % edge.first
+                             % edge.second
+                             % potential;
+            }
+
+            for (const auto &activity : activities) {
+                LOG(INFO) << activity;
+            }
+        }
+    }
+
     std::size_t first_visit_node_;
     std::size_t last_visit_node_;
     std::size_t begin_depot_node_;
@@ -1491,7 +1505,6 @@ private:
 
     std::vector<rows::CalendarVisit> visits_;
     std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>> carer_diaries_;
-    rows::CachedLocationContainer location_container_;
 
     bool optional_orders_;
     bool symmetry_breaking_;
@@ -1511,6 +1524,47 @@ private:
 
     std::vector<std::vector<std::vector<GRBVar>>> carer_edges_;
 };
+
+std::unique_ptr<Model> CreateModel(const rows::Problem &problem,
+                                   osrm::EngineConfig engine_config,
+                                   boost::posix_time::time_duration visit_time_window,
+                                   boost::posix_time::time_duration break_time_window,
+                                   boost::posix_time::time_duration overtime_allowance) {
+
+    std::vector<rows::Location> locations;
+    for (const auto &visit : problem.visits()) {
+        locations.push_back(visit.location().get());
+    }
+
+    rows::CachedLocationContainer location_container(std::cbegin(locations), std::cend(locations), engine_config);
+    location_container.ComputeDistances();
+
+    auto single_break_during_working_hours = true;
+    const auto time_horizon = GetTimeHorizon(problem);
+    for (const auto &carer_diary_pair : problem.carers()) {
+        const auto diary = problem.diary(carer_diary_pair.first, time_horizon.begin().date());
+        const auto num_breaks = diary->Breaks(time_horizon).size();
+        if (num_breaks > 3) {
+            single_break_during_working_hours = false;
+            break;
+        }
+    }
+
+    if (single_break_during_working_hours) {
+        LOG(WARNING) << "Using Single Break Model";
+        return std::make_unique<SingleBreakModel>(problem,
+                                                  std::move(location_container),
+                                                  std::move(visit_time_window),
+                                                  std::move(break_time_window),
+                                                  std::move(overtime_allowance));
+    }
+
+    return std::make_unique<MultipleBreakModel>(problem,
+                                                std::move(location_container),
+                                                std::move(visit_time_window),
+                                                std::move(break_time_window),
+                                                std::move(overtime_allowance));
+}
 
 int main(int argc, char *argv[]) {
     util::SetupLogging(argv[0]);
@@ -1568,13 +1622,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // TODO: decide on the model
-    // TODO: test if there is only one break for each carer if so use simpler model
-    // TODO: remove depots as breaks
-
-    auto problem_model = MultipleBeakModel::Create(problem, engine_config, visit_time_window, break_time_window, overtime_window);
-    problem_model.PrintStats();
-    const auto ip_solution = problem_model.Solve(solution_opt, mip_time_limit);
+    auto problem_model = CreateModel(problem, engine_config, visit_time_window, break_time_window, overtime_window);
+//    problem_model->PrintStats();
+    const auto ip_solution = problem_model->Solve(solution_opt, mip_time_limit);
 
     const auto routes = solver_wrapper->GetRoutes(ip_solution, *index_manager, *routing_model);
 
@@ -1602,5 +1652,5 @@ int main(int argc, char *argv[]) {
                                      util::ErrorCode::ERROR);
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }
