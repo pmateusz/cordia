@@ -150,6 +150,16 @@ boost::posix_time::time_period GetTimeHorizon(const rows::Problem &problem) {
             boost::posix_time::seconds(rows::SolverWrapper::SECONDS_IN_DIMENSION)};
 }
 
+std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > GetCarers(const rows::Problem &problem) {
+    std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > carer_diaries = problem.carers();
+    std::sort(std::begin(carer_diaries), std::end(carer_diaries), [](
+            const std::pair<rows::Carer, std::vector<rows::Diary> > &left,
+            const std::pair<rows::Carer, std::vector<rows::Diary> > &right) -> bool {
+        return std::stoll(left.first.sap_number()) <= std::stoll(right.first.sap_number());
+    });
+    return carer_diaries;
+}
+
 class Model {
 public:
     explicit Model(rows::CachedLocationContainer location_container)
@@ -212,21 +222,648 @@ public:
             : Model(std::move(location_container)),
               visit_time_window_{std::move(visit_time_window)},
               break_time_window_{std::move(break_time_window)},
-              overtime_window_{std::move(overtime_allowance)} {}
+              overtime_window_{std::move(overtime_allowance)},
+              visits_{problem.visits()},
+              carer_diaries_{std::move(GetCarers(problem))},
+              time_horizon_{GetTimeHorizon(problem)} {
+        num_carers_ = carer_diaries_.size();
+        carer_edges_.resize(num_carers_);
+        carer_break_edges_.resize(num_carers_);
+        break_start_.resize(num_carers_);
+
+        carer_breaks_.resize(num_carers_);
+        for (auto carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &event :carer_diaries_[carer_index].second.front().Breaks(time_horizon_)) {
+                carer_breaks_[carer_index].emplace_back(event.period());
+            }
+        }
+
+        auto current_node = 0;
+        for (const auto &visit :problem.visits()) {
+            node_visits_[++current_node] = visit;
+            if (visit.carer_count() == 2) {
+                node_visits_[++current_node] = visit;
+                CHECK(visit.location());
+                multiple_carer_visit_nodes_.emplace_back(std::make_pair(current_node - 1, current_node));
+            }
+        }
+
+        begin_depot_node_ = 0;
+        first_visit_node_ = 1;
+        last_visit_node_ = current_node;
+        end_depot_node_ = last_visit_node_ + 1;
+    }
 
 protected:
     void Build(GRBModel &model, const boost::optional<rows::Solution> &solution_opt) override {
+        // 2 depots plus all visit nodes (multiple carer visits are counted twice)
+        const auto carer_num_nodes = 2 + node_visits_.size();
 
+        // define visit edges
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            std::vector<std::vector<GRBVar>> edges(carer_num_nodes, std::vector<GRBVar>());
+            for (decltype(edges)::size_type in_index = 0; in_index < carer_num_nodes; ++in_index) {
+                for (decltype(edges)::size_type out_index = 0; out_index < carer_num_nodes; ++out_index) {
+                    std::string label = "k_" + std::to_string(carer_index) + "_";
+                    if (in_index == begin_depot_node_) {
+                        label += "b";
+                    } else if (in_index == end_depot_node_) {
+                        label += "e";
+                    } else if (in_index > end_depot_node_) {
+                        label += "b" + std::to_string(in_index);
+                    } else {
+                        label += "v" + std::to_string(in_index);
+                    }
+
+                    if (out_index == begin_depot_node_) {
+                        label += "b";
+                    } else if (out_index == end_depot_node_) {
+                        label += "e";
+                    } else if (out_index > end_depot_node_) {
+                        label += "b" + std::to_string(out_index);
+                    } else {
+                        label += "v" + std::to_string(out_index);
+                    }
+
+                    edges[in_index].push_back(model.addVar(0.0, 1.0, 0.0, GRB_BINARY, label));
+                }
+            }
+
+            carer_edges_[carer_index] = edges;
+        }
+
+        // define start times for visits
+        for (const auto &node_item : node_visits_) {
+            std::string label = "v_" + std::to_string(node_item.first) + "_start";
+
+            const auto best_start_time = node_item.second.datetime().time_of_day();
+            const auto min_start_time = best_start_time - visit_time_window_;
+            const auto max_start_time = best_start_time + visit_time_window_;
+            visit_start_times_[node_item.first] = model.addVar(min_start_time.total_seconds(),
+                                                               max_start_time.total_seconds(), 0.0, GRB_CONTINUOUS, label);
+        }
+
+        // define start times and edges for breaks
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            CHECK_GE(carer_breaks_[carer_index].size(), 2);
+            CHECK_LE(carer_breaks_[carer_index].size(), 3);
+
+            if (carer_breaks_[carer_index].size() == 3) {
+                const auto &break_ref = carer_breaks_[carer_index].at(1);
+                const auto best_start_time = break_ref.begin().time_of_day();
+                const auto min_start_time = best_start_time - break_time_window_;
+                const auto max_start_time = best_start_time + break_time_window_;
+
+                std::string break_start_label = "c_" + std::to_string(carer_index) + "_break_start";
+                break_start_[carer_index] = model.addVar(min_start_time.total_seconds(),
+                                                         max_start_time.total_seconds(), 0.0, GRB_CONTINUOUS, break_start_label);
+
+                std::vector<GRBVar> break_edges;
+                for (auto node_index = 0; node_index < carer_num_nodes; ++node_index) {
+                    std::string edge_label = "k_" + std::to_string(carer_index) + "_v" + std::to_string(node_index) + "_break";
+                    break_edges.emplace_back(model.addVar(0.0, 1.0, 0.0, GRB_BINARY, std::move(edge_label)));
+                }
+
+                carer_break_edges_[carer_index] = std::move(break_edges);
+            }
+        }
+
+        // >> define start and end times for depots
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            const auto min_start_time = Start(carer_index).time_of_day();
+            const auto max_end_time = End(carer_index).time_of_day();
+
+            CHECK_GE(min_start_time.total_seconds(), 0);
+            CHECK_LE(max_end_time.total_seconds(), time_horizon_.length().total_seconds());
+
+            std::string begin_label = "d_" + std::to_string(carer_index) + "_start";
+            begin_depot_start_.push_back(model.addVar(min_start_time.total_seconds(),
+                                                      max_end_time.total_seconds(), 0.0, GRB_CONTINUOUS, begin_label));
+
+            std::string end_label = "d_" + std::to_string(carer_index) + "_end";
+            end_depot_start_.push_back(model.addVar(min_start_time.total_seconds(),
+                                                    max_end_time.total_seconds(), 0.0, GRB_CONTINUOUS, end_label));
+        }
+
+        // define active nodes for visits
+        for (const auto &node_item : node_visits_) {
+            std::string label = "v_" + std::to_string(node_item.first) + "_active";
+            active_visits_[node_item.first] = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, label);
+        }
+
+        // 2 - all carers start their routes
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            GRBLinExpr flow_from_begin_depot = 0;
+            for (auto to_node = first_visit_node_; to_node <= end_depot_node_; ++to_node) {
+                flow_from_begin_depot += carer_edges_[carer_index][begin_depot_node_][to_node];
+            }
+            model.addConstr(flow_from_begin_depot == 1.0);
+        }
+
+        // -> pre-processing
+        // >> initial depot gets zero inflow
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            // self loop is forbidden for all
+            for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+                model.addConstr(carer_edges_[carer_index][node_index][begin_depot_node_] == 0);
+            }
+        }
+
+        // -> pre-processing
+        // >> self loops are forbidden
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            // self loop is forbidden for all
+            for (auto node_index = begin_depot_node_; node_index < carer_num_nodes; ++node_index) {
+                model.addConstr(carer_edges_[carer_index][node_index][node_index] == 0);
+            }
+        }
+
+        // 3 - all carers end their routes
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            GRBLinExpr flow_to_end_depot = 0;
+            for (auto from_node = begin_depot_node_; from_node <= last_visit_node_; ++from_node) {
+                flow_to_end_depot += carer_edges_[carer_index][from_node][end_depot_node_];
+            }
+            model.addConstr(flow_to_end_depot == 1.0);
+        }
+
+        // -> pre-processing
+        // >> final depot get zero outflow
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto to_node = begin_depot_node_; to_node <= last_visit_node_; ++to_node) {
+                // traversal from the end depot is forbidden
+                model.addConstr(carer_edges_[carer_index][end_depot_node_][to_node] == 0);
+            }
+        }
+
+        // outflow from each visit is at most one from visit nodes
+        for (auto in_index = first_visit_node_; in_index <= last_visit_node_; ++in_index) {
+            GRBLinExpr node_outflow = 0;
+            for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+                for (auto out_index = first_visit_node_; out_index <= end_depot_node_; ++out_index) {
+                    node_outflow += carer_edges_[carer_index][in_index][out_index];
+                }
+            }
+
+            model.addConstr(node_outflow <= 1.0);
+        }
+
+        // do no need inflow from each visit is at most one from visit nodes as it is redundant and does not help
+
+        // 5 - flow conservation for visits
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto node_index = first_visit_node_; node_index <= last_visit_node_; ++node_index) {
+                GRBLinExpr node_inflow = 0;
+                GRBLinExpr node_outflow = 0;
+                for (auto other_node_index = 0; other_node_index < carer_num_nodes; ++other_node_index) {
+                    node_inflow += carer_edges_[carer_index][other_node_index][node_index];
+                    node_outflow += carer_edges_[carer_index][node_index][other_node_index];
+                }
+                model.addConstr(node_inflow == node_outflow);
+            }
+        }
+
+        // >> begin start time is lower or equal to the first visits
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+                const auto adjust_big_m = AdjustBigM(End(carer_index), node_visits_[visit_node].datetime() - visit_time_window_);
+                model.addConstr(begin_depot_start_[carer_index]
+                                <= visit_start_times_[visit_node]
+                                   + adjust_big_m.total_seconds() * (1 - carer_edges_[carer_index][begin_depot_node_][visit_node]));
+            }
+        }
+
+        // >> end time is greater or equal the finish of the last visit
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+                const auto &visit = node_visits_[visit_node];
+                auto adjust_big_m = AdjustBigM(visit.datetime() + visit_time_window_ + visit.duration(), Start(carer_index));
+
+                model.addConstr(visit_start_times_[visit_node] + visit.duration().total_seconds()
+                                <= end_depot_start_[carer_index]
+                                   + adjust_big_m.total_seconds() * (1 - carer_edges_[carer_index][visit_node][end_depot_node_]));
+            }
+        }
+
+        // 9 - visit start times
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto from_node = first_visit_node_; from_node <= last_visit_node_; ++from_node) {
+                for (auto to_node = first_visit_node_; to_node <= last_visit_node_; ++to_node) {
+                    if (from_node == to_node) { continue; }
+
+                    auto adjust_big_m = AdjustBigM(node_visits_[from_node].datetime()
+                                                   + visit_time_window_
+                                                   + node_visits_[from_node].duration()
+                                                   + boost::posix_time::seconds(Distance(node_visits_[from_node].location().get(),
+                                                                                         node_visits_[to_node].location().get())),
+                                                   node_visits_[to_node].datetime() - visit_time_window_);
+
+                    model.addConstr(visit_start_times_[from_node]
+                                    + node_visits_[from_node].duration().total_seconds()
+                                    + Distance(node_visits_[from_node].location().get(), node_visits_[to_node].location().get())
+                                    <=
+                                    visit_start_times_[to_node] + adjust_big_m.total_seconds() * (1 - carer_edges_[carer_index][from_node][to_node]));
+                }
+            }
+        }
+
+        // 14 - both nodes of a multiple carer visit start at the same time
+        for (const auto &visit_nodes : multiple_carer_visit_nodes_) {
+            model.addConstr(visit_start_times_[visit_nodes.first] == visit_start_times_[visit_nodes.second]);
+        }
+
+        // 6 - each break is taken exactly once
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            if (carer_break_edges_[carer_index].empty()) {
+                continue;
+            }
+
+            GRBLinExpr node_inflow = 0;
+            for (auto in_node = 0; in_node < carer_num_nodes; ++in_node) {
+                node_inflow += carer_break_edges_[carer_index][in_node];
+            }
+            model.addConstr(node_inflow == 1.0);
+        }
+
+        // 8 - carer taking break before a visit is scheduled to make that visit
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            if (carer_break_edges_[carer_index].empty()) {
+                continue;
+            }
+
+            for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+                GRBLinExpr visit_node_inflow = 0;
+                for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
+                    visit_node_inflow += carer_edges_[carer_index][from_node][visit_node];
+                }
+
+                model.addConstr(carer_break_edges_[carer_index][visit_node] <= visit_node_inflow);
+            }
+        }
+
+        // 10 - visit start times after break
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            if (carer_break_edges_[carer_index].empty()) {
+                continue;
+            }
+
+            CHECK_EQ(carer_breaks_[carer_index].size(), 3);
+            const auto &break_ref = carer_breaks_[carer_index].at(1);
+            for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+                const auto &visit = node_visits_[visit_node];
+
+                auto adjust_big_m = AdjustBigM(break_ref.begin() + break_time_window_ + break_ref.length(), visit.datetime() - visit_time_window_);
+                model.addConstr(break_start_[carer_index] + break_ref.length().total_seconds()
+                                // warning - assuming travel happens after the last break
+                                // + location_container_.Distance(node_visits_[from_node].location().get(),
+                                // node_visits_[to_node].location().get())
+                                <= visit_start_times_[visit_node]
+                                   + adjust_big_m.total_seconds() * (1.0 - carer_break_edges_[carer_index][visit_node]));
+            }
+        }
+
+        // start time after break
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            if (carer_break_edges_[carer_index].empty()) {
+                continue;
+            }
+
+            CHECK_EQ(carer_breaks_[carer_index].size(), 3);
+            const auto &break_ref = carer_breaks_[carer_index].at(1);
+            auto adjust_big_m = AdjustBigM(break_ref.begin() + break_time_window_ + break_ref.length(), Start(carer_index));
+            model.addConstr(break_start_[carer_index] + break_ref.length().total_seconds()
+                            // warning - assuming travel happens after the last break
+                            // + location_container_.Distance(node_visits_[from_node].location().get(),
+                            // node_visits_[to_node].location().get())
+                            <= begin_depot_start_[carer_index]
+                               + adjust_big_m.total_seconds() * (1.0 - carer_break_edges_[carer_index][begin_depot_node_]));
+        }
+
+        // end time after break
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            if (carer_break_edges_[carer_index].empty()) {
+                continue;
+            }
+
+            CHECK_EQ(carer_breaks_[carer_index].size(), 3);
+            const auto &break_ref = carer_breaks_[carer_index].at(1);
+            auto adjust_big_m = AdjustBigM(break_ref.begin() + break_time_window_ + break_ref.length(), Start(carer_index));
+            model.addConstr(break_start_[carer_index] + break_ref.length().total_seconds()
+                            // warning - assuming travel happens after the last break
+                            // + location_container_.Distance(node_visits_[from_node].location().get(),
+                            // node_visits_[to_node].location().get())
+                            <= end_depot_start_[carer_index]
+                               + adjust_big_m.total_seconds() * (1.0 - carer_break_edges_[carer_index][end_depot_node_]));
+        }
+
+        // break start time after visit
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            if (carer_break_edges_[carer_index].empty()) {
+                continue;
+            }
+
+            CHECK_EQ(carer_breaks_[carer_index].size(), 3);
+            const auto &break_ref = carer_breaks_[carer_index].at(1);
+
+            for (auto prev_visit_node = first_visit_node_; prev_visit_node <= last_visit_node_; ++prev_visit_node) {
+                const auto &prev_visit = node_visits_[prev_visit_node];
+                for (auto next_visit_node = first_visit_node_; next_visit_node <= last_visit_node_; ++next_visit_node) {
+                    auto adjust_big_m = AdjustBigM(prev_visit.datetime() + visit_time_window_ + prev_visit.duration() + boost::posix_time::seconds(
+                            Distance(prev_visit.location().get(), node_visits_[next_visit_node].location().get())),
+                                                   break_ref.begin() - break_time_window_);
+                    // warning - assuming travel time must happen before the first break
+                    model.addConstr(visit_start_times_[prev_visit_node] + prev_visit.duration().total_seconds()
+                                    + Distance(prev_visit.location().get(), node_visits_[next_visit_node].location().get())
+                                    <= break_start_[carer_index] + adjust_big_m.total_seconds()
+                                                                   * (2.0
+                                                                      - carer_edges_[carer_index][prev_visit_node][next_visit_node]
+                                                                      - carer_break_edges_[carer_index][next_visit_node]));
+                }
+            }
+        }
+
+        // break start time after begin depot
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            if (carer_break_edges_[carer_index].empty()) {
+                continue;
+            }
+
+            CHECK_EQ(carer_breaks_[carer_index].size(), 3);
+            const auto &break_ref = carer_breaks_[carer_index].at(1);
+            for (auto next_visit_node = first_visit_node_; next_visit_node <= last_visit_node_; ++next_visit_node) {
+                auto adjust_big_m = AdjustBigM(End(carer_index), break_ref.begin() - break_time_window_);
+                model.addConstr(begin_depot_start_[carer_index] <= break_start_[carer_index]
+                                                                   + adjust_big_m.total_seconds()
+                                                                     * (2.0
+                                                                        - carer_edges_[carer_index][begin_depot_node_][next_visit_node]
+                                                                        - carer_break_edges_[carer_index][next_visit_node]));
+            }
+        }
+
+        // arc cut
+        for (auto from_visit_index = first_visit_node_; from_visit_index <= last_visit_node_; ++from_visit_index) {
+            for (auto to_visit_index = from_visit_index; from_visit_index <= last_visit_node_; ++from_visit_index) {
+                GRBLinExpr cover = 0;
+
+                for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+                    cover += carer_edges_[carer_index][from_visit_index][to_visit_index];
+                    cover += carer_edges_[carer_index][to_visit_index][from_visit_index];
+                }
+
+                model.addConstr(cover <= 1.0);
+            }
+        }
+
+        // cover cuts for multiple carer visits
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &visit_item : multiple_carer_visit_nodes_) {
+                GRBLinExpr first_inflow = 0;
+                GRBLinExpr second_inflow = 0;
+                for (auto source_node = begin_depot_node_; source_node <= end_depot_node_; ++source_node) {
+                    first_inflow += carer_edges_[carer_index][source_node][visit_item.first];
+                    second_inflow += carer_edges_[carer_index][source_node][visit_item.second];
+                }
+                model.addConstr(first_inflow + second_inflow <= 1.0);
+            }
+        }
+
+        // symmetry breaker
+        for (std::size_t parent_carer = 1; parent_carer < num_carers_; ++parent_carer) {
+            for (std::size_t child_carer = 0; child_carer < parent_carer; ++child_carer) {
+                for (const auto &visit_pair : multiple_carer_visit_nodes_) {
+                    GRBLinExpr child_inflow = 0;
+                    for (auto inflow_node = begin_depot_node_; inflow_node <= last_visit_node_; ++inflow_node) {
+                        child_inflow += carer_edges_[child_carer][inflow_node][visit_pair.second];
+                    }
+                    GRBLinExpr parent_inflow = 0;
+                    for (auto inflow_node = begin_depot_node_; inflow_node <= last_visit_node_; ++inflow_node) {
+                        parent_inflow += carer_edges_[parent_carer][inflow_node][visit_pair.first];
+                    }
+                    model.addConstr(child_inflow <= 1 - parent_inflow);
+                }
+            }
+        }
+
+        // objective
+        // define cost function
+        GRBLinExpr cost = 0;
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (auto from_node = first_visit_node_; from_node <= last_visit_node_; ++from_node) {
+                for (auto to_node = first_visit_node_; to_node <= last_visit_node_; ++to_node) {
+                    const auto distance = Distance(node_visits_[from_node].location().get(), node_visits_[to_node].location().get());
+                    cost += distance * carer_edges_[carer_index][from_node][to_node];
+                }
+            }
+        }
+
+        const auto largest_distances = LocationContainer().LargestDistances(2);
+        const auto VISIT_NOT_SCHEDULED_PENALTY = std::accumulate(largest_distances.begin(), largest_distances.end(), 0.0);
+        CHECK_LT(VISIT_NOT_SCHEDULED_PENALTY, time_horizon_.length().total_seconds());
+
+        // define active nodes for visits
+        for (const auto &node_item : node_visits_) {
+            std::string label = "v_" + std::to_string(node_item.first) + "_active";
+            active_visits_[node_item.first] = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, label);
+        }
+
+        // 12 - active nodes
+        for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+            GRBLinExpr visit_inflow = 0;
+            for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+                for (auto from_node = begin_depot_node_; from_node <= last_visit_node_; ++from_node) {
+                    visit_inflow += carer_edges_[carer_index][from_node][visit_node];
+                }
+            }
+
+            model.addConstr(visit_inflow == active_visits_[visit_node]);
+        }
+
+        // 13 - both nodes of a multiple carer visit are active
+        for (const auto &visit_nodes : multiple_carer_visit_nodes_) {
+            model.addConstr(active_visits_[visit_nodes.first] == active_visits_[visit_nodes.second]);
+        }
+
+        // penalty for missing multiple carer visits
+        for (const auto &visit_pair : multiple_carer_visit_nodes_) {
+            cost += VISIT_NOT_SCHEDULED_PENALTY / 2.0
+                    * (2.0 - active_visits_[visit_pair.first] - active_visits_[visit_pair.second]);
+        }
+
+        // penalty for missing single carer visits
+        for (const auto &node_visit : node_visits_) {
+            if (node_visit.second.carer_count() == 1) {
+                cost += VISIT_NOT_SCHEDULED_PENALTY * (1.0 - active_visits_[node_visit.first]);
+            }
+        }
+
+        model.setObjective(cost, GRB_MINIMIZE);
     }
 
     rows::Solution GetSolution() override {
-        return rows::Solution();
+        std::vector<rows::ScheduledVisit> visits;
+        std::vector<rows::Break> breaks;
+        std::vector<std::vector<decltype(carer_edges_)::size_type>> carer_paths;
+        static const auto BLANK_NODE = -1;
+        const auto BREAK_NODE = end_depot_node_ + 1;
+
+        // get number of active visits
+        auto num_active_visits = 0;
+        for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+            if (IsOne(active_visits_.at(visit_node).get(GRB_DoubleAttr_X))) {
+                ++num_active_visits;
+            }
+        }
+
+        const auto carer_num_nodes = carer_edges_.front().size();
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            CHECK_EQ(carer_num_nodes, carer_edges_[carer_index].size());
+
+            std::vector<int> next_visit_nodes(carer_num_nodes, BLANK_NODE);
+            for (auto from_node = begin_depot_node_; from_node <= end_depot_node_; ++from_node) {
+                for (auto to_node = begin_depot_node_; to_node < carer_num_nodes; ++to_node) {
+                    const auto value = carer_edges_[carer_index][from_node][to_node].get(GRB_DoubleAttr_X);
+                    CHECK(IsBinary(value));
+                    if (IsOne(value)) {
+                        if (to_node <= end_depot_node_) { // handle visit
+                            if (from_node <= end_depot_node_) { // coming back from prior breaks is ignored
+                                CHECK(next_visit_nodes.at(from_node) == BLANK_NODE) << " at " << to_node;
+                                next_visit_nodes.at(from_node) = to_node;
+                            }
+                        }
+                    }
+                }
+            }
+
+            std::vector<decltype(carer_edges_)::size_type> carer_path;
+            auto current_visit_node = begin_depot_node_;
+            while (current_visit_node != BLANK_NODE) {
+                if (!carer_break_edges_[carer_index].empty()) {
+                    CHECK(IsBinary(carer_break_edges_[carer_index].at(current_visit_node).get(GRB_DoubleAttr_X)));
+                    if (IsOne(carer_break_edges_[carer_index].at(current_visit_node).get(GRB_DoubleAttr_X))) {
+                        carer_path.push_back(BREAK_NODE);
+                    }
+                }
+                carer_path.push_back(current_visit_node);
+
+                const auto next_visit_node = next_visit_nodes[current_visit_node];
+                CHECK_NE(current_visit_node, next_visit_node) << "Current node (" << current_visit_node
+                                                              << ") must not be equal to the next node ("
+                                                              << next_visit_node << ")";
+                current_visit_node = next_visit_node;
+            }
+
+            const auto &carer_ref = carer_diaries_[carer_index].first;
+            for (const auto visit_node : carer_path) {
+                if (visit_node == begin_depot_node_ || visit_node >= end_depot_node_) {
+                    continue;
+                }
+
+                CHECK(node_visits_[visit_node].location());
+                const auto &visit_ref = node_visits_[visit_node];
+                boost::posix_time::ptime visit_start_time{
+                        visit_ref.datetime().date(),
+                        boost::posix_time::seconds(
+                                static_cast<int>(visit_start_times_[visit_node].get(GRB_DoubleAttr_X)))};
+                visits.emplace_back(rows::ScheduledVisit::VisitType::OK,
+                                    carer_ref,
+                                    visit_start_time,
+                                    visit_ref.duration(),
+                                    boost::none,
+                                    boost::none,
+                                    visit_ref);
+            }
+
+            if (!carer_break_edges_[carer_index].empty()) {
+                const auto seconds = break_start_[carer_index].get(GRB_DoubleAttr_X);
+                boost::posix_time::ptime start_time{time_horizon_.begin().date(),
+                                                    boost::posix_time::seconds(static_cast<int>(seconds))};
+                const auto &break_ref = carer_diaries_[carer_index].second.front().Breaks(time_horizon_).at(1);
+                breaks.emplace_back(carer_ref, start_time, break_ref.duration());
+            }
+
+            carer_paths.emplace_back(std::move(carer_path));
+        }
+
+        std::stringstream output_msg;
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            output_msg << "Carer " << carer_index << ": ";
+
+            auto &carer_path = carer_paths[carer_index];
+
+            CHECK(!carer_path.empty());
+            output_msg << carer_path[0];
+            const auto carer_path_size = carer_path.size();
+            for (auto node_index = 1; node_index < carer_path_size; ++node_index) {
+                output_msg << " -> " << carer_path[node_index];
+            }
+
+            output_msg << std::endl;
+        }
+
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            std::vector<std::size_t> visit_nodes;
+            const auto carer_nodes = carer_edges_[carer_index].size();
+            for (auto from_node = begin_depot_node_; from_node < end_depot_node_; ++from_node) {
+                for (auto to_node = begin_depot_node_; to_node < end_depot_node_; ++to_node) {
+                    CHECK(IsBinary(carer_edges_[carer_index][from_node][to_node].get(GRB_DoubleAttr_X)));
+                    if (IsOne(carer_edges_[carer_index][from_node][to_node].get(GRB_DoubleAttr_X))) {
+                        visit_nodes.push_back(to_node);
+                    }
+                }
+            }
+        }
+
+        return rows::Solution(std::move(visits), std::move(breaks));
     }
 
 private:
+    boost::posix_time::time_duration AdjustBigM(boost::posix_time::ptime max_left, boost::posix_time::ptime min_right) {
+        if (max_left <= min_right) {
+            return boost::posix_time::time_duration{};
+        }
+
+        return max_left - min_right;
+    }
+
+    boost::posix_time::ptime Start(std::size_t carer_index) const {
+        const auto &carer_break = carer_breaks_[carer_index].front();
+        return carer_break.end() - overtime_window_;
+    }
+
+    boost::posix_time::ptime End(std::size_t carer_index) const {
+        const auto &carer_break = carer_breaks_[carer_index].back();
+        return carer_break.begin() + overtime_window_;
+    }
+
     boost::posix_time::time_duration visit_time_window_;
     boost::posix_time::time_duration break_time_window_;
     boost::posix_time::time_duration overtime_window_;
+
+    std::vector<rows::CalendarVisit> visits_;
+    std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>> carer_diaries_;
+    std::vector<std::vector<boost::posix_time::time_period>> carer_breaks_;
+
+    std::size_t first_visit_node_;
+    std::size_t last_visit_node_;
+    std::size_t begin_depot_node_;
+    std::size_t end_depot_node_;
+
+    std::size_t num_carers_;
+    boost::posix_time::time_period time_horizon_;
+
+    std::unordered_map<std::size_t, rows::CalendarVisit> node_visits_;
+    std::vector<std::pair<std::size_t, std::size_t> > multiple_carer_visit_nodes_;
+
+    std::vector<std::vector<std::vector<GRBVar>>> carer_edges_;
+    std::vector<std::vector<GRBVar>> carer_break_edges_;
+
+    std::unordered_map<std::size_t, GRBVar> visit_start_times_;
+
+    std::vector<GRBVar> begin_depot_start_;
+    std::vector<GRBVar> end_depot_start_;
+    std::vector<GRBVar> break_start_;
+
+    std::unordered_map<std::size_t, GRBVar> active_visits_;
 };
 
 class MultipleBreakModel : public Model {
@@ -414,15 +1051,6 @@ protected:
     }
 
     void Build(GRBModel &model, const boost::optional<rows::Solution> &solution_opt) override {
-        auto one_break_in_working_hours = true;
-        for (const auto &break_nodes : carer_node_breaks_) {
-            if (break_nodes.size() > 3) {
-                one_break_in_working_hours = false;
-                break;
-            }
-        }
-        LOG_IF(INFO, one_break_in_working_hours) << "Problem allows only one break during working hours";
-
         // define edges
         for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
             // 2 depots plus all visit nodes (multiple carer visits are counted twice) plus breaks
@@ -614,123 +1242,96 @@ protected:
             }
         }
 
-        if (one_break_in_working_hours) {
-            // disallow connection between breaks
-            for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                for (const auto &left_break : carer_node_breaks_[carer_index]) {
-                    for (const auto &right_break : carer_node_breaks_[carer_index]) {
-                        const auto left_node = left_break.first;
-                        const auto right_node = right_break.first;
-                        if (left_node == right_node) { continue; }
+        // define potentials for breaks
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            const double num_carer_nodes = carer_edges_[carer_index].size();
+            for (const auto &carer_break_item : carer_node_breaks_[carer_index]) {
+                std::string label = "c_" + std::to_string(carer_index) + "_" + std::to_string(carer_break_item.first) +
+                                    "_potential";
+                carer_break_potentials_[carer_index].emplace(
+                        carer_break_item.first,
+                        model.addVar(1.0, num_carer_nodes + 1.0, 0.0, GRB_CONTINUOUS, label));
+            }
+        }
 
-                        model.addConstr(carer_edges_[carer_index][left_node][right_node] == 0);
+        const auto SMALL_BIG_M = end_depot_node_ + 1;
+        // >> set break potential for [visit] -> [break] or [depot] -> [break] connection
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
+                const auto break_node = potential_item.first;
+                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+                    if (break_indicators_) {
+                        model.addGenConstrIndicator(carer_edges_[carer_index][node_index][break_node], TRUE,
+                                                    potential_item.second <=
+                                                    static_cast<double>(node_index + 1) * carer_edges_[carer_index][node_index][break_node]);
+                    } else {
+                        model.addConstr(potential_item.second
+                                        <= static_cast<double>(node_index + 1) * carer_edges_[carer_index][node_index][break_node]
+                                           + SMALL_BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]));
                     }
                 }
             }
+        }
 
-            // break comes back to the same node
-            for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                for (const auto &break_item : carer_node_breaks_[carer_index]) {
-                    const auto break_node = break_item.first;
-
-                    for (auto other_node = begin_depot_node_; other_node <= end_depot_node_; ++other_node) {
-                        model.addConstr(carer_edges_[carer_index][break_node][other_node]
-                                        == carer_edges_[carer_index][other_node][break_node]);
+        // set break potential for [break] -> [visit] or [break] -> [depot] connection
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &potential_item : carer_break_potentials_[carer_index]) {
+                const auto break_node = potential_item.first;
+                for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
+                    if (break_indicators_) {
+                        model.addGenConstrIndicator(carer_edges_[carer_index][break_node][node_index], TRUE,
+                                                    static_cast<double>(node_index + 1) * carer_edges_[carer_index][break_node][node_index] <=
+                                                    potential_item.second);
+                    } else {
+                        model.addConstr(static_cast<double>(node_index + 1) * carer_edges_[carer_index][break_node][node_index]
+                                        <= potential_item.second + SMALL_BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]));
                     }
                 }
             }
-        } else {
-            // define potentials for breaks
-            for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                const double num_carer_nodes = carer_edges_[carer_index].size();
-                for (const auto &carer_break_item : carer_node_breaks_[carer_index]) {
-                    std::string label = "c_" + std::to_string(carer_index) + "_" + std::to_string(carer_break_item.first) +
-                                        "_potential";
-                    carer_break_potentials_[carer_index].emplace(
-                            carer_break_item.first,
-                            model.addVar(1.0, num_carer_nodes + 1.0, 0.0, GRB_CONTINUOUS, label));
-                }
-            }
+        }
 
-            const auto SMALL_BIG_M = end_depot_node_ + 1;
-            // >> set break potential for [visit] -> [break] or [depot] -> [break] connection
-            for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                for (const auto &potential_item : carer_break_potentials_[carer_index]) {
-                    const auto break_node = potential_item.first;
-                    for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-                        if (break_indicators_) {
-                            model.addGenConstrIndicator(carer_edges_[carer_index][node_index][break_node], TRUE,
-                                                        potential_item.second <=
-                                                        static_cast<double>(node_index + 1) * carer_edges_[carer_index][node_index][break_node]);
-                        } else {
-                            model.addConstr(potential_item.second
-                                            <= static_cast<double>(node_index + 1) * carer_edges_[carer_index][node_index][break_node]
-                                               + SMALL_BIG_M * (1 - carer_edges_[carer_index][node_index][break_node]));
-                        }
+        // break potential propagation for [break] -> [break] connections
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &out_potential_item : carer_break_potentials_[carer_index]) {
+                for (const auto &in_potential_item : carer_break_potentials_[carer_index]) {
+                    if (in_potential_item.first == out_potential_item.first) { continue; }
+
+                    if (break_indicators_) {
+                        model.addGenConstrIndicator(carer_edges_[carer_index][out_potential_item.first][in_potential_item.first], TRUE,
+                                                    in_potential_item.second <= out_potential_item.second);
+                    } else {
+                        model.addConstr(in_potential_item.second <= out_potential_item.second
+                                                                    + SMALL_BIG_M * (1.0 -
+                                                                                     carer_edges_[carer_index][out_potential_item.first][in_potential_item.first]));
                     }
                 }
             }
+        }
 
-            // set break potential for [break] -> [visit] or [break] -> [depot] connection
-            for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                for (const auto &potential_item : carer_break_potentials_[carer_index]) {
-                    const auto break_node = potential_item.first;
-                    for (auto node_index = begin_depot_node_; node_index <= end_depot_node_; ++node_index) {
-                        if (break_indicators_) {
-                            model.addGenConstrIndicator(carer_edges_[carer_index][break_node][node_index], TRUE,
-                                                        static_cast<double>(node_index + 1) * carer_edges_[carer_index][break_node][node_index] <=
-                                                        potential_item.second);
-                        } else {
-                            model.addConstr(static_cast<double>(node_index + 1) * carer_edges_[carer_index][break_node][node_index]
-                                            <= potential_item.second + SMALL_BIG_M * (1 - carer_edges_[carer_index][break_node][node_index]));
-                        }
-                    }
-                }
-            }
+        // start time is propagated across connected breaks
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            for (const auto &input_break_item: carer_break_start_times_[carer_index]) {
+                const auto &input_break = carer_node_breaks_[carer_index].at(input_break_item.first);
 
-            // break potential propagation for [break] -> [break] connections
-            for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                for (const auto &out_potential_item : carer_break_potentials_[carer_index]) {
-                    for (const auto &in_potential_item : carer_break_potentials_[carer_index]) {
-                        if (in_potential_item.first == out_potential_item.first) { continue; }
+                for (const auto &output_break_item: carer_break_start_times_[carer_index]) {
+                    if (input_break_item.first == output_break_item.first) { continue; }
 
-                        if (break_indicators_) {
-                            model.addGenConstrIndicator(carer_edges_[carer_index][out_potential_item.first][in_potential_item.first], TRUE,
-                                                        in_potential_item.second <= out_potential_item.second);
-                        } else {
-                            model.addConstr(in_potential_item.second <= out_potential_item.second
-                                                                        + SMALL_BIG_M * (1.0 -
-                                                                                         carer_edges_[carer_index][out_potential_item.first][in_potential_item.first]));
-                        }
-                    }
-                }
-            }
+                    const auto &output_break = carer_node_breaks_[carer_index].at(output_break_item.first);
 
-            // start time is propagated across connected breaks
-            for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
-                for (const auto &input_break_item: carer_break_start_times_[carer_index]) {
-                    const auto &input_break = carer_node_breaks_[carer_index].at(input_break_item.first);
+                    if (break_indicators_) {
+                        model.addGenConstrIndicator(carer_edges_[carer_index][input_break_item.first][output_break_item.first], TRUE,
+                                                    input_break_item.second + input_break.duration().total_seconds() <= output_break_item.second);
+                    } else {
+                        auto adjust_big_m = AdjustBigM(output_break.datetime(),
+                                                       input_break.datetime() + input_break.duration());
+                        adjust_big_m += break_time_window_;
+                        adjust_big_m += break_time_window_;
 
-                    for (const auto &output_break_item: carer_break_start_times_[carer_index]) {
-                        if (input_break_item.first == output_break_item.first) { continue; }
-
-                        const auto &output_break = carer_node_breaks_[carer_index].at(output_break_item.first);
-
-                        if (break_indicators_) {
-                            model.addGenConstrIndicator(carer_edges_[carer_index][input_break_item.first][output_break_item.first], TRUE,
-                                                        input_break_item.second + input_break.duration().total_seconds() <= output_break_item.second);
-                        } else {
-                            auto adjust_big_m = AdjustBigM(output_break.datetime(),
-                                                           input_break.datetime() + input_break.duration());
-                            adjust_big_m += break_time_window_;
-                            adjust_big_m += break_time_window_;
-
-                            model.addConstr(input_break_item.second +
-                                            input_break.duration().total_seconds()
-                                            <= output_break_item.second
-                                               + adjust_big_m.total_seconds()
-                                                 * (1 - carer_edges_[carer_index][input_break_item.first][output_break_item.first]));
-                        }
+                        model.addConstr(input_break_item.second +
+                                        input_break.duration().total_seconds()
+                                        <= output_break_item.second
+                                           + adjust_big_m.total_seconds()
+                                             * (1 - carer_edges_[carer_index][input_break_item.first][output_break_item.first]));
                     }
                 }
             }
@@ -865,7 +1466,6 @@ protected:
                                         + Distance(node_visits_[from_node].location().get(), node_visits_[to_node].location().get())
                                         <= visit_start_times_[to_node]
                                            + adjust_big_m.total_seconds()
-                                             // + BIG_M
                                              * (1 - carer_edges_[carer_index][from_node][to_node]));
                     }
                 }
@@ -1134,16 +1734,6 @@ protected:
     }
 
 private:
-    static std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > GetCarers(const rows::Problem &problem) {
-        std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > carer_diaries = problem.carers();
-        std::sort(std::begin(carer_diaries), std::end(carer_diaries), [](
-                const std::pair<rows::Carer, std::vector<rows::Diary> > &left,
-                const std::pair<rows::Carer, std::vector<rows::Diary> > &right) -> bool {
-            return std::stoll(left.first.sap_number()) <= std::stoll(right.first.sap_number());
-        });
-        return carer_diaries;
-    }
-
     boost::posix_time::time_duration AdjustBigM(boost::posix_time::ptime left_start,
                                                 boost::posix_time::ptime right_start) {
         if (left_start <= right_start) {
@@ -1577,8 +2167,8 @@ int main(int argc, char *argv[]) {
 
     boost::posix_time::time_duration mip_time_limit
             = util::GetTimeDurationOrDefault(FLAGS_time_limit, DEFAULT_TIME_LIMIT);
-    boost::posix_time::time_duration visit_time_window{boost::posix_time::minutes(90)};
-    boost::posix_time::time_duration break_time_window{boost::posix_time::minutes(90)};
+    boost::posix_time::time_duration visit_time_window{boost::posix_time::minutes(45)};
+    boost::posix_time::time_duration break_time_window{boost::posix_time::minutes(45)};
     boost::posix_time::time_duration overtime_window{boost::posix_time::minutes(15)};
     boost::posix_time::time_duration no_progress_time_limit{boost::posix_time::minutes(1)};
 
