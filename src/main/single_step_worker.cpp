@@ -1,3 +1,4 @@
+#include <ortools/constraint_solver/routing_parameters.h>
 #include "single_step_worker.h"
 
 rows::SingleStepSchedulingWorker::SingleStepSchedulingWorker(std::shared_ptr<rows::Printer> printer) :
@@ -69,8 +70,7 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
                                             const boost::posix_time::time_duration &begin_end_shift_time_extension,
                                             const boost::posix_time::time_duration &opt_time_limit) {
     try {
-        static const auto USE_TABU_SEARCH = false;
-        const auto search_params = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
+        const auto search_params = operations_research::DefaultRoutingSearchParameters();
         solver_ = std::make_unique<rows::SingleStepSolver>(problem,
                                                            engine_config,
                                                            search_params,

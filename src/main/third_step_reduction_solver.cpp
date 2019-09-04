@@ -159,8 +159,6 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
             end_time = GetAdjustedWorkdayFinish(diary.end_time());
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
-//            solver_ptr->AddConstraint(
-//                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
             time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
         }
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);

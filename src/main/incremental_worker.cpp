@@ -147,7 +147,7 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(
                                           break_time_window_,
                                           GetAdjustment()));
 
-    const int64 kPenalty = GetDroppedVisitPenalty(index_manager, model);
+    const int64 kPenalty = GetDroppedVisitPenalty();
     for (const auto &visit_bundle : visit_index_) {
         std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
         model.AddDisjunction(visit_indices, kPenalty, static_cast<int64>(visit_indices.size()));

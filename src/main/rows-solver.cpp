@@ -39,6 +39,7 @@
 #include <osrm/osrm.hpp>
 
 #include <libgexf/libgexf.h>
+#include <ortools/constraint_solver/routing_parameters.h>
 
 #include "util/aplication_error.h"
 #include "util/logging.h"
@@ -243,9 +244,8 @@ int RunSingleStepSchedulingWorker() {
         problem_to_use.RemoveCancelled(solution.get().visits());
     }
 
+    auto search_parameters = operations_research::DefaultRoutingSearchParameters();
     auto engine_config = util::CreateEngineConfig(FLAGS_maps);
-    static const auto USE_TABU_SEARCH = false;
-    auto search_parameters = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
     if (FLAGS_solutions_limit != DEFAULT_SOLUTION_LIMIT) {
         search_parameters.set_solution_limit(FLAGS_solutions_limit);
     }
@@ -264,43 +264,6 @@ int RunSingleStepSchedulingWorker() {
                     search_parameters,
                     FLAGS_output)) {
 
-        worker.Start();
-        std::thread chat_thread(ChatBot, std::ref(worker));
-        chat_thread.detach();
-        worker.Join();
-    }
-
-    return worker.ReturnCode();
-}
-
-int RunIncrementalSchedulingWorker() {
-    std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
-
-    static const auto USE_TABU_SEARCH = false;
-    rows::IncrementalSchedulingWorker worker{printer};
-    if (worker.Init(util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
-                    util::CreateEngineConfig(FLAGS_maps),
-                    rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH),
-                    FLAGS_output)) {
-        worker.Start();
-        std::thread chat_thread(ChatBot, std::ref(worker));
-        chat_thread.detach();
-        worker.Join();
-    }
-
-    return worker.ReturnCode();
-}
-
-int RunExperimentalSchedulingWorker() {
-    std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
-    static const auto USE_TABU_SEARCH = false;
-    auto search_params = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
-
-    rows::ExperimentalEnforcementWorker worker{printer};
-    if (worker.Init(util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
-                    util::CreateEngineConfig(FLAGS_maps),
-                    search_params,
-                    FLAGS_output)) {
         worker.Start();
         std::thread chat_thread(ChatBot, std::ref(worker));
         chat_thread.detach();
@@ -408,18 +371,12 @@ int RunSchedulingWorkerEx(const std::shared_ptr<rows::Printer> &printer, const s
                                           util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
                                           FLAGS_output,
                                           engine_config,
-                                          util::GetTimeDurationOrDefault(FLAGS_visit_time_window,
-                                                                         boost::posix_time::not_a_date_time),
-                                          util::GetTimeDurationOrDefault(FLAGS_break_time_window,
-                                                                         boost::posix_time::not_a_date_time),
-                                          util::GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
-                                                                         boost::posix_time::not_a_date_time),
-                                          util::GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
-                                                                         boost::posix_time::not_a_date_time),
-                                          util::GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
-                                                                         boost::posix_time::not_a_date_time),
-                                          util::GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
-                                                                         boost::posix_time::not_a_date_time));
+                                          util::GetTimeDurationOrDefault(FLAGS_visit_time_window, boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_break_time_window, boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension, boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit, boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit, boost::posix_time::not_a_date_time),
+                                          util::GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit, boost::posix_time::not_a_date_time));
 }
 
 int main(int argc, char **argv) {
@@ -449,22 +406,17 @@ int main(int argc, char **argv) {
         std::vector<rows::Problem> sub_problems;
         sub_problems.reserve(scheduling_days_in_order.size());
         for (const auto &date : scheduling_days_in_order) {
-            sub_problems.push_back(problem.Trim(
-                    boost::posix_time::ptime(date, boost::posix_time::time_duration{}),
-                    boost::posix_time::hours(24)));
+            sub_problems.push_back(problem.Trim(boost::posix_time::ptime(date, boost::posix_time::time_duration{}), boost::posix_time::hours(24)));
         }
 
         auto engine_config = util::CreateEngineConfig(FLAGS_maps);
-        const auto visit_time_window = util::GetTimeDurationOrDefault(FLAGS_visit_time_window,
-                                                                      boost::posix_time::not_a_date_time);
-        const auto break_time_window = util::GetTimeDurationOrDefault(FLAGS_break_time_window,
-                                                                      boost::posix_time::not_a_date_time);
+        const auto visit_time_window = util::GetTimeDurationOrDefault(FLAGS_visit_time_window, boost::posix_time::not_a_date_time);
+        const auto break_time_window = util::GetTimeDurationOrDefault(FLAGS_break_time_window, boost::posix_time::not_a_date_time);
         const auto begin_end_shift_time_extension = util::GetTimeDurationOrDefault(FLAGS_begin_end_shift_time_extension,
                                                                                    boost::posix_time::not_a_date_time);
         const auto pre_opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_preopt_noprogress_time_limit,
                                                                                    boost::posix_time::not_a_date_time);
-        const auto opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit,
-                                                                               boost::posix_time::not_a_date_time);
+        const auto opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_opt_noprogress_time_limit, boost::posix_time::not_a_date_time);
         const auto post_opt_no_progress_time_limit = util::GetTimeDurationOrDefault(FLAGS_postopt_noprogress_time_limit,
                                                                                     boost::posix_time::not_a_date_time);
 

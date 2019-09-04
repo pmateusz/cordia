@@ -33,7 +33,6 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
                                            std::shared_ptr<const std::atomic<bool> > cancel_token) {
     OnConfigureModel(index_manager, model);
 
-
     const auto transit_callback_handle = model.RegisterTransitCallback(
             [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
                 return this->Distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
@@ -115,6 +114,18 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
         }
     }
 
+    // could be interesting to use the Google constraint for breaks
+    // initial results show violation of some breaks
+    std::vector<int64> service_times(model.Size());
+    for (int node = 0; node < model.Size(); node++) {
+        if (node >= model.nodes() || node == 0) {
+            service_times[node] = 0;
+        } else {
+            const auto &visit = visit_by_node_.at(node);
+            service_times[node] = visit.duration().total_seconds();
+        }
+    }
+
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
     for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
@@ -126,26 +137,16 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
         if (diary_opt.is_initialized()) {
             const auto &diary = diary_opt.get();
 
-            const auto begin_duration = diary.begin_date_time() - StartHorizon();
-            const auto end_duration = diary.end_date_time() - StartHorizon();
-            CHECK(!begin_duration.is_negative()) << carer.sap_number();
-            CHECK(!end_duration.is_negative()) << carer.sap_number();
-
-            begin_time = GetAdjustedWorkdayStart(begin_duration);
-            end_time = GetAdjustedWorkdayFinish(end_duration);
-            CHECK_GE(begin_time, 0) << carer.sap_number();
-            CHECK_LT(begin_time, end_time) << carer.sap_number();
-            CHECK_LE(begin_time, begin_duration.total_seconds()) << carer.sap_number();
-            CHECK_LE(end_duration.total_seconds(), end_time) << carer.sap_number();
+            begin_time = GetAdjustedWorkdayStart(diary.begin_time());
+            end_time = GetAdjustedWorkdayFinish(diary.end_time());
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
-            solver_ptr->AddConstraint(
-                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
+            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
         }
-
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
+    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
 
     printer->operator<<(ProblemDefinition(model.vehicles(),
                                           model.nodes() - 1,

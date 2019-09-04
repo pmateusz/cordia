@@ -7,6 +7,7 @@
 
 #include <osrm.hpp>
 #include <osrm/storage_config.hpp>
+#include <ortools/constraint_solver/routing_parameters.h>
 
 #include "problem.h"
 #include "single_step_solver.h"
@@ -30,7 +31,7 @@ TEST(RouteValidation, CanValidateRoute) {
     problem.RemoveCancelled(solution.visits());
 
     auto engine_config = util::CreateEngineConfig(maps_path);
-    rows::SingleStepSolver wrapper(problem, engine_config, rows::SolverWrapper::CreateSearchParameters(false));
+    rows::SingleStepSolver wrapper(problem, engine_config, operations_research::DefaultRoutingSearchParameters());
 
     operations_research::RoutingIndexManager index_manager{wrapper.nodes(),
                                                            wrapper.vehicles(),

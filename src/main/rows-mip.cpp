@@ -15,6 +15,7 @@
 
 #include <ortools/constraint_solver/routing.h>
 #include <ortools/constraint_solver/routing_parameters.pb.h>
+#include <ortools/constraint_solver/routing_parameters.h>
 
 #include "util/input.h"
 #include "util/logging.h"
@@ -2140,14 +2141,14 @@ std::unique_ptr<Model> CreateModel(const rows::Problem &problem,
         }
     }
 
-    if (single_break_during_working_hours) {
-        LOG(WARNING) << "Using Single Break Model";
-        return std::make_unique<SingleBreakModel>(problem,
-                                                  std::move(location_container),
-                                                  std::move(visit_time_window),
-                                                  std::move(break_time_window),
-                                                  std::move(overtime_allowance));
-    }
+//    if (single_break_during_working_hours) {
+//        LOG(WARNING) << "Using Single Break Model";
+//        return std::make_unique<SingleBreakModel>(problem,
+//                                                  std::move(location_container),
+//                                                  std::move(visit_time_window),
+//                                                  std::move(break_time_window),
+//                                                  std::move(overtime_allowance));
+//    }
 
     return std::make_unique<MultipleBreakModel>(problem,
                                                 std::move(location_container),
@@ -2178,8 +2179,7 @@ int main(int argc, char *argv[]) {
         LOG(INFO) << "Loaded an initial guess from the file: " << FLAGS_solution;
     }
 
-    static const auto USE_TABU_SEARCH = false;
-    const auto search_params = rows::SolverWrapper::CreateSearchParameters(USE_TABU_SEARCH);
+    const auto search_params = operations_research::DefaultRoutingSearchParameters();
     std::unique_ptr<rows::SecondStepSolver> solver_wrapper
             = std::make_unique<rows::SecondStepSolver>(problem,
                                                        engine_config,

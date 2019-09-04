@@ -78,8 +78,6 @@ namespace rows {
         static const int64 SECONDS_IN_DIMENSION;
         static const std::string TIME_DIMENSION;
 
-        static operations_research::RoutingSearchParameters CreateSearchParameters(bool use_tabu_search);
-
         SolverWrapper(const rows::Problem &problem,
                       osrm::EngineConfig &config,
                       const operations_research::RoutingSearchParameters &search_parameters);
@@ -171,8 +169,7 @@ namespace rows {
 
         std::string GetModelStatus(int status);
 
-        int64 GetDroppedVisitPenalty(const operations_research::RoutingIndexManager &index_manager,
-                                     const operations_research::RoutingModel &model);
+        int64 GetDroppedVisitPenalty();
 
         bool out_office_hours_breaks_enabled() const;
 

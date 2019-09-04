@@ -7,7 +7,6 @@
 #include "solution_log_monitor.h"
 #include "stalled_search_limit.h"
 #include "min_dropped_visits_collector.h"
-#include "solution_dumper.h"
 
 rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
                                          osrm::EngineConfig &config,
@@ -23,10 +22,9 @@ rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
                         std::move(break_time_window),
                         std::move(begin_end_work_day_adjustment)),
           no_progress_time_limit_(std::move(no_progress_time_limit)),
-          last_dropped_visit_penalty_(0),
+          dropped_visit_penalty_(0),
           solution_collector_{nullptr},
-          solution_repository_{std::make_shared<rows::SolutionRepository>()},
-          variable_store_{nullptr} {}
+          solution_repository_{std::make_shared<rows::SolutionRepository>()} {}
 
 void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                             operations_research::RoutingModel &model,
@@ -34,9 +32,7 @@ void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIn
                                             std::shared_ptr<const std::atomic<bool> > cancel_token) {
     OnConfigureModel(index_manager, model);
 
-    last_dropped_visit_penalty_ = GetDroppedVisitPenalty(index_manager, model);
-    variable_store_ = std::make_shared<rows::RoutingVariablesStore>(model.nodes(), model.vehicles());
-
+    dropped_visit_penalty_ = GetDroppedVisitPenalty();
     const auto transit_callback_handle = model.RegisterTransitCallback(
             [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
                 return this->Distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
@@ -90,9 +86,6 @@ void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIn
             }
             model.AddToAssignment(time_dimension->CumulVar(visit_index));
             model.AddToAssignment(time_dimension->SlackVar(visit_index));
-
-            variable_store_->SetTimeVar(visit_index, time_dimension->CumulVar(visit_index));
-            variable_store_->SetTimeSlackVar(visit_index, time_dimension->SlackVar(visit_index));
         }
 
         const auto visit_indices_size = visit_indices.size();
@@ -170,16 +163,7 @@ void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIn
                         << ", " << boost::posix_time::seconds(break_item->EndMax()) << "]";
             }
 
-//            solver_ptr->AddConstraint(
-//                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
-
-//            ,
-//                                                       [this, &index_manager](int64 from, int64 to) -> int64 {
-//                                                           return Distance(index_manager.IndexToNode(from),
-//                                                                           index_manager.IndexToNode(to));
-//                                                       });
             time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
-            variable_store_->SetBreakIntervalVars(vehicle, breaks);
         }
 
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
@@ -197,7 +181,7 @@ void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIn
 
     for (const auto &visit_bundle : visit_index_) {
         std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
-        model.AddDisjunction(visit_indices, last_dropped_visit_penalty_, static_cast<int64>(visit_indices.size()));
+        model.AddDisjunction(visit_indices, dropped_visit_penalty_, static_cast<int64>(visit_indices.size()));
     }
 
     model.CloseModelWithParameters(parameters_);
@@ -219,14 +203,6 @@ void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIn
 
 std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolver::solution_repository() {
     return solution_repository_;
-}
-
-std::shared_ptr<rows::RoutingVariablesStore> rows::SecondStepSolver::variable_store() {
-    return variable_store_;
-}
-
-int64 rows::SecondStepSolver::LastDroppedVisitPenalty() const {
-    return last_dropped_visit_penalty_;
 }
 
 operations_research::Assignment *rows::SecondStepSolver::min_dropped_visit_solution() const {

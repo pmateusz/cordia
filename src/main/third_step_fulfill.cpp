@@ -166,8 +166,6 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(const operations_research::Rou
             CHECK_LE(end_duration.total_seconds(), end_time) << carer.sap_number();
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
-//            solver_ptr->AddConstraint(
-//                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
             time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
         }
 

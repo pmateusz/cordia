@@ -67,11 +67,12 @@ namespace rows {
                   boost::posix_time::time_duration post_opt_time_limit);
 
     private:
-        std::unique_ptr<rows::SolverWrapper>
-        CreateThirdStageSolver(const operations_research::RoutingSearchParameters &search_params,
-                               int64 last_dropped_visit_penalty,
-                               std::size_t max_dropped_visits_count,
-                               const std::vector<rows::RouteValidatorBase::Metrics> & vehicle_metrics);
+        std::unique_ptr<rows::SolverWrapper> CreateThirdStageSolver(const operations_research::RoutingSearchParameters &search_params,
+                                                                    int64 last_dropped_visit_penalty,
+                                                                    std::size_t max_dropped_visits_count,
+                                                                    const std::vector<rows::RouteValidatorBase::Metrics> &vehicle_metrics);
+
+        operations_research::RoutingSearchParameters  CreateThirdStageRoutingSearchParameters();
 
         std::vector<CarerTeam> GetCarerTeams(const rows::Problem &problem);
 

@@ -149,15 +149,13 @@ void rows::ExperimentalEnforcementWorker::Solver::ConfigureModel(
                                           break_time_window_,
                                           GetAdjustment()));
 
-    const int64 kPenalty = GetDroppedVisitPenalty(index_manager, model);
+    const int64 kPenalty = GetDroppedVisitPenalty();
     for (const auto &visit_bundle : visit_index_) {
         std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
         if (visit_indices.size() == 1) {
             model.AddDisjunction(visit_indices, kPenalty);
         } else {
-            model.AddDisjunction(visit_indices,
-                                 static_cast<int64>(1.5 * kPenalty),
-                                 static_cast<int64>(visit_indices.size()));
+            model.AddDisjunction(visit_indices, static_cast<int64>(kPenalty), static_cast<int64>(visit_indices.size()));
         }
     }
 
