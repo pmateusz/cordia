@@ -125,9 +125,6 @@ namespace rows {
                 }
                 model.AddToAssignment(time_dimension->CumulVar(visit_index));
                 model.AddToAssignment(time_dimension->SlackVar(visit_index));
-
-                variable_store_->SetTimeVar(visit_index, time_dimension->CumulVar(visit_index));
-                variable_store_->SetTimeSlackVar(visit_index, time_dimension->SlackVar(visit_index));
             }
 
             const auto visit_indices_size = visit_indices.size();
@@ -203,23 +200,13 @@ namespace rows {
                                               GetAdjustment()));
 
         // Adding penalty costs to allow skipping orders.
-        auto max_distance = std::numeric_limits<int64>::min();
-        const auto max_node = model.nodes() - 1;
-        for (operations_research::RoutingNodeIndex source{0}; source < max_node; ++source) {
-            for (auto destination = source + 1; destination < max_node; ++destination) {
-                const auto distance = Distance(source, destination);
-                if (max_distance < distance) {
-                    max_distance = distance;
-                }
-            }
-        }
+        const auto max_travel_times = location_container_.LargestDistances(2);
+        const auto max_distance = std::accumulate(std::cbegin(max_travel_times), std::cend(max_travel_times), static_cast<int64>(0));
 
         // override max distance if it is zero or small
-        static const decltype(max_distance) MAX_DISTANCE_OVERRIDE = 3600 * 4;
-        const int64 kPenalty = std::max(max_distance, MAX_DISTANCE_OVERRIDE);
         for (const auto &visit_bundle : visit_index_) {
             std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
-            model.AddDisjunction(visit_indices, kPenalty, static_cast<int64>(visit_indices.size()));
+            model.AddDisjunction(visit_indices, max_distance, static_cast<int64>(visit_indices.size()));
         }
 
         if (care_continuity_enabled_) {

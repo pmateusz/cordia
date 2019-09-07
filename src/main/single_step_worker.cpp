@@ -70,7 +70,8 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
                                             const boost::posix_time::time_duration &begin_end_shift_time_extension,
                                             const boost::posix_time::time_duration &opt_time_limit) {
     try {
-        const auto search_params = operations_research::DefaultRoutingSearchParameters();
+        auto search_params = operations_research::DefaultRoutingSearchParameters();
+        search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
         solver_ = std::make_unique<rows::SingleStepSolver>(problem,
                                                            engine_config,
                                                            search_params,

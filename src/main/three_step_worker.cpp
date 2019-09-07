@@ -95,7 +95,9 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     printer_->operator<<(TracingEvent(TracingEventType::Started, "All"));
 
-    const auto first_second_search_params = operations_research::DefaultRoutingSearchParameters();
+    auto first_second_search_params = operations_research::DefaultRoutingSearchParameters();
+    // replace the default search strategy - extremely important for fast convergence
+    first_second_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
 
     std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
     std::unordered_map<rows::Carer, CarerTeam> teams;
@@ -238,6 +240,10 @@ void rows::ThreeStepSchedulingWorker::Run() {
                                         *second_stage_model,
                                         printer_,
                                         CancelToken());
+
+    std::stringstream penalty_msg;
+    penalty_msg << "MissedVisitPenalty: " << second_step_wrapper->DroppedVisitPenalty();
+    printer_->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
 
     operations_research::Assignment const *computed_assignment = nullptr;
     computed_assignment = second_stage_model->ReadAssignmentFromRoutes(second_step_locks, true);
@@ -519,87 +525,3 @@ operations_research::RoutingSearchParameters rows::ThreeStepSchedulingWorker::Cr
 
     return parameters;
 }
-
-
-//    operations_research::RoutingSearchParameters SolverWrapper::CreateSearchParameters(bool use_tabu_search) {
-
-//
-////        static const auto USE_ADVANCED_SEARCH = true;
-////        parameters.mutable_local_search_operators()->set_use_cross(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_extended_swap_active(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_full_path_lns(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_inactive_lns(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_lin_kernighan(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_make_chain_inactive(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_make_active(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_make_inactive(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_two_opt(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_or_opt(USE_ADVANCED_SEARCH);
-////
-////        parameters.mutable_local_search_operators()->set_use_path_lns(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_relocate_pair(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_relocate(USE_ADVANCED_SEARCH);
-////
-////        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_cross_exchange(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_swap_active(USE_ADVANCED_SEARCH);
-////        parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(USE_ADVANCED_SEARCH);
-//
-////        LOG(INFO) << "Full Path LNS: " << parameters.mutable_local_search_operators()->use_full_path_lns();
-////        LOG(INFO) << "Path LNS: " << parameters.mutable_local_search_operators()->use_path_lns();
-////        LOG(INFO) << "Cross: " << parameters.mutable_local_search_operators()->use_cross();
-////        LOG(INFO) << "Cross Exchange: " << parameters.mutable_local_search_operators()->use_cross_exchange();
-////        LOG(INFO) << "Exchange: " << parameters.mutable_local_search_operators()->use_exchange();
-////        LOG(INFO) << "Or Opt: " << parameters.mutable_local_search_operators()->use_or_opt();
-////        LOG(INFO) << "Lin Kernighan: " << parameters.mutable_local_search_operators()->use_lin_kernighan();
-////        LOG(INFO) << "Make Active: " << parameters.mutable_local_search_operators()->use_make_active();
-////        LOG(INFO) << "Make Inactive: " << parameters.mutable_local_search_operators()->use_make_inactive();
-////        LOG(INFO) << "Make Chain Inactive: " << parameters.mutable_local_search_operators()->use_make_chain_inactive();
-////        LOG(INFO) << "Extended Swap Active: "
-////                  << parameters.mutable_local_search_operators()->use_extended_swap_active();
-////        LOG(INFO) << "Node Pair Swap Active: "
-////                  << parameters.mutable_local_search_operators()->use_node_pair_swap_active();
-////        LOG(INFO) << "Relocate Neighbors: " << parameters.mutable_local_search_operators()->use_relocate_neighbors();
-////        LOG(INFO) << "Relocate: " << parameters.mutable_local_search_operators()->use_relocate();
-////        LOG(INFO) << "Relocate Pair: " << parameters.mutable_local_search_operators()->use_relocate_pair();
-////        LOG(INFO) << "Relocate Make Active: "
-////                  << parameters.mutable_local_search_operators()->use_relocate_and_make_active();
-////        LOG(INFO) << "Inactive LNS: " << parameters.mutable_local_search_operators()->use_inactive_lns();
-////        LOG(INFO) << "Swap Active: " << parameters.mutable_local_search_operators()->use_swap_active();
-////        LOG(INFO) << "Two Opt: " << parameters.mutable_local_search_operators()->use_two_opt();
-////        LOG(INFO) << "LNS Time Limit: " << parameters.lns_time_limit_ms();
-////        LOG(INFO) << "Light Propagation: " << parameters.use_light_propagation();
-////        LOG(INFO) << "Local Search Metaheuristic: " << parameters.local_search_metaheuristic();
-////        LOG(INFO) << "Time Limit:" << parameters.time_limit_ms();
-////        LOG(INFO) << "Solution Limit:" << parameters.solution_limit();
-//
-//
-////        parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-////        parameters.set_use_full_propagation(false);
-//
-//        if (use_tabu_search) {
-//            parameters.mutable_local_search_operators()->set_use_full_path_lns(
-//                    operations_research::OptionalBoolean::BOOL_FALSE);
-//            parameters.mutable_local_search_operators()->set_use_cross_exchange(
-//                    operations_research::OptionalBoolean::BOOL_TRUE);
-//            parameters.mutable_local_search_operators()->set_use_relocate_neighbors(
-//                    operations_research::OptionalBoolean::BOOL_TRUE);
-//            parameters.mutable_local_search_operators()->set_use_extended_swap_active(
-//                    operations_research::OptionalBoolean::BOOL_TRUE);
-//            parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(
-//                    operations_research::OptionalBoolean::BOOL_FALSE);
-//            parameters.set_local_search_metaheuristic(
-//                    operations_research::LocalSearchMetaheuristic_Value::LocalSearchMetaheuristic_Value_GUIDED_LOCAL_SEARCH);
-//        } else {
-////
-//
-////            parameters.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-////            parameters.mutable_local_search_operators()->set_use_cross_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
-////            parameters.mutable_local_search_operators()->set_use_relocate_neighbors(operations_research::OptionalBoolean::BOOL_TRUE);
-////            parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
-////            parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(operations_research::OptionalBoolean::BOOL_TRUE);
-////            parameters.mutable_local_search_operators()->set_use_lin_kernighan(operations_research::OptionalBoolean::BOOL_TRUE);
-//        }
-//        return parameters;
-//    }
