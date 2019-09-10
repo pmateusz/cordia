@@ -12,19 +12,20 @@ import os
 import os.path
 import re
 import sys
-import pprint
+import typing
 
 import matplotlib
+import matplotlib.cm
 import matplotlib.dates
 import matplotlib.pyplot
 import matplotlib.ticker
-import matplotlib.cm
 import numpy
 import pandas
+import tabulate
 
 import rows.console
-import rows.location_finder
 import rows.load
+import rows.location_finder
 import rows.model.area
 import rows.model.carer
 import rows.model.json
@@ -35,10 +36,10 @@ import rows.model.problem
 import rows.model.schedule
 import rows.model.service_user
 import rows.model.visit
+import rows.plot
+import rows.routing_server
 import rows.settings
 import rows.sql_data_source
-import rows.routing_server
-import rows.plot
 
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -57,9 +58,11 @@ __SHOW_WORKING_HOURS_COMMAND = 'show-working-hours'
 __COMPARE_DISTANCE_COMMAND = 'compare-distance'
 __COMPARE_WORKLOAD_COMMAND = 'compare-workload'
 __COMPARE_QUALITY_COMMAND = 'compare-quality'
+__COMPARE_COST_COMMAND = 'compare-cost'
 __CONTRAST_WORKLOAD_COMMAND = 'contrast-workload'
 __COMPARE_PREDICTION_ERROR_COMMAND = 'compare-prediction-error'
 __COMPARE_BENCHMARK_COMMAND = 'compare-benchmark'
+__COMPARE_BENCHMARK_TABLE_COMMAND = 'compare-benchmark-table'
 __COMPARE_QUALITY_OPTIMIZER_COMMAND = 'compare-quality-optimizer'
 __TYPE_ARG = 'type'
 __ACTIVITY_TYPE = 'activity'
@@ -184,15 +187,16 @@ def configure_parser():
     show_working_hours_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
 
     compare_quality_parser = subparsers.add_parser(__COMPARE_QUALITY_COMMAND)
-    compare_quality_parser.add_argument(__PROBLEM_FILE_ARG)
-    compare_quality_parser.add_argument(__BASE_FILE_ARG)
-    compare_quality_parser.add_argument(__CANDIDATE_FILE_ARG)
 
     compare_quality_optimizer_parser = subparsers.add_parser(__COMPARE_QUALITY_OPTIMIZER_COMMAND)
     compare_quality_optimizer_parser.add_argument(__FILE_ARG)
 
+    subparsers.add_parser(__COMPARE_COST_COMMAND)
+
     compare_benchmark_parser = subparsers.add_parser(__COMPARE_BENCHMARK_COMMAND)
     compare_benchmark_parser.add_argument(__FILE_ARG)
+
+    subparsers.add_parser(__COMPARE_BENCHMARK_TABLE_COMMAND)
 
     return parser
 
@@ -388,13 +392,6 @@ def calculate_forecast_visit_duration(problem):
         for local_visit in recurring_visits.visits:
             forecast_visit_duration[local_visit] = local_visit.duration
     return forecast_visit_duration
-
-
-def calculate_expected_visit_duration(schedule):
-    expected_visit_duration = rows.plot.VisitDict()
-    for past_visit in schedule.visits:
-        expected_visit_duration[past_visit.visit] = past_visit.duration
-    return expected_visit_duration
 
 
 def compare_workload(args, settings):
@@ -617,6 +614,7 @@ def parse_time_delta(text):
 
 class TraceLog:
     __STAGE_PATTERN = re.compile('^\w+(?P<number>\d+)$')
+    __PENALTY_PATTERN = re.compile('^MissedVisitPenalty:\s+(?P<penalty>\d+)$')
 
     class ProgressMessage:
         def __init__(self, **kwargs):
@@ -650,6 +648,7 @@ class TraceLog:
             self.__break_time_windows = parse_time_delta(kwargs.get('break_time_windows', None))
             self.__shift_adjustment = parse_time_delta(kwargs.get('shift_adjustment', None))
             self.__area = kwargs.get('area', None)
+            self.__missed_visit_penalty = kwargs.get('missed_visit_penalty', None)
 
         @property
         def date(self):
@@ -662,6 +661,22 @@ class TraceLog:
         @property
         def visits(self):
             return self.__visits
+
+        @property
+        def visit_time_window(self):
+            return self.__visit_time_windows
+
+        @property
+        def missed_visit_penalty(self):
+            return self.__missed_visit_penalty
+
+        @missed_visit_penalty.setter
+        def missed_visit_penalty(self, value):
+            self.__missed_visit_penalty = value
+
+        @property
+        def shift_adjustment(self):
+            return self.__shift_adjustment
 
     def __init__(self, time_point):
         self.__start = time_point
@@ -686,9 +701,18 @@ class TraceLog:
                 self.__current_stage = self.__parse_stage_number(body)
             elif body['type'] == 'finished':
                 self.__current_stage = None
+            elif body['type'] == 'unknown':
+                if 'comment' in body and 'MissedVisitPenalty' in body['comment']:
+                    match = re.match(self.__PENALTY_PATTERN, body['comment'])
+                    assert match is not None
+                    missed_visit_penalty = int(match.group('penalty'))
+
+                    self.__problem.missed_visit_penalty = missed_visit_penalty
             body_to_use = body
         elif 'area' in body:
             body_to_use = TraceLog.ProblemMessage(**body)
+            if body_to_use.missed_visit_penalty is None and self.__problem.missed_visit_penalty is not None:
+                body_to_use.missed_visit_penalty = self.__problem.missed_visit_penalty
             self.__problem = body_to_use
         else:
             body_to_use = body
@@ -701,6 +725,35 @@ class TraceLog:
             if 'type' in event and event['type'] == 'started':
                 return True
         return False
+
+    def best_cost(self):
+        best_cost, _ = self.__best_cost_and_time()
+        return best_cost
+
+    def best_cost_time(self):
+        _, best_cost_time = self.__best_cost_and_time()
+        return best_cost_time
+
+    def computation_time(self):
+        computation_time = datetime.timedelta.max
+        for relative_time, stage, absolute_time, event in self.__events:
+            computation_time = relative_time
+        return computation_time
+
+    def __best_cost_and_time(self):
+        best_cost = float('inf')
+        best_time = datetime.timedelta.max
+
+        for relative_time, stage, absolute_time, event in self.__events:
+            if stage != 2 and stage != 3:
+                continue
+            if not isinstance(event, TraceLog.ProgressMessage):
+                continue
+            if best_cost > event.cost:
+                best_cost = event.cost
+                best_time = relative_time
+
+        return best_cost, best_time
 
     @property
     def visits(self):
@@ -715,12 +768,25 @@ class TraceLog:
         return self.__problem.date
 
     @property
+    def visit_time_window(self):
+        return self.__problem.visit_time_window
+
+    @property
+    def missed_visit_penalty(self):
+        return self.__problem.missed_visit_penalty
+
+    @property
+    def shift_adjustment(self):
+        return self.__problem.shift_adjustment
+
+    @property
     def events(self):
         return self.__events
 
 
 def read_traces(trace_file):
     log_line_pattern = re.compile('^\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?]\s+(?P<body>.*)$')
+    other_line_pattern = re.compile('^.*?\[\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?\]\s+(?P<body>.*)$')
 
     trace_logs = []
     has_preambule = False
@@ -728,21 +794,27 @@ def read_traces(trace_file):
         current_log = None
         for line in input_stream:
             match = log_line_pattern.match(line)
+            if not match:
+                match = other_line_pattern.match(line)
+
             if match:
                 raw_time = match.group('time')
                 time = datetime.datetime.strptime(raw_time, '%H:%M:%S.%f')
                 try:
                     raw_body = match.group('body')
                     body = json.loads(raw_body)
-                    if 'comment' in body and body['comment'] == 'All':
-                        if 'type' in body:
-                            if body['type'] == 'finished':
-                                has_preambule = False
-                            elif body['type'] == 'started':
-                                has_preambule = True
-                                current_log = TraceLog(time)
-                                current_log.append(time, body)
-                                trace_logs.append(current_log)
+                    if 'comment' in body and (body['comment'] == 'All' or 'MissedVisitPenalty' in body['comment']):
+                        if body['comment'] == 'All':
+                            if 'type' in body:
+                                if body['type'] == 'finished':
+                                    has_preambule = False
+                                elif body['type'] == 'started':
+                                    has_preambule = True
+                                    current_log = TraceLog(time)
+                                    current_log.append(time, body)
+                                    trace_logs.append(current_log)
+                        else:
+                            current_log.append(time, body)
                     elif 'area' in body and not has_preambule:
                         current_log = TraceLog(time)
                         current_log.append(time, body)
@@ -751,6 +823,8 @@ def read_traces(trace_file):
                         current_log.append(time, body)
                 except json.decoder.JSONDecodeError:
                     logging.warning('Failed to parse line: %s', line)
+            elif 'GUIDED_LOCAL_SEARCH specified without sane timeout: solve may run forever.' in line:
+                pass
             else:
                 logging.warning('Failed to match line: %s', line)
     return trace_logs
@@ -1265,202 +1339,520 @@ def compare_prediction_error(args, settings):
         matplotlib.pyplot.close(figure)
 
 
-def compare_schedule_quality(args, settings):
-    problem_file = getattr(args, __PROBLEM_FILE_ARG)
-    human_planner_schedule = getattr(args, __BASE_FILE_ARG)
-    optimizer_schedule = getattr(args, __CANDIDATE_FILE_ARG)
+class DistanceEstimator:
 
-    problem = rows.load.load_problem(problem_file)
-    base_schedule = rows.load.load_schedule(human_planner_schedule)
-    candidate_schedule = rows.load.load_schedule(optimizer_schedule)
+    def __init__(self, settings, routing_session):
+        self.__routing_session = routing_session
+        self.__location_finder = rows.location_finder.UserLocationFinder(settings)
+        self.__location_finder.reload()
 
-    if base_schedule.metadata.begin != candidate_schedule.metadata.begin:
-        raise ValueError('Schedules begin at a different date: {0} vs {1}'
-                         .format(base_schedule.metadata.begin, candidate_schedule.metadata.begin))
+    def __call__(self, source_visit, destination_visit):
+        source_loc = self.__location_finder.find(source_visit.visit.service_user)
+        if not source_loc:
+            logging.error('Failed to resolve location of %s', source_visit.visit.service_user)
+            return datetime.timedelta()
+        destination_loc = self.__location_finder.find(destination_visit.visit.service_user)
+        if not destination_loc:
+            logging.error('Failed to resolve location of %s', destination_visit.visit.service_user)
+            return datetime.timedelta()
+        distance = self.__routing_session.distance(source_loc, destination_loc)
+        if distance is None:
+            logging.error('Distance cannot be estimated between %s and %s', source_loc, destination_loc)
+            return datetime.timedelta()
+        return datetime.timedelta(seconds=distance)
 
-    if base_schedule.metadata.end != candidate_schedule.metadata.end:
-        raise ValueError('Schedules end at a different date: {0} vs {1}'
-                         .format(base_schedule.metadata.end, candidate_schedule.metadata.end))
 
-    # DO NOT PASS DURATION
-    # pass visit duration from base schedule to candidate
-    # for candidate_visit in candidate_schedule.visits:
-    #     base_visit_match = None
-    #     for base_visit in base_schedule.visits:
-    #         if base_visit.visit.key == candidate_visit.visit.key:
-    #             base_visit_match = base_visit
-    #             break
-    #
-    #     if base_visit_match:
-    #         candidate_visit.check_in = base_visit.check_in
-    #         candidate_visit.check_out = base_visit.check_out
-    #         if candidate_visit.check_in and candidate_visit.check_out:
-    #             candidate_duration = candidate_visit.check_out - candidate_visit.check_in
-    #             if candidate_duration > datetime.timedelta(seconds=0):
-    #                 candidate_visit.duration = candidate_duration
-    #             else:
-    #                 candidate_visit.duration = base_visit.duration
+class DurationEstimator:
 
-    location_finder = rows.location_finder.UserLocationFinder(settings)
-    location_finder.reload()
+    def __init__(self, index):
+        self.__index = index
 
-    diary_by_date_by_carer = collections.defaultdict(dict)
-    for carer_shift in problem.carers:
-        for diary in carer_shift.diaries:
-            diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
+    def __call__(self, visit) -> typing.Optional[datetime.timedelta]:
+        try:
+            return self.__index[visit]
+        except KeyError:
+            return None
 
-    date = base_schedule.metadata.begin
-    problem_file_base = os.path.basename(problem_file)
-    problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
+    @staticmethod
+    def create_expected_visit_duration(schedule):
+        expected_visit_duration = rows.plot.VisitDict()
+        for past_visit in schedule.visits:
+            expected_visit_duration[past_visit.visit] = past_visit.duration
+        return DurationEstimator(expected_visit_duration)
 
-    with create_routing_session() as routing_session:
-        observed_duration_by_visit = calculate_expected_visit_duration(candidate_schedule)
-        base_schedule_frame = rows.plot.get_schedule_data_frame(base_schedule,
-                                                                routing_session,
-                                                                location_finder,
-                                                                diary_by_date_by_carer[date],
-                                                                observed_duration_by_visit)
-        candidate_schedule_frame = rows.plot.get_schedule_data_frame(candidate_schedule,
-                                                                     routing_session,
-                                                                     location_finder,
-                                                                     diary_by_date_by_carer[date],
-                                                                     observed_duration_by_visit)
 
-    def carer_client_frequency(schedule):
-        client_assigned_carers = collections.defaultdict(collections.Counter)
-        for visit in schedule.visits:
-            client_assigned_carers[visit.visit.service_user][visit.carer.sap_number] += 1
-        return client_assigned_carers
+def remove_violated_visits(rough_schedule: rows.model.schedule.Schedule,
+                           metadata: TraceLog,
+                           problem: rows.model.problem.Problem,
+                           duration_estimator: DurationEstimator,
+                           distance_estimator: DistanceEstimator) -> rows.model.schedule.Schedule:
+    max_delay = metadata.visit_time_window
+    min_delay = -metadata.visit_time_window
 
-    # number of different carers assigned throughout the day
-    base_carer_frequency = carer_client_frequency(base_schedule)
-    candidate_carer_frequency = carer_client_frequency(candidate_schedule)
+    dropped_visits = 0
+    allowed_visits = []
+    for route in rough_schedule.routes():
+        carer_diary = problem.get_diary(route.carer, metadata.date)
+        if not carer_diary:
+            continue
 
-    base_schedule_squared = []
-    candidate_schedule_squared = []
-    for client in base_carer_frequency:
-        base_schedule_squared.append(sum(base_carer_frequency[client][carer] ** 2
-                                         for carer in base_carer_frequency[client]))
-        candidate_schedule_squared.append(sum(candidate_carer_frequency[client][carer] ** 2
-                                              for carer in candidate_carer_frequency[client]))
-
-    base_matching_dominates = 0
-    candidate_matching_dominates = 0
-    total_matching = len(base_schedule_squared)
-    for index in range(len(base_schedule_squared)):
-        base_matching_dominates += base_schedule_squared[index] > candidate_schedule_squared[index]
-        candidate_matching_dominates += base_schedule_squared[index] < candidate_schedule_squared[index]
-
-    def compute_span(schedule, start_time_operator):
-        client_visits = collections.defaultdict(list)
-        for visit in schedule.visits:
-            client_visits[visit.visit.service_user].append(visit)
-        for client in client_visits:
-            visits = client_visits[client]
-
-            used_keys = set()
-            unique_visits = []
-            for visit in visits:
-                date_time = start_time_operator(visit)
-                if date_time.hour == 0 and date_time.minute == 0:
+        for visit in route.visits:
+            if visit.check_in is not None:
+                check_in_delay = visit.check_in - datetime.datetime.combine(metadata.date, visit.time)
+                if check_in_delay > max_delay:  # or check_in_delay < min_delay:
+                    dropped_visits += 1
                     continue
+            allowed_visits.append(visit)
 
-                if visit.visit.key not in used_keys:
-                    used_keys.add(visit.visit.key)
-                    unique_visits.append(visit)
-            unique_visits.sort(key=start_time_operator)
-            client_visits[client] = unique_visits
+    # schedule does not have visits which exceed time windows
+    first_improved_schedule = rows.model.schedule.Schedule(carers=rough_schedule.carers(), visits=allowed_visits)
 
-        client_span = dict()
-        for client in client_visits:
-            if len(client_visits[client]) < 2:
+    allowed_visits = []
+    for route in first_improved_schedule.routes():
+        edges = route.edges()
+
+        if not edges:
+            continue
+
+        diary = problem.get_diary(route.carer, metadata.date)
+        assert diary is not None
+
+        # shift adjustment is added twice because it is allowed to extend the time before and after the working hours
+        max_shift_end = max(event.end for event in diary.events) + metadata.shift_adjustment + metadata.shift_adjustment
+
+        first_visit = edges[0][0]
+        current_time = datetime.datetime.combine(metadata.date, first_visit.time)
+        if current_time <= max_shift_end:
+            allowed_visits.append(first_visit)
+
+        for prev_visit, next_visit in edges:
+            current_time += duration_estimator(prev_visit.visit)
+            current_time += distance_estimator(prev_visit, next_visit)
+            current_time = max(current_time, datetime.datetime.combine(metadata.date, next_visit.time) + min_delay)
+            if current_time <= max_shift_end:
+                allowed_visits.append(next_visit)
+            else:
+                dropped_visits += 1
+
+    # schedule does not contain visits which exceed overtime of the carer
+    second_improved_schedule = rows.model.schedule.Schedule(carers=rough_schedule.carers(), visits=allowed_visits)
+    return second_improved_schedule
+
+
+class ScheduleCost:
+    CARER_COST = datetime.timedelta(seconds=60 * 60 * 4)
+
+    def __init__(self, travel_time: datetime.timedelta, carers_used: int, visits_missed: int, missed_visit_penalty: int):
+        self.__travel_time = travel_time
+        self.__carers_used = carers_used
+        self.__visits_missed = visits_missed
+        self.__missed_visit_penalty = missed_visit_penalty
+
+    @property
+    def travel_time(self) -> datetime.timedelta:
+        return self.__travel_time
+
+    @property
+    def visits_missed(self) -> int:
+        return self.__visits_missed
+
+    @property
+    def missed_visit_penalty(self) -> int:
+        return self.__missed_visit_penalty
+
+    @property
+    def carers_used(self) -> int:
+        return self.__carers_used
+
+    def total_cost(self):
+        return self.__travel_time.total_seconds() \
+               + self.CARER_COST.total_seconds() * self.__carers_used \
+               + self.__missed_visit_penalty * self.__visits_missed
+
+
+def get_schedule_cost(schedule: rows.model.schedule.Schedule,
+                      metadata: TraceLog,
+                      problem: rows.model.problem.Problem,
+                      distance_estimator: DistanceEstimator) -> ScheduleCost:
+    carer_used_ids = set()
+    visit_made_ids = set()
+
+    travel_time = datetime.timedelta()
+
+    for route in schedule.routes():
+        if not route.visits:
+            continue
+
+        carer_used_ids.add(route.carer.sap_number)
+        for visit in route.visits:
+            visit_made_ids.add(visit.visit.key)
+
+        for source, destination in route.edges():
+            travel_time += distance_estimator(source, destination)
+
+    schedule_date = schedule.date()
+    available_visit_ids = {visit.key for visit_group in problem.visits for visit in visit_group.visits if visit.date == schedule_date}
+    return ScheduleCost(travel_time, len(carer_used_ids), len(available_visit_ids.difference(visit_made_ids)), metadata.missed_visit_penalty)
+
+
+def compare_schedule_cost(args, settings):
+    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'HumanSolutionPath', 'SolverSolutionPath'])
+
+    simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
+    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_distv90b90e30m1m1m5.err.log')
+    problem_data = [ProblemConfig(os.path.join(simulation_dir, 'problems/C350_past.json'),
+                                  os.path.join(simulation_dir, 'planner_schedules/C350_planners_201710{0:02d}.json'.format(day)),
+                                  os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
+                    for day in range(1, 15, 1)]
+
+    solver_traces = read_traces(solver_log_file)
+    assert len(solver_traces) == len(problem_data)
+
+    results = []
+    with create_routing_session() as routing_session:
+        distance_estimator = DistanceEstimator(settings, routing_session)
+
+        for solver_trace, problem_data in zip(solver_traces, problem_data):
+            problem = rows.load.load_problem(os.path.join(simulation_dir, problem_data.ProblemPath))
+            human_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.HumanSolutionPath))
+            solver_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.SolverSolutionPath))
+
+            assert solver_trace.date == human_schedule.date()
+            assert solver_trace.date == solver_schedule.date()
+
+            duration_estimator = DurationEstimator.create_expected_visit_duration(solver_schedule)
+            human_schedule_to_use = remove_violated_visits(human_schedule, solver_trace, problem, duration_estimator, distance_estimator)
+            solver_schedule_to_use = remove_violated_visits(solver_schedule, solver_trace, problem, duration_estimator, distance_estimator)
+            human_cost = get_schedule_cost(human_schedule_to_use, solver_trace, problem, distance_estimator)
+            solver_cost = get_schedule_cost(solver_schedule_to_use, solver_trace, problem, distance_estimator)
+            results.append({'date': solver_trace.date,
+                            'missed_visit_penalty': solver_trace.missed_visit_penalty,
+                            'carer_used_penalty': ScheduleCost.CARER_COST.total_seconds(),
+                            'planner_travel_time': human_cost.travel_time,
+                            'planner_carers_used': human_cost.carers_used,
+                            'planner_missed_visits': human_cost.visits_missed,
+                            'planner_total_cost': human_cost.total_cost(),
+                            'solver_carers_used': solver_cost.carers_used,
+                            'solver_travel_time': solver_cost.travel_time,
+                            'solver_missed_visits': solver_cost.visits_missed,
+                            'solver_total_cost': solver_cost.total_cost()})
+
+    data_frame = pandas.DataFrame(data=results)
+    print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
+
+
+def get_consecutive_visit_time_span(schedule: rows.model.schedule.Schedule, start_time_estimator):
+    client_visits = collections.defaultdict(list)
+    for visit in schedule.visits:
+        client_visits[visit.visit.service_user].append(visit)
+
+    for client in client_visits:
+        visits = client_visits[client]
+
+        used_keys = set()
+        unique_visits = []
+        for visit in visits:
+            date_time = start_time_estimator(visit)
+            if date_time.hour == 0 and date_time.minute == 0:
                 continue
 
-            last_visit = client_visits[client][0]
-            total_span = datetime.timedelta()
-            for next_visit in client_visits[client][1:]:
-                total_span += start_time_operator(next_visit) - start_time_operator(last_visit)
-                last_visit = next_visit
-            client_span[client] = total_span
-        return client_span
+            if visit.visit.key not in used_keys:
+                used_keys.add(visit.visit.key)
+                unique_visits.append(visit)
+        unique_visits.sort(key=start_time_estimator)
+        client_visits[client] = unique_visits
 
-    base_schedule_span = compute_span(base_schedule, lambda visit: visit.check_in)
-    candidate_schedule_span = compute_span(candidate_schedule,
-                                           lambda visit: datetime.datetime.combine(visit.date, visit.time))
+    client_span = collections.defaultdict(datetime.timedelta)
+    for client in client_visits:
+        if len(client_visits[client]) < 2:
+            continue
 
-    base_span_dominates = 0
-    candidate_span_dominates = 0
-    total_span = len(base_schedule_span)
-    for client in base_schedule_span:
-        if base_schedule_span[client] > candidate_schedule_span[client]:
-            base_span_dominates += 1
-        elif base_schedule_span[client] < candidate_schedule_span[client]:
-            candidate_span_dominates += 1
+        last_visit = client_visits[client][0]
+        total_span = datetime.timedelta()
+        for next_visit in client_visits[client][1:]:
+            total_span += start_time_estimator(next_visit) - start_time_estimator(last_visit)
+            last_visit = next_visit
+        client_span[client] = total_span
+    return client_span
 
+
+def get_carer_client_frequency(schedule: rows.model.schedule.Schedule):
+    client_assigned_carers = collections.defaultdict(collections.Counter)
+    for visit in schedule.visits:
+        client_assigned_carers[int(visit.visit.service_user)][int(visit.carer.sap_number)] += 1
+    return client_assigned_carers
+
+
+def get_visits(problem: rows.model.problem.Problem, date: datetime.date):
     visits = set()
     for local_visits in problem.visits:
         for visit in local_visits.visits:
-            if base_schedule.metadata.begin != visit.date:
+            if date != visit.date:
                 continue
             visit.service_user = local_visits.service_user
             visits.add(visit)
+    return visits
 
-    clients = set()
-    for visit in visits:
-        clients.add(visit.service_user)
 
+def get_teams(problem: rows.model.problem.Problem, schedule: rows.model.schedule.Schedule):
     multiple_carer_visit_keys = set()
-    for visit in visits:
+    for visit in get_visits(problem, schedule.date()):
         if visit.carer_count > 1:
             multiple_carer_visit_keys.add(visit.key)
 
-    def get_teams(schedule):
-        client_visit_carers = collections.defaultdict(lambda: collections.defaultdict(list))
-        for visit in schedule.visits:
-            if visit.visit.key not in multiple_carer_visit_keys:
-                continue
-            client_visit_carers[visit.visit.service_user][visit.visit.key].append(int(visit.carer.sap_number))
-        for client in client_visit_carers:
-            for visit_key in client_visit_carers[client]:
-                client_visit_carers[client][visit_key].sort()
-        teams = set()
-        for client in client_visit_carers:
-            for visit_key in client_visit_carers[client]:
-                teams.add(tuple(client_visit_carers[client][visit_key]))
-        return teams
+    client_visit_carers = collections.defaultdict(lambda: collections.defaultdict(list))
+    for visit in schedule.visits:
+        if visit.visit.key not in multiple_carer_visit_keys:
+            continue
+        client_visit_carers[visit.visit.service_user][visit.visit.key].append(int(visit.carer.sap_number))
+    for client in client_visit_carers:
+        for visit_key in client_visit_carers[client]:
+            client_visit_carers[client][visit_key].sort()
+    teams = set()
+    for client in client_visit_carers:
+        for visit_key in client_visit_carers[client]:
+            teams.add(tuple(client_visit_carers[client][visit_key]))
+    return teams
 
-    base_teams = get_teams(base_schedule)
-    candidate_teams = get_teams(candidate_schedule)
-    candidate_schedule_frame['Overtime'] = compute_overtime(candidate_schedule_frame)
-    base_schedule_frame['Overtime'] = compute_overtime(base_schedule_frame)
 
-    total_base_schedule_span = datetime.timedelta()
-    total_candidate_schedule_span = datetime.timedelta()
-    for value in base_schedule_span.values():
-        total_base_schedule_span += value
+def compare_schedule_quality(args, settings):
+    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'HumanSolutionPath', 'SolverSolutionPath'])
 
-    for value in candidate_schedule_span.values():
-        total_candidate_schedule_span += value
+    def compare_quality(solver_trace, problem, human_schedule, solver_schedule, duration_estimator, distance_estimator):
+        visits = get_visits(problem, solver_trace.date)
+        multiple_carer_visit_keys = {visit.key for visit in visits if visit.carer_count > 1}
+        clients = list({int(visit.service_user) for visit in visits})
 
-    results = {'problem': str(base_schedule.metadata.begin),
-               'visits': len(visits),
-               'clients': len(clients),
-               'multiple carer visits': len(multiple_carer_visit_keys),
-               'base_carers': len(base_schedule.carers()),
-               'candidate_carers': len(candidate_schedule.carers()),
-               'base_total_travel_time': str(base_schedule_frame['Travel'].sum()),
-               'candidate_total_travel_time': str(candidate_schedule_frame['Travel'].sum()),
-               'base_overtime': str(base_schedule_frame['Overtime'].sum()),
-               'candidate_overtime': str(candidate_schedule_frame['Overtime'].sum()),
-               'base_teams': len(base_teams),
-               'candidate_teams': len(candidate_teams),
-               'base_span': str(total_base_schedule_span),
-               'candidate_span': str(total_candidate_schedule_span),
-               'base_matching': int(base_matching_dominates),
-               'candidate_matching': int(candidate_matching_dominates)}
+        # number of different carers assigned throughout the day
+        human_carer_frequency = get_carer_client_frequency(human_schedule)
+        solver_carer_frequency = get_carer_client_frequency(solver_schedule)
 
-    printer = pprint.PrettyPrinter(indent=2)
-    printer.pprint(results)
+        human_schedule_squared = []
+        solver_schedule_squared = []
+        for client in clients:
+            if client in human_carer_frequency:
+                human_schedule_squared.append(sum(human_carer_frequency[client][carer] ** 2 for carer in human_carer_frequency[client]))
+            else:
+                human_schedule_squared.append(0)
+
+            if client in solver_carer_frequency:
+                solver_schedule_squared.append(sum(solver_carer_frequency[client][carer] ** 2 for carer in solver_carer_frequency[client]))
+            else:
+                solver_schedule_squared.append(0)
+
+        human_matching_dominates = 0
+        solver_matching_dominates = 0
+        for index in range(len(clients)):
+            if human_schedule_squared[index] > solver_schedule_squared[index]:
+                human_matching_dominates += 1
+            elif human_schedule_squared[index] < solver_schedule_squared[index]:
+                solver_matching_dominates += 1
+        matching_no_diff = len(clients) - human_matching_dominates - solver_matching_dominates
+        assert matching_no_diff >= 0
+
+        human_schedule_span = get_consecutive_visit_time_span(human_schedule, lambda visit: visit.check_in)
+        solver_schedule_span = get_consecutive_visit_time_span(solver_schedule, lambda visit: datetime.datetime.combine(visit.date, visit.time))
+
+        human_span_dominates = 0
+        solver_span_dominates = 0
+        for client in clients:
+            if human_schedule_span[client] > solver_schedule_span[client]:
+                human_span_dominates += 1
+            elif human_schedule_span[client] < solver_schedule_span[client]:
+                solver_span_dominates += 1
+        span_no_diff = len(clients) - human_span_dominates - solver_span_dominates
+        assert span_no_diff > 0
+
+        human_teams = get_teams(problem, human_schedule)
+        solver_teams = get_teams(problem, solver_schedule)
+
+        human_schedule_frame = rows.plot.get_schedule_data_frame(human_schedule, problem, duration_estimator, distance_estimator)
+        solver_schedule_frame = rows.plot.get_schedule_data_frame(solver_schedule, problem, duration_estimator, distance_estimator)
+
+        human_total_overtime = compute_overtime(human_schedule_frame).sum()
+        solver_total_overtime = compute_overtime(solver_schedule_frame).sum()
+
+        return {'problem': str(human_schedule.date()),
+                'visits': len(visits),
+                'clients': len(clients),
+                'human_overtime': human_total_overtime,
+                'solver_overtime': solver_total_overtime,
+                'human_visit_span_dominates': human_span_dominates,
+                'solver_visit_span_dominates': solver_span_dominates,
+                'visit_span_indifferent': span_no_diff,
+                'human_matching_dominates': human_matching_dominates,
+                'solver_matching_dominates': solver_matching_dominates,
+                'matching_indifferent': matching_no_diff,
+                'human_teams': len(human_teams),
+                'solver_teams': len(solver_teams)}
+
+    simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
+    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_distv90b90e30m1m1m5.err.log')
+    problem_data = [ProblemConfig(os.path.join(simulation_dir, 'problems/C350_past.json'),
+                                  os.path.join(simulation_dir, 'planner_schedules/C350_planners_201710{0:02d}.json'.format(day)),
+                                  os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
+                    for day in range(1, 15, 1)]
+
+    solver_traces = read_traces(solver_log_file)
+    assert len(solver_traces) == len(problem_data)
+
+    results = []
+    with create_routing_session() as routing_session:
+        distance_estimator = DistanceEstimator(settings, routing_session)
+
+        for solver_trace, problem_data in zip(solver_traces, problem_data):
+            problem = rows.load.load_problem(os.path.join(simulation_dir, problem_data.ProblemPath))
+            human_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.HumanSolutionPath))
+            solver_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.SolverSolutionPath))
+
+            assert solver_trace.date == human_schedule.date()
+            assert solver_trace.date == solver_schedule.date()
+
+            duration_estimator = DurationEstimator.create_expected_visit_duration(solver_schedule)
+            human_schedule_to_use = remove_violated_visits(human_schedule, solver_trace, problem, duration_estimator, distance_estimator)
+            solver_schedule_to_use = remove_violated_visits(solver_schedule, solver_trace, problem, duration_estimator, distance_estimator)
+            row = compare_quality(solver_trace, problem, human_schedule_to_use, solver_schedule_to_use, duration_estimator, distance_estimator)
+            results.append(row)
+
+    data_frame = pandas.DataFrame(data=results)
+    print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
+
+
+BenchmarkData = collections.namedtuple('BenchmarkData', ['BestCost', 'BestCostTime', 'BestBound', 'ComputationTime'])
+
+
+class MipTrace:
+    __MIP_HEADER_PATTERN = re.compile('^\s*Expl\s+Unexpl\s+|\s+Obj\s+Depth\s+IntInf\s+|\s+Incumbent\s+BestBd\s+Gap\s+|\s+It/Node\s+Time\s*$')
+    __MIP_LINE_PATTERN = re.compile('^(?P<solution_flag>\w|\*)?\s*'
+                                    '(?P<explored_nodes>\d+)\s+'
+                                    '(?P<nodes_to_explore>\d+)\s+'
+                                    '(?P<node_relaxation>[\w\.]+)?\s+'
+                                    '(?P<node_depth>\d+)?\s+'
+                                    '(?P<fractional_variables>\w+)?\s+'
+                                    '(?P<incumbent>[\w\.]+)\s'
+                                    '(?P<lower_bound>[\w\.]+)\s+'
+                                    '(?P<gap>[\w\.]+)\%\s+'
+                                    '(?P<simplex_it_per_node>[\w\.\-]+)\s+'
+                                    '(?P<elapsed_time>\d+)s$')
+    __SUMMARY_PATTERN = re.compile('^Best\sobjective\s(?P<objective>[e\d\.\+]+),\s'
+                                   'best\sbound\s(?P<bound>[e\d\.\+]+),\s'
+                                   'gap\s(?P<gap>[e\d\.\+]+)\%$')
+
+    class MipProgressMessage:
+        def __init__(self, has_solution, best_cost, lower_bound, elapsed_time):
+            self.__has_solution = has_solution
+            self.__best_cost = best_cost
+            self.__lower_bound = lower_bound
+            self.__elapsed_time = elapsed_time
+
+        @property
+        def has_solution(self):
+            return self.__has_solution
+
+        @property
+        def best_cost(self):
+            return self.__best_cost
+
+        @property
+        def lower_bound(self):
+            return self.__lower_bound
+
+        @property
+        def elapsed_time(self):
+            return self.__elapsed_time
+
+    def __init__(self, best_objective: float, best_bound: float, events: typing.List[MipProgressMessage]):
+        self.__best_objective = best_objective
+        self.__best_bound = best_bound
+        self.__events = events
+
+    @staticmethod
+    def read_from_file(path):
+        events = []
+        best_objective = float('inf')
+        best_bound = float('-inf')
+        with open(path, 'r') as fp:
+            lines = fp.readlines()
+            lines_it = iter(lines)
+            for line in lines_it:
+                if re.match(MipTrace.__MIP_HEADER_PATTERN, line):
+                    break
+            next(lines_it, None)  # read the empty line
+            for line in lines_it:
+                line_match = re.match(MipTrace.__MIP_LINE_PATTERN, line)
+                if not line_match:
+                    break
+
+                raw_solution_flag = line_match.group('solution_flag')
+                raw_incumbent = line_match.group('incumbent')
+                raw_lower_bound = line_match.group('lower_bound')
+                raw_elapsed_time = line_match.group('elapsed_time')
+
+                has_solution = raw_solution_flag is not None
+                incumbent = float(raw_incumbent) if raw_incumbent else float('inf')
+                lower_bound = float(raw_lower_bound) if raw_lower_bound else float('-inf')
+                elapsed_time = datetime.timedelta(seconds=int(raw_elapsed_time)) if raw_elapsed_time else datetime.timedelta()
+                events.append(MipTrace.MipProgressMessage(has_solution, incumbent, lower_bound, elapsed_time))
+            next(lines_it, None)
+            for line in lines_it:
+                line_match = re.match(MipTrace.__SUMMARY_PATTERN, line)
+                if line_match:
+                    raw_objective = line_match.group('objective')
+                    if raw_objective:
+                        best_objective = float(raw_objective)
+                    raw_bound = line_match.group('bound')
+                    if raw_bound:
+                        best_bound = float(raw_bound)
+        return MipTrace(best_objective, best_bound, events)
+
+    def best_cost(self):
+        return self.__best_objective
+
+    def best_cost_time(self):
+        for event in reversed(self.__events):
+            if event.has_solution:
+                return event.elapsed_time
+        return datetime.timedelta.max
+
+    def best_bound(self):
+        return self.__best_bound
+
+    def computation_time(self):
+        if self.__events:
+            return self.__events[-1].elapsed_time
+        return datetime.timedelta.max
+
+
+def compare_benchmark_table(args, settings):
+    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'MipSolutionLog', 'CpSolutionLog'])
+    simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
+
+    problem_configs = [ProblemConfig(os.path.join(simulation_dir, 'benchmark/50/problem_201710{0:02d}_v50m0c5.json'.format(day_number)),
+                                     os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5_mip.log'.format(day_number)),
+                                     os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5.err.log'.format(day_number)))
+                       for day_number in range(1, 15, 1)]
+    problem_configs.extend(
+        [ProblemConfig(os.path.join(simulation_dir, 'benchmark/25/problem_201710{0:02d}_v25m0c3.json'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3_mip.log'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3.err.log'.format(day_number)))
+         for day_number in range(1, 15, 1)])
+    problem_configs.extend(
+        [ProblemConfig(os.path.join(simulation_dir, 'benchmark/25/problem_201710{0:02d}_v25m5c3.json'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m5c3_mip.log'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m5c3.err.log'.format(day_number)))
+         for day_number in range(1, 15, 1)])
+
+    for problem_config in problem_configs:
+        if not os.path.exists(problem_config.MipSolutionLog) or not os.path.exists(problem_config.CpSolutionLog):
+            continue
+
+        cp_logs = read_traces(problem_config.CpSolutionLog)
+        if len(cp_logs) == 0:
+            continue
+
+        cp_log = cp_logs[0]
+        mip_log = MipTrace.read_from_file(problem_config.MipSolutionLog)
+        print(problem_config.MipSolutionLog, mip_log.best_cost(), cp_log.best_cost())
 
 
 def compare_planner_optimizer_quality(args, settings):
@@ -1842,6 +2234,10 @@ if __name__ == '__main__':
         compare_planner_optimizer_quality(__args, __settings)
     elif __command == __COMPARE_BENCHMARK_COMMAND:
         compare_benchmark(__args, __settings)
+    elif __command == __COMPARE_COST_COMMAND:
+        compare_schedule_cost(__args, __settings)
+    elif __command == __COMPARE_BENCHMARK_TABLE_COMMAND:
+        compare_benchmark_table(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:

@@ -24,6 +24,8 @@ namespace rows {
             return operations_research::SearchMonitor::AtSolution();
         }
 
+        // TODO: print if number of visits dropped
+
         last_solution_cost_ = current_solution_cost;
         const auto wall_time = util::WallTime(solver());
         const auto memory_usage = operations_research::Solver::MemoryUsage();

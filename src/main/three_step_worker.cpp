@@ -97,6 +97,10 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     auto first_second_search_params = operations_research::DefaultRoutingSearchParameters();
     first_second_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
+    first_second_search_params.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+    first_second_search_params.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+    first_second_search_params.mutable_local_search_operators()->set_use_relocate_and_make_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    first_second_search_params.mutable_local_search_operators()->set_use_cross_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
     std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
     std::unordered_map<rows::Carer, CarerTeam> teams;
     int id = 0;
@@ -332,8 +336,9 @@ void rows::ThreeStepSchedulingWorker::Run() {
     intermediate_wrapper.reset();
 
     const auto third_search_params = CreateThirdStageRoutingSearchParameters();
+    const auto third_stage_penalty = 0.8 * (second_step_wrapper->DroppedVisitPenalty() / 2.0);
     std::unique_ptr<rows::SolverWrapper> third_step_solver = CreateThirdStageSolver(third_search_params,
-                                                                                    second_step_wrapper->DroppedVisitPenalty(),
+                                                                                    third_stage_penalty,
                                                                                     max_dropped_visits_count,
                                                                                     vehicle_metrics);
 
