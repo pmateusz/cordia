@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="solve mip warm start" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="--problem=$PROJECT_DIR$/simulations/review_simulations/problem_v25m5c2.json --maps=$PROJECT_DIR$/data/scotland-latest.osrm --solution=$PROJECT_DIR$/simulations/review_simulations/solution_v25m5c2.gexf --time-limit=00:10:00" WORKING_DIR="file://$PROJECT_DIR$" PASS_PARENT_ENVS_2="true" PROJECT_NAME="rows" TARGET_NAME="rows-mip-solver" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="rows" RUN_TARGET_NAME="rows-mip-solver">
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>

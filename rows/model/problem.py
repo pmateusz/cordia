@@ -1,7 +1,9 @@
 """Details an instance of the Home Care Scheduling Problem"""
-import rows.model.object
-import rows.model.datetime
+import datetime
+from typing import Optional
 
+import rows.model.datetime
+import rows.model.object
 from rows.model.carer import Carer
 from rows.model.diary import Diary
 from rows.model.metadata import Metadata
@@ -225,6 +227,16 @@ class Problem(rows.model.object.DataObject):
             bundle[Problem.SERVICE_USERS] = self.__service_users
 
         return bundle
+
+    def get_diary(self, carer: Carer, date: datetime.date) -> Optional[Diary]:
+        for carer_shift in self.__carers:
+            if carer_shift.carer.sap_number != carer.sap_number:
+                continue
+
+            for diary in carer_shift.diaries:
+                if diary.date == date:
+                    return diary
+        return None
 
     @staticmethod
     def from_json(json_obj):

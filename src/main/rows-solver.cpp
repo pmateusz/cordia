@@ -466,7 +466,7 @@ int main(int argc, char **argv) {
         for (auto task_index = 0u; task_index < sub_problems.size(); ++task_index) {
             const auto return_code = compute_tasks[task_index].get();
             if (return_code != 0) {
-                LOG(ERROR) << boost::format("Failed to compute scheduling for {1}. Return code: {2}")
+                LOG(ERROR) << boost::format("Failed to compute scheduling for %1%. Return code: %2%")
                               % scheduling_days_in_order[task_index]
                               % return_code;
             }

@@ -4,13 +4,13 @@ import collections
 import datetime
 import operator
 
-import rows.model.object
-import rows.model.metadata
-import rows.model.past_visit
 import rows.model.carer
+import rows.model.location
+import rows.model.metadata
+import rows.model.object
+import rows.model.past_visit
 import rows.model.service_user
 import rows.model.visit
-import rows.model.location
 
 
 class Schedule(rows.model.object.DataObject):
@@ -93,6 +93,13 @@ class Schedule(rows.model.object.DataObject):
         for visit in self.visits:
             unique_carers.add(visit.carer)
         return list(unique_carers)
+
+    def date(self) -> datetime.date:
+        dates = {visit.date for visit in self.__visits}
+
+        assert len(dates) == 1
+
+        return next(iter(dates))
 
     @staticmethod
     def from_json(schedule_json):

@@ -2,12 +2,13 @@
 #define ROWS_STALLED_SEARCH_LIMIT_H
 
 #include <ortools/constraint_solver/constraint_solver.h>
+#include <ortools/constraint_solver/routing.h>
 
 namespace rows {
 
     class StalledSearchLimit : public operations_research::SearchLimit {
     public:
-        StalledSearchLimit(int64 time_limit_ms, operations_research::Solver *solver);
+        StalledSearchLimit(int64 time_limit_ms, operations_research::RoutingModel *model, operations_research::Solver *solver);
 
         bool Check() override;
 
@@ -24,6 +25,9 @@ namespace rows {
         bool AtSolution() override;
 
     private:
+        operations_research::RoutingModel *model_;
+        double best_objective_;
+
         bool search_in_progress_{false};
         bool found_first_solution_{false};
         int64 last_solution_update_{0};

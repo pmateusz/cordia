@@ -840,7 +840,7 @@ protected:
             }
         }
 
-        const auto largest_distances = LocationContainer().LargestDistances(2);
+        const auto largest_distances = LocationContainer().LargestDistances(3);
         const auto VISIT_NOT_SCHEDULED_PENALTY = std::accumulate(largest_distances.begin(), largest_distances.end(), 0.0);
         CHECK_LT(VISIT_NOT_SCHEDULED_PENALTY, time_horizon_.length().total_seconds());
         LOG(INFO) << "MissedVisitPenalty: " << VISIT_NOT_SCHEDULED_PENALTY;
@@ -1915,7 +1915,7 @@ protected:
         }
 
         if (optional_orders_) {
-            const auto largest_distances = LocationContainer().LargestDistances(2);
+            const auto largest_distances = LocationContainer().LargestDistances(1);
             const auto VISIT_NOT_SCHEDULED_PENALTY = std::accumulate(largest_distances.begin(), largest_distances.end(), 0.0);
             CHECK_LT(VISIT_NOT_SCHEDULED_PENALTY, horizon_duration_.total_seconds());
             LOG(INFO) << "MissedVisitPenalty: " << VISIT_NOT_SCHEDULED_PENALTY;
@@ -2091,7 +2091,7 @@ private:
                 duration_diff = -duration_diff;
             }
 
-            if (start_time_diff <= break_time_window_ && duration_diff <= overtime_window_) {
+            if (start_time_diff <= break_time_window_ + boost::posix_time::seconds(1) && duration_diff <= overtime_window_) {
                 candidate_node = break_item.first;
             }
         }
@@ -2109,7 +2109,7 @@ private:
                    && break_ref.datetime() + overtime_window_ >= break_element.datetime()
                    && break_ref.duration() + overtime_window_ >= break_element.duration()) { // last break
             return candidate_node.get();
-        } else if (break_ref.duration() == break_element.duration()) {// is middle break
+        } else if (break_ref.duration() == break_element.duration()) { // is middle break
             return candidate_node.get();
         }
 
@@ -2385,6 +2385,7 @@ std::unique_ptr<Model> CreateModel(const rows::Problem &problem,
                                                 std::move(break_time_window),
                                                 std::move(overtime_allowance));
 }
+
 
 int main(int argc, char *argv[]) {
     util::SetupLogging(argv[0]);

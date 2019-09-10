@@ -96,9 +96,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
     printer_->operator<<(TracingEvent(TracingEventType::Started, "All"));
 
     auto first_second_search_params = operations_research::DefaultRoutingSearchParameters();
-    // replace the default search strategy - extremely important for fast convergence
     first_second_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-
     std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
     std::unordered_map<rows::Carer, CarerTeam> teams;
     int id = 0;
@@ -309,7 +307,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
 // useful for debugging
 //    const auto warm_start_solution = util::LoadSolution(
-//            "/home/pmateusz/dev/cordia/simulations/conference/problems/second_stage_c070_3level_forecast_rv90b90e15m2m4m8_20171001.gexf",
+//            "/home/pmateusz/dev/cordia/simulations/current_review_simulations/benchmark/25/solutions/solution_20171001_v25m0c3_mip.gexf",
 //            problem_, visit_time_window_);
 //
 //    const auto routes = intermediate_wrapper->GetRoutes(warm_start_solution, *intermediate_index_manager, *intermediate_model);
@@ -511,17 +509,22 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
 
 operations_research::RoutingSearchParameters rows::ThreeStepSchedulingWorker::CreateThirdStageRoutingSearchParameters() {
     operations_research::RoutingSearchParameters parameters = operations_research::DefaultRoutingSearchParameters();
-    parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
+    parameters.set_first_solution_strategy(operations_research::FirstSolutionStrategy::AUTOMATIC);
 
-    CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(1), parameters.mutable_lns_time_limit()));
-    parameters.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-    parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+// we can browse much more solutions in short time when these options are disabled
+//    CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(1), parameters.mutable_lns_time_limit()));
+//    parameters.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.set_use_full_propagation(true);
+
+// we are fishing for optimal solutions in scenarios in which all orders are performed
     parameters.mutable_local_search_operators()->set_use_cross_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
     parameters.mutable_local_search_operators()->set_use_relocate_neighbors(operations_research::OptionalBoolean::BOOL_TRUE);
-    parameters.set_use_full_propagation(true);
+    parameters.set_local_search_metaheuristic(operations_research::LocalSearchMetaheuristic_Value_GUIDED_LOCAL_SEARCH);
 
-//    parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
-//    parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(operations_research::OptionalBoolean::BOOL_FALSE);
+// not worth as we don't usually deal with unperformed visits
+//  parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+//  parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(operations_research::OptionalBoolean::BOOL_TRUE);
 
     return parameters;
 }

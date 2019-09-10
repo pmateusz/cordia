@@ -160,7 +160,7 @@ void rows::IncrementalSchedulingWorker::IncrementalSolver::ConfigureModel(
 //    static const int64 MEGA_BYTE = 1024 * 1024;
 //    static const int64 GIGA_BYTE = MEGA_BYTE * 1024;
 //    model.AddSearchMonitor(solver_ptr->RevAlloc(new MemoryLimitSearchMonitor(16 * GIGA_BYTE, solver_ptr)));
-    model.AddSearchMonitor(model.solver()->RevAlloc(new rows::StalledSearchLimit(60 * 1000, model.solver())));
+    model.AddSearchMonitor(model.solver()->RevAlloc(new rows::StalledSearchLimit(60 * 1000, &model, model.solver())));
 }
 
 rows::IncrementalSchedulingWorker::IncrementalSchedulingWorker(std::shared_ptr<rows::Printer> printer)

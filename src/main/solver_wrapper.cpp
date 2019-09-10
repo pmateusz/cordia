@@ -1044,7 +1044,7 @@ namespace rows {
     }
 
     int64 SolverWrapper::GetDroppedVisitPenalty() {
-        const auto distances = location_container_.LargestDistances(2);
+        const auto distances = location_container_.LargestDistances(3);
         return std::accumulate(std::cbegin(distances), std::cend(distances), static_cast<int64>(0));
     }
 }

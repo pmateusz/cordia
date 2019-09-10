@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="mip benchmark" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="--problem=$PROJECT_DIR$/simulations/current_review_simulations/benchmark/25/problem_20171010_v25m0c3.json --maps=$PROJECT_DIR$/data/scotland-latest.osrm --time-limit=00:05:00" PASS_PARENT_ENVS_2="true" PROJECT_NAME="rows" TARGET_NAME="rows-mip-solver" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="rows" RUN_TARGET_NAME="rows-mip-solver">
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>

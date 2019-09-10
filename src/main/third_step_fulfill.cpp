@@ -204,6 +204,7 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(const operations_research::Rou
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(
                 no_progress_time_limit_.total_milliseconds(),
+                &model,
                 model.solver()
         )));
     }

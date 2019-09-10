@@ -14,15 +14,16 @@ namespace rows {
 
     class ProgressPrinterMonitor : public ProgressMonitor {
     public:
-        ProgressPrinterMonitor(const operations_research::RoutingModel &model,
-                               std::shared_ptr <rows::Printer> printer);
+        ProgressPrinterMonitor(const operations_research::RoutingModel &model, std::shared_ptr<rows::Printer> printer);
 
         virtual ~ProgressPrinterMonitor();
 
         bool AtSolution() override;
 
     private:
-        std::shared_ptr <rows::Printer> printer_;
+        std::shared_ptr<rows::Printer> printer_;
+
+        double last_solution_cost_;
     };
 }
 

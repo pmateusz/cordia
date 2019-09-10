@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="solve cp" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="--problem=$PROJECT_DIR$/simulations/conference/problems/C070_prophet_forecast.json --maps=./data/scotland-latest.osrm --scheduling-date=2017-10-04 --console_format=log --formula=3level-reduction --preopt-noprogress-time-limit=00:01:00 --opt-noprogress-time-limit=00:04:00 --postopt-noprogress-time-limit=00:08:00 --break-time-window=00:90:00 --visit-time-window=00:90:00 --begin-end-shift-time-extension=00:15:00" WORKING_DIR="file://$PROJECT_DIR$" PASS_PARENT_ENVS_2="true" PROJECT_NAME="rows" TARGET_NAME="rows-main" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="rows" RUN_TARGET_NAME="rows-main">
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>

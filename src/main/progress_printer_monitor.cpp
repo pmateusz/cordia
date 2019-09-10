@@ -1,6 +1,5 @@
 #include <cstdlib>
 
-#include <glog/logging.h>
 #include <boost/format.hpp>
 #include <boost/date_time.hpp>
 #include <utility>
@@ -10,19 +9,25 @@
 
 namespace rows {
 
-    ProgressPrinterMonitor::ProgressPrinterMonitor(const operations_research::RoutingModel &model,
-                                                   std::shared_ptr<rows::Printer> printer)
+    ProgressPrinterMonitor::ProgressPrinterMonitor(const operations_research::RoutingModel &model, std::shared_ptr<rows::Printer> printer)
             : ProgressMonitor(model),
-              printer_(std::move(printer)) {}
+              printer_(std::move(printer)),
+              last_solution_cost_{std::numeric_limits<double>::max()} {}
 
     ProgressPrinterMonitor::~ProgressPrinterMonitor() {
         printer_.reset();
     }
 
     bool ProgressPrinterMonitor::AtSolution() {
+        const auto current_solution_cost = util::Cost(model());
+        if (current_solution_cost >= last_solution_cost_) {
+            return operations_research::SearchMonitor::AtSolution();
+        }
+
+        last_solution_cost_ = current_solution_cost;
         const auto wall_time = util::WallTime(solver());
         const auto memory_usage = operations_research::Solver::MemoryUsage();
-        printer_->operator<<(ProgressStep(util::Cost(model()),
+        printer_->operator<<(ProgressStep(current_solution_cost,
                                           util::GetDroppedVisitCount(model()),
                                           boost::posix_time::time_duration{wall_time.hours(),
                                                                            wall_time.minutes(),

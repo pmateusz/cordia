@@ -1,17 +1,19 @@
 import datetime
+import functools
 import logging
 import operator
-import functools
+import typing
 
-import pandas
-import numpy
 import matplotlib
+import matplotlib.dates
 import matplotlib.pyplot
 import matplotlib.ticker
-import matplotlib.dates
+import numpy
+import pandas
 
-import rows.model.schedule
 import rows.model.problem
+import rows.model.schedule
+import rows.model.visit
 
 
 class VisitDict:
@@ -45,9 +47,7 @@ class VisitDict:
         if visits_with_time_offset:
             visit, time_offset = min(visits_with_time_offset, key=operator.itemgetter(1))
             if time_offset > 2 * 3600:
-                logging.warning('Suspiciously high time offset %s while finding a key of the visit %s',
-                                time_offset,
-                                visit)
+                logging.warning('Suspiciously high time offset %s while finding a key of the visit %s', time_offset, visit)
             return self.__dict[visit]
 
         return None
@@ -91,40 +91,34 @@ class CumulativeHourMinuteConverter:
         return '{0:02d}:{1:02d}:00'.format(hours, minutes)
 
 
-def get_schedule_data_frame(schedule, routing_session, location_finder, carer_diaries, visit_durations):
+def get_schedule_data_frame(schedule: rows.model.schedule.Schedule,
+                            problem: rows.model.problem.Problem,
+                            duration_estimator: typing.Callable[[rows.model.visit.Visit], datetime.timedelta],
+                            distance_estimator: typing.Callable[[rows.model.visit.Visit, rows.model.visit.Visit], datetime.timedelta]):
     data_set = []
     for route in schedule.routes():
-        if route.carer.sap_number not in carer_diaries:
+        carer_diary = problem.get_diary(route.carer, schedule.date())
+
+        if carer_diary is None:
             logging.warning('Working hours not available for carer %s', route.carer.sap_number)
             continue
 
         travel_time = datetime.timedelta()
         for source, destination in route.edges():
-            source_loc = location_finder.find(source.visit.service_user)
-            if not source_loc:
-                logging.error('Failed to resolve location of %s', source.visit.service_user)
-                continue
-            destination_loc = location_finder.find(destination.visit.service_user)
-            if not destination_loc:
-                logging.error('Failed to resolve location of %s', destination.visit.service_user)
-                continue
-            distance = routing_session.distance(source_loc, destination_loc)
-            if distance is None:
-                logging.error('Distance cannot be estimated between %s and %s', source_loc, destination_loc)
-                continue
-            travel_time += datetime.timedelta(seconds=distance)
+            travel_time += distance_estimator(source, destination)
         service_time = datetime.timedelta()
         for local_visit in route.visits:
-            if local_visit.visit in visit_durations:
-                service_time += visit_durations[local_visit.visit]
-        available_time = functools.reduce(operator.add, (event.duration
-                                                         for event in carer_diaries[route.carer.sap_number].events))
+            visit_duration = duration_estimator(local_visit.visit)
+            if visit_duration:
+                service_time += visit_duration
+            else:
+                service_time += local_visit.duration
+        available_time = functools.reduce(operator.add, (event.duration for event in carer_diary.events))
         data_set.append([route.carer.sap_number,
                          available_time,
                          service_time,
                          travel_time,
-                         float(service_time.total_seconds() + travel_time.total_seconds())
-                         / available_time.total_seconds(),
+                         float(service_time.total_seconds() + travel_time.total_seconds()) / available_time.total_seconds(),
                          len(route.visits)])
     data_set.sort(key=operator.itemgetter(4))
     return pandas.DataFrame(columns=['Carer', 'Availability', 'Service', 'Travel', 'Usage', 'Visits'], data=data_set)

@@ -1,10 +1,8 @@
 #include "third_step_solver.h"
 
 #include "util/aplication_error.h"
-#include "break_constraint.h"
 #include "progress_printer_monitor.h"
 #include "cancel_search_limit.h"
-#include "solution_log_monitor.h"
 #include "stalled_search_limit.h"
 
 rows::ThirdStepSolver::ThirdStepSolver(const rows::Problem &problem,
@@ -106,8 +104,7 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
             solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
                                                           model.ActiveVar(first_visit_to_use)));
 
-            const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
-                                                                   solver->MakeIntConst(0));
+            const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use), solver->MakeIntConst(0));
             solver->AddConstraint(solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
 
             ++total_multiple_carer_visits;
@@ -142,6 +139,8 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
+//            solver_ptr->AddConstraint(
+//                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
         }
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
@@ -177,6 +176,7 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(
                 no_progress_time_limit_.total_milliseconds(),
+                &model,
                 model.solver()
         )));
     }

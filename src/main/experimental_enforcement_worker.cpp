@@ -166,7 +166,7 @@ void rows::ExperimentalEnforcementWorker::Solver::ConfigureModel(
 //    static const int64 MEGA_BYTE = 1024 * 1024;
 //    static const int64 GIGA_BYTE = MEGA_BYTE * 1024;
 //    model.AddSearchMonitor(solver_ptr->RevAlloc(new MemoryLimitSearchMonitor(16 * GIGA_BYTE, solver_ptr)));
-    model.AddSearchMonitor(model.solver()->RevAlloc(new rows::StalledSearchLimit(30 * 1000, model.solver())));
+    model.AddSearchMonitor(model.solver()->RevAlloc(new rows::StalledSearchLimit(30 * 1000, &model, model.solver())));
 }
 
 rows::ExperimentalEnforcementWorker::ExperimentalEnforcementWorker(std::shared_ptr<rows::Printer> printer)

@@ -52,26 +52,24 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
                        START_FROM_ZERO_TIME,
                        TIME_DIMENSION);
 
-    const auto FIXED_COST = 5 * 3600;
-    int max_available_time = 0;
-    for (const auto &metric : vehicle_metrics_) {
-        max_available_time = std::max(static_cast<int64>(max_available_time),
-                                      static_cast<int64>(metric.available_time().total_seconds()));
-    }
-    CHECK_GT(max_available_time, 0);
-    for (auto vehicle_number = 0; vehicle_number < vehicle_metrics_.size(); ++vehicle_number) {
-        const auto vehicle_metrics = vehicle_metrics_[vehicle_number];
-        if (vehicle_metrics.available_time().total_seconds() > 0) {
-            const auto working_time_fraction =
-                    static_cast<double>(vehicle_metrics.available_time().total_seconds()) / max_available_time;
-            CHECK_GT(working_time_fraction, 0.0);
-            const auto vehicle_cost = static_cast<int64>(FIXED_COST / working_time_fraction);
-            model.SetFixedCostOfVehicle(vehicle_cost, vehicle_number);
-        }
-    }
+    const auto FIXED_COST = 4 * 3600;
+    model.SetFixedCostOfAllVehicles(FIXED_COST);
+//    int max_available_time = 0;
+//    for (const auto &metric : vehicle_metrics_) {
+//        max_available_time = std::max(static_cast<int64>(max_available_time), static_cast<int64>(metric.available_time().total_seconds()));
+//    }
+//    CHECK_GT(max_available_time, 0);
+//    for (auto vehicle_number = 0; vehicle_number < vehicle_metrics_.size(); ++vehicle_number) {
+//        const auto vehicle_metrics = vehicle_metrics_[vehicle_number];
+//        if (vehicle_metrics.available_time().total_seconds() > 0) {
+//            const auto working_time_fraction = static_cast<double>(vehicle_metrics.available_time().total_seconds()) / max_available_time;
+//            CHECK_GT(working_time_fraction, 0.0);
+//            const auto vehicle_cost = static_cast<int64>(FIXED_COST / working_time_fraction);
+//            model.SetFixedCostOfVehicle(vehicle_cost, vehicle_number);
+//        }
+//    }
 
-    operations_research::RoutingDimension *time_dimension
-            = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
+    operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
     operations_research::Solver *const solver = model.solver();
     time_dimension->CumulVar(index_manager.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
@@ -195,6 +193,7 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(
                 no_progress_time_limit_.total_milliseconds(),
+                &model,
                 model.solver()
         )));
     }

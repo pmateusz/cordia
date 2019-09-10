@@ -200,7 +200,7 @@ namespace rows {
                                               GetAdjustment()));
 
         // Adding penalty costs to allow skipping orders.
-        const auto max_travel_times = location_container_.LargestDistances(2);
+        const auto max_travel_times = location_container_.LargestDistances(3);
         const auto max_distance = std::accumulate(std::cbegin(max_travel_times), std::cend(max_travel_times), static_cast<int64>(0));
 
         // override max distance if it is zero or small
@@ -277,6 +277,7 @@ namespace rows {
         if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
             model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(
                     no_progress_time_limit_.total_milliseconds(),
+                    &model,
                     model.solver()
             )));
         }
