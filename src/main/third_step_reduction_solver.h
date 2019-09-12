@@ -29,7 +29,6 @@ namespace rows {
         boost::posix_time::time_duration no_progress_time_limit_;
         int64 dropped_visit_penalty_;
         int64 max_dropped_visits_;
-        std::vector<RouteValidatorBase::Metrics> vehicle_metrics_;
     };
 }
 

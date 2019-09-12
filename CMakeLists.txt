@@ -14,7 +14,7 @@ if (CMAKE_COMPILER_IS_GNUCXX)
 endif ()
 
 # uncomment for a debug mode build
-set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/or-tools-7.1)
+set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/pmateusz-ortoools-7.1)
 
 set(default_build_type "RELEASE")
 if (EXISTS "${CMAKE_SOURCE_DIR}/.git")

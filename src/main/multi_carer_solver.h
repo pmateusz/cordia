@@ -30,9 +30,11 @@ namespace rows {
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 
+        operations_research::Assignment *GetBestSolution() const;
 
     private:
         boost::posix_time::time_duration no_progress_time_limit_;
+        operations_research::SolutionCollector *solution_collector_;
     };
 }
 

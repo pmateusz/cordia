@@ -1,7 +1,5 @@
 #include <string>
-#include <stdexcept>
 #include <vector>
-#include <unordered_map>
 #include <algorithm>
 #include <utility>
 #include <memory>
@@ -9,62 +7,31 @@
 #include <future>
 #include <iostream>
 #include <regex>
-#include <future>
 
-#include <boost/exception/diagnostic_information.hpp>
-#include <boost/date_time.hpp>
 #include <boost/date_time/gregorian/gregorian.hpp>
-#include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/optional.hpp>
-#include <boost/algorithm/string/join.hpp>
-#include <boost/range/irange.hpp>
-#include <boost/algorithm/string/join.hpp>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include <nlohmann/json.hpp>
-
 #include <absl/time/time.h>
 #include <ortools/base/protoutil.h>
-#include <ortools/constraint_solver/routing.h>
-#include <ortools/constraint_solver/routing_flags.h>
 
 #include <osrm/engine/engine_config.hpp>
-#include <osrm/coordinate.hpp>
-#include <osrm/engine_config.hpp>
-#include <osrm/json_container.hpp>
-#include <osrm/storage_config.hpp>
-#include <osrm/osrm.hpp>
 
-#include <libgexf/libgexf.h>
 #include <ortools/constraint_solver/routing_parameters.h>
 
-#include "util/aplication_error.h"
 #include "util/logging.h"
 #include "util/validation.h"
 #include "util/input.h"
-#include "location.h"
-#include "location_container.h"
-#include "carer.h"
 #include "event.h"
-#include "diary.h"
-#include "calendar_visit.h"
 #include "solution.h"
 #include "problem.h"
 #include "printer.h"
-#include "solver_wrapper.h"
-#include "gexf_writer.h"
-#include "single_step_solver.h"
-#include "instant_transfer_solver.h"
-#include "second_step_solver.h"
-#include "multiple_carer_visit_constraint.h"
 #include "scheduling_worker.h"
 #include "three_step_worker.h"
 #include "single_step_worker.h"
-#include "incremental_worker.h"
-#include "experimental_enforcement_worker.h"
 
 DEFINE_string(problem, "../problem.json", "a file path to the problem instance");
 DEFINE_validator(problem, &util::file::Exists);
@@ -124,35 +91,25 @@ DEFINE_validator(output, &util::file::IsNullOrNotExists);
 
 DEFINE_string(output_prefix, "solution", "a prefix that is added to the output file with a solution");
 
-static const std::string LEVEL3_REDUCTION_FROMULA = "3level-reduction";
-static const std::string LEVEL3_DISTANCE_FROMULA = "3level-distance";
-static const std::string LEVEL1_FROMULA = "1level";
-
-bool ValidateFormulation(const char *flagname, const std::string &value) {
-    std::string value_to_use{value};
-    util::string::ToLower(value_to_use);
-    return value_to_use == LEVEL3_REDUCTION_FROMULA
-           || value_to_use == LEVEL3_DISTANCE_FROMULA
-           || value_to_use == LEVEL1_FROMULA;
+bool ValidateFirstStage(const char *flagname, const std::string &value) {
+    return static_cast<bool>(rows::ParseFirstStageStrategy(value));
 }
 
-rows::ThreeStepSchedulingWorker::Formula ParseFormula(const std::string &formula) {
-    std::string formula_to_use{formula};
-    util::string::ToLower(formula_to_use);
-
-    if (formula_to_use == LEVEL3_REDUCTION_FROMULA) {
-        return rows::ThreeStepSchedulingWorker::Formula::VEHICLE_REDUCTION;
-    } else if (formula_to_use == LEVEL3_DISTANCE_FROMULA) {
-        return rows::ThreeStepSchedulingWorker::Formula::DISTANCE;
-    }
-
-    throw std::invalid_argument(formula);
+bool ValidateThirdStage(const char *flagname, const std::string &value) {
+    return static_cast<bool>(rows::ParseThirdStageStrategy(value));
 }
 
-DEFINE_string(formula, "3level-reduction",
+DEFINE_string(first_stage,
+              "default",
               "a formulation used to compute schedule."
-              " Available options for this setting are: 3level-reduction, 3level-distance and 1level");
-DEFINE_validator(formula, &ValidateFormulation);
+              " Available options for this setting are: teams, soft-windows and none");
+DEFINE_validator(first_stage, &ValidateFirstStage);
+
+DEFINE_string(third_stage,
+              "default",
+              "a formulation used to compute schedule."
+              " Available options for this setting are: reduction, distance and none");
+DEFINE_validator(third_stage, &ValidateThirdStage);
 
 inline std::string FlagOrDefaultValue(const std::string &flag_value, const std::string &default_value) {
     if (flag_value.empty()) { return default_value; }
@@ -274,7 +231,8 @@ int RunSingleStepSchedulingWorker() {
 }
 
 int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
-                        const std::string &formula,
+                        const rows::FirstStageStrategy first_stage_strategy,
+                        const rows::ThirdStageStrategy third_stage_strategy,
                         const rows::Problem &problem,
                         const std::string &output,
                         osrm::EngineConfig &engine_config,
@@ -284,8 +242,8 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         const boost::posix_time::time_duration &pre_opt_noprogress_time_limit,
                         const boost::posix_time::time_duration &opt_noprogress_time_limit,
                         const boost::posix_time::time_duration &post_opt_noprogress_time_limit) {
-    if (formula == LEVEL3_DISTANCE_FROMULA || formula == LEVEL3_REDUCTION_FROMULA) {
-        rows::ThreeStepSchedulingWorker worker{std::move(printer), ParseFormula(formula)};
+    if (first_stage_strategy != rows::FirstStageStrategy::NONE || third_stage_strategy != rows::ThirdStageStrategy::NONE) {
+        rows::ThreeStepSchedulingWorker worker{std::move(printer), first_stage_strategy, third_stage_strategy};
         if (worker.Init(problem,
                         engine_config,
                         output,
@@ -298,7 +256,7 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
             worker.Run();
         }
         return worker.ReturnCode();
-    } else if (formula == LEVEL1_FROMULA) {
+    } else {
         rows::SingleStepSchedulingWorker worker{std::move(printer)};
         if (worker.Init(problem,
                         engine_config,
@@ -310,13 +268,12 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
             worker.Run();
         }
         return worker.ReturnCode();
-    } else {
-        throw std::invalid_argument(formula);
     }
 }
 
 int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
-                                   const std::string &formula,
+                                   const rows::FirstStageStrategy &first_stage_strategy,
+                                   const rows::ThirdStageStrategy &third_stage_strategy,
                                    const rows::Problem &problem,
                                    const std::string &output,
                                    osrm::EngineConfig &engine_config,
@@ -326,8 +283,8 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                    const boost::posix_time::time_duration &pre_opt_noprogress_time_limit,
                                    const boost::posix_time::time_duration &opt_noprogress_time_limit,
                                    const boost::posix_time::time_duration &post_opt_noprogress_time_limit) {
-    if (formula == LEVEL3_DISTANCE_FROMULA || formula == LEVEL3_REDUCTION_FROMULA) {
-        rows::ThreeStepSchedulingWorker worker{std::move(printer), ParseFormula(formula)};
+    if (first_stage_strategy != rows::FirstStageStrategy::NONE || third_stage_strategy != rows::ThirdStageStrategy::NONE) {
+        rows::ThreeStepSchedulingWorker worker{std::move(printer), first_stage_strategy, third_stage_strategy};
         if (worker.Init(problem,
                         engine_config,
                         output,
@@ -343,7 +300,7 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
             worker.Join();
         }
         return worker.ReturnCode();
-    } else if (formula == LEVEL1_FROMULA) {
+    } else {
         rows::SingleStepSchedulingWorker worker{std::move(printer)};
         if (worker.Init(problem,
                         engine_config,
@@ -359,15 +316,16 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
             worker.Join();
         }
         return worker.ReturnCode();
-    } else {
-        throw std::invalid_argument(formula);
     }
 }
 
-int RunSchedulingWorkerEx(const std::shared_ptr<rows::Printer> &printer, const std::string &formula) {
+int RunSchedulingWorkerEx(const std::shared_ptr<rows::Printer> &printer,
+                          const rows::FirstStageStrategy &first_stage_strategy,
+                          const rows::ThirdStageStrategy &third_stage_strategy) {
     auto engine_config = util::CreateEngineConfig(FLAGS_maps);
     return RunCancellableSchedulingWorker(printer,
-                                          formula,
+                                          first_stage_strategy,
+                                          third_stage_strategy,
                                           util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
                                           FLAGS_output,
                                           engine_config,
@@ -383,8 +341,8 @@ int main(int argc, char **argv) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
 
-    std::string formula_to_use{FLAGS_formula};
-    util::string::ToLower(formula_to_use);
+    const auto first_stage_strategy = rows::ParseFirstStageStrategy(FLAGS_first_stage).get();
+    const auto third_stage_strategy = rows::ParseThirdStageStrategy(FLAGS_third_stage).get();
 
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
@@ -436,7 +394,8 @@ int main(int argc, char **argv) {
                                              % FLAGS_output_prefix
                                              % boost::gregorian::to_iso_string(scheduling_date)).str();
             std::packaged_task<int(std::shared_ptr<rows::Printer>,
-                                   const std::string &,
+                                   rows::FirstStageStrategy,
+                                   rows::ThirdStageStrategy,
                                    const rows::Problem &,
                                    const std::string &,
                                    osrm::EngineConfig &,
@@ -448,7 +407,8 @@ int main(int argc, char **argv) {
                                    const boost::posix_time::time_duration)> compute_schedule(
                     RunSchedulingWorker);
             compute_schedule(printer,
-                             formula_to_use,
+                             first_stage_strategy,
+                             third_stage_strategy,
                              sub_problem,
                              output_file,
                              engine_config,
@@ -463,7 +423,7 @@ int main(int argc, char **argv) {
         }
         DCHECK_EQ(compute_tasks.size(), sub_problems.size());
 
-        for (auto task_index = 0u; task_index < sub_problems.size(); ++task_index) {
+        for (std::size_t task_index = 0u; task_index < sub_problems.size(); ++task_index) {
             const auto return_code = compute_tasks[task_index].get();
             if (return_code != 0) {
                 LOG(ERROR) << boost::format("Failed to compute scheduling for %1%. Return code: %2%")
@@ -474,6 +434,6 @@ int main(int argc, char **argv) {
 
         return 0;
     } else {
-        return RunSchedulingWorkerEx(printer, formula_to_use);
+        return RunSchedulingWorkerEx(printer, first_stage_strategy, third_stage_strategy);
     }
 }

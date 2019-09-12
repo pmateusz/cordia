@@ -10,7 +10,8 @@ rows::StalledSearchLimit::StalledSearchLimit(int64 time_limit_ms,
           time_limit_ms_(time_limit_ms) {}
 
 bool rows::StalledSearchLimit::Check() {
-    return found_first_solution_ && search_in_progress_ && (solver()->wall_time() - last_solution_update_) > time_limit_ms_;
+    // return true if solver should stop
+    return found_first_solution_ && search_in_progress_ && (best_objective_ <= 0 || (solver()->wall_time() - last_solution_update_) > time_limit_ms_);
 }
 
 void rows::StalledSearchLimit::Init() {}
@@ -30,7 +31,7 @@ bool rows::StalledSearchLimit::AtSolution() {
     found_first_solution_ = true;
 
     const auto current_objective = util::Cost(*model_);
-    if(current_objective < best_objective_) {
+    if (current_objective < best_objective_) {
         best_objective_ = current_objective;
         last_solution_update_ = solver()->wall_time();
     }

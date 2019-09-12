@@ -29,6 +29,9 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
                                            operations_research::RoutingModel &model,
                                            const std::shared_ptr<Printer> &printer,
                                            std::shared_ptr<const std::atomic<bool> > cancel_token) {
+    CHECK_GE(max_dropped_visits_, 0);
+    const auto are_visits_optional = max_dropped_visits_ > 0;
+
     OnConfigureModel(index_manager, model);
 
     const auto transit_callback_handle = model.RegisterTransitCallback(
@@ -43,14 +46,9 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
                 return this->ServicePlusTravelTime(index_manager.IndexToNode(from_index),
                                                    index_manager.IndexToNode(to_index));
             });
-    model.AddDimension(service_time_callback_handle,
-                       SECONDS_IN_DIMENSION,
-                       SECONDS_IN_DIMENSION,
-                       START_FROM_ZERO_TIME,
-                       TIME_DIMENSION);
+    model.AddDimension(service_time_callback_handle, SECONDS_IN_DIMENSION, SECONDS_IN_DIMENSION, START_FROM_ZERO_TIME, TIME_DIMENSION);
 
-    operations_research::RoutingDimension *time_dimension
-            = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
+    operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
     operations_research::Solver *const solver = model.solver();
     time_dimension->CumulVar(index_manager.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
@@ -95,14 +93,11 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
                 std::swap(first_visit_to_use, second_visit_to_use);
             }
 
-            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
-                                                          time_dimension->CumulVar(second_visit_to_use)));
-            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
-                                                          time_dimension->CumulVar(first_visit_to_use)));
-            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
-                                                          model.ActiveVar(second_visit_to_use)));
-            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
-                                                          model.ActiveVar(first_visit_to_use)));
+            solver->AddConstraint(solver->MakeEquality(time_dimension->CumulVar(first_visit_to_use), time_dimension->CumulVar(second_visit_to_use)));
+
+            if (are_visits_optional) {
+                solver->AddConstraint(solver->MakeEquality(model.ActiveVar(first_visit_to_use), model.ActiveVar(second_visit_to_use)));
+            }
 
             const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use), solver->MakeIntConst(0));
             solver->AddConstraint(solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
@@ -114,7 +109,7 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
     // could be interesting to use the Google constraint for breaks
     // initial results show violation of some breaks
     std::vector<int64> service_times(model.Size());
-    for (int node = 0; node < model.Size(); node++) {
+    for (std::size_t node = 0; node < model.Size(); node++) {
         if (node >= model.nodes() || node == 0) {
             service_times[node] = 0;
         } else {
@@ -139,8 +134,6 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
-//            solver_ptr->AddConstraint(
-//                    solver_ptr->RevAlloc(new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
         }
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
@@ -155,20 +148,19 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
                                           break_time_window_,
                                           GetAdjustment()));
 
-    CHECK_GE(max_dropped_visits_, 0);
-    if (max_dropped_visits_ > 0) {
+    if (are_visits_optional) {
         for (const auto &visit_bundle : visit_index_) {
             std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
             model.AddDisjunction(visit_indices, dropped_visit_penalty_, static_cast<int64>(visit_indices.size()));
         }
-    }
 
-    std::vector<operations_research::IntVar *> all_visits;
-    for (const auto &visit_bundle : visit_index_) {
-        const auto visit_node = *std::begin(visit_bundle.second);
-        all_visits.push_back(model.VehicleVar(index_manager.NodeToIndex(visit_node)));
+        std::vector<operations_research::IntVar *> all_visits;
+        for (const auto &visit_bundle : visit_index_) {
+            const auto visit_node = *std::begin(visit_bundle.second);
+            all_visits.push_back(model.VehicleVar(index_manager.NodeToIndex(visit_node)));
+        }
+        solver->AddConstraint(solver->MakeAtMost(all_visits, -1, max_dropped_visits_));
     }
-    solver->AddConstraint(solver->MakeAtMost(all_visits, -1, max_dropped_visits_));
 
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));

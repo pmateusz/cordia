@@ -1,10 +1,8 @@
 #include "third_step_reduction_solver.h"
 
 #include "util/aplication_error.h"
-#include "break_constraint.h"
 #include "progress_printer_monitor.h"
 #include "cancel_search_limit.h"
-#include "solution_log_monitor.h"
 #include "stalled_search_limit.h"
 
 rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const rows::Problem &problem,
@@ -25,13 +23,15 @@ rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const rows::Problem &pr
                         std::move(begin_end_work_day_adjustment)),
           no_progress_time_limit_{std::move(no_progress_time_limit)},
           dropped_visit_penalty_{dropped_visit_penalty},
-          max_dropped_visits_{max_dropped_visits},
-          vehicle_metrics_{std::move(vehicle_metrics)} {}
+          max_dropped_visits_{max_dropped_visits} {}
 
 void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                                     operations_research::RoutingModel &model,
                                                     const std::shared_ptr<Printer> &printer,
                                                     std::shared_ptr<const std::atomic<bool> > cancel_token) {
+    CHECK_GE(max_dropped_visits_, 0);
+    const auto are_visits_optional = max_dropped_visits_ > 0;
+
     OnConfigureModel(index_manager, model);
 
     const auto transit_callback_handle = model.RegisterTransitCallback(
@@ -51,23 +51,6 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
                        SECONDS_IN_DIMENSION,
                        START_FROM_ZERO_TIME,
                        TIME_DIMENSION);
-
-    const auto FIXED_COST = 4 * 3600;
-    model.SetFixedCostOfAllVehicles(FIXED_COST);
-//    int max_available_time = 0;
-//    for (const auto &metric : vehicle_metrics_) {
-//        max_available_time = std::max(static_cast<int64>(max_available_time), static_cast<int64>(metric.available_time().total_seconds()));
-//    }
-//    CHECK_GT(max_available_time, 0);
-//    for (auto vehicle_number = 0; vehicle_number < vehicle_metrics_.size(); ++vehicle_number) {
-//        const auto vehicle_metrics = vehicle_metrics_[vehicle_number];
-//        if (vehicle_metrics.available_time().total_seconds() > 0) {
-//            const auto working_time_fraction = static_cast<double>(vehicle_metrics.available_time().total_seconds()) / max_available_time;
-//            CHECK_GT(working_time_fraction, 0.0);
-//            const auto vehicle_cost = static_cast<int64>(FIXED_COST / working_time_fraction);
-//            model.SetFixedCostOfVehicle(vehicle_cost, vehicle_number);
-//        }
-//    }
 
     operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
@@ -90,9 +73,7 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
                 const auto start_window = GetBeginVisitWindow(visit_start);
                 const auto end_window = GetEndVisitWindow(visit_start);
 
-                time_dimension
-                        ->CumulVar(visit_index)
-                        ->SetRange(start_window, end_window);
+                time_dimension->CumulVar(visit_index)->SetRange(start_window, end_window);
 
                 DCHECK_LT(start_window, end_window) << visit_index_pair.first.id();
                 DCHECK_LE(start_window, visit_start.total_seconds()) << visit_index_pair.first.id();
@@ -113,17 +94,14 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
                 std::swap(first_visit_to_use, second_visit_to_use);
             }
 
-            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
-                                                          time_dimension->CumulVar(second_visit_to_use)));
-            solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
-                                                          time_dimension->CumulVar(first_visit_to_use)));
-            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
-                                                          model.ActiveVar(second_visit_to_use)));
-            solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
-                                                          model.ActiveVar(first_visit_to_use)));
+            solver->AddConstraint(solver->MakeEquality(time_dimension->CumulVar(first_visit_to_use),
+                                                       time_dimension->CumulVar(second_visit_to_use)));
 
-            const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
-                                                                   solver->MakeIntConst(0));
+            if (are_visits_optional) {
+                solver->AddConstraint(solver->MakeEquality(model.ActiveVar(first_visit_to_use), model.ActiveVar(second_visit_to_use)));
+            }
+
+            const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use), solver->MakeIntConst(0));
             solver->AddConstraint(solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
 
             ++total_multiple_carer_visits;
@@ -133,7 +111,7 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
     // could be interesting to use the Google constraint for breaks
     // initial results show violation of some breaks
     std::vector<int64> service_times(model.Size());
-    for (int node = 0; node < model.Size(); node++) {
+    for (std::size_t node = 0; node < model.Size(); node++) {
         if (node >= model.nodes() || node == 0) {
             service_times[node] = 0;
         } else {
@@ -156,6 +134,8 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
             begin_time = GetAdjustedWorkdayStart(diary.begin_time());
             end_time = GetAdjustedWorkdayFinish(diary.end_time());
 
+            model.SetFixedCostOfVehicle(diary.duration().total_seconds(), vehicle);
+
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
         }
@@ -172,20 +152,19 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
                                           break_time_window_,
                                           GetAdjustment()));
 
-    CHECK_GE(max_dropped_visits_, 0);
-    if (max_dropped_visits_ > 0) {
+    if (are_visits_optional) {
         for (const auto &visit_bundle : visit_index_) {
             std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
             model.AddDisjunction(visit_indices, dropped_visit_penalty_, static_cast<int64>(visit_indices.size()));
         }
-    }
 
-    std::vector<operations_research::IntVar *> all_visits;
-    for (const auto &visit_bundle : visit_index_) {
-        const auto visit_node = *std::begin(visit_bundle.second);
-        all_visits.push_back(model.VehicleVar(index_manager.NodeToIndex(visit_node)));
+        std::vector<operations_research::IntVar *> all_visits;
+        for (const auto &visit_bundle : visit_index_) {
+            const auto visit_node = *std::begin(visit_bundle.second);
+            all_visits.push_back(model.VehicleVar(index_manager.NodeToIndex(visit_node)));
+        }
+        solver->AddConstraint(solver->MakeAtMost(all_visits, -1, max_dropped_visits_));
     }
-    solver->AddConstraint(solver->MakeAtMost(all_visits, -1, max_dropped_visits_));
 
     model.CloseModelWithParameters(parameters_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));

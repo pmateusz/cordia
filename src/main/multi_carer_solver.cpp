@@ -17,7 +17,8 @@ rows::MultiCarerSolver::MultiCarerSolver(const rows::Problem &problem,
                         std::move(visit_time_window),
                         std::move(break_time_window),
                         std::move(begin_end_work_day_adjustment)),
-          no_progress_time_limit_(no_progress_time_limit) {
+          no_progress_time_limit_(std::move(no_progress_time_limit)),
+          solution_collector_{nullptr} {
 }
 
 void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
@@ -28,6 +29,8 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
 
     OnConfigureModel(index_manager, model);
 
+    solution_collector_ = model.solver()->MakeBestValueSolutionCollector(false);
+
     const auto transit_callback_handle = model.RegisterTransitCallback(
             [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
                 return this->Distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
@@ -36,8 +39,7 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
 
     const auto service_time_callback_handle = model.RegisterTransitCallback(
             [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
-                return this->ServicePlusTravelTime(index_manager.IndexToNode(from_index),
-                                                   index_manager.IndexToNode(to_index));
+                return this->ServicePlusTravelTime(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
             });
     model.AddDimension(service_time_callback_handle, SECONDS_IN_DIMENSION, SECONDS_IN_DIMENSION, START_FROM_ZERO_TIME, TIME_DIMENSION);
     operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
@@ -47,6 +49,9 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
 
     // visit that needs multiple carers is referenced by multiple nodes
     // all such nodes must be either performed or unperformed
+    std::vector<operations_research::IntVar *> window_cost_components;
+
+    const auto VISIT_NOT_MADE_PENALTY = visit_time_window_.total_seconds() + 1;
     auto total_multiple_carer_visits = 0;
     for (const auto &visit_index_pair : visit_index_) {
         const auto visit_start = visit_index_pair.first.datetime() - StartHorizon();
@@ -73,6 +78,8 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
             }
             model.AddToAssignment(time_dimension->CumulVar(visit_index));
             model.AddToAssignment(time_dimension->SlackVar(visit_index));
+
+            solution_collector_->Add(time_dimension->CumulVar(visit_index));
         }
 
         const auto visit_indices_size = visit_indices.size();
@@ -85,7 +92,18 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
                 std::swap(first_visit_to_use, second_visit_to_use);
             }
 
-            solver->AddConstraint(solver->MakeEquality(time_dimension->CumulVar(first_visit_to_use), time_dimension->CumulVar(second_visit_to_use)));
+//            solver->AddConstraint(solver->MakeEquality(time_dimension->CumulVar(first_visit_to_use), time_dimension->CumulVar(second_visit_to_use)));
+//            solver->AddConstraint(solver->MakeEquality(model.ActiveVar(first_visit_to_use), model.ActiveVar((second_visit_to_use))));
+
+            window_cost_components.emplace_back(
+                    solver->MakeAbs(solver->MakeDifference(time_dimension->CumulVar(first_visit_to_use),
+                                                           time_dimension->CumulVar(second_visit_to_use))->Var())->Var());
+
+            window_cost_components.emplace_back(
+                    solver->MakeProd(
+                            solver->MakeDifference(2,
+                                                   solver->MakeSum(model.ActiveVar(first_visit_to_use), model.ActiveVar(second_visit_to_use))),
+                            VISIT_NOT_MADE_PENALTY)->Var());
 
             const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use), solver->MakeIntConst(0));
             solver->AddConstraint(solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
@@ -147,30 +165,48 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
                                           break_time_window_,
                                           GetAdjustment()));
 
-    // Adding penalty costs to allow skipping orders.
-//    const auto max_travel_times = location_container_.LargestDistances(3);
-//    const auto max_distance = std::accumulate(std::cbegin(max_travel_times), std::cend(max_travel_times), static_cast<int64>(0));
-
-    // override max distance if it is zero or small
-//    for (const auto &visit_bundle : visit_index_) {
-//        std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
-//        model.AddDisjunction(visit_indices, max_distance, static_cast<int64>(visit_indices.size()));
-//    }
+//     override max distance if it is zero or small
+    for (const auto &visit_bundle : visit_index_) {
+        std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
+        model.AddDisjunction(visit_indices, VISIT_NOT_MADE_PENALTY, static_cast<int64>(visit_indices.size()));
+    }
 
     VLOG(1) << "Finalizing definition of the routing model...";
     const auto start_time_model_closing = std::chrono::high_resolution_clock::now();
 
+    for (const auto &component : window_cost_components) {
+        model.AddVariableMinimizedByFinalizer(component);
+    }
+
+    auto objective = solver->MakeSum(window_cost_components)->Var();
+    model.AddToAssignment(objective);
+    solution_collector_->AddObjective(objective);
+    solution_collector_->Add(objective);
+    solution_collector_->Add(model.Nexts());
+
     model.CloseModelWithParameters(parameters_);
+
+    model.OverrideCostVar(objective);
 
     const auto end_time_model_closing = std::chrono::high_resolution_clock::now();
     VLOG(1) << boost::format("Definition of the routing model finalized in %1% seconds")
                % std::chrono::duration_cast<std::chrono::seconds>(end_time_model_closing
                                                                   - start_time_model_closing).count();
 
+
+    model.AddSearchMonitor(solution_collector_);
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
     model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(no_progress_time_limit_.total_milliseconds(), &model, model.solver())));
     }
+}
+
+operations_research::Assignment *rows::MultiCarerSolver::GetBestSolution() const {
+    const auto solution_count = solution_collector_->solution_count();
+    if (solution_count > 0) {
+        return solution_collector_->solution(0);
+    }
+    return nullptr;
 }
