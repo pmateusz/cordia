@@ -841,7 +841,7 @@ protected:
         }
 
         const auto largest_distances = LocationContainer().LargestDistances(3);
-        const auto VISIT_NOT_SCHEDULED_PENALTY = std::accumulate(largest_distances.begin(), largest_distances.end(), 0.0);
+        const auto VISIT_NOT_SCHEDULED_PENALTY = std::accumulate(largest_distances.begin(), largest_distances.end(), 1.0);
         CHECK_LT(VISIT_NOT_SCHEDULED_PENALTY, time_horizon_.length().total_seconds());
         LOG(INFO) << "MissedVisitPenalty: " << VISIT_NOT_SCHEDULED_PENALTY;
 
@@ -1915,8 +1915,8 @@ protected:
         }
 
         if (optional_orders_) {
-            const auto largest_distances = LocationContainer().LargestDistances(1);
-            const auto VISIT_NOT_SCHEDULED_PENALTY = std::accumulate(largest_distances.begin(), largest_distances.end(), 0.0);
+            const auto largest_distances = LocationContainer().LargestDistances(3);
+            const auto VISIT_NOT_SCHEDULED_PENALTY = std::accumulate(largest_distances.begin(), largest_distances.end(), 1.0);
             CHECK_LT(VISIT_NOT_SCHEDULED_PENALTY, horizon_duration_.total_seconds());
             LOG(INFO) << "MissedVisitPenalty: " << VISIT_NOT_SCHEDULED_PENALTY;
 

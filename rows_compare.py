@@ -13,6 +13,7 @@ import os.path
 import re
 import sys
 import typing
+import warnings
 
 import matplotlib
 import matplotlib.cm
@@ -1767,7 +1768,7 @@ class MipTrace:
         self.__events = events
 
     @staticmethod
-    def read_from_file(path):
+    def read_from_file(path) -> 'MipTrace':
         events = []
         best_objective = float('inf')
         best_bound = float('-inf')
@@ -1824,35 +1825,70 @@ class MipTrace:
 
 
 def compare_benchmark_table(args, settings):
-    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'MipSolutionLog', 'CpSolutionLog'])
+    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'MipSolutionLog', 'CpTeamSolutionLog', 'CpWindowsSolutionLog'])
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
+    old_simulation_dir = '/home/pmateusz/dev/cordia/simulations/review_simulations_old'
 
-    problem_configs = [ProblemConfig(os.path.join(simulation_dir, 'benchmark/50/problem_201710{0:02d}_v50m0c5.json'.format(day_number)),
-                                     os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5_mip.log'.format(day_number)),
-                                     os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5.err.log'.format(day_number)))
+    problem_configs = [ProblemConfig(os.path.join(simulation_dir, 'benchmark/25/problem_201710{0:02d}_v25m0c3.json'.format(day_number)),
+                                     os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3_mip.log'.format(day_number)),
+                                     os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3.err.log'.format(day_number)),
+                                     os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3.err.log'.format(day_number)))
                        for day_number in range(1, 15, 1)]
-    problem_configs.extend(
-        [ProblemConfig(os.path.join(simulation_dir, 'benchmark/25/problem_201710{0:02d}_v25m0c3.json'.format(day_number)),
-                       os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3_mip.log'.format(day_number)),
-                       os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3.err.log'.format(day_number)))
-         for day_number in range(1, 15, 1)])
     problem_configs.extend(
         [ProblemConfig(os.path.join(simulation_dir, 'benchmark/25/problem_201710{0:02d}_v25m5c3.json'.format(day_number)),
                        os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m5c3_mip.log'.format(day_number)),
-                       os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m5c3.err.log'.format(day_number)))
+                       os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_teams_v25m5c3.err.log'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_windows_v25m5c3.err.log'.format(day_number)))
+         for day_number in range(1, 15, 1)])
+    problem_configs.extend(
+        [ProblemConfig(os.path.join(simulation_dir, 'benchmark/50/problem_201710{0:02d}_v50m0c5.json'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5_mip.log'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5.err.log'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5.err.log'.format(day_number)))
+         for day_number in range(1, 15, 1)])
+    problem_configs.extend(
+        [ProblemConfig(os.path.join(simulation_dir, 'benchmark/50/problem_201710{0:02d}_v50m10c5.json'.format(day_number)),
+                       os.path.join(old_simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m10c5_mip.log'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_teams_v50m10c5.err.log'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_windows_v50m10c5.err.log'.format(day_number)))
          for day_number in range(1, 15, 1)])
 
+    logs = []
     for problem_config in problem_configs:
-        if not os.path.exists(problem_config.MipSolutionLog) or not os.path.exists(problem_config.CpSolutionLog):
+        if not os.path.exists(problem_config.MipSolutionLog):
+            warnings.warn('File {0} is missing'.format(problem_config.MipSolutionLog))
             continue
 
-        cp_logs = read_traces(problem_config.CpSolutionLog)
-        if len(cp_logs) == 0:
+        if not os.path.exists(problem_config.CpTeamSolutionLog):
+            warnings.warn('File {0} is missing'.format(problem_config.CpTeamSolutionLog))
             continue
 
-        cp_log = cp_logs[0]
+        if not os.path.exists(problem_config.CpWindowsSolutionLog):
+            warnings.warn('File {0} is missing'.format(problem_config.CpWindowsSolutionLog))
+            continue
+
+        cp_team_logs = read_traces(problem_config.CpTeamSolutionLog)
+        if not cp_team_logs:
+            warnings.warn('File {0} is empty'.format(problem_config.CpTeamSolutionLog))
+            continue
+        cp_team_log = cp_team_logs[0]
+
+        cp_window_logs = read_traces(problem_config.CpWindowsSolutionLog)
+        if not cp_window_logs:
+            warnings.warn('File {0} is empty'.format(problem_config.CpWindowsSolutionLog))
+            continue
+        cp_window_log = cp_window_logs[0]
+
         mip_log = MipTrace.read_from_file(problem_config.MipSolutionLog)
-        print(problem_config.MipSolutionLog, mip_log.best_cost(), cp_log.best_cost())
+        if not mip_log:
+            warnings.warn('File {0} is empty'.format(problem_config.MipSolutionLog))
+            continue
+
+        logs.append([mip_log, cp_team_log, cp_window_log])
+
+    for mip_log, cp_team_log, cp_window_log in logs:
+        print(cp_team_log.date, cp_team_log.carers, cp_team_log.visits,
+              mip_log.best_cost(), cp_team_log.best_cost(), cp_window_log.best_cost())
 
 
 def compare_planner_optimizer_quality(args, settings):
