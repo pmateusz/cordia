@@ -14,6 +14,7 @@ rows::ThirdStepSolver::ThirdStepSolver(const rows::Problem &problem,
                                        boost::posix_time::time_duration no_progress_time_limit,
                                        int64 dropped_visit_penalty,
                                        int64 max_dropped_visits,
+                                       bool optional_orders,
                                        std::vector<RouteValidatorBase::Metrics> vehicle_metrics)
         : SolverWrapper(problem,
                         config,
@@ -23,6 +24,7 @@ rows::ThirdStepSolver::ThirdStepSolver(const rows::Problem &problem,
                         std::move(begin_end_work_day_adjustment)),
           no_progress_time_limit_{std::move(no_progress_time_limit)},
           dropped_visit_penalty_{dropped_visit_penalty},
+          optional_orders_{optional_orders},
           max_dropped_visits_{max_dropped_visits} {}
 
 void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
@@ -30,7 +32,7 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
                                            const std::shared_ptr<Printer> &printer,
                                            std::shared_ptr<const std::atomic<bool> > cancel_token) {
     CHECK_GE(max_dropped_visits_, 0);
-    const auto are_visits_optional = max_dropped_visits_ > 0;
+    const auto are_visits_optional = max_dropped_visits_ > 0 || optional_orders_;
 
     OnConfigureModel(index_manager, model);
 

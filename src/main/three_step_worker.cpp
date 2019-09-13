@@ -100,7 +100,6 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     auto second_stage_search_params = operations_research::DefaultRoutingSearchParameters();
     second_stage_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_PARALLEL_CHEAPEST_INSERTION);
-    second_stage_search_params.use_cp();
 
     std::unique_ptr<rows::SecondStepSolver> second_stage_wrapper = std::make_unique<rows::SecondStepSolver>(problem_,
                                                                                                             routing_parameters_,
@@ -264,6 +263,7 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                        post_opt_time_limit_,
                                                        last_dropped_visit_penalty,
                                                        max_dropped_visits_count,
+                                                       false,
                                                        vehicle_metrics);
     } else {
         CHECK_EQ(third_stage_strategy_, ThirdStageStrategy::VEHICLE_REDUCTION);

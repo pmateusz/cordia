@@ -823,11 +823,11 @@ def read_traces(trace_file):
                     else:
                         current_log.append(time, body)
                 except json.decoder.JSONDecodeError:
-                    logging.warning('Failed to parse line: %s', line)
+                    warnings.warn('Failed to parse line: ' + line)
             elif 'GUIDED_LOCAL_SEARCH specified without sane timeout: solve may run forever.' in line:
                 pass
             else:
-                logging.warning('Failed to match line: %s', line)
+                warnings.warn('Failed to match line: ' + line)
     return trace_logs
 
 
@@ -1724,16 +1724,16 @@ BenchmarkData = collections.namedtuple('BenchmarkData', ['BestCost', 'BestCostTi
 
 class MipTrace:
     __MIP_HEADER_PATTERN = re.compile('^\s*Expl\s+Unexpl\s+|\s+Obj\s+Depth\s+IntInf\s+|\s+Incumbent\s+BestBd\s+Gap\s+|\s+It/Node\s+Time\s*$')
-    __MIP_LINE_PATTERN = re.compile('^(?P<solution_flag>\w|\*)?\s*'
+    __MIP_LINE_PATTERN = re.compile('^(?P<solution_flag>[\w\*]?)\s*'
                                     '(?P<explored_nodes>\d+)\s+'
                                     '(?P<nodes_to_explore>\d+)\s+'
-                                    '(?P<node_relaxation>[\w\.]+)?\s+'
-                                    '(?P<node_depth>\d+)?\s+'
-                                    '(?P<fractional_variables>\w+)?\s+'
-                                    '(?P<incumbent>[\w\.]+)\s'
-                                    '(?P<lower_bound>[\w\.]+)\s+'
-                                    '(?P<gap>[\w\.]+)\%\s+'
-                                    '(?P<simplex_it_per_node>[\w\.\-]+)\s+'
+                                    '(?P<node_relaxation>[\w\.]*)\s+'
+                                    '(?P<node_depth>\d*)\s+'
+                                    '(?P<fractional_variables>\w*)\s+'
+                                    '(?P<incumbent>[\d\.\-]*)\s+'
+                                    '(?P<lower_bound>[\d\.\-]*)\s+'
+                                    '(?P<gap>[\d\.\%\-]*)\s+'
+                                    '(?P<simplex_it_per_node>[\d\.\-]*)\s+'
                                     '(?P<elapsed_time>\d+)s$')
     __SUMMARY_PATTERN = re.compile('^Best\sobjective\s(?P<objective>[e\d\.\+]+),\s'
                                    'best\sbound\s(?P<bound>[e\d\.\+]+),\s'
@@ -1790,7 +1790,7 @@ class MipTrace:
                 raw_elapsed_time = line_match.group('elapsed_time')
 
                 has_solution = raw_solution_flag is not None
-                incumbent = float(raw_incumbent) if raw_incumbent else float('inf')
+                incumbent = float(raw_incumbent) if raw_incumbent and raw_incumbent != '-' else float('inf')
                 lower_bound = float(raw_lower_bound) if raw_lower_bound else float('-inf')
                 elapsed_time = datetime.timedelta(seconds=int(raw_elapsed_time)) if raw_elapsed_time else datetime.timedelta()
                 events.append(MipTrace.MipProgressMessage(has_solution, incumbent, lower_bound, elapsed_time))
@@ -1825,29 +1825,34 @@ class MipTrace:
 
 
 def compare_benchmark_table(args, settings):
-    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'MipSolutionLog', 'CpTeamSolutionLog', 'CpWindowsSolutionLog'])
+    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'Carers', 'Visits', 'Visits2', 'MipSolutionLog', 'CpTeamSolutionLog',
+                                                             'CpWindowsSolutionLog'])
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
     old_simulation_dir = '/home/pmateusz/dev/cordia/simulations/review_simulations_old'
 
     problem_configs = [ProblemConfig(os.path.join(simulation_dir, 'benchmark/25/problem_201710{0:02d}_v25m0c3.json'.format(day_number)),
+                                     3, 25, 0,
                                      os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3_mip.log'.format(day_number)),
                                      os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3.err.log'.format(day_number)),
                                      os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m0c3.err.log'.format(day_number)))
                        for day_number in range(1, 15, 1)]
     problem_configs.extend(
         [ProblemConfig(os.path.join(simulation_dir, 'benchmark/25/problem_201710{0:02d}_v25m5c3.json'.format(day_number)),
+                       3, 20, 5,
                        os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_v25m5c3_mip.log'.format(day_number)),
                        os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_teams_v25m5c3.err.log'.format(day_number)),
                        os.path.join(simulation_dir, 'benchmark/25/solutions/problem_201710{0:02d}_windows_v25m5c3.err.log'.format(day_number)))
          for day_number in range(1, 15, 1)])
     problem_configs.extend(
         [ProblemConfig(os.path.join(simulation_dir, 'benchmark/50/problem_201710{0:02d}_v50m0c5.json'.format(day_number)),
+                       5, 50, 0,
                        os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5_mip.log'.format(day_number)),
                        os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5.err.log'.format(day_number)),
                        os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m0c5.err.log'.format(day_number)))
          for day_number in range(1, 15, 1)])
     problem_configs.extend(
         [ProblemConfig(os.path.join(simulation_dir, 'benchmark/50/problem_201710{0:02d}_v50m10c5.json'.format(day_number)),
+                       5, 40, 10,
                        os.path.join(old_simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m10c5_mip.log'.format(day_number)),
                        os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_teams_v50m10c5.err.log'.format(day_number)),
                        os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_windows_v50m10c5.err.log'.format(day_number)))
@@ -1867,28 +1872,89 @@ def compare_benchmark_table(args, settings):
             warnings.warn('File {0} is missing'.format(problem_config.CpWindowsSolutionLog))
             continue
 
-        cp_team_logs = read_traces(problem_config.CpTeamSolutionLog)
-        if not cp_team_logs:
-            warnings.warn('File {0} is empty'.format(problem_config.CpTeamSolutionLog))
-            continue
-        cp_team_log = cp_team_logs[0]
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
 
-        cp_window_logs = read_traces(problem_config.CpWindowsSolutionLog)
-        if not cp_window_logs:
-            warnings.warn('File {0} is empty'.format(problem_config.CpWindowsSolutionLog))
-            continue
-        cp_window_log = cp_window_logs[0]
+            cp_team_logs = read_traces(problem_config.CpTeamSolutionLog)
+            if not cp_team_logs:
+                warnings.warn('File {0} is empty'.format(problem_config.CpTeamSolutionLog))
+                continue
+            cp_team_log = cp_team_logs[0]
 
-        mip_log = MipTrace.read_from_file(problem_config.MipSolutionLog)
-        if not mip_log:
-            warnings.warn('File {0} is empty'.format(problem_config.MipSolutionLog))
-            continue
+            cp_window_logs = read_traces(problem_config.CpWindowsSolutionLog)
+            if not cp_window_logs:
+                warnings.warn('File {0} is empty'.format(problem_config.CpWindowsSolutionLog))
+                continue
+            cp_window_log = cp_window_logs[0]
 
-        logs.append([mip_log, cp_team_log, cp_window_log])
+            mip_log = MipTrace.read_from_file(problem_config.MipSolutionLog)
+            if not mip_log:
+                warnings.warn('File {0} is empty'.format(problem_config.MipSolutionLog))
+                continue
 
-    for mip_log, cp_team_log, cp_window_log in logs:
-        print(cp_team_log.date, cp_team_log.carers, cp_team_log.visits,
-              mip_log.best_cost(), cp_team_log.best_cost(), cp_window_log.best_cost())
+            logs.append([problem_config, mip_log, cp_team_log, cp_window_log])
+
+    def get_gap(cost, lower_bound):
+        return (cost - lower_bound) * 100.0 / lower_bound
+
+    data = []
+    for problem_config, mip_log, cp_team_log, cp_window_log in logs:
+        data.append(collections.OrderedDict(
+            date=cp_team_log.date,
+            visits=problem_config.Visits,
+            visits_of_two=problem_config.Visits2,
+            carers=cp_team_log.carers,
+            penalty=cp_team_log.missed_visit_penalty,
+            lower_bound=mip_log.best_bound(),
+            mip_best_cost=mip_log.best_cost(),
+            mip_best_gap=get_gap(mip_log.best_cost(), mip_log.best_bound()),
+            mip_best_time=mip_log.best_cost_time(),
+            team_best_cost=cp_team_log.best_cost(),
+            team_best_gap=get_gap(cp_team_log.best_cost(), mip_log.best_bound()),
+            team_best_time=cp_team_log.best_cost_time(),
+            windows_best_cost=cp_window_log.best_cost(),
+            windows_best_gap=get_gap(cp_window_log.best_cost(), mip_log.best_bound()),
+            windows_best_time=cp_window_log.best_cost_time()))
+
+    data_frame = pandas.DataFrame(data=data)
+    print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
+
+    def get_duration_label(time_delta: datetime.timedelta) -> str:
+        assert time_delta.days == 0
+        hours = int(time_delta.total_seconds() / 3600)
+        minutes = int(time_delta.total_seconds() / 60 - hours * 60)
+        seconds = int(time_delta.total_seconds() - 3600 * hours - 60 * minutes)
+        return '{0:02d}:{1:02d}:{2:02d}'.format(hours, minutes, seconds)
+
+    def get_cost_label(cost: float, lower_bound: float) -> str:
+        return str(int(cost))
+
+    def get_gap_label(gap: float) -> str:
+        return '{0:.2f}'.format(gap)
+
+    def get_problem_label(problem, date: datetime.date):
+        label = '{0:2d} {1}'.format(date.day, problem.Visits)
+        if problem.Visits2 == 0:
+            return label
+        return label + '/' + str(problem.Visits2)
+
+    print_data = []
+    for problem_config, mip_log, cp_team_log, cp_window_log in logs:
+        print_data.append(collections.OrderedDict(Problem=get_problem_label(problem_config, cp_team_log.date),
+                                                  Penalty=cp_team_log.missed_visit_penalty,
+                                                  LB=mip_log.best_bound(),
+                                                  MIP_COST=get_cost_label(mip_log.best_cost(), mip_log.best_bound()),
+                                                  MIP_GAP=get_gap_label(get_gap(mip_log.best_cost(), mip_log.best_bound())),
+                                                  MIP_TIME=get_duration_label(mip_log.best_cost_time()),
+                                                  TEAMS_GAP=get_gap_label(get_gap(cp_team_log.best_cost(), mip_log.best_bound())),
+                                                  TEAMS_COST=get_cost_label(cp_team_log.best_cost(), mip_log.best_bound()),
+                                                  TEAMS_Time=get_duration_label(cp_team_log.best_cost_time()),
+                                                  WINDOWS_COST=get_cost_label(cp_window_log.best_cost(), mip_log.best_bound()),
+                                                  WINDOWS_GAP=get_gap_label(get_gap(cp_window_log.best_cost(), mip_log.best_bound())),
+                                                  WINDOWS_TIME=get_duration_label(cp_window_log.best_cost_time())))
+
+    data_frame = pandas.DataFrame(data=print_data)
+    print(tabulate.tabulate(data_frame, tablefmt='latex', headers='keys', showindex=False))
 
 
 def compare_planner_optimizer_quality(args, settings):

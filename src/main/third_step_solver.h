@@ -18,6 +18,7 @@ namespace rows {
                         boost::posix_time::time_duration no_progress_time_limit,
                         int64 dropped_visit_penalty,
                         int64 max_dropped_visits,
+                        bool optional_orders,
                         std::vector<RouteValidatorBase::Metrics> vehicle_metrics);
 
         void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
@@ -29,6 +30,7 @@ namespace rows {
         boost::posix_time::time_duration no_progress_time_limit_;
         int64 dropped_visit_penalty_;
         int64 max_dropped_visits_;
+        bool optional_orders_;
     };
 }
 
