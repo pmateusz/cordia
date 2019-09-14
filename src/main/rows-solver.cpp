@@ -17,10 +17,9 @@
 
 #include <absl/time/time.h>
 #include <ortools/base/protoutil.h>
+#include <ortools/constraint_solver/routing_parameters.h>
 
 #include <osrm/engine/engine_config.hpp>
-
-#include <ortools/constraint_solver/routing_parameters.h>
 
 #include "util/logging.h"
 #include "util/validation.h"

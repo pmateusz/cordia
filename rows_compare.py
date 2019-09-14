@@ -1853,7 +1853,7 @@ def compare_benchmark_table(args, settings):
     problem_configs.extend(
         [ProblemConfig(os.path.join(simulation_dir, 'benchmark/50/problem_201710{0:02d}_v50m10c5.json'.format(day_number)),
                        5, 40, 10,
-                       os.path.join(old_simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m10c5_mip.log'.format(day_number)),
+                       os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_v50m10c5_mip.log'.format(day_number)),
                        os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_teams_v50m10c5.err.log'.format(day_number)),
                        os.path.join(simulation_dir, 'benchmark/50/solutions/problem_201710{0:02d}_windows_v50m10c5.err.log'.format(day_number)))
          for day_number in range(1, 15, 1)])
