@@ -120,6 +120,8 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
         }
     }
 
+    int64 global_carer_penalty = 0;
+
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
     for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
@@ -134,7 +136,10 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
             begin_time = GetAdjustedWorkdayStart(diary.begin_time());
             end_time = GetAdjustedWorkdayFinish(diary.end_time());
 
-            model.SetFixedCostOfVehicle(diary.duration().total_seconds(), vehicle);
+            int64 local_carer_penalty = diary.duration().total_seconds();
+            global_carer_penalty = std::max(global_carer_penalty, local_carer_penalty);
+
+            model.SetFixedCostOfVehicle(local_carer_penalty, vehicle);
 
             const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
             time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
@@ -143,6 +148,10 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
     solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
+
+    std::stringstream penalty_msg;
+    penalty_msg << "CarerUsedPenalty: " << global_carer_penalty;
+    printer->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
 
     printer->operator<<(ProblemDefinition(model.vehicles(),
                                           model.nodes() - 1,

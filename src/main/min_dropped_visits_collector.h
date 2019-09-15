@@ -8,7 +8,7 @@ namespace rows {
 
     class MinDroppedVisitsSolutionCollector : public operations_research::SolutionCollector {
     public:
-        MinDroppedVisitsSolutionCollector(operations_research::RoutingModel const *model);
+        MinDroppedVisitsSolutionCollector(operations_research::RoutingModel const *model, bool abort_on_dropped_visits_increase);
 
         ~MinDroppedVisitsSolutionCollector() override = default;
 
@@ -22,6 +22,8 @@ namespace rows {
         int64 min_cost_;
         int64 min_dropped_visits_;
         operations_research::RoutingModel const *model_;
+
+        bool abort_on_dropped_visits_increase_;
     };
 }
 

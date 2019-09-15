@@ -1500,7 +1500,7 @@ def compare_schedule_cost(args, settings):
     ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'HumanSolutionPath', 'SolverSolutionPath'])
 
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
-    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_distv90b90e30m1m1m5.err.log')
+    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5.err.log')
     problem_data = [ProblemConfig(os.path.join(simulation_dir, 'problems/C350_past.json'),
                                   os.path.join(simulation_dir, 'planner_schedules/C350_planners_201710{0:02d}.json'.format(day)),
                                   os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
@@ -1789,7 +1789,7 @@ class MipTrace:
                 raw_lower_bound = line_match.group('lower_bound')
                 raw_elapsed_time = line_match.group('elapsed_time')
 
-                has_solution = raw_solution_flag is not None
+                has_solution = raw_solution_flag == 'H' or raw_solution_flag == '*'
                 incumbent = float(raw_incumbent) if raw_incumbent and raw_incumbent != '-' else float('inf')
                 lower_bound = float(raw_lower_bound) if raw_lower_bound else float('-inf')
                 elapsed_time = datetime.timedelta(seconds=int(raw_elapsed_time)) if raw_elapsed_time else datetime.timedelta()
@@ -1825,7 +1825,8 @@ class MipTrace:
 
 
 def compare_benchmark_table(args, settings):
-    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'Carers', 'Visits', 'Visits2', 'MipSolutionLog', 'CpTeamSolutionLog',
+    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'Carers', 'Visits', 'Visits2', 'MipSolutionLog',
+                                                             'CpTeamSolutionLog',
                                                              'CpWindowsSolutionLog'])
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
     old_simulation_dir = '/home/pmateusz/dev/cordia/simulations/review_simulations_old'

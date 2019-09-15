@@ -14,6 +14,7 @@
 #include "progress_printer_monitor.h"
 #include "cancel_search_limit.h"
 #include "stalled_search_limit.h"
+#include "min_dropped_visits_collector.h"
 
 namespace rows {
 
@@ -272,6 +273,7 @@ namespace rows {
                                                                       - start_time_model_closing).count();
 
         model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+        model.AddSearchMonitor(solver_ptr->RevAlloc(new MinDroppedVisitsSolutionCollector(&model, true)));
         model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 
         if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
