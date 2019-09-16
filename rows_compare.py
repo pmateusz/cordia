@@ -281,30 +281,16 @@ def compare_distance(args, settings):
     if os.path.isfile(data_frame_file):
         data_frame = pandas.read_pickle(data_frame_file)
     else:
-        user_tag_finder = rows.location_finder.UserLocationFinder(settings)
-        user_tag_finder.reload()
-
-        location_finder = rows.location_finder.UserLocationFinder(settings)
-        location_finder.reload()
-
         problem = rows.load.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
-        observed_duration_by_visit = calculate_forecast_visit_duration(problem)
-
-        diary_by_date_by_carer = collections.defaultdict(dict)
-        for carer_shift in problem.carers:
-            for diary in carer_shift.diaries:
-                diary_by_date_by_carer[diary.date][carer_shift.carer.sap_number] = diary
 
         store = []
         with create_routing_session() as routing_session:
+            distance_estimator = DistanceEstimator(settings, routing_session)
             for label, schedule_pattern in zip(labels, schedule_patterns):
                 for schedule_path in glob.glob(schedule_pattern):
                     schedule = rows.load.load_schedule(schedule_path)
-                    frame = rows.plot.get_schedule_data_frame(schedule,
-                                                              routing_session,
-                                                              location_finder,
-                                                              diary_by_date_by_carer[schedule.metadata.begin],
-                                                              observed_duration_by_visit)
+                    duration_estimator = DurationEstimator.create_expected_visit_duration(schedule)
+                    frame = rows.plot.get_schedule_data_frame(schedule, problem, duration_estimator, distance_estimator)
                     visits = frame['Visits'].sum()
                     carers = len(frame.where(frame['Visits'] > 0))
                     idle_time = frame['Availability'] - frame['Travel'] - frame['Service']
@@ -328,7 +314,12 @@ def compare_distance(args, settings):
         data_frame.to_pickle(data_frame_file)
 
     data_frame.to_csv('table.csv')
-    figure, (ax1, ax2, ax3) = matplotlib.pyplot.subplots(3, 1, sharex=True)
+    condensed_frame = pandas.pivot(data_frame, columns='Label', values='Travel', index='Date')
+    condensed_frame['Improvement'] = condensed_frame['2nd Stage'] - condensed_frame['3rd Stage']
+    condensed_frame['RelativeImprovement'] =  condensed_frame['Improvement'] / condensed_frame['2nd Stage']
+
+
+    figure, ax = matplotlib.pyplot.subplots(1, 1, sharex=True)
     try:
         width = 0.20
         dates = data_frame['Date'].unique()
@@ -340,44 +331,29 @@ def compare_distance(args, settings):
         for label in labels:
             data_frame_to_use = data_frame[data_frame['Label'] == label]
 
-            handle = ax1.bar(indices + position * width,
-                             time_delta_convert(data_frame_to_use['Travel']),
-                             width,
-                             bottom=time_delta_convert.zero)
-
-            ax2.bar(indices + position * width,
-                    time_delta_convert(data_frame_to_use['Idle']),
-                    width,
-                    bottom=time_delta_convert.zero)
-
-            ax3.bar(indices + position * width,
-                    time_delta_convert(data_frame_to_use['Overtime']),
-                    width,
-                    bottom=time_delta_convert.zero)
+            handle = ax.bar(indices + position * width,
+                            time_delta_convert(data_frame_to_use['Travel']),
+                            width,
+                            bottom=time_delta_convert.zero)
 
             handles.append(handle)
             position += 1
 
-        ax1.yaxis_date()
-        ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
-        ax1.set_ylabel('Travel Time')
+        ax.yaxis_date()
 
-        ax2.yaxis_date()
-        ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
-        ax2.set_ylabel('Idle Time')
-
-        ax3.yaxis_date()
-        ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
-        ax3.set_ylabel('Total Overtime')
-        ax3.set_xlabel('Day of October 2017')
+        yaxis_converter = rows.plot.CumulativeHourMinuteConverter()
+        ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(yaxis_converter))
+        ax.set_ylabel('Total Travel Time [hh:mm:ss]')
+        ax.set_yticks([time_delta_convert.zero + datetime.timedelta(seconds=seconds) for seconds in range(0, 30 * 3600, 4 * 3600 + 1)])
+        ax.set_xlabel('Day of October 2017')
 
         translate_labels = {
-            '3rd Stage': 'Optimizer',
+            '3rd Stage': '3rd Stage',
             'Human Planners': 'Human Planners'
         }
         labels_to_use = [translate_labels[label] if label in translate_labels else label for label in labels]
 
-        rows.plot.add_legend(ax3, handles, labels_to_use, ncol=3, loc='lower center', bbox_to_anchor=(0.5, -1.1))
+        rows.plot.add_legend(ax, handles, labels_to_use, ncol=3, loc='lower center', bbox_to_anchor=(0.5, -0.25))  # , bbox_to_anchor=(0.5, -1.1)
         figure.tight_layout()
         figure.subplots_adjust(bottom=0.20)
 
@@ -385,6 +361,64 @@ def compare_distance(args, settings):
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
+
+    # figure, (ax1, ax2, ax3) = matplotlib.pyplot.subplots(3, 1, sharex=True)
+    # try:
+    #     width = 0.20
+    #     dates = data_frame['Date'].unique()
+    #     time_delta_convert = rows.plot.TimeDeltaConverter()
+    #     indices = numpy.arange(1, len(dates) + 1, 1)
+    #
+    #     handles = []
+    #     position = 0
+    #     for label in labels:
+    #         data_frame_to_use = data_frame[data_frame['Label'] == label]
+    #
+    #         handle = ax1.bar(indices + position * width,
+    #                          time_delta_convert(data_frame_to_use['Travel']),
+    #                          width,
+    #                          bottom=time_delta_convert.zero)
+    #
+    #         ax2.bar(indices + position * width,
+    #                 time_delta_convert(data_frame_to_use['Idle']),
+    #                 width,
+    #                 bottom=time_delta_convert.zero)
+    #
+    #         ax3.bar(indices + position * width,
+    #                 time_delta_convert(data_frame_to_use['Overtime']),
+    #                 width,
+    #                 bottom=time_delta_convert.zero)
+    #
+    #         handles.append(handle)
+    #         position += 1
+    #
+    #     ax1.yaxis_date()
+    #     ax1.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
+    #     ax1.set_ylabel('Travel Time')
+    #
+    #     ax2.yaxis_date()
+    #     ax2.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
+    #     ax2.set_ylabel('Idle Time')
+    #
+    #     ax3.yaxis_date()
+    #     ax3.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(rows.plot.CumulativeHourMinuteConverter()))
+    #     ax3.set_ylabel('Total Overtime')
+    #     ax3.set_xlabel('Day of October 2017')
+    #
+    #     translate_labels = {
+    #         '3rd Stage': 'Optimizer',
+    #         'Human Planners': 'Human Planners'
+    #     }
+    #     labels_to_use = [translate_labels[label] if label in translate_labels else label for label in labels]
+    #
+    #     rows.plot.add_legend(ax3, handles, labels_to_use, ncol=3, loc='lower center', bbox_to_anchor=(0.5, -1.1))
+    #     figure.tight_layout()
+    #     figure.subplots_adjust(bottom=0.20)
+    #
+    #     rows.plot.save_figure(output_file, output_file_format)
+    # finally:
+    #     matplotlib.pyplot.cla()
+    #     matplotlib.pyplot.close(figure)
 
 
 def calculate_forecast_visit_duration(problem):
@@ -419,13 +453,15 @@ def compare_workload(args, settings):
     dates.sort()
 
     with create_routing_session() as routing_session:
+
+        distance_estimator = DistanceEstimator(settings, routing_session)
         for date in dates:
             base_schedule = base_schedule_by_date.get(date, None)
             if not base_schedule:
                 logging.error('No base schedule is available for %s', date)
                 continue
 
-            observed_duration_by_visit = rows.plot.calculate_observed_visit_duration(base_schedule)
+            duration_estimator = DurationEstimator.create_expected_visit_duration(base_schedule)
 
             candidate_schedule = candidate_schedule_by_date.get(date, None)
             if not candidate_schedule:
@@ -433,21 +469,13 @@ def compare_workload(args, settings):
                 continue
 
             base_schedule_file = base_schedules[base_schedule]
-            base_schedule_data_frame = rows.plot.get_schedule_data_frame(base_schedule,
-                                                                         routing_session,
-                                                                         location_finder,
-                                                                         diary_by_date_by_carer[date],
-                                                                         observed_duration_by_visit)
+            base_schedule_data_frame = rows.plot.get_schedule_data_frame(base_schedule, problem, duration_estimator, distance_estimator)
 
             base_schedule_stem, base_schedule_ext = os.path.splitext(os.path.basename(base_schedule_file))
             rows.plot.save_workforce_histogram(base_schedule_data_frame, base_schedule_stem, output_file_format)
 
             candidate_schedule_file = candidate_schedules[candidate_schedule]
-            candidate_schedule_data_frame = rows.plot.get_schedule_data_frame(candidate_schedule,
-                                                                              routing_session,
-                                                                              location_finder,
-                                                                              diary_by_date_by_carer[date],
-                                                                              observed_duration_by_visit)
+            candidate_schedule_data_frame = rows.plot.get_schedule_data_frame(candidate_schedule, problem, duration_estimator, distance_estimator)
             candidate_schedule_stem, candidate_schedule_ext \
                 = os.path.splitext(os.path.basename(candidate_schedule_file))
             rows.plot.save_workforce_histogram(candidate_schedule_data_frame,
@@ -616,6 +644,7 @@ def parse_time_delta(text):
 class TraceLog:
     __STAGE_PATTERN = re.compile('^\w+(?P<number>\d+)$')
     __PENALTY_PATTERN = re.compile('^MissedVisitPenalty:\s+(?P<penalty>\d+)$')
+    __CARER_USED_PATTERN = re.compile('^CarerUsedPenalty:\s+(?P<penalty>\d+)$')
 
     class ProgressMessage:
         def __init__(self, **kwargs):
@@ -650,6 +679,7 @@ class TraceLog:
             self.__shift_adjustment = parse_time_delta(kwargs.get('shift_adjustment', None))
             self.__area = kwargs.get('area', None)
             self.__missed_visit_penalty = kwargs.get('missed_visit_penalty', None)
+            self.__carer_used_penalty = kwargs.get('carer_used_penalty', None)
 
         @property
         def date(self):
@@ -666,6 +696,14 @@ class TraceLog:
         @property
         def visit_time_window(self):
             return self.__visit_time_windows
+
+        @property
+        def carer_used_penalty(self):
+            return self.__carer_used_penalty
+
+        @carer_used_penalty.setter
+        def carer_used_penalty(self, value):
+            self.__carer_used_penalty = value
 
         @property
         def missed_visit_penalty(self):
@@ -703,17 +741,24 @@ class TraceLog:
             elif body['type'] == 'finished':
                 self.__current_stage = None
             elif body['type'] == 'unknown':
-                if 'comment' in body and 'MissedVisitPenalty' in body['comment']:
-                    match = re.match(self.__PENALTY_PATTERN, body['comment'])
-                    assert match is not None
-                    missed_visit_penalty = int(match.group('penalty'))
-
-                    self.__problem.missed_visit_penalty = missed_visit_penalty
+                if 'comment' in body:
+                    if 'MissedVisitPenalty' in body['comment']:
+                        match = re.match(self.__PENALTY_PATTERN, body['comment'])
+                        assert match is not None
+                        missed_visit_penalty = int(match.group('penalty'))
+                        self.__problem.missed_visit_penalty = missed_visit_penalty
+                    elif 'CarerUsedPenalty' in body['comment']:
+                        match = re.match(self.__CARER_USED_PATTERN, body['comment'])
+                        assert match is not None
+                        carer_used_penalty = int(match.group('penalty'))
+                        self.__problem.carer_used_penalty = carer_used_penalty
             body_to_use = body
         elif 'area' in body:
             body_to_use = TraceLog.ProblemMessage(**body)
             if body_to_use.missed_visit_penalty is None and self.__problem.missed_visit_penalty is not None:
                 body_to_use.missed_visit_penalty = self.__problem.missed_visit_penalty
+            if body_to_use.carer_used_penalty is None and self.__problem.carer_used_penalty is not None:
+                body_to_use.carer_used_penalty = self.__problem.carer_used_penalty
             self.__problem = body_to_use
         else:
             body_to_use = body
@@ -773,6 +818,10 @@ class TraceLog:
         return self.__problem.visit_time_window
 
     @property
+    def carer_used_penalty(self):
+        return self.__problem.carer_used_penalty
+
+    @property
     def missed_visit_penalty(self):
         return self.__problem.missed_visit_penalty
 
@@ -804,7 +853,9 @@ def read_traces(trace_file):
                 try:
                     raw_body = match.group('body')
                     body = json.loads(raw_body)
-                    if 'comment' in body and (body['comment'] == 'All' or 'MissedVisitPenalty' in body['comment']):
+                    if 'comment' in body and (body['comment'] == 'All'
+                                              or 'MissedVisitPenalty' in body['comment']
+                                              or 'CarerUsedPenalty' in body['comment']):
                         if body['comment'] == 'All':
                             if 'type' in body:
                                 if body['type'] == 'finished':
@@ -859,12 +910,17 @@ def traces_to_data_frame(trace_logs):
                                  current_stage_name, current_stage_started,
                                  trace.date, current_carers, current_visits])
                 elif 'type' in event:
-                    if event['type'] != 'started':
+                    if 'comment' in event and event['type'] == 'unknown':
+                        continue
+
+                    if event['type'] == 'finished':
                         current_carers = None
                         current_visits = None
                         current_stage_started = None
                         current_stage_name = None
-                    elif event['type'] == 'started':
+                        continue
+
+                    if event['type'] == 'started':
                         current_stage_started = rel_time
                         current_stage_name = event['comment']
     else:
@@ -892,11 +948,15 @@ def format_timedelta(x, pos=None):
     if x < 0:
         return None
 
-    delta = datetime.timedelta(seconds=x)
+    x_to_use = x
+    if isinstance(x, numpy.int64):
+        x_to_use = x.item()
+
+    delta = datetime.timedelta(seconds=x_to_use)
     time_point = datetime.datetime(2017, 1, 1) + delta
     # if time_point.hour == 0:
     #     return time_point.strftime('%M:%S')
-    return time_point.strftime('%H:%M:%S')
+    return time_point.strftime('%M:%S')
 
 
 def format_timedelta_pandas(x, pos=None):
@@ -1049,7 +1109,7 @@ def compare_trace(args, settings):
 
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
-            ax1.set_ylabel('Cost Function')
+            ax1.set_ylabel('Cost Function [s]')
             # ax1.set_xlim(left=0, right=updated_x_right)
 
             ax2_y_bottom, ax2_y_top = ax2.get_ylim()
@@ -1057,7 +1117,7 @@ def compare_trace(args, settings):
             # ax2.set_xlim(left=0, right=updated_x_right)
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
             ax2.set_ylabel('Declined Visits')
-            ax2.set_xlabel('Computation Time')
+            ax2.set_xlabel('Computation Time [mm:ss]')
             rows.plot.save_figure(output_file_stem + '_' + current_date.isoformat())
         else:
             handles = []
@@ -1114,6 +1174,8 @@ def compare_trace(args, settings):
                          current_date])
                     scatter_dropped_visits(ax2, current_date_frame, current_color)
 
+            x_ticks = numpy.arange(0, max_relative_time.total_seconds() + 5 * 60, 5 * 60)
+
             ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
             ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
 
@@ -1128,15 +1190,16 @@ def compare_trace(args, settings):
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
             ax1.set_xlim(left=0, right=(max_relative_time + datetime.timedelta(minutes=2)).total_seconds())
-            ax1.set_ylabel('Cost Function')
+            ax1.set_ylabel('Cost Function [s]')
             # legend = add_trace_legend(ax2, handles, bbox_to_anchor=(0.5, -1.7), ncol=2)
 
             ax2_y_bottom, ax2_y_top = ax2.get_ylim()
             ax2.set_ylim(bottom=-10, top=ax2_y_top * __Y_AXIS_EXTENSION)
             ax2.set_xlim(left=0, right=(max_relative_time + datetime.timedelta(minutes=2)).total_seconds())
             ax2.set_ylabel('Declined Visits')
-            ax2.set_xlabel('Computation Time')
+            ax2.set_xlabel('Computation Time [mm:ss]')
 
+            ax2.set_xticks(x_ticks)
             ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
             matplotlib.pyplot.tight_layout()
             # figure.subplots_adjust(bottom=0.4)
@@ -1203,6 +1266,8 @@ def contrast_trace(args, settings):
     if current_date not in candidate_frame['date'].unique():
         raise ValueError('Date {0} is not present in the candidate data set'.format(current_date))
 
+    x_ticks_positions = range(0, 8 * 60 + 1, 120)
+
     color_map = matplotlib.cm.get_cmap('Set1')
     matplotlib.pyplot.set_cmap(color_map)
     figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
@@ -1235,7 +1300,7 @@ def contrast_trace(args, settings):
 
         ax1.set_xlim(left=0.0)
         ax1.set_ylim(bottom=0.0)
-        ax1.set_ylabel('Cost Function')
+        ax1.set_ylabel('Cost Function [s]')
         ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
         ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
         legend1 = ax1.legend([base_handle, candidate_handle], labels)
@@ -1245,11 +1310,13 @@ def contrast_trace(args, settings):
         ax2.set_xlim(left=0.0)
         ax2.set_ylim(bottom=0.0)
         ax2.set_ylabel('Declined Visits')
-        ax2.set_xlabel('Computation Time')
+        ax2.set_xlabel('Computation Time [mm:ss]')
+        ax2.set_xticks(x_ticks_positions)
         ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
         legend2 = ax2.legend([base_handle, candidate_handle], labels)
         for handle in legend2.legendHandles:
             handle._sizes = [25]
+        figure.tight_layout()
 
         matplotlib.pyplot.tight_layout()
         rows.plot.save_figure(output_file_stem + '_' + current_date.isoformat())
@@ -1257,61 +1324,63 @@ def contrast_trace(args, settings):
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
 
-    figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
-    try:
-        candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
-        scatter_dropped_visits(ax2, candidate_current_data_frame, color=color_map.colors[1])
-        scatter_cost(ax1, candidate_current_data_frame, color=color_map.colors[1])
+    # figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
+    # try:
+    #     candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
+    #     scatter_dropped_visits(ax2, candidate_current_data_frame, color=color_map.colors[1])
+    #     scatter_cost(ax1, candidate_current_data_frame, color=color_map.colors[1])
+    #
+    #     stage2_started = \
+    #         candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage2']['stage_started'].iloc[0]
+    #
+    #     ax1.set_xlim(left=0.0, right=stage2_started.total_seconds())
+    #     ax1.set_ylim(bottom=0, top=22000)
+    #     ax1.set_ylabel('Cost Function [s]')
+    #     ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
+    #     ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+    #
+    #     matplotlib.pyplot.locator_params(axis='x', nbins=6)
+    #     ax2.set_xlim(left=0.0, right=stage2_started.total_seconds())
+    #     ax2.set_ylim(bottom=-10.0, top=120)
+    #     ax2.set_ylabel('Declined Visits')
+    #     ax2.set_xlabel('Computation Time [mm:ss]')
+    #     ax2.set_xticks(x_ticks_positions)
+    #     ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+    #
+    #     matplotlib.pyplot.tight_layout()
+    #     rows.plot.save_figure(output_file_stem + '_first_stage_' + current_date.isoformat())
+    # finally:
+    #     matplotlib.pyplot.cla()
+    #     matplotlib.pyplot.close(figure)
 
-        stage2_started = \
-            candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage2']['stage_started'].iloc[0]
-
-        ax1.set_xlim(left=0.0, right=stage2_started.total_seconds())
-        ax1.set_ylim(bottom=0, top=22000)
-        ax1.set_ylabel('Cost Function')
-        ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
-        ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-
-        matplotlib.pyplot.locator_params(axis='x', nbins=6)
-        ax2.set_xlim(left=0.0, right=stage2_started.total_seconds())
-        ax2.set_ylim(bottom=-10.0, top=120)
-        ax2.set_ylabel('Declined Visits')
-        ax2.set_xlabel('Computation Time')
-        ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-
-        matplotlib.pyplot.tight_layout()
-        rows.plot.save_figure(output_file_stem + '_first_stage_' + current_date.isoformat())
-    finally:
-        matplotlib.pyplot.cla()
-        matplotlib.pyplot.close(figure)
-
-    figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
-    try:
-        candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
-        scatter_dropped_visits(ax2, candidate_current_data_frame, color=color_map.colors[1])
-        scatter_cost(ax1, candidate_current_data_frame, color=color_map.colors[1])
-
-        stage3_started = \
-            candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage3']['stage_started'].iloc[0]
-
-        oscillation_started = datetime.timedelta(seconds=360)
-        ax1.set_xlim(left=oscillation_started.total_seconds(), right=stage3_started.total_seconds())
-        # ax1.set_ylim(bottom=0.0, top=400000)
-        ax1.set_ylabel('Cost Function')
-        ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
-        ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-
-        ax2.set_xlim(left=oscillation_started.total_seconds(), right=stage3_started.total_seconds())
-        ax2.set_ylim(bottom=-5.0, top=40)
-        ax2.set_ylabel('Declined Visits')
-        ax2.set_xlabel('Computation Time')
-        ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-
-        matplotlib.pyplot.tight_layout()
-        rows.plot.save_figure(output_file_stem + '_oscillations_' + current_date.isoformat())
-    finally:
-        matplotlib.pyplot.cla()
-        matplotlib.pyplot.close(figure)
+    # figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
+    # try:
+    #     candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
+    #     scatter_dropped_visits(ax2, candidate_current_data_frame, color=color_map.colors[1])
+    #     scatter_cost(ax1, candidate_current_data_frame, color=color_map.colors[1])
+    #
+    #     stage3_started = \
+    #         candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage3']['stage_started'].iloc[0]
+    #
+    #     oscillation_started = datetime.timedelta(seconds=360)
+    #     ax1.set_xlim(left=oscillation_started.total_seconds(), right=stage3_started.total_seconds())
+    #     # ax1.set_ylim(bottom=0.0, top=400000)
+    #     ax1.set_ylabel('Cost Function [s]')
+    #     ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
+    #     ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+    #
+    #     ax2.set_xlim(left=oscillation_started.total_seconds(), right=stage3_started.total_seconds())
+    #     ax2.set_ylim(bottom=-5.0, top=40)
+    #     ax2.set_ylabel('Declined Visits')
+    #     ax2.set_xlabel('Computation Time [mm:ss]')
+    #     ax2.set_xticks(x_ticks_positions)
+    #     ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+    #
+    #     matplotlib.pyplot.tight_layout()
+    #     rows.plot.save_figure(output_file_stem + '_oscillations_' + current_date.isoformat())
+    # finally:
+    #     matplotlib.pyplot.cla()
+    #     matplotlib.pyplot.close(figure)
 
 
 def compare_prediction_error(args, settings):
@@ -1510,6 +1579,34 @@ def compare_schedule_cost(args, settings):
     assert len(solver_traces) == len(problem_data)
 
     results = []
+    printable_results = []
+
+    def get_cost_label(cost_components: ScheduleCost) -> int:
+        return int(cost_components.total_cost())
+
+    def split_delta(delta: datetime.timedelta) -> typing.List[int]:
+        days = int(delta.days)
+        hours = int((delta.total_seconds() - 24 * 3600 * days) // 3600)
+        minutes = int((delta.total_seconds() - 24 * 3600 * days - 3600 * hours) // 60)
+        seconds = int(delta.total_seconds() - 24 * 3600 * days - 3600 * hours - 60 * minutes)
+
+        assert hours < 24
+        assert minutes < 60
+        assert seconds < 60
+
+        return days, hours, minutes, seconds
+
+    def get_travel_time_label(total_travel_time: datetime.timedelta) -> str:
+        days, hours, minutes, seconds = split_delta(total_travel_time)
+
+        time = '{0:02d}:{1:02d}:{2:02d}'.format(hours, minutes, seconds)
+        if days == 0:
+            return time
+        elif days == 1:
+            return '1 day ' + time
+        else:
+            return '{0} days '.format(days) + time
+
     with create_routing_session() as routing_session:
         distance_estimator = DistanceEstimator(settings, routing_session)
 
@@ -1528,7 +1625,7 @@ def compare_schedule_cost(args, settings):
             solver_cost = get_schedule_cost(solver_schedule_to_use, solver_trace, problem, distance_estimator)
             results.append({'date': solver_trace.date,
                             'missed_visit_penalty': solver_trace.missed_visit_penalty,
-                            'carer_used_penalty': ScheduleCost.CARER_COST.total_seconds(),
+                            'carer_used_penalty': solver_trace.carer_used_penalty,
                             'planner_travel_time': human_cost.travel_time,
                             'planner_carers_used': human_cost.carers_used,
                             'planner_missed_visits': human_cost.visits_missed,
@@ -1538,8 +1635,21 @@ def compare_schedule_cost(args, settings):
                             'solver_missed_visits': solver_cost.visits_missed,
                             'solver_total_cost': solver_cost.total_cost()})
 
+            printable_results.append(collections.OrderedDict(day=solver_trace.date.day,
+                                                             planner_travel_time=get_travel_time_label(human_cost.travel_time),
+                                                             planner_carers_used=human_cost.carers_used,
+                                                             planner_missed_visits=human_cost.visits_missed,
+                                                             planner_total_cost=get_cost_label(human_cost),
+                                                             solver_travel_time=get_travel_time_label(solver_cost.travel_time),
+                                                             solver_carers_used=solver_cost.carers_used,
+                                                             solver_missed_visits=solver_cost.visits_missed,
+                                                             solver_total_cost=get_cost_label(solver_cost)))
+
     data_frame = pandas.DataFrame(data=results)
     print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
+
+    printable_data_frame = pandas.DataFrame(data=printable_results)
+    print(tabulate.tabulate(printable_data_frame, tablefmt='latex', headers='keys', showindex=False))
 
 
 def get_consecutive_visit_time_span(schedule: rows.model.schedule.Schedule, start_time_estimator):
@@ -2302,7 +2412,7 @@ def debug(args, settings):
 if __name__ == '__main__':
     sys.excepthook = handle_exception
 
-    matplotlib.rcParams.update({'font.size': 14, 'pdf.fonttype': 42})
+    matplotlib.rcParams.update({'font.size': 12, 'pdf.fonttype': 42})
     matplotlib.rc('font', **{'sans-serif': ['Roboto']})
 
     __script_file = os.path.realpath(__file__)

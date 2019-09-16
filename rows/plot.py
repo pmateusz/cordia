@@ -83,6 +83,10 @@ class CumulativeHourMinuteConverter:
     def __init__(self):
         self.__REFERENCE = matplotlib.dates.date2num(datetime.datetime(2018, 1, 1))
 
+    @property
+    def reference(self):
+        return self.__REFERENCE
+
     def __call__(self, x, pos=None):
         time_delta = matplotlib.dates.num2timedelta(x - self.__REFERENCE)
         hours = int(time_delta.total_seconds() // matplotlib.dates.SEC_PER_HOUR)
