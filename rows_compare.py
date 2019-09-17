@@ -1798,7 +1798,7 @@ def compare_schedule_quality(args, settings):
                 'solver_teams': len(solver_teams)}
 
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
-    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_distv90b90e30m1m1m5.err.log')
+    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5.err.log')
     problem_data = [ProblemConfig(os.path.join(simulation_dir, 'problems/C350_past.json'),
                                   os.path.join(simulation_dir, 'planner_schedules/C350_planners_201710{0:02d}.json'.format(day)),
                                   os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
@@ -1826,7 +1826,20 @@ def compare_schedule_quality(args, settings):
             results.append(row)
 
     data_frame = pandas.DataFrame(data=results)
+    data_frame['human_visit_span_dominates_rel'] = data_frame['human_visit_span_dominates'] / data_frame['clients']
+    data_frame['solver_visit_span_dominates_rel'] = data_frame['solver_visit_span_dominates'] / data_frame['clients']
+    data_frame['visit_span_indifferent_rel'] = data_frame['visit_span_indifferent'] / data_frame['clients']
+
+    data_frame['human_matching_dominates_rel'] = data_frame['human_matching_dominates'] / data_frame['clients']
+    data_frame['solver_matching_dominates_rel'] = data_frame['solver_matching_dominates'] / data_frame['clients']
+    data_frame['matching_indifferent_rel'] = data_frame['matching_indifferent'] / data_frame['clients']
+    data_frame['day'] = data_frame['problem'].apply(lambda label: datetime.datetime.strptime(label, '%Y-%m-%d').date().day)
+
     print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
+    print(tabulate.tabulate(data_frame[['day', 'human_overtime', 'solver_overtime',
+                                        'human_visit_span_dominates_rel', 'solver_visit_span_dominates_rel',
+                                        'human_matching_dominates_rel', 'matching_indifferent_rel',
+                                        'human_teams', 'solver_teams']], tablefmt='latex', showindex=False))
 
 
 BenchmarkData = collections.namedtuple('BenchmarkData', ['BestCost', 'BestCostTime', 'BestBound', 'ComputationTime'])
@@ -2052,15 +2065,15 @@ def compare_benchmark_table(args, settings):
     print_data = []
     for problem_config, mip_log, cp_team_log, cp_window_log in logs:
         print_data.append(collections.OrderedDict(Problem=get_problem_label(problem_config, cp_team_log.date),
-                                                  Penalty=cp_team_log.missed_visit_penalty,
-                                                  LB=mip_log.best_bound(),
-                                                  MIP_COST=get_cost_label(mip_log.best_cost(), mip_log.best_bound()),
+                                                  # Penalty=cp_team_log.missed_visit_penalty,
+                                                  # LB=mip_log.best_bound(),
+                                                  # MIP_COST=get_cost_label(mip_log.best_cost(), mip_log.best_bound()),
                                                   MIP_GAP=get_gap_label(get_gap(mip_log.best_cost(), mip_log.best_bound())),
                                                   MIP_TIME=get_duration_label(mip_log.best_cost_time()),
                                                   TEAMS_GAP=get_gap_label(get_gap(cp_team_log.best_cost(), mip_log.best_bound())),
-                                                  TEAMS_COST=get_cost_label(cp_team_log.best_cost(), mip_log.best_bound()),
+                                                  # TEAMS_COST=get_cost_label(cp_team_log.best_cost(), mip_log.best_bound()),
                                                   TEAMS_Time=get_duration_label(cp_team_log.best_cost_time()),
-                                                  WINDOWS_COST=get_cost_label(cp_window_log.best_cost(), mip_log.best_bound()),
+                                                  # WINDOWS_COST=get_cost_label(cp_window_log.best_cost(), mip_log.best_bound()),
                                                   WINDOWS_GAP=get_gap_label(get_gap(cp_window_log.best_cost(), mip_log.best_bound())),
                                                   WINDOWS_TIME=get_duration_label(cp_window_log.best_cost_time())))
 
