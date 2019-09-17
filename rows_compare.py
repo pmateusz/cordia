@@ -202,6 +202,31 @@ def configure_parser():
     return parser
 
 
+def split_delta(delta: datetime.timedelta) -> typing.Tuple[int, int, int, int]:
+    days = int(delta.days)
+    hours = int((delta.total_seconds() - 24 * 3600 * days) // 3600)
+    minutes = int((delta.total_seconds() - 24 * 3600 * days - 3600 * hours) // 60)
+    seconds = int(delta.total_seconds() - 24 * 3600 * days - 3600 * hours - 60 * minutes)
+
+    assert hours < 24
+    assert minutes < 60
+    assert seconds < 60
+
+    return days, hours, minutes, seconds
+
+
+def get_time_delta_label(total_travel_time: datetime.timedelta) -> str:
+    days, hours, minutes, seconds = split_delta(total_travel_time)
+
+    time = '{0:02d}:{1:02d}:{2:02d}'.format(hours, minutes, seconds)
+    if days == 0:
+        return time
+    elif days == 1:
+        return '1 day ' + time
+    else:
+        return '{0} days '.format(days) + time
+
+
 def pull(args, settings):
     area_code = get_or_raise(args, __AREA_ARG)
     from_raw_date = get_or_raise(args, __FROM_ARG)
@@ -316,8 +341,7 @@ def compare_distance(args, settings):
     data_frame.to_csv('table.csv')
     condensed_frame = pandas.pivot(data_frame, columns='Label', values='Travel', index='Date')
     condensed_frame['Improvement'] = condensed_frame['2nd Stage'] - condensed_frame['3rd Stage']
-    condensed_frame['RelativeImprovement'] =  condensed_frame['Improvement'] / condensed_frame['2nd Stage']
-
+    condensed_frame['RelativeImprovement'] = condensed_frame['Improvement'] / condensed_frame['2nd Stage']
 
     figure, ax = matplotlib.pyplot.subplots(1, 1, sharex=True)
     try:
@@ -1584,29 +1608,6 @@ def compare_schedule_cost(args, settings):
     def get_cost_label(cost_components: ScheduleCost) -> int:
         return int(cost_components.total_cost())
 
-    def split_delta(delta: datetime.timedelta) -> typing.List[int]:
-        days = int(delta.days)
-        hours = int((delta.total_seconds() - 24 * 3600 * days) // 3600)
-        minutes = int((delta.total_seconds() - 24 * 3600 * days - 3600 * hours) // 60)
-        seconds = int(delta.total_seconds() - 24 * 3600 * days - 3600 * hours - 60 * minutes)
-
-        assert hours < 24
-        assert minutes < 60
-        assert seconds < 60
-
-        return days, hours, minutes, seconds
-
-    def get_travel_time_label(total_travel_time: datetime.timedelta) -> str:
-        days, hours, minutes, seconds = split_delta(total_travel_time)
-
-        time = '{0:02d}:{1:02d}:{2:02d}'.format(hours, minutes, seconds)
-        if days == 0:
-            return time
-        elif days == 1:
-            return '1 day ' + time
-        else:
-            return '{0} days '.format(days) + time
-
     with create_routing_session() as routing_session:
         distance_estimator = DistanceEstimator(settings, routing_session)
 
@@ -1636,11 +1637,13 @@ def compare_schedule_cost(args, settings):
                             'solver_total_cost': solver_cost.total_cost()})
 
             printable_results.append(collections.OrderedDict(day=solver_trace.date.day,
-                                                             planner_travel_time=get_travel_time_label(human_cost.travel_time),
+                                                             visit_penalty=solver_trace.missed_visit_penalty,
+                                                             carer_penalty=solver_trace.carer_used_penalty,
+                                                             planner_travel_time=get_time_delta_label(human_cost.travel_time),
                                                              planner_carers_used=human_cost.carers_used,
                                                              planner_missed_visits=human_cost.visits_missed,
                                                              planner_total_cost=get_cost_label(human_cost),
-                                                             solver_travel_time=get_travel_time_label(solver_cost.travel_time),
+                                                             solver_travel_time=get_time_delta_label(solver_cost.travel_time),
                                                              solver_carers_used=solver_cost.carers_used,
                                                              solver_missed_visits=solver_cost.visits_missed,
                                                              solver_total_cost=get_cost_label(solver_cost)))
@@ -1827,19 +1830,25 @@ def compare_schedule_quality(args, settings):
 
     data_frame = pandas.DataFrame(data=results)
     data_frame['human_visit_span_dominates_rel'] = data_frame['human_visit_span_dominates'] / data_frame['clients']
+    data_frame['human_visit_span_dominates_rel_label'] = data_frame['human_visit_span_dominates_rel'].apply(lambda v: '{0:.2f}'.format(v * 100.0))
     data_frame['solver_visit_span_dominates_rel'] = data_frame['solver_visit_span_dominates'] / data_frame['clients']
+    data_frame['solver_visit_span_dominates_rel_label'] = data_frame['solver_visit_span_dominates_rel'].apply(lambda v: '{0:.2f}'.format(v * 100.0))
     data_frame['visit_span_indifferent_rel'] = data_frame['visit_span_indifferent'] / data_frame['clients']
 
     data_frame['human_matching_dominates_rel'] = data_frame['human_matching_dominates'] / data_frame['clients']
+    data_frame['human_matching_dominates_rel_label'] = data_frame['human_matching_dominates_rel'].apply(lambda v: '{0:.2f}'.format(v * 100.0))
     data_frame['solver_matching_dominates_rel'] = data_frame['solver_matching_dominates'] / data_frame['clients']
+    data_frame['solver_matching_dominates_rel_label'] = data_frame['solver_matching_dominates_rel'].apply(lambda v: '{0:.2f}'.format(v * 100.0))
     data_frame['matching_indifferent_rel'] = data_frame['matching_indifferent'] / data_frame['clients']
     data_frame['day'] = data_frame['problem'].apply(lambda label: datetime.datetime.strptime(label, '%Y-%m-%d').date().day)
+    data_frame['human_overtime_label'] = data_frame['human_overtime'].apply(get_time_delta_label)
+    data_frame['solver_overtime_label'] = data_frame['solver_overtime'].apply(get_time_delta_label)
 
     print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
-    print(tabulate.tabulate(data_frame[['day', 'human_overtime', 'solver_overtime',
-                                        'human_visit_span_dominates_rel', 'solver_visit_span_dominates_rel',
-                                        'human_matching_dominates_rel', 'matching_indifferent_rel',
-                                        'human_teams', 'solver_teams']], tablefmt='latex', showindex=False))
+    print(tabulate.tabulate(data_frame[['day', 'human_overtime_label', 'solver_overtime_label',
+                                        'human_visit_span_dominates_rel_label', 'solver_visit_span_dominates_rel_label',
+                                        'human_matching_dominates_rel_label', 'solver_matching_dominates_rel_label',
+                                        'human_teams', 'solver_teams']], tablefmt='latex', showindex=False, headers='keys'))
 
 
 BenchmarkData = collections.namedtuple('BenchmarkData', ['BestCost', 'BestCostTime', 'BestBound', 'ComputationTime'])
@@ -2065,17 +2074,18 @@ def compare_benchmark_table(args, settings):
     print_data = []
     for problem_config, mip_log, cp_team_log, cp_window_log in logs:
         print_data.append(collections.OrderedDict(Problem=get_problem_label(problem_config, cp_team_log.date),
-                                                  # Penalty=cp_team_log.missed_visit_penalty,
-                                                  # LB=mip_log.best_bound(),
-                                                  # MIP_COST=get_cost_label(mip_log.best_cost(), mip_log.best_bound()),
-                                                  MIP_GAP=get_gap_label(get_gap(mip_log.best_cost(), mip_log.best_bound())),
+                                                  Penalty=cp_team_log.missed_visit_penalty,
+                                                  LB=mip_log.best_bound(),
+                                                  MIP_COST=get_cost_label(mip_log.best_cost(), mip_log.best_bound()),
+                                                  # MIP_GAP=get_gap_label(get_gap(mip_log.best_cost(), mip_log.best_bound())),
                                                   MIP_TIME=get_duration_label(mip_log.best_cost_time()),
-                                                  TEAMS_GAP=get_gap_label(get_gap(cp_team_log.best_cost(), mip_log.best_bound())),
-                                                  # TEAMS_COST=get_cost_label(cp_team_log.best_cost(), mip_log.best_bound()),
+                                                  # TEAMS_GAP=get_gap_label(get_gap(cp_team_log.best_cost(), mip_log.best_bound())),
+                                                  TEAMS_COST=get_cost_label(cp_team_log.best_cost(), mip_log.best_bound()),
                                                   TEAMS_Time=get_duration_label(cp_team_log.best_cost_time()),
-                                                  # WINDOWS_COST=get_cost_label(cp_window_log.best_cost(), mip_log.best_bound()),
-                                                  WINDOWS_GAP=get_gap_label(get_gap(cp_window_log.best_cost(), mip_log.best_bound())),
-                                                  WINDOWS_TIME=get_duration_label(cp_window_log.best_cost_time())))
+                                                  WINDOWS_COST=get_cost_label(cp_window_log.best_cost(), mip_log.best_bound()),
+                                                  # WINDOWS_GAP=get_gap_label(get_gap(cp_window_log.best_cost(), mip_log.best_bound())),
+                                                  WINDOWS_TIME=get_duration_label(cp_window_log.best_cost_time())
+                                                  ))
 
     data_frame = pandas.DataFrame(data=print_data)
     print(tabulate.tabulate(data_frame, tablefmt='latex', headers='keys', showindex=False))
