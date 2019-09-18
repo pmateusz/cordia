@@ -1198,7 +1198,7 @@ def compare_trace(args, settings):
                          current_date])
                     scatter_dropped_visits(ax2, current_date_frame, current_color)
 
-            x_ticks = numpy.arange(0, max_relative_time.total_seconds() + 5 * 60, 5 * 60)
+            x_ticks = numpy.arange(0, max_relative_time.total_seconds() + 2 * 60, 1 * 60)
 
             ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
             ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
@@ -1357,15 +1357,16 @@ def contrast_trace(args, settings):
         stage2_started = \
             candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage2']['stage_started'].iloc[0]
 
-        ax1.set_xlim(left=0.0, right=120)
-        # ax1.set_ylim(bottom=0, top=22000)
+        ax1.set_xlim(left=0.0, right=14)
+        ax1.set_ylim(bottom=0, top=6 * 10 ** 4)
         ax1.set_ylabel('Cost Function [s]')
         ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
         ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
 
-        matplotlib.pyplot.locator_params(axis='x', nbins=6)
-        ax2.set_xlim(left=0.0, right=120)
-        # ax2.set_ylim(bottom=-10.0, top=120)
+        x_ticks_positions = range(0, 12 + 1, 2)
+        # matplotlib.pyplot.locator_params(axis='x', nbins=6)
+        ax2.set_xlim(left=0.0, right=14)
+        ax2.set_ylim(bottom=-10.0, top=120)
         ax2.set_ylabel('Declined Visits')
         ax2.set_xlabel('Computation Time [mm:ss]')
         ax2.set_xticks(x_ticks_positions)
