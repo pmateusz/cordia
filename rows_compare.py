@@ -1348,34 +1348,34 @@ def contrast_trace(args, settings):
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
 
-    # figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
-    # try:
-    #     candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
-    #     scatter_dropped_visits(ax2, candidate_current_data_frame, color=color_map.colors[1])
-    #     scatter_cost(ax1, candidate_current_data_frame, color=color_map.colors[1])
-    #
-    #     stage2_started = \
-    #         candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage2']['stage_started'].iloc[0]
-    #
-    #     ax1.set_xlim(left=0.0, right=stage2_started.total_seconds())
-    #     ax1.set_ylim(bottom=0, top=22000)
-    #     ax1.set_ylabel('Cost Function [s]')
-    #     ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
-    #     ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-    #
-    #     matplotlib.pyplot.locator_params(axis='x', nbins=6)
-    #     ax2.set_xlim(left=0.0, right=stage2_started.total_seconds())
-    #     ax2.set_ylim(bottom=-10.0, top=120)
-    #     ax2.set_ylabel('Declined Visits')
-    #     ax2.set_xlabel('Computation Time [mm:ss]')
-    #     ax2.set_xticks(x_ticks_positions)
-    #     ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-    #
-    #     matplotlib.pyplot.tight_layout()
-    #     rows.plot.save_figure(output_file_stem + '_first_stage_' + current_date.isoformat())
-    # finally:
-    #     matplotlib.pyplot.cla()
-    #     matplotlib.pyplot.close(figure)
+    figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
+    try:
+        candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
+        scatter_dropped_visits(ax2, candidate_current_data_frame, color=color_map.colors[1])
+        scatter_cost(ax1, candidate_current_data_frame, color=color_map.colors[1])
+
+        stage2_started = \
+            candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage2']['stage_started'].iloc[0]
+
+        ax1.set_xlim(left=0.0, right=120)
+        # ax1.set_ylim(bottom=0, top=22000)
+        ax1.set_ylabel('Cost Function [s]')
+        ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
+        ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+
+        matplotlib.pyplot.locator_params(axis='x', nbins=6)
+        ax2.set_xlim(left=0.0, right=120)
+        # ax2.set_ylim(bottom=-10.0, top=120)
+        ax2.set_ylabel('Declined Visits')
+        ax2.set_xlabel('Computation Time [mm:ss]')
+        ax2.set_xticks(x_ticks_positions)
+        ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+
+        matplotlib.pyplot.tight_layout()
+        rows.plot.save_figure(output_file_stem + '_first_stage_' + current_date.isoformat())
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
 
     # figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
     # try:
