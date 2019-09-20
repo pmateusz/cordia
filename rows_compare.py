@@ -113,17 +113,6 @@ def get_date(value):
     return value_to_use.date()
 
 
-def find_file_or_fail(file_paths):
-    for raw_path in file_paths:
-        path = os.path.expanduser(raw_path)
-        path = os.path.expandvars(path)
-        if os.path.isfile(path):
-            return path
-    if file_paths:
-        raise ValueError('Failed to find ' + file_paths[0])
-    raise ValueError()
-
-
 def configure_parser():
     parser = argparse.ArgumentParser(prog=sys.argv[0],
                                      description='Robust Optimization '
@@ -258,7 +247,7 @@ def pull(args, settings):
 def get_travel_time(schedule, user_tag_finder):
     routes = schedule.routes()
     total_travel_time = datetime.timedelta()
-    with create_routing_session() as session:
+    with rows.plot.create_routing_session() as session:
         for route in routes:
             visit_it = iter(route.visits)
 
@@ -288,13 +277,6 @@ def info(args, settings):
     print(get_travel_time(schedule, user_tag_finder), len(carers), len(schedule.visits))
 
 
-def create_routing_session():
-    return rows.routing_server.RoutingServer(server_executable=find_file_or_fail(
-        ['~/dev/cordia/build/rows-routing-server', './build/rows-routing-server']),
-        maps_file=find_file_or_fail(
-            ['~/dev/cordia/data/scotland-latest.osrm', './data/scotland-latest.osrm']))
-
-
 def compare_distance(args, settings):
     schedule_patterns = getattr(args, __SCHEDULE_PATTERNS)
     labels = getattr(args, __LABELS)
@@ -309,12 +291,12 @@ def compare_distance(args, settings):
         problem = rows.load.load_problem(get_or_raise(args, __PROBLEM_FILE_ARG))
 
         store = []
-        with create_routing_session() as routing_session:
-            distance_estimator = DistanceEstimator(settings, routing_session)
+        with rows.plot.create_routing_session() as routing_session:
+            distance_estimator = rows.plot.DistanceEstimator(settings, routing_session)
             for label, schedule_pattern in zip(labels, schedule_patterns):
                 for schedule_path in glob.glob(schedule_pattern):
                     schedule = rows.load.load_schedule(schedule_path)
-                    duration_estimator = DurationEstimator.create_expected_visit_duration(schedule)
+                    duration_estimator = rows.plot.DurationEstimator.create_expected_visit_duration(schedule)
                     frame = rows.plot.get_schedule_data_frame(schedule, problem, duration_estimator, distance_estimator)
                     visits = frame['Visits'].sum()
                     carers = len(frame.where(frame['Visits'] > 0))
@@ -476,16 +458,16 @@ def compare_workload(args, settings):
     dates = list(dates)
     dates.sort()
 
-    with create_routing_session() as routing_session:
+    with rows.plot.create_routing_session() as routing_session:
 
-        distance_estimator = DistanceEstimator(settings, routing_session)
+        distance_estimator = rows.plot.DistanceEstimator(settings, routing_session)
         for date in dates:
             base_schedule = base_schedule_by_date.get(date, None)
             if not base_schedule:
                 logging.error('No base schedule is available for %s', date)
                 continue
 
-            duration_estimator = DurationEstimator.create_expected_visit_duration(base_schedule)
+            duration_estimator = rows.plot.DurationEstimator.create_expected_visit_duration(base_schedule)
 
             candidate_schedule = candidate_schedule_by_date.get(date, None)
             if not candidate_schedule:
@@ -546,7 +528,7 @@ def contrast_workload(args, settings):
     problem_file_base = os.path.basename(problem_file)
     problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
 
-    with create_routing_session() as routing_session:
+    with rows.plot.create_routing_session() as routing_session:
         observed_duration_by_visit = calculate_expected_visit_duration(candidate_schedule)
         base_schedule_frame = rows.plot.get_schedule_data_frame(base_schedule,
                                                                 routing_session,
@@ -1434,53 +1416,11 @@ def compare_prediction_error(args, settings):
         matplotlib.pyplot.close(figure)
 
 
-class DistanceEstimator:
-
-    def __init__(self, settings, routing_session):
-        self.__routing_session = routing_session
-        self.__location_finder = rows.location_finder.UserLocationFinder(settings)
-        self.__location_finder.reload()
-
-    def __call__(self, source_visit, destination_visit):
-        source_loc = self.__location_finder.find(source_visit.visit.service_user)
-        if not source_loc:
-            logging.error('Failed to resolve location of %s', source_visit.visit.service_user)
-            return datetime.timedelta()
-        destination_loc = self.__location_finder.find(destination_visit.visit.service_user)
-        if not destination_loc:
-            logging.error('Failed to resolve location of %s', destination_visit.visit.service_user)
-            return datetime.timedelta()
-        distance = self.__routing_session.distance(source_loc, destination_loc)
-        if distance is None:
-            logging.error('Distance cannot be estimated between %s and %s', source_loc, destination_loc)
-            return datetime.timedelta()
-        return datetime.timedelta(seconds=distance)
-
-
-class DurationEstimator:
-
-    def __init__(self, index):
-        self.__index = index
-
-    def __call__(self, visit) -> typing.Optional[datetime.timedelta]:
-        try:
-            return self.__index[visit]
-        except KeyError:
-            return None
-
-    @staticmethod
-    def create_expected_visit_duration(schedule):
-        expected_visit_duration = rows.plot.VisitDict()
-        for past_visit in schedule.visits:
-            expected_visit_duration[past_visit.visit] = past_visit.duration
-        return DurationEstimator(expected_visit_duration)
-
-
 def remove_violated_visits(rough_schedule: rows.model.schedule.Schedule,
                            metadata: TraceLog,
                            problem: rows.model.problem.Problem,
-                           duration_estimator: DurationEstimator,
-                           distance_estimator: DistanceEstimator) -> rows.model.schedule.Schedule:
+                           duration_estimator: rows.plot.DurationEstimator,
+                           distance_estimator: rows.plot.DistanceEstimator) -> rows.model.schedule.Schedule:
     max_delay = metadata.visit_time_window
     min_delay = -metadata.visit_time_window
 
@@ -1568,7 +1508,7 @@ class ScheduleCost:
 def get_schedule_cost(schedule: rows.model.schedule.Schedule,
                       metadata: TraceLog,
                       problem: rows.model.problem.Problem,
-                      distance_estimator: DistanceEstimator) -> ScheduleCost:
+                      distance_estimator: rows.plot.DistanceEstimator) -> ScheduleCost:
     carer_used_ids = set()
     visit_made_ids = set()
 
@@ -1609,8 +1549,8 @@ def compare_schedule_cost(args, settings):
     def get_cost_label(cost_components: ScheduleCost) -> int:
         return int(cost_components.total_cost())
 
-    with create_routing_session() as routing_session:
-        distance_estimator = DistanceEstimator(settings, routing_session)
+    with rows.plot.create_routing_session() as routing_session:
+        distance_estimator = rows.plot.DistanceEstimator(settings, routing_session)
 
         for solver_trace, problem_data in zip(solver_traces, problem_data):
             problem = rows.load.load_problem(os.path.join(simulation_dir, problem_data.ProblemPath))
@@ -1620,7 +1560,7 @@ def compare_schedule_cost(args, settings):
             assert solver_trace.date == human_schedule.date()
             assert solver_trace.date == solver_schedule.date()
 
-            duration_estimator = DurationEstimator.create_expected_visit_duration(solver_schedule)
+            duration_estimator = rows.plot.DurationEstimator.create_expected_visit_duration(solver_schedule)
             human_schedule_to_use = remove_violated_visits(human_schedule, solver_trace, problem, duration_estimator, distance_estimator)
             solver_schedule_to_use = remove_violated_visits(solver_schedule, solver_trace, problem, duration_estimator, distance_estimator)
             human_cost = get_schedule_cost(human_schedule_to_use, solver_trace, problem, distance_estimator)
@@ -1812,8 +1752,8 @@ def compare_schedule_quality(args, settings):
     assert len(solver_traces) == len(problem_data)
 
     results = []
-    with create_routing_session() as routing_session:
-        distance_estimator = DistanceEstimator(settings, routing_session)
+    with rows.plot.create_routing_session() as routing_session:
+        distance_estimator = rows.plot.DistanceEstimator(settings, routing_session)
 
         for solver_trace, problem_data in zip(solver_traces, problem_data):
             problem = rows.load.load_problem(os.path.join(simulation_dir, problem_data.ProblemPath))
@@ -1823,7 +1763,7 @@ def compare_schedule_quality(args, settings):
             assert solver_trace.date == human_schedule.date()
             assert solver_trace.date == solver_schedule.date()
 
-            duration_estimator = DurationEstimator.create_expected_visit_duration(solver_schedule)
+            duration_estimator = rows.plot.DurationEstimator.create_expected_visit_duration(solver_schedule)
             human_schedule_to_use = remove_violated_visits(human_schedule, solver_trace, problem, duration_estimator, distance_estimator)
             solver_schedule_to_use = remove_violated_visits(solver_schedule, solver_trace, problem, duration_estimator, distance_estimator)
             row = compare_quality(solver_trace, problem, human_schedule_to_use, solver_schedule_to_use, duration_estimator, distance_estimator)
@@ -2302,7 +2242,7 @@ def old_debug(args, settings):
     location_finder = rows.location_finder.UserLocationFinder(settings)
     location_finder.reload()
     data_set = []
-    with create_routing_session() as session:
+    with rows.plot.create_routing_session() as session:
         for route in schedule.routes():
             travel_time = datetime.timedelta()
             for source, destination in route.edges():

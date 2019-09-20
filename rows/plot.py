@@ -2,6 +2,7 @@ import datetime
 import functools
 import logging
 import operator
+import os
 import typing
 
 import matplotlib
@@ -11,9 +12,74 @@ import matplotlib.ticker
 import numpy
 import pandas
 
+import rows.location_finder
 import rows.model.problem
 import rows.model.schedule
+import rows.model.service_user
 import rows.model.visit
+import rows.routing_server
+
+
+def find_file_or_fail(file_paths):
+    for raw_path in file_paths:
+        path = os.path.expanduser(raw_path)
+        path = os.path.expandvars(path)
+        if os.path.isfile(path):
+            return path
+    if file_paths:
+        raise ValueError('Failed to find ' + file_paths[0])
+    raise ValueError()
+
+
+def create_routing_session():
+    return rows.routing_server.RoutingServer(
+        server_executable=find_file_or_fail(['~/dev/cordia/build/rows-routing-server', './build/rows-routing-server']),
+        maps_file=find_file_or_fail(['~/dev/cordia/data/scotland-latest.osrm', './data/scotland-latest.osrm']))
+
+
+class DistanceEstimator:
+
+    def __init__(self, settings, routing_session):
+        self.__routing_session = routing_session
+        self.__location_finder = rows.location_finder.UserLocationFinder(settings)
+        self.__location_finder.reload()
+
+    def __call__(self, source_visit: rows.model.visit.Visit, destination_visit: rows.model.visit.Visit) -> datetime.timedelta:
+        return self.user_distance(source_visit.visit.service_user, destination_visit.visit.service_user)
+
+    def user_distance(self, source_user_id, destination_user_id) -> datetime.timedelta:
+        source_loc = self.__location_finder.find(source_user_id)
+        if not source_loc:
+            logging.error('Failed to resolve location of %s', source_user_id)
+            return datetime.timedelta()
+        destination_loc = self.__location_finder.find(destination_user_id)
+        if not destination_loc:
+            logging.error('Failed to resolve location of %s', destination_user_id)
+            return datetime.timedelta()
+        distance = self.__routing_session.distance(source_loc, destination_loc)
+        if distance is None:
+            logging.error('Distance cannot be estimated between %s and %s', source_loc, destination_loc)
+            return datetime.timedelta()
+        return datetime.timedelta(seconds=distance)
+
+
+class DurationEstimator:
+
+    def __init__(self, index):
+        self.__index = index
+
+    def __call__(self, visit) -> typing.Optional[datetime.timedelta]:
+        try:
+            return self.__index[visit]
+        except KeyError:
+            return None
+
+    @staticmethod
+    def create_expected_visit_duration(schedule):
+        expected_visit_duration = rows.plot.VisitDict()
+        for past_visit in schedule.visits:
+            expected_visit_duration[past_visit.visit] = past_visit.duration
+        return DurationEstimator(expected_visit_duration)
 
 
 class VisitDict:
