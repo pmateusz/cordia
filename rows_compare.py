@@ -1546,8 +1546,8 @@ def compare_schedule_cost(args, settings):
     results = []
     printable_results = []
 
-    def get_cost_label(cost_components: ScheduleCost) -> int:
-        return int(cost_components.total_cost())
+    def get_cost_label(cost_components: ScheduleCost) -> str:
+        return '{0:,.0f}'.format(cost_components.total_cost())
 
     with rows.plot.create_routing_session() as routing_session:
         distance_estimator = rows.plot.DistanceEstimator(settings, routing_session)
@@ -1969,7 +1969,13 @@ def compare_benchmark_table(args, settings):
             logs.append([problem_config, mip_log, cp_team_log, cp_window_log])
 
     def get_gap(cost, lower_bound):
-        return (cost - lower_bound) * 100.0 / lower_bound
+        return '{0:.2f}'.format((cost - lower_bound) * 100.0 / lower_bound)
+
+    def get_delta(cost, cost_to_compare):
+        return '{0:.2f}'.format((cost - cost_to_compare) * 100.0 / cost_to_compare)
+
+    def get_computation_time_label(time: datetime.timedelta) -> str:
+        return str(time.total_seconds())
 
     data = []
     for problem_config, mip_log, cp_team_log, cp_window_log in logs:
@@ -1982,13 +1988,15 @@ def compare_benchmark_table(args, settings):
             lower_bound=mip_log.best_bound(),
             mip_best_cost=mip_log.best_cost(),
             mip_best_gap=get_gap(mip_log.best_cost(), mip_log.best_bound()),
-            mip_best_time=mip_log.best_cost_time(),
+            mip_best_time=get_computation_time_label(mip_log.best_cost_time()),
             team_best_cost=cp_team_log.best_cost(),
             team_best_gap=get_gap(cp_team_log.best_cost(), mip_log.best_bound()),
-            team_best_time=cp_team_log.best_cost_time(),
+            team_best_delta=get_gap(cp_team_log.best_cost(), mip_log.best_cost()),
+            team_best_time=get_computation_time_label(cp_team_log.best_cost_time()),
             windows_best_cost=cp_window_log.best_cost(),
             windows_best_gap=get_gap(cp_window_log.best_cost(), mip_log.best_bound()),
-            windows_best_time=cp_window_log.best_cost_time()))
+            windows_best_delta=get_gap(cp_window_log.best_cost(), mip_log.best_cost()),
+            windows_best_time=get_computation_time_label(cp_window_log.best_cost_time())))
 
     data_frame = pandas.DataFrame(data=data)
     print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
@@ -1998,10 +2006,11 @@ def compare_benchmark_table(args, settings):
         hours = int(time_delta.total_seconds() / 3600)
         minutes = int(time_delta.total_seconds() / 60 - hours * 60)
         seconds = int(time_delta.total_seconds() - 3600 * hours - 60 * minutes)
-        return '{0:02d}:{1:02d}:{2:02d}'.format(hours, minutes, seconds)
+        # return '{0:02d}:{1:02d}:{2:02d}'.format(hours, minutes, seconds)
+        return '{0:.0f}'.format(time_delta.total_seconds())
 
     def get_cost_label(cost: float, lower_bound: float) -> str:
-        return str(int(cost))
+        return '{0:,.0f}'.format(cost)
 
     def get_gap_label(gap: float) -> str:
         return '{0:.2f}'.format(gap)
