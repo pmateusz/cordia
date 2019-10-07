@@ -1578,8 +1578,8 @@ def compare_schedule_cost(args, settings):
                             'solver_total_cost': solver_cost.total_cost()})
 
             printable_results.append(collections.OrderedDict(day=solver_trace.date.day,
-                                                             visit_penalty=solver_trace.missed_visit_penalty,
-                                                             carer_penalty=solver_trace.carer_used_penalty,
+                                                             visit_penalty='{0:,.0f}'.format(solver_trace.missed_visit_penalty),
+                                                             carer_penalty='{0:,.0f}'.format(solver_trace.carer_used_penalty),
                                                              planner_travel_time=get_time_delta_label(human_cost.travel_time),
                                                              planner_carers_used=human_cost.carers_used,
                                                              planner_missed_visits=human_cost.visits_missed,
@@ -1968,11 +1968,11 @@ def compare_benchmark_table(args, settings):
 
             logs.append([problem_config, mip_log, cp_team_log, cp_window_log])
 
-    def get_gap(cost, lower_bound):
-        return '{0:.2f}'.format((cost - lower_bound) * 100.0 / lower_bound)
+    def get_gap(cost: float, lower_bound: float) -> float:
+        return (cost - lower_bound) * 100.0 / lower_bound
 
     def get_delta(cost, cost_to_compare):
-        return '{0:.2f}'.format((cost - cost_to_compare) * 100.0 / cost_to_compare)
+        return (cost - cost_to_compare) * 100.0 / cost_to_compare
 
     def get_computation_time_label(time: datetime.timedelta) -> str:
         return str(time.total_seconds())
@@ -2007,13 +2007,13 @@ def compare_benchmark_table(args, settings):
         minutes = int(time_delta.total_seconds() / 60 - hours * 60)
         seconds = int(time_delta.total_seconds() - 3600 * hours - 60 * minutes)
         # return '{0:02d}:{1:02d}:{2:02d}'.format(hours, minutes, seconds)
-        return '{0:.0f}'.format(time_delta.total_seconds())
+        return '{0:,.0f}'.format(time_delta.total_seconds())
 
-    def get_cost_label(cost: float, lower_bound: float) -> str:
+    def get_cost_label(cost: float) -> str:
         return '{0:,.0f}'.format(cost)
 
     def get_gap_label(gap: float) -> str:
-        return '{0:.2f}'.format(gap)
+        return '{0:,.2f}'.format(gap)
 
     def get_problem_label(problem, date: datetime.date):
         label = '{0:2d} {1}'.format(date.day, problem.Visits)
@@ -2023,17 +2023,21 @@ def compare_benchmark_table(args, settings):
 
     print_data = []
     for problem_config, mip_log, cp_team_log, cp_window_log in logs:
+        best_cost = min([mip_log.best_cost(), cp_team_log.best_cost(), cp_window_log.best_cost()])
         print_data.append(collections.OrderedDict(Problem=get_problem_label(problem_config, cp_team_log.date),
-                                                  Penalty=cp_team_log.missed_visit_penalty,
-                                                  LB=mip_log.best_bound(),
-                                                  MIP_COST=get_cost_label(mip_log.best_cost(), mip_log.best_bound()),
+                                                  Penalty=get_cost_label(cp_team_log.missed_visit_penalty),
+                                                  LB=get_cost_label(mip_log.best_bound()),
+                                                  MIP_COST=get_cost_label(mip_log.best_cost()),
                                                   # MIP_GAP=get_gap_label(get_gap(mip_log.best_cost(), mip_log.best_bound())),
+                                                  # MIP_DELTA=get_gap_label(get_delta(mip_log.best_cost(), best_cost)),
                                                   MIP_TIME=get_duration_label(mip_log.best_cost_time()),
                                                   # TEAMS_GAP=get_gap_label(get_gap(cp_team_log.best_cost(), mip_log.best_bound())),
-                                                  TEAMS_COST=get_cost_label(cp_team_log.best_cost(), mip_log.best_bound()),
+                                                  # TEAMS_DELTA=get_gap_label(get_delta(cp_team_log.best_cost(), best_cost)),
+                                                  TEAMS_COST=get_cost_label(cp_team_log.best_cost()),
                                                   TEAMS_Time=get_duration_label(cp_team_log.best_cost_time()),
-                                                  WINDOWS_COST=get_cost_label(cp_window_log.best_cost(), mip_log.best_bound()),
+                                                  WINDOWS_COST=get_cost_label(cp_window_log.best_cost()),
                                                   # WINDOWS_GAP=get_gap_label(get_gap(cp_window_log.best_cost(), mip_log.best_bound())),
+                                                  # WINDOWS_DELTA=get_gap_label(get_delta(cp_window_log.best_cost(), best_cost)),
                                                   WINDOWS_TIME=get_duration_label(cp_window_log.best_cost_time())
                                                   ))
 
