@@ -1904,6 +1904,67 @@ protected:
             }
         }
 
+        // skill matching
+        for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
+            const auto &carer = carer_diaries_.at(carer_index).first;
+            const auto carer_num_nodes = carer_edges_[carer_index].size();
+            const auto last_break_node = carer_num_nodes - 1;
+
+            for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+                const auto &visit = node_visits_.at(visit_node);
+                if (carer.has_skills(visit.tasks())) {
+                    continue;
+                }
+
+                for (std::size_t other_node = begin_depot_node_; other_node <= last_break_node; ++other_node) {
+                    model.addConstr(carer_edges_[carer_index][visit_node][other_node] == 0);
+                    model.addConstr(carer_edges_[carer_index][other_node][visit_node] == 0);
+                }
+            }
+        }
+
+        // continuity of care
+        std::unordered_map<rows::ServiceUser, std::vector<std::size_t>> visit_nodes_by_user;
+        std::unordered_map<rows::ServiceUser, bool> has_multiple_carer_visits;
+        for (auto visit_node = first_visit_node_; visit_node <= last_visit_node_; ++visit_node) {
+            const auto &visit = node_visits_.at(visit_node);
+
+            auto find_it = visit_nodes_by_user.find(visit.service_user());
+            if (find_it == std::end(visit_nodes_by_user)) {
+                visit_nodes_by_user.emplace(visit.service_user(), std::vector<std::size_t>{visit_node});
+                has_multiple_carer_visits.emplace(visit.service_user(), visit.carer_count() > 1);
+            } else {
+                find_it->second.emplace_back(visit_node);
+                if (visit.carer_count() > 1) {
+                    has_multiple_carer_visits.at(visit.service_user()) = true;
+                }
+            }
+        }
+
+        for (const auto &user_visit_nodes : visit_nodes_by_user) {
+            GRBLinExpr num_carers_visiting = 0;
+
+            for (decltype(num_carers_) carer_index = 0; carer_index < num_carers_; ++carer_index) {
+                GRBLinExpr visit_frequency = 0;
+                for (auto visit_node : user_visit_nodes.second) {
+                    for (decltype(last_visit_node_) other_node = 0; other_node <= last_visit_node_; ++other_node) {
+                        visit_frequency += carer_edges_[carer_index][other_node][visit_node];
+                    }
+                }
+
+                GRBVar is_carer_visiting = model.addVar(0, 1, 0, GRB_BINARY);
+                model.addConstr(visit_frequency <= user_visit_nodes.second.size() * is_carer_visiting);
+                num_carers_visiting += is_carer_visiting;
+            }
+
+            auto max_carers_allowed = rows::SolverWrapper::MAX_CARERS_SINGLE_VISITS;
+            if (has_multiple_carer_visits.at(user_visit_nodes.first)) {
+                max_carers_allowed = rows::SolverWrapper::MAX_CARERS_MULTIPLE_VISITS;
+            }
+
+            model.addConstr(num_carers_visiting <= max_carers_allowed);
+        }
+
         // define cost function
         GRBLinExpr cost = 0;
         for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
@@ -2380,7 +2441,7 @@ std::unique_ptr<Model> CreateModel(const rows::Problem &problem,
 //                                                  std::move(overtime_allowance));
 //    }
 
-    const auto optional_orders = false;
+    const auto optional_orders = true;
     return std::make_unique<MultipleBreakModel>(problem,
                                                 std::move(location_container),
                                                 std::move(visit_time_window),
@@ -2399,9 +2460,8 @@ int main(int argc, char *argv[]) {
     auto engine_config = util::CreateEngineConfig(FLAGS_maps);
     std::shared_ptr<std::atomic_bool> cancel_token{std::make_shared<std::atomic<bool> >(false)};
 
-    boost::posix_time::time_duration mip_time_limit
-            = util::GetTimeDurationOrDefault(FLAGS_time_limit, DEFAULT_TIME_LIMIT);
-    boost::posix_time::time_duration visit_time_window{boost::posix_time::minutes(60)};
+    boost::posix_time::time_duration mip_time_limit = util::GetTimeDurationOrDefault(FLAGS_time_limit, DEFAULT_TIME_LIMIT);
+    boost::posix_time::time_duration visit_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration break_time_window{boost::posix_time::minutes(90)};
     boost::posix_time::time_duration overtime_window{boost::posix_time::minutes(30)};
     boost::posix_time::time_duration no_progress_time_limit{boost::posix_time::minutes(1)};
