@@ -1,6 +1,6 @@
 """Details an instance of the Home Care Scheduling Problem"""
 import datetime
-from typing import Optional
+import typing
 
 import rows.model.datetime
 import rows.model.object
@@ -92,6 +92,7 @@ class Problem(rows.model.object.DataObject):
             bundle[Problem.LocalVisit.TIME] = self.__time
             bundle[Problem.LocalVisit.DURATION] = self.__duration
             bundle[Problem.LocalVisit.CARER_COUNT] = self.__carer_count
+            bundle[Problem.LocalVisit.TASKS] = self.__tasks
             # ignore the service user
             return bundle
 
@@ -112,11 +113,14 @@ class Problem(rows.model.object.DataObject):
 
             carer_count = json.get(Problem.LocalVisit.CARER_COUNT, None)
 
+            tasks = json.get(Problem.LocalVisit.TASKS, [])
+
             return Problem.LocalVisit(**{Problem.LocalVisit.KEY: key,
                                          Problem.LocalVisit.DATE: date,
                                          Problem.LocalVisit.TIME: time,
                                          Problem.LocalVisit.DURATION: duration,
-                                         Problem.LocalVisit.CARER_COUNT: carer_count})
+                                         Problem.LocalVisit.CARER_COUNT: carer_count,
+                                         Problem.LocalVisit.TASKS: tasks})
 
         @property
         def service_user(self):
@@ -141,19 +145,19 @@ class Problem(rows.model.object.DataObject):
             return self.__time
 
         @property
-        def duration(self):
+        def duration(self) -> datetime.timedelta:
             """Return a property"""
 
             return self.__duration
 
         @duration.setter
-        def duration(self, value):
+        def duration(self, value: datetime.timedelta):
             """Set a property"""
 
             self.__duration = value
 
         @property
-        def tasks(self):
+        def tasks(self) -> typing.List[int]:
             """Return a property"""
 
             return self.__tasks
@@ -228,7 +232,7 @@ class Problem(rows.model.object.DataObject):
 
         return bundle
 
-    def get_diary(self, carer: Carer, date: datetime.date) -> Optional[Diary]:
+    def get_diary(self, carer: Carer, date: datetime.date) -> typing.Optional[Diary]:
         for carer_shift in self.__carers:
             if carer_shift.carer.sap_number != carer.sap_number:
                 continue

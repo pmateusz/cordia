@@ -1,6 +1,5 @@
 import os
 import os.path
-import pyodbc
 import datetime
 import logging
 import pandas as pd
@@ -10,9 +9,7 @@ import operator
 
 from distutils.util import strtobool
 from rows.visualisation.problem import load_solution
-from rows.analysis import str_to_tasks, SimpleVisit
 from rows.model.schedule import Schedule
-from rows.model.visit import Visit
 import rows.console
 import rows.location_finder
 import rows.model.area

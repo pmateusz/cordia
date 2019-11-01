@@ -18,15 +18,15 @@ __TIME_DELTA_MATCHER = re.compile('^(:?(?P<day>-?\d+)\s+\w+,\s+)?'
                                   '(?P<hour>\d+):(?P<minute>\d+):(?P<second>\d+)(?:\.\d+)?$')
 
 
-def str_to_tasks(text):
-    if text:
-        split_char = next((char for char in text if not char.isdigit()), None)
-        if split_char:
-            tasks = [int(raw_task) for raw_task in text.split(split_char)]
-        else:
-            tasks = [int(text)]
-        return Tasks(tasks)
-    return Tasks([])
+# def str_to_tasks(text):
+#     if text:
+#         split_char = next((char for char in text if not char.isdigit()), None)
+#         if split_char:
+#             tasks = [int(raw_task) for raw_task in text.split(split_char)]
+#         else:
+#             tasks = [int(text)]
+#         return Tasks(tasks)
+#     return Tasks([])
 
 
 def str_to_date_time(text):

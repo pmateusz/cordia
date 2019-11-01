@@ -56,8 +56,7 @@ class Handler:
             visits, carers = self.__data_source.get_visits_carers_from_schedule(area,
                                                                                 begin_date,
                                                                                 end_date,
-                                                                                self.__create_duration_estimator(
-                                                                                    duration_estimator_name))
+                                                                                self.__create_duration_estimator(duration_estimator_name))
             service_users = self.__data_source.get_service_users(area, begin_date, end_date)
         else:
             error_msg = SqlDataSource.validate_resource_estimator(resource_estimator_name)

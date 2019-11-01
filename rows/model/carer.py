@@ -1,5 +1,7 @@
 """Details an employee who can perform a visit"""
 
+import typing
+
 import rows.model.object
 from rows.model.address import Address
 
@@ -11,6 +13,7 @@ class Carer(rows.model.object.DatabaseObject):
     ADDRESS = 'address'
     POSITION = 'position'
     MOBILITY = 'mobility'
+    SKILLS = 'skills'
     FOOT_MOBILITY_TYPE = 'foot'
     CAR_MOBILITY_TYPE = 'car'
 
@@ -21,6 +24,7 @@ class Carer(rows.model.object.DatabaseObject):
         self.__address = kwargs.get(Carer.ADDRESS, None)
         self.__position = kwargs.get(Carer.POSITION, None)
         self.__mobility = kwargs.get(Carer.MOBILITY, Carer.FOOT_MOBILITY_TYPE)
+        self.__skills = kwargs.get(Carer.SKILLS, [])
 
     def as_dict(self):
         bundle = super(Carer, self).as_dict()
@@ -28,6 +32,7 @@ class Carer(rows.model.object.DatabaseObject):
         bundle[Carer.POSITION] = self.__position
         bundle[Carer.ADDRESS] = self.__address
         bundle[Carer.MOBILITY] = self.__mobility
+        bundle[Carer.SKILLS] = self.__skills
         return bundle
 
     @staticmethod
@@ -41,7 +46,8 @@ class Carer(rows.model.object.DatabaseObject):
             Carer.ADDRESS: address,
             Carer.POSITION: json.get(Carer.POSITION),
             Carer.MOBILITY: json.get(Carer.MOBILITY),
-            Carer.SAP_NUMBER: json.get(Carer.SAP_NUMBER)
+            Carer.SAP_NUMBER: json.get(Carer.SAP_NUMBER),
+            Carer.SKILLS: json.get(Carer.SKILLS)
         })
 
     @property
@@ -67,3 +73,7 @@ class Carer(rows.model.object.DatabaseObject):
         """Return a property"""
 
         return self.__mobility
+
+    @property
+    def skills(self) -> typing.List[int]:
+        return self.__skills

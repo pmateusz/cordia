@@ -10,6 +10,7 @@ import math
 import itertools
 import datetime
 import warnings
+import typing
 
 import numpy
 
@@ -172,6 +173,24 @@ FROM (
     task_no
 ) visit
 GROUP BY visit.visit_id, visit.service_user_id, vdate, vtime, vduration"""
+
+    LIST_CARER_SKILLS = """
+SELECT CarerId, STRING_AGG(carer_skill.TaskNumber, ';') WITHIN GROUP (ORDER BY carer_skill.TaskNumber) as Skills
+FROM (
+    SELECT DISTINCT CarerId, Convert(INT, task_no) AS TaskNumber
+FROM dbo.ListCarerIntervals carer_int
+LEFT OUTER JOIN dbo.ListEmployees emp
+ON carer_int.CarerId = emp.carer_id
+LEFT OUTER JOIN dbo.ListCarerVisits carer_visits
+ON carer_visits.OriginalCarerId = carer_int.CarerId
+INNER JOIN dbo.ListVisitsWithinWindow visits
+ON carer_visits.VisitID = visits.visit_id
+WHERE carer_int.AomId = '{0}' AND StartDateTime BETWEEN '{1}' AND '{2}'
+GROUP BY CarerId, task_no
+) as carer_skill
+GROUP BY carer_skill.CarerId
+ORDER BY carer_skill.CarerId
+"""
 
     LIST_PAST_VISITS_QUERY_WITH_CHECKOUT_INFO = """
 SELECT carer_visits.VisitID, visit_tasks.[User], carer_visits.PlannedCarerID,
@@ -1167,7 +1186,8 @@ ORDER BY carer_visits.VisitID"""
         visits = []
         for row in self.__get_connection().cursor().execute(SqlDataSource.LIST_VISITS_QUERY.format(
                 begin_date, end_date, area.key)).fetchall():
-            visit_key, service_user_id, visit_date, visit_time, visit_duration, tasks = row
+            visit_key, service_user_id, visit_date, visit_time, visit_duration, raw_tasks = row
+            tasks = self.__parse_tasks(raw_tasks)
 
             carer_count = 1
             if visit_key in carer_counts:
@@ -1177,17 +1197,16 @@ ORDER BY carer_visits.VisitID"""
                                              service_user=service_user_id,
                                              date=visit_date,
                                              time=visit_time,
-                                             duration=str(visit_duration * 60),  # convert minutes to seconds
+                                             duration=datetime.timedelta(minutes=visit_duration),
                                              tasks=tasks,
                                              carer_count=carer_count))
 
         visits_by_service_user = {}
         time_change = []
         for visit in visits:
-            original_duration = int(float(visit.duration))
+            original_duration = visit.duration
             visit.duration = duration_estimator(visit)
-            duration_to_use = int(float(visit.duration))
-            time_change.append(duration_to_use - original_duration)
+            time_change.append((visit.duration - original_duration).total_seconds())
 
             if visit.service_user in visits_by_service_user:
                 visits_by_service_user[visit.service_user].append(visit)
@@ -1236,6 +1255,7 @@ ORDER BY carer_visits.VisitID"""
 
     def get_carers(self, area, begin_date, end_date):
         events_by_carer = collections.defaultdict(list)
+        skills_by_carer = collections.defaultdict(list)
         mobile_carers = set()
         for row in self.__get_connection().cursor().execute(
                 SqlDataSource.CARER_WORKING_HOURS.format(begin_date, end_date, area.key)).fetchall():
@@ -1244,6 +1264,10 @@ ORDER BY carer_visits.VisitID"""
             if mobile == 1:
                 mobile_carers.add(carer_id)
         carer_shifts = []
+
+        for row in self.__get_connection().cursor().execute(SqlDataSource.LIST_CARER_SKILLS.format(area.key, begin_date, end_date)):
+            carer_id, raw_skills = row
+            skills_by_carer[carer_id] = self.__parse_tasks(raw_skills)
 
         for carer in events_by_carer:
             events_by_carer[carer].sort(key=lambda event: event.begin.date())
@@ -1254,7 +1278,8 @@ ORDER BY carer_visits.VisitID"""
                        in itertools.groupby(events_by_carer[carer_id], key=lambda event: event.begin.date())]
             carer_mobility = Carer.CAR_MOBILITY_TYPE if carer_id in mobile_carers else Carer.FOOT_MOBILITY_TYPE
             carer_shift = Problem.CarerShift(carer=Carer(sap_number=str(carer_id),
-                                                         mobility=carer_mobility), diaries=diaries)
+                                                         mobility=carer_mobility,
+                                                         skills=skills_by_carer[carer_id]), diaries=diaries)
             carer_shifts.append(carer_shift)
         return carer_shifts
 
@@ -1266,6 +1291,11 @@ ORDER BY carer_visits.VisitID"""
             _carer_id, begin_date_time, end_date_time = row
             windows.append(AbsoluteEvent(begin=begin_date_time, end=end_date_time))
         return windows
+
+    def __parse_tasks(self, value: str) -> typing.List[int]:
+        tasks = list(map(int, value.split(';')))
+        tasks.sort()
+        return tasks
 
     def get_visits_carers_from_schedule(self, area, begin_date, end_date, duration_estimator):
         duration_estimator.reload(self.__console, self.__get_connection, area, begin_date, end_date)
@@ -1287,7 +1317,7 @@ ORDER BY carer_visits.VisitID"""
         marked_visit_ids = set()
         raw_visits = []
         for row in data_set:
-            visit_key, start_date_time, end_date_time, carer_id, is_mobile, service_user_id, tasks = row
+            visit_key, start_date_time, end_date_time, carer_id, is_mobile, service_user_id, raw_tasks = row
 
             if visit_key in marked_visit_ids:
                 continue
@@ -1300,14 +1330,14 @@ ORDER BY carer_visits.VisitID"""
             if visit_key in carer_counts:
                 carer_count = carer_counts[visit_key]
 
+            tasks = self.__parse_tasks(raw_tasks)
+
             # visit duration is not predicted
             raw_visits.append(Problem.LocalVisit(key=visit_key,
                                                  service_user=service_user_id,
                                                  date=start_date_time.date(),
                                                  time=start_date_time.time(),
-                                                 # convert minutes to seconds
-                                                 duration=str(
-                                                     int((end_date_time - start_date_time).total_seconds())),
+                                                 duration=end_date_time - start_date_time,
                                                  tasks=tasks,
                                                  carer_count=carer_count))
 
@@ -1316,24 +1346,21 @@ ORDER BY carer_visits.VisitID"""
 
         time_change = []
         for visit in distinct_visits:
-            original_duration = int(float(visit.duration))
             suggested_duration = duration_estimator(visit)
 
             if isinstance(suggested_duration, str):
                 if not suggested_duration.isdigit():
                     # raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
-                    suggested_duration = original_duration
+                    suggested_duration = visit.duration
             elif isinstance(suggested_duration, numpy.float):
                 if math.isnan(suggested_duration) or numpy.isnan(suggested_duration):
                     raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
-            elif isinstance(suggested_duration, datetime.timedelta):
-                suggested_duration = str(int(suggested_duration.total_seconds()))
-            else:
+            elif not isinstance(suggested_duration, datetime.timedelta):
                 raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
 
-            visit.duration = suggested_duration
-            duration_to_use = int(float(visit.duration))
-            time_change.append(duration_to_use - original_duration)
+            duration_to_use = suggested_duration
+            time_change.append((duration_to_use - visit.duration).total_seconds())
+            visit.duration = duration_to_use
             visits_by_service_user[visit.service_user].append(visit)
 
         if time_change:
@@ -1355,9 +1382,12 @@ ORDER BY carer_visits.VisitID"""
 
         # get carers
         raw_work_events_by_carer = collections.defaultdict(list)
+        tasks_by_carer = collections.defaultdict(set)
         for row in data_set:
-            _visit_key, start_date_time, end_date_time, carer_id, _is_mobile, _service_user_id, _tasks = row
+            _visit_key, start_date_time, end_date_time, carer_id, _is_mobile, _service_user_id, _raw_tasks = row
             raw_work_events_by_carer[carer_id].append((start_date_time, end_date_time))
+            for task_number in self.__parse_tasks(_raw_tasks):
+                tasks_by_carer[carer_id].add(task_number)
 
         work_events_by_carer = {}
         for carer in raw_work_events_by_carer.keys():
@@ -1520,9 +1550,13 @@ ORDER BY carer_visits.VisitID"""
                                           shift_type=Diary.EXTRA_SHIFT_TYPE)
                     diaries.append(diary)
             carer_mobility = Carer.CAR_MOBILITY_TYPE if carer_id in mobile_carers else Carer.FOOT_MOBILITY_TYPE
+            skills = list(tasks_by_carer[carer_id])
+            skills.sort()
             carer_shifts.append(Problem.CarerShift(carer=Carer(sap_number=str(carer_id),
-                                                               mobility=carer_mobility), diaries=diaries))
-        schedule_event_collector.save('shifts3.csv')
+                                                               mobility=carer_mobility,
+                                                               skills=skills),
+                                                   diaries=diaries))
+        # schedule_event_collector.save('shifts3.csv')
         return visits, carer_shifts
 
     def get_service_users(self, area, begin_date, end_date):
@@ -1547,14 +1581,9 @@ ORDER BY carer_visits.VisitID"""
 
         service_users = []
         for service_user_id, location in location_by_service_user.items():
-            carer_preference = []
-            for carer_id, preference in preference_by_service_user[service_user_id].items():
-                carer_preference.append((str(carer_id), preference))
-
             service_users.append(ServiceUser(key=str(service_user_id),
                                              location=location,
-                                             address=address_by_service_user[service_user_id],
-                                             carer_preference=carer_preference))
+                                             address=address_by_service_user[service_user_id]))
         return service_users
 
     def get_past_schedule(self, area, schedule_date):
@@ -1629,16 +1658,19 @@ ORDER BY carer_visits.VisitID"""
             self.__connection = None
 
     def __remove_duplicates(self, visits):
-        from rows.analysis import str_to_tasks
-
-        user_index = collections.defaultdict(lambda: collections.defaultdict(dict))
+        user_index: typing.Dict[str, typing.Dict[datetime.date, typing.Dict[datetime.time, Problem.LocalVisit]]] = dict()
         for visit in visits:
+            if visit.service_user not in user_index:
+                user_index[visit.service_user] = dict()
+            if visit.date not in user_index[visit.service_user]:
+                user_index[visit.service_user][visit.date] = dict()
+
             user_date_slot = user_index[visit.service_user][visit.date]
             if visit.time in user_date_slot:
                 previous_visit = user_date_slot[visit.time]
-                previous_tasks = str_to_tasks(previous_visit.tasks)
-                current_tasks = str_to_tasks(visit.tasks)
-                if previous_tasks.issubset(current_tasks):
+                previous_tasks = set(previous_visit.tasks)
+                current_tasks = set(visit.tasks)
+                if current_tasks.issubset(previous_tasks):
                     user_date_slot[visit.time] = visit
                 elif not current_tasks.issubset(previous_tasks):
                     pass
