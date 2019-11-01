@@ -1101,7 +1101,8 @@ public:
                        rows::CachedLocationContainer location_container,
                        boost::posix_time::time_duration visit_time_window,
                        boost::posix_time::time_duration break_time_window,
-                       boost::posix_time::time_duration overtime_allowance)
+                       boost::posix_time::time_duration overtime_allowance,
+                       bool optional_orders)
             : Model(std::move(location_container)),
               visits_(problem.visits()),
               carer_diaries_(GetCarers(problem)),
@@ -1112,7 +1113,7 @@ public:
               visit_time_window_{std::move(visit_time_window)},
               break_time_window_{std::move(break_time_window)},
               overtime_window_{std::move(overtime_allowance)},
-              optional_orders_{true},
+              optional_orders_{optional_orders},
               symmetry_breaking_{true},
               visit_indicators_{false},
               break_indicators_{false} {
@@ -2370,20 +2371,22 @@ std::unique_ptr<Model> CreateModel(const rows::Problem &problem,
         }
     }
 
-    if (single_break_during_working_hours) {
-        LOG(WARNING) << "Using Single Break Model";
-        return std::make_unique<SingleBreakModel>(problem,
-                                                  std::move(location_container),
-                                                  std::move(visit_time_window),
-                                                  std::move(break_time_window),
-                                                  std::move(overtime_allowance));
-    }
+//    if (single_break_during_working_hours) {
+//        LOG(WARNING) << "Using Single Break Model";
+//        return std::make_unique<SingleBreakModel>(problem,
+//                                                  std::move(location_container),
+//                                                  std::move(visit_time_window),
+//                                                  std::move(break_time_window),
+//                                                  std::move(overtime_allowance));
+//    }
 
+    const auto optional_orders = false;
     return std::make_unique<MultipleBreakModel>(problem,
                                                 std::move(location_container),
                                                 std::move(visit_time_window),
                                                 std::move(break_time_window),
-                                                std::move(overtime_allowance));
+                                                std::move(overtime_allowance),
+                                                optional_orders);
 }
 
 
