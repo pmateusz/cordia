@@ -1,8 +1,7 @@
 """Details a requested visit"""
 
-import rows.model.object
 import rows.model.datetime
-
+import rows.model.object
 from rows.model.address import Address
 
 
@@ -15,6 +14,7 @@ class Visit(rows.model.object.DatabaseObject):
     TIME = 'time'
     DURATION = 'duration'
     CARER_COUNT = 'carer_count'
+    TASKS = 'tasks'
 
     def __init__(self, **kwargs):  # pylint: disable=useless-super-delegation
         super(Visit, self).__init__(**kwargs)
@@ -25,6 +25,7 @@ class Visit(rows.model.object.DatabaseObject):
         self.__duration = kwargs.get(Visit.DURATION, None)
         self.__carer_count = kwargs.get(Visit.CARER_COUNT, 1)
         self.__address = kwargs.get(Visit.ADDRESS, None)
+        self.__tasks = kwargs.get(Visit.TASKS, [])
 
     def as_dict(self):
         bundle = super(Visit, self).as_dict()
@@ -34,6 +35,7 @@ class Visit(rows.model.object.DatabaseObject):
         bundle[Visit.DURATION] = self.__duration
         bundle[Visit.CARER_COUNT] = self.__carer_count
         bundle[Visit.ADDRESS] = self.__address
+        bundle[Visit.TASKS] = self.__tasks
         return bundle
 
     @staticmethod
@@ -117,3 +119,7 @@ class Visit(rows.model.object.DatabaseObject):
     @address.setter
     def address(self, value):
         self.__address = value
+
+    @property
+    def tasks(self):
+        return self.__tasks

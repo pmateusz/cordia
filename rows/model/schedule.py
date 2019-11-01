@@ -121,6 +121,8 @@ class Schedule(rows.model.object.DataObject):
         type_id = attributes['type']
         sap_number_id = attributes['sap_number']
         id_id = attributes['id']
+        skills_id = attributes['skills']
+        tasks_id = attributes['tasks']
         user_id = attributes['user']
         start_time_id = attributes['start_time']
         duration_id = attributes['duration']
@@ -136,8 +138,11 @@ class Schedule(rows.model.object.DataObject):
             if type_attr['value'] == 'carer':
                 id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
                 sap_number_attr = attributes.find('attvalue', attrs={'for': sap_number_id})
+                skills_number_attr = attributes.find('attvalue', attrs={'for': skills_id})
+                skills = list(map(int, skills_number_attr['value'].split(';')))
                 carers_by_id[node['id']] = rows.model.carer.Carer(key=id_number_attr['value'],
-                                                                  sap_number=sap_number_attr['value'])
+                                                                  sap_number=sap_number_attr['value'],
+                                                                  skills=skills)
             elif type_attr['value'] == 'user':
                 id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
                 longitude_attr = attributes.find('attvalue', attrs={'for': longitude_id})
@@ -155,13 +160,16 @@ class Schedule(rows.model.object.DataObject):
                 key = int(id_number_attr['value'])
                 start_time = datetime.datetime.strptime(start_time_attr['value'], '%Y-%b-%d %H:%M:%S')
                 duration = datetime.datetime.strptime(duration_attr['value'], '%H:%M:%S').time()
+                tasks_number_attr = attributes.find('attvalue', attrs={'for': tasks_id})
+                tasks = list(map(int, tasks_number_attr['value'].split(';')))
                 visits_by_id[node['id']] = rows.model.visit.Visit(key=key,
                                                                   date=start_time.date(),
                                                                   time=start_time.time(),
                                                                   duration=datetime.timedelta(hours=duration.hour,
                                                                                               minutes=duration.minute,
                                                                                               seconds=duration.second),
-                                                                  service_user=int(user_attr['value']))
+                                                                  service_user=int(user_attr['value']),
+                                                                  tasks=tasks)
 
         routes = collections.defaultdict(list)
         for edge in schedule_soup.find_all('edge'):

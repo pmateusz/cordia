@@ -1,5 +1,7 @@
 #include "gexf_writer.h"
 
+#include <boost/algorithm/string/join.hpp>
+
 #include "util/pretty_print.h"
 
 namespace rows {
@@ -16,6 +18,7 @@ namespace rows {
 
     const GexfWriter::GephiAttributeMeta GexfWriter::START_TIME{"8", "start_time", "string", "2000-Jan-01 00:00:00"};
     const GexfWriter::GephiAttributeMeta GexfWriter::DURATION{"9", "duration", "string", "00:00:00"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::TASKS{"21", "tasks", "string", ""};
 
     const GexfWriter::GephiAttributeMeta GexfWriter::TRAVEL_TIME{"10", "travel_time", "string", "00:00:00"};
 
@@ -28,6 +31,7 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_TRAVEL_TIME{"16", "work_travel_time", "string", "00:00:00"};
     const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_IDLE_TIME{"17", "work_idle_time", "string", "00:00:00"};
     const GexfWriter::GephiAttributeMeta GexfWriter::UTIL_VISITS_COUNT{"18", "work_visits_count", "long", "0"};
+    const GexfWriter::GephiAttributeMeta GexfWriter::SKILLS{"20", "skills", "string", ""};
 
     void GexfWriter::Write(const boost::filesystem::path &file_path,
                            SolverWrapper &solver,
@@ -130,6 +134,12 @@ namespace rows {
             gexf.SetNodeValue(carer_id, TYPE, CARER_NODE);
             gexf.SetNodeValue(carer_id, SAP_NUMBER, carer.sap_number());
 
+            std::vector<std::string> skills;
+            for (const auto skill_number : carer.skills()) {
+                skills.emplace_back(std::to_string(skill_number));
+            }
+            gexf.SetNodeValue(carer_id, SKILLS, boost::join(skills, ";"));
+
             if (!model.IsVehicleUsed(solution, vehicle)) {
                 gexf.SetNodeValue(carer_id, DROPPED, TRUE_VALUE);
                 continue;
@@ -161,6 +171,12 @@ namespace rows {
                     gexf.SetNodeValue(start_visit_id,
                                       SATISFACTION,
                                       std::to_string(service_user.Preference(carer)));
+
+                    std::vector<std::string> tasks;
+                    for (const auto task_number : calendar_visit.tasks()) {
+                        tasks.emplace_back(std::to_string(task_number));
+                    }
+                    gexf.SetNodeValue(start_visit_id, TASKS, boost::join(tasks, ";"));
 
                     if (model.IsEnd(start_visit_index)) {
                         break;
@@ -247,6 +263,8 @@ namespace rows {
         for (const auto &attr : {ID, TYPE, DROPPED, START_TIME, DURATION, ASSIGNED_CARER, USER,
                                  SATISFACTION,
                                  SAP_NUMBER,
+                                 SKILLS,
+                                 TASKS,
                                  UTIL_RELATIVE,
                                  UTIL_ABSOLUTE_TIME,
                                  UTIL_AVAILABLE_TIME,

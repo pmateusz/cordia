@@ -62,7 +62,8 @@ TEST(TestScheduledVisit, CanExecuteContainerOperations) {
                     boost::posix_time::ptime(boost::gregorian::date(2017, 2, 1),
                                              boost::posix_time::time_duration(8, 15, 0)),
                     boost::posix_time::minutes(45),
-                    1
+                    1,
+                    std::vector<int>()
             })};
 
     // when

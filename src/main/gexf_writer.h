@@ -50,6 +50,8 @@ namespace rows {
         static const GephiAttributeMeta SATISFACTION;
         static const GephiAttributeMeta USER;
         static const GephiAttributeMeta CARER_COUNT;
+        static const GephiAttributeMeta SKILLS;
+        static const GephiAttributeMeta TASKS;
 
         static const GephiAttributeMeta TRAVEL_TIME;
 

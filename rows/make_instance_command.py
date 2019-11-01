@@ -53,10 +53,9 @@ class Handler:
         for visit in visit_by_carers:
             visit_vars[visit] = model.NewBoolVar('v_{0}'.format(visit))
 
-        model.AddSumConstraint(visit_vars.values(), num_visits, num_visits)
-        # model.AddSumConstraint(carer_vars.values(), num_carers, num_carers)
+        model.Add(sum(visit_vars.values()) == num_visits)
         multiple_carer_visit_vars = [visit_vars[visit] for visit in visit_by_carers if len(visit_by_carers[visit]) == 2]
-        model.AddSumConstraint(multiple_carer_visit_vars, num_multiple_carer_visits, num_multiple_carer_visits)
+        model.Add(sum(multiple_carer_visit_vars) == num_multiple_carer_visits)
 
         for visit in visit_by_carers:
             for carer in visit_by_carers[visit]:

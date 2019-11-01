@@ -35,6 +35,14 @@ class Carer(rows.model.object.DatabaseObject):
         bundle[Carer.SKILLS] = self.__skills
         return bundle
 
+    def __eq__(self, other):
+        if not isinstance(other, Carer):
+            return False
+        return self.sap_number == other.sap_number
+
+    def __hash__(self):
+        return hash(self.sap_number)
+
     @staticmethod
     def from_json(json):
         """Converts object from dictionary"""
