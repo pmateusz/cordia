@@ -130,6 +130,9 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(const operations_research::Rou
         }
     }
 
+    AddSkillHandling(solver, model, index_manager);
+    AddContinuityOfCare(solver, model, index_manager);
+
     // could be interesting to use the Google constraint for breaks
     // initial results show violation of some breaks
     std::vector<int64> service_times(model.Size());

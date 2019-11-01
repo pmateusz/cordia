@@ -17,6 +17,7 @@ void FailureInterceptor() {
 
 rows::ThreeStepSchedulingWorker::CarerTeam::CarerTeam(std::pair<rows::Carer, rows::Diary> member)
         : diary_{member.second} {
+    skills_ = member.first.skills();
     members_.emplace_back(std::move(member));
 }
 
@@ -26,6 +27,13 @@ void rows::ThreeStepSchedulingWorker::CarerTeam::Add(std::pair<rows::Carer, rows
                             return local_member.first == member.first;
                         }) == std::end(members_));
 
+    std::vector<int> common_skills;
+    for (const auto skill : member.first.skills()) {
+        if (std::find(std::cbegin(skills_), std::cend(skills_), skill) != std::cend(skills_)) {
+            common_skills.emplace_back(skill);
+        }
+    }
+    skills_ = common_skills;
     diary_ = diary_.Intersect(member.second);
     members_.emplace_back(std::move(member));
 }
@@ -40,6 +48,10 @@ std::vector<rows::Carer> rows::ThreeStepSchedulingWorker::CarerTeam::Members() c
         result.push_back(member.first);
     }
     return result;
+}
+
+const std::vector<int> &rows::ThreeStepSchedulingWorker::CarerTeam::Skills() const {
+    return skills_;
 }
 
 const std::vector<std::pair<rows::Carer, rows::Diary> > &
@@ -192,18 +204,20 @@ std::vector<rows::ThreeStepSchedulingWorker::CarerTeam> rows::ThreeStepSchedulin
         // while there is available space and are free carers continue looking for a suitable match
         boost::optional<std::pair<rows::Carer, rows::Diary> > best_match = boost::none;
         boost::optional<rows::Diary> best_match_diary = boost::none;
-        for (auto possible_match_it = std::next(carer_diary_it);
-             possible_match_it != carer_diary_it_end;
-             ++possible_match_it) {
+        boost::optional<int> best_match_shared_skills_num = boost::none;
+        for (auto possible_match_it = std::next(carer_diary_it); possible_match_it != carer_diary_it_end; ++possible_match_it) {
 
             if (processed_carers.find(possible_match_it->first) != std::end(processed_carers)) {
                 continue;
             }
 
             const auto match_diary = carer_diary_it->second.Intersect(possible_match_it->second);
-            if (!best_match_diary || (best_match_diary->duration() < match_diary.duration())) {
+            const auto match_shared_skills_num = possible_match_it->first.shared_skills(team.Skills()).size();
+            if (!best_match_diary || (best_match_diary->duration() <= match_diary.duration()
+                                      && *best_match_shared_skills_num <= match_shared_skills_num)) {
                 best_match = *possible_match_it;
                 best_match_diary = match_diary;
+                best_match_shared_skills_num = match_shared_skills_num;
             }
         }
 
@@ -312,7 +326,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         int id = 0;
         std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
         for (auto &team : GetCarerTeams(problem_)) {
-            rows::Carer carer{(boost::format("team-%1%") % ++id).str(), rows::Transport::Foot};
+            rows::Carer carer{(boost::format("team-%1%") % ++id).str(), rows::Transport::Foot, team.Skills()};
 
             if (team.size() > 1) {
                 team_carers.push_back({carer, {team.Diary()}});
@@ -423,7 +437,8 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
     } else if (first_stage_strategy_ == FirstStageStrategy::SOFT_TIME_WINDOWS) {
         auto internal_search_params = operations_research::DefaultRoutingSearchParameters();
 //        internal_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_AUTOMATIC); // do not use cp_sat but sweeping
-        internal_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_SAVINGS); // do not use cp_sat but sweeping
+        internal_search_params.set_first_solution_strategy(
+                operations_research::FirstSolutionStrategy_Value_SAVINGS); // do not use cp_sat but sweeping
 //        internal_search_params.set_savings_max_memory_usage_bytes(1024.0 * 1024.0 * 1024.0);
         internal_search_params.set_savings_parallel_routes(true);
         internal_search_params.set_use_full_propagation(true);

@@ -219,7 +219,7 @@ class SimpleVisit(Visit):
         return self.__area
 
     @property
-    def tasks(self):
+    def tasks(self) -> Tasks:
         return self.__tasks
 
     @property

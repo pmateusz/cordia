@@ -32,7 +32,7 @@ import statsmodels.tsa.arima_model
 import statsmodels.stats
 import statsmodels.stats.stattools
 
-from rows.analysis import VisitCSVSourceFile, time_to_seconds
+import rows.analysis
 
 
 class Cluster:
@@ -67,10 +67,8 @@ class Cluster:
         visits_to_use = [visit for visit in self.__items if visit.checkout_method == 1 or visit.checkout_method == 2]
 
         data_frame = pandas.DataFrame(
-            index=pandas.DatetimeIndex(data=[clear_time(visit.original_start)
-                                             for visit in visits_to_use]),
-            data=[(time_to_seconds(visit.real_start.time()), visit.real_duration.total_seconds())
-                  for visit in visits_to_use],
+            index=pandas.DatetimeIndex(data=[clear_time(visit.original_start) for visit in visits_to_use]),
+            data=[(rows.analysis.time_to_seconds(visit.real_start.time()), visit.real_duration.total_seconds()) for visit in visits_to_use],
             columns=['Start', 'Duration'])
         data_frame.sort_index(inplace=True)
 
@@ -127,7 +125,7 @@ class Cluster:
         return self.__items.__len__()
 
 
-def distance(left, right):
+def distance(left: rows.analysis.SimpleVisit, right: rows.analysis.SimpleVisit):
     left_start_min = left.original_start_ord / 60
     right_start_min = right.original_start_ord / 60
     left_duration_min = left.original_duration_ord / 60
@@ -138,8 +136,8 @@ def distance(left, right):
         penalty = 100.0
 
     if left.tasks == right.tasks \
-            or left.tasks.tasks.issubset(right.tasks.tasks) \
-            or right.tasks.tasks.issubset(left.tasks.tasks):
+            or left.tasks.issubset(right.tasks) \
+            or right.tasks.issubset(left.tasks):
         return abs(left_start_min - right_start_min) + abs(left_duration_min - right_duration_min) + penalty
     else:
         left_task_price = left_duration_min / len(left.tasks.tasks)

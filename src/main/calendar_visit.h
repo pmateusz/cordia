@@ -28,14 +28,16 @@ namespace rows {
                       boost::optional<Location> location,
                       boost::posix_time::ptime date_time,
                       boost::posix_time::time_duration duration,
-                      int carer_count);
+                      int carer_count,
+                      std::vector<int> tasks);
 
         CalendarVisit(std::size_t id,
                       ServiceUser service_user,
                       Address address,
                       boost::posix_time::ptime date_time,
                       boost::posix_time::time_duration duration,
-                      int carer_count);
+                      int carer_count,
+                      std::vector<int> tasks);
 
         CalendarVisit(const CalendarVisit &other);
 
@@ -77,6 +79,8 @@ namespace rows {
 
         int carer_count() const;
 
+        const std::vector<int> &tasks() const;
+
         void carer_count(int value);
 
         class JsonLoader : protected rows::JsonLoader {
@@ -93,6 +97,7 @@ namespace rows {
         boost::posix_time::ptime date_time_;
         boost::posix_time::ptime::time_duration_type duration_;
         int carer_count_;
+        std::vector<int> tasks_;
     };
 }
 
@@ -209,7 +214,13 @@ namespace rows {
             carer_count = carer_count_it.value().template get<int>();
         }
 
-        CalendarVisit visit(key, service_user, address, datetime, duration, carer_count);
+        std::vector<int> tasks;
+        const auto task_it = document.find("tasks");
+        if (task_it != std::cend(document)) {
+            tasks = task_it.value().template get<std::vector<int>>();
+        }
+
+        CalendarVisit visit(key, service_user, address, datetime, duration, carer_count, tasks);
         if (location) {
             visit.location(location.get());
         }

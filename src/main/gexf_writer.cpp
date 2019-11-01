@@ -39,8 +39,6 @@ namespace rows {
                                            std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >
                                    > > &activities) const {
 
-        // TODO: output breaks
-
         static const auto VISIT_NODE = "visit";
         static const auto CARER_NODE = "carer";
         static const auto BREAK_NODE = "break";

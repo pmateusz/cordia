@@ -19,7 +19,7 @@ namespace rows {
 
         explicit Carer(std::string sap_number);
 
-        Carer(std::string sap_number, Transport transport);
+        Carer(std::string sap_number, Transport transport, std::vector<int> skills);
 
         Carer(const Carer &other);
 
@@ -41,9 +41,16 @@ namespace rows {
 
         Transport transport() const;
 
+        bool has_skills(const std::vector<int> &skills) const;
+
+        std::vector<int> shared_skills(const std::vector<int> &skills) const;
+
+        const std::vector<int> &skills() const;
+
     private:
         std::string sap_number_;
         Transport transport_;
+        std::vector<int> skills_;
     };
 }
 

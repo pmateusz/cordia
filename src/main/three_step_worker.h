@@ -70,9 +70,12 @@ namespace rows {
 
             const rows::Diary &Diary() const;
 
+            const std::vector<int> &Skills() const;
+
         private:
             rows::Diary diary_;
             std::vector<std::pair<rows::Carer, rows::Diary> > members_;
+            std::vector<int> skills_;
         };
 
         explicit ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer>

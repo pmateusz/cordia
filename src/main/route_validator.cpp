@@ -379,6 +379,18 @@ namespace rows {
                 route};
     }
 
+    static RouteValidatorBase::ScheduledVisitError CreateSkillNotSatisfied(const rows::Route &route,
+                                                                           const rows::ScheduledVisit &visit,
+                                                                           const int skill_number) {
+        return {RouteValidatorBase::ErrorCode::SKILL_VIOLATION,
+                (boost::format("NodeToCarer %1% does not have skill %2% to perform visit %3%.")
+                 % route.carer().sap_number()
+                 % skill_number
+                 % visit.calendar_visit().get().id()).str(),
+                visit,
+                route};
+    }
+
     RouteValidatorBase::ScheduledVisitError ValidationSession::CreateLateArrivalError(
             const rows::Route &route,
             const rows::ScheduledVisit &visit,
@@ -1173,10 +1185,24 @@ namespace rows {
         auto last_visit_node = SolverWrapper::DEPOT;
         boost::posix_time::ptime last_min_visit_complete = boost::posix_time::not_a_date_time;
         boost::posix_time::ptime last_max_visit_complete = boost::posix_time::not_a_date_time;
-        for (auto node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {
+        for (std::size_t node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {
             const auto visit_index = indices[node_pos];
             const auto current_visit_node = index_manager.IndexToNode(visit_index);
             const auto &visit = visits[node_pos - 1];
+
+            for (const auto task : visit.calendar_visit()->tasks()) {
+                if (std::find(std::cbegin(carer.skills()), std::cend(carer.skills()), task) == std::cend(carer.skills())) {
+                    LOG(FATAL) << boost::format("Carer %1% does not have skill %2% to perform the visit %3%")
+                                  % carer.sap_number()
+                                  % task
+                                  % visit.calendar_visit()->id();
+
+                    std::unique_ptr<RouteValidatorBase::ValidationError> error_ptr = std::make_unique<RouteValidatorBase::ScheduledVisitError>(
+                            session.CreateSkillNotSatisfied(route, visit, task));
+                    return RouteValidatorBase::ValidationResult(std::move(error_ptr));
+                }
+            }
+
             const ptime fastest_arrival{today, seconds(solver.GetBeginVisitWindow(visit.datetime().time_of_day()))};
             const ptime latest_arrival{today, seconds(solver.GetEndVisitWindow(visit.datetime().time_of_day()))};
             const ptime min_arrival{today, seconds(solution.Min(time_dim.CumulVar(visit_index)))};
@@ -1366,6 +1392,65 @@ namespace rows {
         }
 
         return false;
+    }
+
+    RouteValidatorBase::ValidationResult SolutionValidator::ValidateFull(const operations_research::Assignment &solution,
+                                                                         const operations_research::RoutingIndexManager &index_manager,
+                                                                         const operations_research::RoutingModel &model,
+                                                                         rows::SolverWrapper &solver) const {
+        std::unordered_map<ServiceUser, std::unordered_set<int> > user_visited_vehicles;
+        std::unordered_map<ServiceUser, bool> has_multiple_carer_visits;
+
+        for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+            auto validation_result = ValidateFull(vehicle, solution, index_manager, model, solver);
+            if (validation_result.error()) {
+                return std::move(validation_result);
+            }
+
+            auto current_index = model.Start(vehicle);
+            std::vector<int64> visit_indices;
+            visit_indices.push_back(current_index);
+            while (!model.IsEnd(current_index)) {
+                current_index = solution.Value(model.NextVar(current_index));
+                visit_indices.push_back(current_index);
+            }
+            CHECK_GE(visit_indices.size(), 2);
+
+            for (std::size_t position = 1; position < visit_indices.size() - 1; ++position) {
+                const auto &visit = solver.NodeToVisit(index_manager.IndexToNode(visit_indices.at(position)));
+
+                auto find_it = user_visited_vehicles.find(visit.service_user());
+                if (find_it == std::end(user_visited_vehicles)) {
+                    user_visited_vehicles.emplace(visit.service_user(), std::unordered_set<int>{vehicle});
+                    has_multiple_carer_visits.emplace(visit.service_user(), true);
+                } else {
+                    find_it->second.insert(vehicle);
+                    if (visit.carer_count() > 1) {
+                        has_multiple_carer_visits.at(visit.service_user()) = true;
+                    }
+                }
+            }
+        }
+
+        for (const auto &user_vehicles_pair : user_visited_vehicles) {
+            auto max_visiting_vehicles = SolverWrapper::MAX_CARERS_SINGLE_VISITS;
+            if (has_multiple_carer_visits.at(user_vehicles_pair.first)) {
+                max_visiting_vehicles = SolverWrapper::MAX_CARERS_MULTIPLE_VISITS;
+            }
+
+            if (user_vehicles_pair.second.size() > max_visiting_vehicles) {
+                std::string error_msg = (boost::format("ServiceUser %1% is visited by %2% carers which is above the limit of %3%")
+                                         % user_vehicles_pair.first
+                                         % user_vehicles_pair.second.size()
+                                         % max_visiting_vehicles).str();
+                LOG(FATAL) << error_msg;
+
+                return RouteValidatorBase::ValidationResult(std::make_unique<RouteValidatorBase::ValidationError>(
+                        RouteValidatorBase::ValidationError{RouteValidatorBase::ErrorCode::TOO_MANY_CARERS, std::move(error_msg)}));
+            }
+        }
+
+        return RouteValidatorBase::ValidationResult();
     }
 
     Schedule::Record::Record()

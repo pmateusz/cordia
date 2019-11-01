@@ -156,6 +156,9 @@ namespace rows {
             }
         }
 
+        AddSkillHandling(solver, model, index_manager);
+        AddContinuityOfCare(solver, model, index_manager);
+
         const auto schedule_day = GetScheduleDate();
         auto solver_ptr = model.solver();
 

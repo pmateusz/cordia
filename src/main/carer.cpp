@@ -7,37 +7,42 @@
 namespace rows {
 
     Carer::Carer()
-            : Carer("", Transport::Foot) {}
+            : Carer("", Transport::Foot, std::vector<int>()) {}
 
     Carer::Carer(std::string sap_number)
-            : Carer(std::move(sap_number), Transport::Foot) {}
+            : Carer(std::move(sap_number), Transport::Foot, std::vector<int>()) {}
 
-    Carer::Carer(std::string sap_number, Transport transport)
+    Carer::Carer(std::string sap_number, Transport transport, std::vector<int> skills)
             : sap_number_(std::move(sap_number)),
-              transport_(transport) {}
+              transport_(transport),
+              skills_(std::move(skills)) {}
 
     Carer::Carer(const Carer &other)
             : sap_number_(other.sap_number_),
-              transport_(other.transport_) {}
+              transport_(other.transport_),
+              skills_(other.skills_) {}
 
     Carer::Carer(Carer &&other) noexcept
             : sap_number_(std::move(other.sap_number_)),
-              transport_(other.transport_) {}
+              transport_(other.transport_),
+              skills_(std::move(other.skills_)) {}
 
     Carer &Carer::operator=(const Carer &other) {
         sap_number_ = other.sap_number_;
         transport_ = other.transport_;
+        skills_ = other.skills_;
         return *this;
     }
 
     Carer &Carer::operator=(Carer &&other) noexcept {
         sap_number_ = std::move(other.sap_number_);
         transport_ = other.transport_;
+        skills_ = std::move(other.skills_);
         return *this;
     }
 
     bool Carer::operator==(const Carer &other) const {
-        return sap_number_ == other.sap_number_ && transport_ == other.transport_;
+        return sap_number_ == other.sap_number_ && transport_ == other.transport_ && skills_ == other.skills_;
     }
 
     bool Carer::operator!=(const Carer &other) const {
@@ -52,9 +57,32 @@ namespace rows {
         return transport_;
     }
 
+    const std::vector<int> &Carer::skills() const {
+        return skills_;
+    }
+
     std::ostream &operator<<(std::ostream &out, const Carer &object) {
         out << boost::format("(%1%)") % object.sap_number_;
         return out;
+    }
+
+    bool Carer::has_skills(const std::vector<int> &skills) const {
+        for (const auto skill : skills) {
+            if (std::find(std::cbegin(skills_), std::cend(skills_), skill) == std::cend(skills_)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::vector<int> Carer::shared_skills(const std::vector<int> &skills) const {
+        std::vector<int> shared_skills;
+        for (const auto skill : skills) {
+            if (std::find(std::cbegin(skills_), std::cend(skills_), skill) != std::cend(skills_)) {
+                shared_skills.push_back(skill);
+            }
+        }
+        return shared_skills;
     }
 
     Transport ParseTransport(const std::string &value) {

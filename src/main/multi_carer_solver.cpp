@@ -112,6 +112,9 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
         }
     }
 
+    AddSkillHandling(solver, model, index_manager);
+    AddContinuityOfCare(solver, model, index_manager);
+
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
 

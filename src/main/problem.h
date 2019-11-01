@@ -204,6 +204,10 @@ namespace rows {
                             (boost::format("Unknown format of duration %s") % duration_it.value()).str());
                 }
 
+                const auto tasks_it = visit_json.find("tasks");
+                if (tasks_it == std::end(visit_json)) { throw OnKeyNotFound("tasks"); }
+                const auto tasks = tasks_it.value().template get<std::vector<int>>();
+
                 const auto carer_count_it = visit_json.find("carer_count");
                 if (duration_it == std::end(visit_json)) { throw OnKeyNotFound("carer_count"); }
                 auto carer_count = carer_count_it.value().template get<int>();
@@ -213,7 +217,8 @@ namespace rows {
                                     boost::make_optional(location),
                                     date_time,
                                     duration,
-                                    carer_count);
+                                    carer_count,
+                                    std::move(tasks));
             }
         }
 
@@ -243,7 +248,11 @@ namespace rows {
                 transport = ParseTransport(transport_it.value().template get<std::string>());
             }
 
-            rows::Carer carer(sap_number, transport);
+            const auto skills_it = carer_json.find("skills");
+            if (skills_it == std::end(carer_json)) { throw OnKeyNotFound("skills"); }
+            const auto skills = skills_it.value().template get<std::vector<int>>();
+
+            rows::Carer carer(sap_number, transport, skills);
 
             const auto diaries_it = carer_json_group.find("diaries");
             if (diaries_it == std::end(carer_json_group)) { throw OnKeyNotFound("diaries"); }

@@ -76,6 +76,7 @@ namespace rows {
             UNKNOWN,
             TOO_MANY_CARERS,
             ABSENT_CARER,
+            SKILL_VIOLATION,
             BREAK_VIOLATION,
             LATE_ARRIVAL,
             MISSING_INFO,
@@ -308,6 +309,10 @@ namespace rows {
         static RouteValidatorBase::ScheduledVisitError CreateAbsentCarerError(const rows::Route &route,
                                                                               const rows::ScheduledVisit &visit);
 
+        static RouteValidatorBase::ScheduledVisitError CreateSkillNotSatisfied(const rows::Route &route,
+                                                                               const rows::ScheduledVisit &visit,
+                                                                               const int skill_number);
+
         static RouteValidatorBase::ScheduledVisitError CreateLateArrivalError(const rows::Route &route,
                                                                               const rows::ScheduledVisit &visit,
                                                                               boost::posix_time::ptime::time_duration_type duration);
@@ -366,6 +371,12 @@ namespace rows {
 
         RouteValidatorBase::ValidationResult ValidateFull(int vehicle,
                                                           const operations_research::Assignment &solution,
+                                                          const operations_research::RoutingIndexManager &index_manager,
+                                                          const operations_research::RoutingModel &model,
+                                                          rows::SolverWrapper &solver) const;
+
+
+        RouteValidatorBase::ValidationResult ValidateFull(const operations_research::Assignment &solution,
                                                           const operations_research::RoutingIndexManager &index_manager,
                                                           const operations_research::RoutingModel &model,
                                                           rows::SolverWrapper &solver) const;

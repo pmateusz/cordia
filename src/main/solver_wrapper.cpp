@@ -66,6 +66,9 @@ namespace rows {
 
     const int64 SolverWrapper::SECONDS_IN_DIMENSION = 24 * 3600 + 2 * 3600;
 
+    const int64 SolverWrapper::MAX_CARERS_SINGLE_VISITS = 2;
+    const int64 SolverWrapper::MAX_CARERS_MULTIPLE_VISITS = 4;
+
     const std::string SolverWrapper::TIME_DIMENSION{"Time"};
 
     SolverWrapper::SolverWrapper(const rows::Problem &problem,
@@ -182,8 +185,7 @@ namespace rows {
         return service_time + travel_time;
     }
 
-    boost::optional<rows::Diary>
-    FindDiaryOrNone(const std::vector<rows::Diary> &diaries, boost::gregorian::date date) {
+    boost::optional<rows::Diary> FindDiaryOrNone(const std::vector<rows::Diary> &diaries, boost::gregorian::date date) {
         const auto find_date_it = std::find_if(std::begin(diaries),
                                                std::end(diaries),
                                                [&date](const rows::Diary &diary) -> bool {
@@ -608,8 +610,8 @@ namespace rows {
                                                     std::end(solution_to_use.visits()),
                                                     is_assigned);
             VLOG_IF(1, initial_size != reduced_size)
-                    << boost::format("Removed %1% visit assignments due to constrain violations.")
-                       % (initial_size - reduced_size);
+                            << boost::format("Removed %1% visit assignments due to constrain violations.")
+                               % (initial_size - reduced_size);
         }
         VLOG(1) << boost::format("Validation of the solution for warm start completed in %1% seconds")
                    % std::chrono::duration_cast<std::chrono::seconds>(
@@ -1046,5 +1048,68 @@ namespace rows {
     int64 SolverWrapper::GetDroppedVisitPenalty() {
         const auto distances = location_container_.LargestDistances(3);
         return std::accumulate(std::cbegin(distances), std::cend(distances), static_cast<int64>(1));
+    }
+
+    void SolverWrapper::AddSkillHandling(operations_research::Solver *solver,
+                                         operations_research::RoutingModel &model,
+                                         const operations_research::RoutingIndexManager &index_manager) {
+        for (const auto &visit_index_pair : visit_index_) {
+            std::vector<int64> visit_indices;
+            for (const auto &visit_node : visit_index_pair.second) {
+                const auto visit_index = index_manager.NodeToIndex(visit_node);
+                visit_indices.push_back(visit_index);
+            }
+
+            std::vector<int64> allowed_vehicles{index_manager.kUnassigned};
+            for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+                const auto &carer = Carer(vehicle);
+                if (carer.has_skills(visit_index_pair.first.tasks())) {
+                    allowed_vehicles.push_back(vehicle);
+                }
+            }
+
+            for (auto visit_index : visit_indices) {
+                solver->AddConstraint(solver->MakeMemberCt(model.VehicleVar(visit_index), allowed_vehicles));
+            }
+        }
+    }
+
+    void SolverWrapper::AddContinuityOfCare(operations_research::Solver *solver,
+                                            operations_research::RoutingModel &model,
+                                            const operations_research::RoutingIndexManager &index_manager) {
+        for (const auto &service_user : service_users_) {
+            std::vector<int64> user_visit_indices;
+            bool is_multiple_carer_service_user = false;
+
+            std::vector<int64> visit_indices;
+            for (const auto &visit_index_pair : visit_index_) {
+                if (visit_index_pair.first.service_user() != service_user.first) {
+                    continue;
+                }
+
+                for (const auto &visit_node : visit_index_pair.second) {
+                    const auto visit_index = index_manager.NodeToIndex(visit_node);
+                    user_visit_indices.push_back(visit_index);
+                }
+
+                if (visit_index_pair.second.size() > 1) {
+                    is_multiple_carer_service_user = true;
+                }
+            }
+
+            std::vector<operations_research::IntVar *> is_visited_by_vehicle;
+            solver->MakeBoolVarArray(vehicles(), &is_visited_by_vehicle);
+
+            for (auto visit_index : visit_indices) {
+                solver->MakeElementEquality(is_visited_by_vehicle, model.VehicleVar(visit_index), 1);
+            }
+
+            auto continuity_care_cardinality = MAX_CARERS_SINGLE_VISITS;
+            if (is_multiple_carer_service_user) {
+                continuity_care_cardinality = MAX_CARERS_MULTIPLE_VISITS;
+            }
+
+            solver->AddConstraint(solver->MakeLessOrEqual(solver->MakeSum(is_visited_by_vehicle), continuity_care_cardinality));
+        }
     }
 }

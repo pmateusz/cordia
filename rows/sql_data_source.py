@@ -33,6 +33,8 @@ from rows.model.diary import Diary
 from rows.model.event import AbsoluteEvent
 from rows.model.problem import Problem
 from rows.model.service_user import ServiceUser
+import rows.analysis
+import rows.clustering
 
 
 def get_binominal_interval(n, p, confidence, max_error, max_size):
@@ -705,7 +707,7 @@ ORDER BY carer_visits.VisitID"""
             self.__user_clusters = collections.defaultdict(list)
 
         def reload(self, console, connection_factory, area, start_date, end_date):
-            from rows.analysis import str_to_tasks, SimpleVisit
+            from rows.analysis import Tasks, SimpleVisit
 
             cursor = connection_factory().cursor()
             visits = []
@@ -729,7 +731,9 @@ ORDER BY carer_visits.VisitID"""
                 raw_tasks, \
                 area_code = row
 
-                tasks = str_to_tasks(raw_tasks)
+                task_numbers = list(map(int, raw_tasks.split('-')))
+                task_numbers.sort()
+                tasks = Tasks(task_numbers)
                 visits.append(SimpleVisit(id=int(visit_raw_id),
                                           user=int(user_raw_id),
                                           area=area.key,
@@ -771,7 +775,7 @@ ORDER BY carer_visits.VisitID"""
                 if data_frame.Duration.count() < 64:
                     # we are predicting for 2 weeks, so any smaller value does not make sense
                     # especially the number of observations cannot be 12 to avoid division by 0 in the AICC formula
-                    return SqlDataSource.ForecastEstimator.MeanModel(data_frame.Duration.mean())
+                    return SqlDataSource.ArimaForecastEstimator.MeanModel(data_frame.Duration.mean())
 
                 start_date_to_use = datetime.datetime.combine(start_date, datetime.time())
                 last_past_visit_date = start_date_to_use - datetime.timedelta(days=1)
@@ -828,10 +832,10 @@ ORDER BY carer_visits.VisitID"""
                 data = numpy.c_[range(1, 41), r[1:], q, p]
                 ljung_box_df = pandas.DataFrame(data, columns=['lag', "AC", "Q", "Prob(>Q)"])
 
-                return SqlDataSource.ForecastEstimator.ARIMAModel(last_past_visit_date,
-                                                                  arma_model,
-                                                                  trend.Duration.mean(),
-                                                                  season_df)
+                return SqlDataSource.ArimaForecastEstimator.ARIMAModel(last_past_visit_date,
+                                                                       arma_model,
+                                                                       trend.Duration.mean(),
+                                                                       season_df)
 
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore', statsmodels.tools.sm_exceptions.ConvergenceWarning)
@@ -845,25 +849,22 @@ ORDER BY carer_visits.VisitID"""
             return True
 
         def __call__(self, local_visit):
-            from rows.clustering import distance
-            from rows.analysis import SimpleVisit, str_to_tasks
-
             if local_visit.service_user in self.__user_clusters:
                 user_clusters = self.__user_clusters[local_visit.service_user]
                 if not user_clusters:
                     raise ValueError()
 
-                simple_visit = SimpleVisit(id=local_visit.key,
-                                           user=local_visit.service_user,
-                                           tasks=str_to_tasks(local_visit.tasks),
-                                           original_start=datetime.datetime.combine(local_visit.date, local_visit.time),
-                                           original_duration=datetime.timedelta(seconds=int(local_visit.duration)),
-                                           planned_start=datetime.datetime.combine(local_visit.date, local_visit.time),
-                                           planned_duration=datetime.timedelta(seconds=int(local_visit.duration)))
+                simple_visit = rows.analysis.SimpleVisit(id=local_visit.key,
+                                                         user=local_visit.service_user,
+                                                         tasks=rows.analysis.Tasks(local_visit.tasks),
+                                                         original_start=datetime.datetime.combine(local_visit.date, local_visit.time),
+                                                         original_duration=local_visit.duration,
+                                                         planned_start=datetime.datetime.combine(local_visit.date, local_visit.time),
+                                                         planned_duration=local_visit.duration)
                 distances = []
                 for index in range(len(user_clusters)):
                     cluster = user_clusters[index]
-                    centroid_distance = distance(simple_visit, cluster.centroid())
+                    centroid_distance = rows.clustering.distance(simple_visit, cluster.centroid())
                     distances.append((cluster, centroid_distance))
                 cluster, time_distance = min(distances, key=operator.itemgetter(1))
                 if time_distance < 90:
@@ -1352,15 +1353,17 @@ ORDER BY carer_visits.VisitID"""
                 if not suggested_duration.isdigit():
                     # raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
                     suggested_duration = visit.duration
+                else:
+                    suggested_duration = datetime.timedelta(seconds=int(suggested_duration))
             elif isinstance(suggested_duration, numpy.float):
                 if math.isnan(suggested_duration) or numpy.isnan(suggested_duration):
                     raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
+                suggested_duration = datetime.timedelta(seconds=int(suggested_duration.item()))
             elif not isinstance(suggested_duration, datetime.timedelta):
                 raise ValueError('Failed to estimate duration of the visit for user %s'.format(visit.service_user))
 
-            duration_to_use = suggested_duration
-            time_change.append((duration_to_use - visit.duration).total_seconds())
-            visit.duration = duration_to_use
+            time_change.append((suggested_duration - visit.duration).total_seconds())
+            visit.duration = suggested_duration
             visits_by_service_user[visit.service_user].append(visit)
 
         if time_change:

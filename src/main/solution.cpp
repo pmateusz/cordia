@@ -340,7 +340,8 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                                                                      ),
                                                                      start_time,
                                                                      duration,
-                                                                     0}});
+                                                                     0,
+                                                                     std::vector<int>{}}});
             } else if (type_property_it->second == "break") {
                 const auto carer_find_it = properties.find(attributes.AssignedCarer);
                 CHECK(carer_find_it != std::end(properties));

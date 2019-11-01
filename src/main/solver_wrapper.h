@@ -77,6 +77,8 @@ namespace rows {
         static const int64 SECONDS_IN_DAY;
         static const int64 SECONDS_IN_DIMENSION;
         static const std::string TIME_DIMENSION;
+        static const int64 MAX_CARERS_SINGLE_VISITS;
+        static const int64 MAX_CARERS_MULTIPLE_VISITS;
 
         SolverWrapper(const rows::Problem &problem,
                       osrm::EngineConfig &config,
@@ -184,6 +186,14 @@ namespace rows {
 
         void OnConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                               const operations_research::RoutingModel &model);
+
+        void AddSkillHandling(operations_research::Solver *solver,
+                              operations_research::RoutingModel &model,
+                              const operations_research::RoutingIndexManager &index_manager);
+
+        void AddContinuityOfCare(operations_research::Solver *solver,
+                                 operations_research::RoutingModel &model,
+                                 const operations_research::RoutingIndexManager &index_manager);
 
         std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
                                                                              const rows::Carer &carer,
