@@ -92,7 +92,7 @@ class PastVisit(rows.model.object.DatabaseObject):  # pylint: disable=too-many-i
                          check_out=check_out)
 
     @property
-    def visit(self):
+    def visit(self) -> rows.model.visit.Visit:
         """Return a property"""
 
         return self.__visit

@@ -320,10 +320,12 @@ def compare_distance(args, settings):
         data_frame.sort_values(by=['Date'], inplace=True)
         data_frame.to_pickle(data_frame_file)
 
-    data_frame.to_csv('table.csv')
     condensed_frame = pandas.pivot(data_frame, columns='Label', values='Travel', index='Date')
     condensed_frame['Improvement'] = condensed_frame['2nd Stage'] - condensed_frame['3rd Stage']
     condensed_frame['RelativeImprovement'] = condensed_frame['Improvement'] / condensed_frame['2nd Stage']
+
+    color_map = matplotlib.cm.get_cmap('Set1')
+    matplotlib.pyplot.set_cmap(color_map)
 
     figure, ax = matplotlib.pyplot.subplots(1, 1, sharex=True)
     try:
@@ -334,12 +336,13 @@ def compare_distance(args, settings):
 
         handles = []
         position = 0
-        for label in labels:
+        for color_number, label in enumerate(labels):
             data_frame_to_use = data_frame[data_frame['Label'] == label]
 
             handle = ax.bar(indices + position * width,
                             time_delta_convert(data_frame_to_use['Travel']),
                             width,
+                            color=color_map.colors[color_number],
                             bottom=time_delta_convert.zero)
 
             handles.append(handle)
@@ -840,7 +843,7 @@ class TraceLog:
         return self.__events
 
 
-def read_traces(trace_file):
+def read_traces(trace_file) -> TraceLog:
     log_line_pattern = re.compile('^\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?]\s+(?P<body>.*)$')
     other_line_pattern = re.compile('^.*?\[\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?\]\s+(?P<body>.*)$')
 
@@ -1180,7 +1183,10 @@ def compare_trace(args, settings):
                          current_date])
                     scatter_dropped_visits(ax2, current_date_frame, current_color)
 
-            x_ticks = numpy.arange(0, max_relative_time.total_seconds() + 2 * 60, 1 * 60)
+            minutes_step = 1
+            if max_relative_time > datetime.timedelta(minutes=15):
+                minutes_step = 5
+            x_ticks = numpy.arange(0, max_relative_time.total_seconds() + minutes_step * 60, minutes_step * 60)
 
             ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
             ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
@@ -1193,15 +1199,17 @@ def compare_trace(args, settings):
                 ax1.arrow(950, 200000, 40, -110000, head_width=10, head_length=20000, fc='k', ec='k')
                 ax2.arrow(950, 60, 40, -40, head_width=10, head_length=10, fc='k', ec='k')
 
+            right_x_limit = (max_relative_time + datetime.timedelta(minutes=1)).total_seconds() // 60 * 60
+
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
-            ax1.set_xlim(left=0, right=(max_relative_time + datetime.timedelta(minutes=2)).total_seconds())
+            ax1.set_xlim(left=0, right=right_x_limit)
             ax1.set_ylabel('Cost Function [s]')
             # legend = add_trace_legend(ax2, handles, bbox_to_anchor=(0.5, -1.7), ncol=2)
 
             ax2_y_bottom, ax2_y_top = ax2.get_ylim()
             ax2.set_ylim(bottom=-10, top=ax2_y_top * __Y_AXIS_EXTENSION)
-            ax2.set_xlim(left=0, right=(max_relative_time + datetime.timedelta(minutes=2)).total_seconds())
+            ax2.set_xlim(left=0, right=right_x_limit)
             ax2.set_ylabel('Declined Visits')
             ax2.set_xlabel('Computation Time [mm:ss]')
 
@@ -1272,7 +1280,7 @@ def contrast_trace(args, settings):
     if current_date not in candidate_frame['date'].unique():
         raise ValueError('Date {0} is not present in the candidate data set'.format(current_date))
 
-    x_ticks_positions = range(0, 8 * 60 + 1, 120)
+    x_ticks_positions = range(0, 16 * 60 + 1, 120)
 
     color_map = matplotlib.cm.get_cmap('Set1')
     matplotlib.pyplot.set_cmap(color_map)
@@ -1317,6 +1325,7 @@ def contrast_trace(args, settings):
         ax2.set_ylim(bottom=0.0)
         ax2.set_ylabel('Declined Visits')
         ax2.set_xlabel('Computation Time [mm:ss]')
+        ax1.set_xticks(x_ticks_positions)
         ax2.set_xticks(x_ticks_positions)
         ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
         legend2 = ax2.legend([base_handle, candidate_handle], labels)
@@ -1339,15 +1348,16 @@ def contrast_trace(args, settings):
         stage2_started = \
             candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage2']['stage_started'].iloc[0]
 
-        ax1.set_xlim(left=0.0, right=14)
         ax1.set_ylim(bottom=0, top=6 * 10 ** 4)
         ax1.set_ylabel('Cost Function [s]')
         ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
         ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
 
+        ax1.set_xlim(left=0, right=12)
+        ax2.set_xlim(left=0, right=12)
+
         x_ticks_positions = range(0, 12 + 1, 2)
         # matplotlib.pyplot.locator_params(axis='x', nbins=6)
-        ax2.set_xlim(left=0.0, right=14)
         ax2.set_ylim(bottom=-10.0, top=120)
         ax2.set_ylabel('Declined Visits')
         ax2.set_xlabel('Computation Time [mm:ss]')
@@ -1594,6 +1604,9 @@ def compare_schedule_cost(args, settings):
 
     printable_data_frame = pandas.DataFrame(data=printable_results)
     print(tabulate.tabulate(printable_data_frame, tablefmt='latex', headers='keys', showindex=False))
+    print(tabulate.tabulate(printable_data_frame[['day', 'planner_travel_time', 'planner_carers_used', 'planner_missed_visits', 'planner_total_cost',
+                                                  'solver_travel_time', 'solver_carers_used', 'solver_missed_visits', 'solver_total_cost']],
+                            tablefmt='latex', headers='keys', showindex=False))
 
 
 def get_consecutive_visit_time_span(schedule: rows.model.schedule.Schedule, start_time_estimator):
@@ -1897,12 +1910,28 @@ class MipTrace:
         return datetime.timedelta.max
 
 
+class DummyTrace:
+    def __init__(self):
+        pass
+
+    def best_cost(self):
+        return float('inf')
+
+    def best_bound(self):
+        return 0
+
+    def best_cost_time(self):
+        return datetime.timedelta(hours=23, minutes=59, seconds=59)
+
+
 def compare_benchmark_table(args, settings):
     ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'Carers', 'Visits', 'Visits2', 'MipSolutionLog',
                                                              'CpTeamSolutionLog',
                                                              'CpWindowsSolutionLog'])
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
     old_simulation_dir = '/home/pmateusz/dev/cordia/simulations/review_simulations_old'
+
+    dummy_log = DummyTrace()
 
     problem_configs = [ProblemConfig(os.path.join(simulation_dir, 'benchmark/25/problem_201710{0:02d}_v25m0c3.json'.format(day_number)),
                                      3, 25, 0,
@@ -1934,41 +1963,42 @@ def compare_benchmark_table(args, settings):
 
     logs = []
     for problem_config in problem_configs:
-        if not os.path.exists(problem_config.MipSolutionLog):
-            warnings.warn('File {0} is missing'.format(problem_config.MipSolutionLog))
-            continue
-
-        if not os.path.exists(problem_config.CpTeamSolutionLog):
-            warnings.warn('File {0} is missing'.format(problem_config.CpTeamSolutionLog))
-            continue
-
-        if not os.path.exists(problem_config.CpWindowsSolutionLog):
-            warnings.warn('File {0} is missing'.format(problem_config.CpWindowsSolutionLog))
-            continue
-
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
 
-            cp_team_logs = read_traces(problem_config.CpTeamSolutionLog)
-            if not cp_team_logs:
-                warnings.warn('File {0} is empty'.format(problem_config.CpTeamSolutionLog))
-                continue
-            cp_team_log = cp_team_logs[0]
+            if os.path.exists(problem_config.CpTeamSolutionLog):
+                cp_team_logs = read_traces(problem_config.CpTeamSolutionLog)
+                if not cp_team_logs:
+                    warnings.warn('File {0} is empty'.format(problem_config.CpTeamSolutionLog))
+                    cp_team_logs = dummy_log
+                else:
+                    cp_team_log = cp_team_logs[0]
+            else:
+                cp_team_logs = dummy_log
 
-            cp_window_logs = read_traces(problem_config.CpWindowsSolutionLog)
-            if not cp_window_logs:
-                warnings.warn('File {0} is empty'.format(problem_config.CpWindowsSolutionLog))
-                continue
-            cp_window_log = cp_window_logs[0]
+            if os.path.exists(problem_config.CpWindowsSolutionLog):
+                cp_window_logs = read_traces(problem_config.CpWindowsSolutionLog)
+                if not cp_window_logs:
+                    warnings.warn('File {0} is empty'.format(problem_config.CpWindowsSolutionLog))
+                    cp_window_logs = dummy_log
+                else:
+                    cp_window_log = cp_window_logs[0]
+            else:
+                cp_window_logs = dummy_log
 
-            mip_log = MipTrace.read_from_file(problem_config.MipSolutionLog)
-            if not mip_log:
-                warnings.warn('File {0} is empty'.format(problem_config.MipSolutionLog))
-                continue
+            if os.path.exists(problem_config.MipSolutionLog):
+                mip_log = MipTrace.read_from_file(problem_config.MipSolutionLog)
+                if not mip_log:
+                    warnings.warn('File {0} is empty'.format(problem_config.MipSolutionLog))
+                    mip_log = dummy_log
+            else:
+                mip_log = dummy_log
 
             logs.append([problem_config, mip_log, cp_team_log, cp_window_log])
 
     def get_gap(cost: float, lower_bound: float) -> float:
+        if lower_bound == 0.0:
+            return float('inf')
         return (cost - lower_bound) * 100.0 / lower_bound
 
     def get_delta(cost, cost_to_compare):

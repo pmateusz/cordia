@@ -80,6 +80,12 @@ namespace rows {
             gexf.SetNodeValue(visit_id, DURATION, visit.duration());
             gexf.SetNodeValue(visit_id, USER, visit.service_user().id());
             gexf.SetNodeValue(visit_id, CARER_COUNT, static_cast<size_t>(visit.carer_count()));
+
+            std::vector<std::string> tasks;
+            for (const auto task_number : visit.tasks()) {
+                tasks.emplace_back(std::to_string(task_number));
+            }
+            gexf.SetNodeValue(visit_id, TASKS, boost::join(tasks, ";"));
         }
 
         static const SolutionValidator validator{};
@@ -171,12 +177,6 @@ namespace rows {
                     gexf.SetNodeValue(start_visit_id,
                                       SATISFACTION,
                                       std::to_string(service_user.Preference(carer)));
-
-                    std::vector<std::string> tasks;
-                    for (const auto task_number : calendar_visit.tasks()) {
-                        tasks.emplace_back(std::to_string(task_number));
-                    }
-                    gexf.SetNodeValue(start_visit_id, TASKS, boost::join(tasks, ";"));
 
                     if (model.IsEnd(start_visit_index)) {
                         break;

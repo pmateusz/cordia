@@ -172,7 +172,7 @@ void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIn
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
-    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
+//    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
 
     printer->operator<<(ProblemDefinition(model.vehicles(),
                                           model.nodes() - 1,

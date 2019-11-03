@@ -17,11 +17,6 @@ namespace rows {
 
     class SingleStepSolver : public SolverWrapper {
     public:
-        static const int64 CARE_CONTINUITY_MAX;
-        static const std::string CARE_CONTINUITY_DIMENSION;
-
-        operations_research::IntVar const *CareContinuityVar(const rows::ExtendedServiceUser &service_user) const;
-
         SingleStepSolver(const rows::Problem &problem,
                          osrm::EngineConfig &config,
                          const operations_research::RoutingSearchParameters &search_parameters);
@@ -39,12 +34,6 @@ namespace rows {
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 
-        std::string GetDescription(const operations_research::RoutingIndexManager &index_manager,
-                                   const operations_research::RoutingModel &model,
-                                   const operations_research::Assignment &solution) override;
-
-        std::shared_ptr<rows::RoutingVariablesStore> variable_store();
-
     private:
         class CareContinuityMetrics {
         public:
@@ -59,13 +48,6 @@ namespace rows {
 
         boost::posix_time::time_duration no_progress_time_limit_;
 
-        std::shared_ptr<rows::RoutingVariablesStore> variable_store_;
-
-        bool care_continuity_enabled_;
-
-        std::unordered_map<rows::ExtendedServiceUser, operations_research::IntVar *> care_continuity_;
-
-        std::vector<CareContinuityMetrics> care_continuity_metrics_;
     };
 }
 

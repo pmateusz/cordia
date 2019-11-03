@@ -436,9 +436,9 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         }
     } else if (first_stage_strategy_ == FirstStageStrategy::SOFT_TIME_WINDOWS) {
         auto internal_search_params = operations_research::DefaultRoutingSearchParameters();
-//        internal_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_AUTOMATIC); // do not use cp_sat but sweeping
-        internal_search_params.set_first_solution_strategy(
-                operations_research::FirstSolutionStrategy_Value_SAVINGS); // do not use cp_sat but sweeping
+        internal_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_AUTOMATIC); // do not use cp_sat but sweeping
+//        internal_search_params.set_first_solution_strategy(
+//                operations_research::FirstSolutionStrategy_Value_SAVINGS); // do not use cp_sat but sweeping
 //        internal_search_params.set_savings_max_memory_usage_bytes(1024.0 * 1024.0 * 1024.0);
         internal_search_params.set_savings_parallel_routes(true);
         internal_search_params.set_use_full_propagation(true);

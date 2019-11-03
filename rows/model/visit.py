@@ -27,6 +27,16 @@ class Visit(rows.model.object.DatabaseObject):
         self.__address = kwargs.get(Visit.ADDRESS, None)
         self.__tasks = kwargs.get(Visit.TASKS, [])
 
+    def __eq__(self, other):
+        if not isinstance(other, Visit):
+            return False
+
+        return self.__service_user == other.service_user and self.__date == other.date and self.__time == other.time \
+               and self.__duration == other.duration and self.__carer_count == other.carer_count
+
+    def __hash__(self):
+        return hash(tuple([self.__service_user, self.__date, self.__time, self.__duration, self.__carer_count]))
+
     def as_dict(self):
         bundle = super(Visit, self).as_dict()
         bundle[Visit.SERVICE_USER] = self.__service_user

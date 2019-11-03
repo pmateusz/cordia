@@ -3,6 +3,7 @@
 import collections
 import datetime
 import operator
+import typing
 
 import rows.model.carer
 import rows.model.location
@@ -83,7 +84,7 @@ class Schedule(rows.model.object.DataObject):
         return self.__metadata
 
     @property
-    def visits(self):
+    def visits(self) -> typing.List[rows.model.past_visit.PastVisit]:
         """Get a property"""
 
         return self.__visits

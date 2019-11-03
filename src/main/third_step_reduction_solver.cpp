@@ -150,7 +150,7 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
         time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
         time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
-    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
+//    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
 
     std::stringstream penalty_msg;
     penalty_msg << "CarerUsedPenalty: " << global_carer_penalty;

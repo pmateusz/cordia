@@ -51,6 +51,12 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
     // all such nodes must be either performed or unperformed
     std::vector<operations_research::IntVar *> window_cost_components;
 
+    // need to handle gracefully -1
+    std::vector<int64> num_skills_by_vehicle{0};
+    for (auto vehicle = 0; vehicle < vehicles(); ++vehicle) {
+        num_skills_by_vehicle.push_back(Carer(vehicle).skills().size());
+    }
+
     const auto VISIT_NOT_MADE_PENALTY = visit_time_window_.total_seconds() + 1;
     auto total_multiple_carer_visits = 0;
     for (const auto &visit_index_pair : visit_index_) {
@@ -95,9 +101,9 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
 //            solver->AddConstraint(solver->MakeEquality(time_dimension->CumulVar(first_visit_to_use), time_dimension->CumulVar(second_visit_to_use)));
 //            solver->AddConstraint(solver->MakeEquality(model.ActiveVar(first_visit_to_use), model.ActiveVar((second_visit_to_use))));
 
-            window_cost_components.emplace_back(
-                    solver->MakeAbs(solver->MakeDifference(time_dimension->CumulVar(first_visit_to_use),
-                                                           time_dimension->CumulVar(second_visit_to_use))->Var())->Var());
+            window_cost_components.emplace_back(solver->MakeAbs(solver->MakeDifference(time_dimension->CumulVar(first_visit_to_use),
+                                                                                       time_dimension->CumulVar(
+                                                                                               second_visit_to_use))->Var())->Var());
 
             window_cost_components.emplace_back(
                     solver->MakeProd(
@@ -109,6 +115,11 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
             solver->AddConstraint(solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
 
             ++total_multiple_carer_visits;
+        }
+
+        for (auto visit_index : visit_indices) {
+            window_cost_components.push_back(
+                    solver->MakeElement(num_skills_by_vehicle, solver->MakeSum(model.VehicleVar(visit_index), 1)->Var())->Var());
         }
     }
 

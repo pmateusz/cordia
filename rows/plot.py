@@ -75,7 +75,7 @@ class DurationEstimator:
             return None
 
     @staticmethod
-    def create_expected_visit_duration(schedule):
+    def create_expected_visit_duration(schedule: rows.model.schedule.Schedule) -> 'DurationEstimator':
         expected_visit_duration = rows.plot.VisitDict()
         for past_visit in schedule.visits:
             expected_visit_duration[past_visit.visit] = past_visit.duration
@@ -223,7 +223,7 @@ def add_legend(axis, handles, labels, ncol, bbox_to_anchor, loc='lower center'):
     return legend
 
 
-FILE_FORMAT = 'pdf'
+FILE_FORMAT = 'png'
 
 
 def save_figure(file_path, file_format=FILE_FORMAT):

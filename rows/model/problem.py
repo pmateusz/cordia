@@ -86,6 +86,15 @@ class Problem(rows.model.object.DataObject):
             self.__service_user = kwargs.get(Problem.LocalVisit.SERVICE_USER, None)
             self.__carer_count = kwargs.get(Problem.LocalVisit.CARER_COUNT, None)
 
+        def __eq__(self, other):
+            if not isinstance(other, Problem.LocalVisit):
+                return False
+            return self.__date == other.date and self.__time == other.time and self.__duration == other.duration and self.__tasks == other.tasks \
+                   and self.__service_user == other.service_user
+
+        def __hash__(self):
+            return hash(tuple([self.__date, self.__time, self.__duration, self.__service_user, self.__carer_count]))
+
         def as_dict(self):
             bundle = super(Problem.LocalVisit, self).as_dict()
             bundle[Problem.LocalVisit.DATE] = self.__date
@@ -191,7 +200,7 @@ class Problem(rows.model.object.DataObject):
             return self.__service_user
 
         @property
-        def visits(self):
+        def visits(self) -> 'typing.List[Problem.LocalVisit]':
             """Return a property"""
 
             return self.__visits
@@ -272,7 +281,7 @@ class Problem(rows.model.object.DataObject):
         return self.__carers
 
     @property
-    def visits(self):
+    def visits(self) -> typing.List[LocalVisits]:
         """Get a property"""
 
         return self.__visits

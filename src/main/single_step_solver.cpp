@@ -1,9 +1,3 @@
-#include <boost/accumulators/accumulators.hpp>
-#include <boost/accumulators/statistics/stats.hpp>
-#include <boost/accumulators/statistics/mean.hpp>
-#include <boost/accumulators/statistics/median.hpp>
-#include <boost/accumulators/statistics/variance.hpp>
-
 #include <chrono>
 #include <utility>
 
@@ -18,10 +12,6 @@
 
 namespace rows {
 
-    const int64 SingleStepSolver::CARE_CONTINUITY_MAX = 10000;
-
-    const std::string SingleStepSolver::CARE_CONTINUITY_DIMENSION{"CareContinuity"};
-
     SingleStepSolver::SingleStepSolver(const rows::Problem &problem,
                                        osrm::EngineConfig &config,
                                        const operations_research::RoutingSearchParameters &search_parameters,
@@ -35,16 +25,7 @@ namespace rows {
                             std::move(visit_time_window),
                             std::move(break_time_window),
                             std::move(begin_end_work_day_adjustment)),
-              no_progress_time_limit_(no_progress_time_limit),
-              variable_store_{nullptr},
-              care_continuity_enabled_(false),
-              care_continuity_(),
-              care_continuity_metrics_() {
-
-        for (const auto &service_user : problem_.service_users()) {
-            care_continuity_.insert(std::make_pair(service_user, nullptr));
-        }
-    }
+              no_progress_time_limit_(no_progress_time_limit) {}
 
     SingleStepSolver::SingleStepSolver(const rows::Problem &problem,
                                        osrm::EngineConfig &config,
@@ -57,13 +38,6 @@ namespace rows {
                                boost::posix_time::minutes(0),
                                boost::posix_time::not_a_date_time) {}
 
-    operations_research::IntVar const *SingleStepSolver::CareContinuityVar(
-            const rows::ExtendedServiceUser &service_user) const {
-        const auto service_user_it = care_continuity_.find(service_user);
-        DCHECK(service_user_it != std::end(care_continuity_));
-        return service_user_it->second;
-    }
-
     void SingleStepSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                           operations_research::RoutingModel &model,
                                           const std::shared_ptr<Printer> &printer,
@@ -72,8 +46,6 @@ namespace rows {
         static const auto START_FROM_ZERO_TIME = false;
 
         OnConfigureModel(index_manager, model);
-
-        variable_store_ = std::make_shared<rows::RoutingVariablesStore>(model.nodes(), model.vehicles());
 
         const auto transit_callback_handle = model.RegisterTransitCallback(
                 [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
@@ -159,6 +131,18 @@ namespace rows {
         AddSkillHandling(solver, model, index_manager);
         AddContinuityOfCare(solver, model, index_manager);
 
+        // could be interesting to use the Google constraint for breaks
+        // initial results show violation of some breaks
+        std::vector<int64> service_times(model.Size());
+        for (int node = 0; node < model.Size(); node++) {
+            if (node >= model.nodes() || node == 0) {
+                service_times[node] = 0;
+            } else {
+                const auto &visit = visit_by_node_.at(node);
+                service_times[node] = visit.duration().total_seconds();
+            }
+        }
+
         const auto schedule_day = GetScheduleDate();
         auto solver_ptr = model.solver();
 
@@ -184,11 +168,7 @@ namespace rows {
                 CHECK_LE(end_duration.total_seconds(), end_time) << carer.sap_number();
 
                 const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
-                solver_ptr->AddConstraint(
-                        solver_ptr->RevAlloc(
-                                new BreakConstraint(time_dimension, &index_manager, vehicle, breaks, *this)));
-
-                variable_store_->SetBreakIntervalVars(vehicle, breaks);
+                time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
             }
 
             time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
@@ -213,58 +193,6 @@ namespace rows {
             model.AddDisjunction(visit_indices, max_distance, static_cast<int64>(visit_indices.size()));
         }
 
-        if (care_continuity_enabled_) {
-            for (const auto &carer_pair :problem_.carers()) {
-                care_continuity_metrics_.emplace_back(*this, carer_pair.first);
-            }
-
-            std::vector<int> care_continuity_callback_handles;
-            for (const auto &carer_metrics :care_continuity_metrics_) {
-                care_continuity_callback_handles.push_back(
-                        model.RegisterTransitCallback(
-                                [&carer_metrics, &index_manager](int64 from_index, int64 to_index) -> int64 {
-                                    return carer_metrics(index_manager.IndexToNode(from_index),
-                                                         index_manager.IndexToNode(to_index));
-                                }));
-            }
-
-            model.AddDimensionWithVehicleTransits(care_continuity_callback_handles,
-                                                  0,
-                                                  CARE_CONTINUITY_MAX,
-                                                  START_FROM_ZERO_SERVICE_SATISFACTION,
-                                                  CARE_CONTINUITY_DIMENSION);
-
-            operations_research::RoutingDimension const *care_continuity_dimension = model.GetMutableDimension(
-                    rows::SingleStepSolver::CARE_CONTINUITY_DIMENSION);
-
-            // define and maximize the service satisfaction
-            for (const auto &service_user :problem_.service_users()) {
-                std::vector<operations_research::IntVar *> service_user_visits;
-
-                for (const auto &visit :problem_.visits()) {
-                    if (visit.service_user() != service_user) {
-                        continue;
-                    }
-
-                    const auto visit_it = visit_index_.find(visit);
-                    DCHECK(visit_it != std::end(visit_index_));
-                    for (const auto &visit_node : visit_it->second) {
-                        service_user_visits.push_back(
-                                care_continuity_dimension->TransitVar(index_manager.NodeToIndex(visit_node)));
-                    }
-                }
-
-                auto find_it = care_continuity_.find(service_user);
-                DCHECK(find_it != std::end(care_continuity_));
-
-                const auto care_satisfaction = model.solver()->MakeSum(service_user_visits)->Var();
-                find_it->second = care_satisfaction;
-
-                model.AddToAssignment(care_satisfaction);
-                model.AddVariableMaximizedByFinalizer(care_satisfaction);
-            }
-        }
-
         VLOG(1) << "Finalizing definition of the routing model...";
         const auto start_time_model_closing = std::chrono::high_resolution_clock::now();
 
@@ -286,36 +214,6 @@ namespace rows {
                     model.solver()
             )));
         }
-    }
-
-    std::string SingleStepSolver::GetDescription(const operations_research::RoutingIndexManager &index_manager,
-                                                 const operations_research::RoutingModel &model,
-                                                 const operations_research::Assignment &solution) {
-        auto description = SolverWrapper::GetDescription(index_manager, model, solution);
-
-        if (care_continuity_enabled_) {
-            boost::accumulators::accumulator_set<double,
-                    boost::accumulators::stats<
-                            boost::accumulators::tag::mean,
-                            boost::accumulators::tag::median,
-                            boost::accumulators::tag::variance> > care_continuity_stats;
-
-            for (const auto &user_satisfaction_pair : care_continuity_) {
-                care_continuity_stats(solution.Value(user_satisfaction_pair.second));
-            }
-
-            description.append((boost::format("Care continuity: mean: %1% median: %2% stddev: %3%\n")
-                                % boost::accumulators::mean(care_continuity_stats)
-                                % boost::accumulators::median(care_continuity_stats)
-                                % std::sqrt(boost::accumulators::variance(care_continuity_stats))).str()
-            );
-        }
-
-        return description;
-    }
-
-    std::shared_ptr<rows::RoutingVariablesStore> SingleStepSolver::variable_store() {
-        return variable_store_;
     }
 
     SingleStepSolver::CareContinuityMetrics::CareContinuityMetrics(const SingleStepSolver &solver,
