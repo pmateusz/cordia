@@ -964,9 +964,8 @@ namespace rows {
         }
     }
 
-    std::pair<operations_research::RoutingNodeIndex,
-            operations_research::RoutingNodeIndex> SolverWrapper::GetNodePair(
-            const rows::CalendarVisit &visit) const {
+    std::pair<operations_research::RoutingNodeIndex, operations_research::RoutingNodeIndex>
+    SolverWrapper::GetNodePair(const rows::CalendarVisit &visit) const {
         const auto &nodes = GetNodes(visit);
         CHECK_EQ(nodes.size(), 2);
 
