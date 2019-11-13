@@ -15,6 +15,7 @@ endif ()
 
 # uncomment for a debug mode build
 set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/pmateusz-ortoools-7.1)
+set(AMPL_ROOT_DIR /home/pmateusz/dev/amplapi-linux64)
 
 set(default_build_type "RELEASE")
 if (EXISTS "${CMAKE_SOURCE_DIR}/.git")
@@ -78,6 +79,7 @@ find_package(ZLIB REQUIRED)
 find_package(EXPAT REQUIRED)
 find_package(GFlags REQUIRED)
 find_package(Gurobi REQUIRED)
+find_package(Ampl REQUIRED)
 find_package(Json)
 find_package(Gexf)
 
@@ -96,6 +98,7 @@ set(HEADER_DEP ${OSRM_INCLUDE_DIR}
         ${JSON_INCLUDE_DIR}
         ${GEXF_INCLUDE_DIR}
         ${ORTOOLS_INCLUDE_DIR}
+        ${AMPL_INCLUDE_DIR}
         ${LIBXML2_INCLUDE_DIR}
         ${GUROBI_INCLUDE_DIR}
         ${GFLAGS_INCLUDE_DIR}
@@ -106,6 +109,7 @@ set(LIBRARY_DEP ${ORTOOLS_LIBRARY}
         ${GUROBI_STATIC_LIBRARY}
         ${GUROBI_LIBRARY}
         ${OSRM_LIBRARY}
+        ${AMPL_LIBRARY}
         ${Boost_LIBRARIES}
         ${ZLIB_LIBRARIES}
         ${EXPAT_LIBRARIES}
@@ -126,7 +130,10 @@ target_include_directories(rows-main PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-main rows ${LIBRARY_DEP})
 set_property(TARGET rows-main PROPERTY CXX_STANDARD 14)
 
-message(STATUS ${GUROBI_LIBRARY})
+add_executable(rows-benchmark "${CMAKE_SOURCE_DIR}/src/main/rows-benchmark.cpp")
+target_include_directories(rows-benchmark PUBLIC ${HEADERS} ${HEADER_DEP})
+target_link_libraries(rows-benchmark rows ${LIBRARY_DEP})
+set_property(TARGET rows-benchmark PROPERTY CXX_STANDARD 14)
 
 add_executable(rows-mip-solver "${CMAKE_SOURCE_DIR}/src/main/rows-mip.cpp")
 target_include_directories(rows-mip-solver PUBLIC ${HEADERS} ${HEADER_DEP})
