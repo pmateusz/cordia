@@ -155,6 +155,7 @@ namespace rows {
         }
     }
 
+    // TODO: provide implementations of these functions externally
     int64 SolverWrapper::Distance(operations_research::RoutingNodeIndex from,
                                   operations_research::RoutingNodeIndex to) {
         if (from == DEPOT || to == DEPOT) {
