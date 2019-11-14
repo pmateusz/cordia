@@ -103,8 +103,7 @@ namespace rows {
 
         std::unique_ptr<rows::SolverWrapper> CreateThirdStageSolver(const operations_research::RoutingSearchParameters &search_params,
                                                                     int64 last_dropped_visit_penalty,
-                                                                    std::size_t max_dropped_visits_count,
-                                                                    const std::vector<rows::RouteValidatorBase::Metrics> &vehicle_metrics);
+                                                                    std::size_t max_dropped_visits_count);
 
         std::vector<std::vector<int64>> SolveFirstStage(const rows::SolverWrapper &second_step_wrapper,
                                                         const operations_research::RoutingIndexManager &second_step_index_manager);

@@ -80,7 +80,7 @@ TEST(TestLocationContainer, CanCalculateTravelTimes) {
     }
     std::vector<std::vector<int64> > distance_matrix(locations.size(), std::vector<int64>(locations.size(), -1));
 
-    rows::LocationContainer location_container{config};
+    rows::RealLocationContainer location_container{config};
 
     for (const auto &source_pair : location_index) {
         const auto &source_location = source_pair.first;

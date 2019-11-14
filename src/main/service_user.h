@@ -50,8 +50,7 @@ namespace rows {
 
         ExtendedServiceUser(std::string id,
                             Address address,
-                            Location location,
-                            std::unordered_map<Carer, double> carer_preference);
+                            Location location);
 
         ExtendedServiceUser(const ExtendedServiceUser &other);
 
@@ -69,10 +68,6 @@ namespace rows {
 
         bool operator!=(const ExtendedServiceUser &other) const;
 
-        double preference(const Carer &carer) const;
-
-        bool IsPreferred(const Carer &carer) const;
-
         const Address &address() const;
 
         const Location &location() const;
@@ -80,7 +75,6 @@ namespace rows {
     private:
         Address address_;
         Location location_;
-        std::unordered_map<Carer, double> carer_preference_;
     };
 }
 

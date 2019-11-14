@@ -174,9 +174,9 @@ namespace rows {
                     }
 
                     const auto &service_user = solver.User(solver.NodeToVisit(start_visit_node).service_user());
-                    gexf.SetNodeValue(start_visit_id,
-                                      SATISFACTION,
-                                      std::to_string(service_user.Preference(carer)));
+//                    gexf.SetNodeValue(start_visit_id,
+//                                      SATISFACTION,
+//                                      std::to_string(service_user.Preference(carer)));
 
                     if (model.IsEnd(start_visit_index)) {
                         break;

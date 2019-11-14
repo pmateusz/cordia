@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <numeric>
 #include <vector>
-#include <functional>
 #include <chrono>
 #include <tuple>
 #include <cmath>
@@ -9,7 +8,6 @@
 #include <glog/logging.h>
 
 #include <boost/date_time.hpp>
-#include <boost/algorithm/string/join.hpp>
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
@@ -17,18 +15,12 @@
 #include <boost/accumulators/statistics/variance.hpp>
 #include <boost/format.hpp>
 
-#include <osrm/coordinate.hpp>
-#include <osrm/util/coordinate.hpp>
-
-#include <ortools/constraint_solver/routing_flags.h>
 #include <ortools/sat/integer_expr.h>
 #include <ortools/constraint_solver/routing_parameters.h>
 #include <util/aplication_error.h>
 
-#include <osrm/coordinate.hpp>
 #include <osrm/engine_config.hpp>
 #include <osrm/json_container.hpp>
-#include <osrm/storage_config.hpp>
 #include <osrm/engine/api/route_parameters.hpp>
 
 
@@ -38,7 +30,6 @@
 #include "scheduled_visit.h"
 #include "solution.h"
 #include "solver_wrapper.h"
-#include "break_constraint.h"
 #include "progress_printer_monitor.h"
 
 // TODO: add support for mobile workers
@@ -109,12 +100,15 @@ namespace rows {
               begin_end_work_day_adjustment_(begin_end_work_day_adjustment),
             // time when carer is out of office is considered as a break
               out_office_hours_breaks_enabled_(true),
-              location_container_(std::begin(locations), std::end(locations), config),
+              location_container_(std::begin(locations), std::end(locations), std::make_unique<RealLocationContainer>(config)),
               parameters_(search_parameters),
               visit_index_(),
               visit_by_node_(),
               service_users_(),
-              start_horizon_{boost::posix_time::max_date_time} {
+              start_horizon_{boost::posix_time::max_date_time},
+              problem_data_{problem_, std::make_unique<CachedLocationContainer>(std::begin(locations),
+                                                                                std::end(locations),
+                                                                                std::make_unique<RealLocationContainer>(config))} {
 
         visit_by_node_.emplace_back(CalendarVisit()); // depot visit
         // visit that needs multiple carers is referenced by multiple nodes
@@ -141,6 +135,14 @@ namespace rows {
         }
         DCHECK_EQ(current_visit_node.value(), visit_by_node_.size());
 
+        for (const auto &visit_nodes_pair : visit_index_) {
+            for (const auto visit_node: visit_nodes_pair.second) {
+                CHECK_EQ(visit_nodes_pair.first, problem_data_.NodeToVisit(visit_node));
+            }
+        }
+        CHECK_EQ(nodes(), problem_data_.nodes());
+        CHECK_EQ(vehicles(), problem_data_.vehicles());
+
         for (const auto &service_user : problem_.service_users()) {
             const auto visit_count = std::count_if(std::begin(problem_.visits()),
                                                    std::end(problem_.visits()),
@@ -158,32 +160,44 @@ namespace rows {
     // TODO: provide implementations of these functions externally
     int64 SolverWrapper::Distance(operations_research::RoutingNodeIndex from,
                                   operations_research::RoutingNodeIndex to) {
-        if (from == DEPOT || to == DEPOT) {
-            return 0;
+        int64 result = 0;
+
+        if (from != DEPOT && to != DEPOT) {
+            result = location_container_.Distance(NodeToVisit(from).location().get(),
+                                                  NodeToVisit(to).location().get());
         }
 
-        return location_container_.Distance(NodeToVisit(from).location().get(),
-                                            NodeToVisit(to).location().get());
+        CHECK_EQ(result, problem_data_.Distance(from, to));
+        return result;
     }
 
     int64 SolverWrapper::ServiceTime(operations_research::RoutingNodeIndex node) {
-        if (node == DEPOT) {
-            return 0;
+        int64 result = 0;
+
+        if (node != DEPOT) {
+            const auto visit = NodeToVisit(node);
+            result = visit.duration().total_seconds();
         }
 
-        const auto visit = NodeToVisit(node);
-        return visit.duration().total_seconds();
+        CHECK_EQ(result, problem_data_.ServiceTime(node));
+
+        return result;
     }
 
     int64 SolverWrapper::ServicePlusTravelTime(operations_research::RoutingNodeIndex from,
                                                operations_research::RoutingNodeIndex to) {
-        if (from == DEPOT) {
-            return 0;
+
+        int64 result = 0;
+
+        if (from != DEPOT) {
+            const auto service_time = ServiceTime(from);
+            const auto travel_time = Distance(from, to);
+            result = service_time + travel_time;
         }
 
-        const auto service_time = ServiceTime(from);
-        const auto travel_time = Distance(from, to);
-        return service_time + travel_time;
+        CHECK_EQ(result, problem_data_.ServicePlusTravelTime(from, to));
+
+        return result;
     }
 
     boost::optional<rows::Diary> FindDiaryOrNone(const std::vector<rows::Diary> &diaries, boost::gregorian::date date) {
@@ -866,15 +880,6 @@ namespace rows {
         return visit_index_.find(visit) != std::end(visit_index_);
     }
 
-    bool SolverWrapper::ContainsNear(const CalendarVisit &visit) const {
-        for (const auto &visit_item : visit_index_) {
-            if (IsNear(visit_item.first, visit)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     const std::vector<operations_research::RoutingNodeIndex> &
     SolverWrapper::GetNodes(const CalendarVisit &visit) const {
         const auto find_it = visit_index_.find(visit);
@@ -996,18 +1001,10 @@ namespace rows {
             : LocalServiceUser(ExtendedServiceUser(), 1) {}
 
 
-    int64 SolverWrapper::LocalServiceUser::Preference(const rows::Carer &carer) const {
-        return static_cast<int64>(service_user_.preference(carer) * 100 / visit_count_);
-    }
-
     SolverWrapper::LocalServiceUser::LocalServiceUser(const rows::ExtendedServiceUser &service_user,
                                                       int64 visit_count)
             : service_user_(service_user),
               visit_count_(visit_count) {}
-
-    bool SolverWrapper::LocalServiceUser::IsPreferred(const rows::Carer &carer) const {
-        return service_user_.IsPreferred(carer);
-    }
 
     const rows::ExtendedServiceUser &SolverWrapper::LocalServiceUser::service_user() const {
         return service_user_;
@@ -1111,5 +1108,179 @@ namespace rows {
 
             solver->AddConstraint(solver->MakeLessOrEqual(solver->MakeSum(is_visited_by_vehicle), continuity_care_cardinality));
         }
+    }
+
+    void SolverWrapper::AddTravelTime(operations_research::Solver *solver,
+                                      operations_research::RoutingModel &model,
+                                      const operations_research::RoutingIndexManager &index_manager) {
+        static const auto START_FROM_ZERO_SERVICE_SATISFACTION = true;
+        static const auto START_FROM_ZERO_TIME = false;
+
+        const auto transit_callback_handle = model.RegisterTransitCallback(
+                [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                    return this->Distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
+                });
+        model.SetArcCostEvaluatorOfAllVehicles(transit_callback_handle);
+
+        const auto service_time_callback_handle = model.RegisterTransitCallback(
+                [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
+                    return this->ServicePlusTravelTime(index_manager.IndexToNode(from_index),
+                                                       index_manager.IndexToNode(to_index));
+                });
+        model.AddDimension(service_time_callback_handle,
+                           SECONDS_IN_DIMENSION,
+                           SECONDS_IN_DIMENSION,
+                           START_FROM_ZERO_TIME,
+                           TIME_DIMENSION);
+    }
+
+    void SolverWrapper::AddVisitsHandling(operations_research::Solver *solver,
+                                          operations_research::RoutingModel &model,
+                                          const operations_research::RoutingIndexManager &index_manager) {
+        operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
+
+        time_dimension->CumulVar(index_manager.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
+
+        // visit that needs multiple carers is referenced by multiple nodes
+        // all such nodes must be either performed or unperformed
+        auto total_multiple_carer_visits = 0;
+        for (const auto &visit_index_pair : visit_index_) {
+            const auto visit_start = visit_index_pair.first.datetime() - StartHorizon();
+            DCHECK(!visit_start.is_negative()) << visit_index_pair.first.id();
+
+            // TODO: sort visit indices, but don't remember why...
+            std::vector<int64> visit_indices;
+            for (const auto &visit_node : visit_index_pair.second) {
+                const auto visit_index = index_manager.NodeToIndex(visit_node);
+                visit_indices.push_back(visit_index);
+
+                if (HasTimeWindows()) {
+                    const auto start_window = GetBeginVisitWindow(visit_start);
+                    const auto end_window = GetEndVisitWindow(visit_start);
+
+                    time_dimension
+                            ->CumulVar(visit_index)
+                            ->SetRange(start_window, end_window);
+
+                    DCHECK_LT(start_window, end_window) << visit_index_pair.first.id();
+                    DCHECK_LE(start_window, visit_start.total_seconds()) << visit_index_pair.first.id();
+                    DCHECK_LE(visit_start.total_seconds(), end_window) << visit_index_pair.first.id();
+                } else {
+                    time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
+                }
+                model.AddToAssignment(time_dimension->CumulVar(visit_index));
+                model.AddToAssignment(time_dimension->SlackVar(visit_index));
+            }
+
+            const auto visit_indices_size = visit_indices.size();
+            if (visit_indices_size > 1) {
+                CHECK_EQ(visit_indices_size, 2);
+
+                auto first_visit_to_use = visit_indices[0];
+                auto second_visit_to_use = visit_indices[1];
+                if (first_visit_to_use > second_visit_to_use) {
+                    std::swap(first_visit_to_use, second_visit_to_use);
+                }
+
+                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(first_visit_to_use),
+                                                              time_dimension->CumulVar(second_visit_to_use)));
+                solver->AddConstraint(solver->MakeLessOrEqual(time_dimension->CumulVar(second_visit_to_use),
+                                                              time_dimension->CumulVar(first_visit_to_use)));
+                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(first_visit_to_use),
+                                                              model.ActiveVar(second_visit_to_use)));
+                solver->AddConstraint(solver->MakeLessOrEqual(model.ActiveVar(second_visit_to_use),
+                                                              model.ActiveVar(first_visit_to_use)));
+
+                const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use),
+                                                                       solver->MakeIntConst(0));
+                solver->AddConstraint(solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
+
+                ++total_multiple_carer_visits;
+            }
+        }
+    }
+
+    void SolverWrapper::AddCarerHandling(operations_research::Solver *solver,
+                                         operations_research::RoutingModel &model,
+                                         const operations_research::RoutingIndexManager &index_manager) {
+        operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
+
+        // could be interesting to use the Google constraint for breaks
+        // initial results show violation of some breaks
+        std::vector<int64> service_times(model.Size());
+        for (int node = 0; node < model.Size(); node++) {
+            if (node >= model.nodes() || node == 0) {
+                service_times[node] = 0;
+            } else {
+                const auto &visit = visit_by_node_.at(node);
+                service_times[node] = visit.duration().total_seconds();
+            }
+        }
+
+        const auto schedule_day = GetScheduleDate();
+        auto solver_ptr = model.solver();
+        for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+            const auto &carer = Carer(vehicle);
+            const auto &diary_opt = problem_.diary(carer, schedule_day);
+
+            int64 begin_time = 0;
+            int64 end_time = 0;
+            if (diary_opt.is_initialized()) {
+                const auto &diary = diary_opt.get();
+
+                const auto begin_time_duration = (diary.begin_date_time() - StartHorizon());
+                const auto end_time_duration = (diary.end_date_time() - StartHorizon());
+
+                CHECK(!begin_time_duration.is_negative()) << carer.sap_number();
+                CHECK(!end_time_duration.is_negative()) << carer.sap_number();
+
+                begin_time = GetAdjustedWorkdayStart(begin_time_duration);
+                end_time = GetAdjustedWorkdayFinish(end_time_duration);
+
+                CHECK_GE(begin_time, 0) << carer.sap_number();
+                CHECK_LE(begin_time, end_time) << carer.sap_number();
+
+                const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
+                for (const auto &break_item : breaks) {
+                    model.AddIntervalToAssignment(break_item);
+                }
+
+                VLOG(1) << "Carer:" << carer.sap_number() << " Vehicle:" << vehicle;
+                for (const auto &break_item : breaks) {
+                    VLOG(1) << "[" << boost::posix_time::seconds(break_item->StartMin())
+                            << ", " << boost::posix_time::seconds(break_item->StartMax())
+                            << "] [" << boost::posix_time::seconds(break_item->EndMin())
+                            << ", " << boost::posix_time::seconds(break_item->EndMax()) << "]";
+                }
+
+                time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
+            }
+
+            time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
+            time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
+        }
+//    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
+    }
+
+    void SolverWrapper::AddDroppedVisitsHandling(operations_research::Solver *solver,
+                                                 operations_research::RoutingModel &model,
+                                                 const operations_research::RoutingIndexManager &index_manager) {
+        const auto dropped_visits_penalty = GetDroppedVisitPenalty();
+        for (const auto &visit_bundle : visit_index_) {
+            std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
+            model.AddDisjunction(visit_indices, dropped_visits_penalty, static_cast<int64>(visit_indices.size()));
+        }
+    }
+
+    void SolverWrapper::LimitDroppedVisits(operations_research::Solver *solver,
+                                           operations_research::RoutingModel &model,
+                                           const operations_research::RoutingIndexManager &index_manager,
+                                           int max_dropped_visits) {
+        std::vector<operations_research::IntVar *> all_visits;
+        for (const auto &visit_bundle : visit_index_) {
+            const auto visit_node = *std::begin(visit_bundle.second);
+            all_visits.push_back(model.VehicleVar(index_manager.NodeToIndex(visit_node)));
+        }
+        solver->AddConstraint(solver->MakeAtMost(all_visits, -1, max_dropped_visits));
     }
 }

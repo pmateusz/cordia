@@ -35,17 +35,6 @@ namespace rows {
                             std::shared_ptr<const std::atomic<bool> > cancel_token) override;
 
     private:
-        class CareContinuityMetrics {
-        public:
-            CareContinuityMetrics(const SingleStepSolver &solver, const rows::Carer &carer);
-
-            int64 operator()(operations_research::RoutingNodeIndex from,
-                             operations_research::RoutingNodeIndex to) const;
-
-        private:
-            std::unordered_map<operations_research::RoutingNodeIndex, int64> values_;
-        };
-
         boost::posix_time::time_duration no_progress_time_limit_;
 
     };

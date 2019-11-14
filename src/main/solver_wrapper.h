@@ -28,6 +28,7 @@
 #include "route_validator.h"
 #include "service_user.h"
 #include "printer.h"
+#include "real_problem_data.h"
 
 namespace rows {
 
@@ -110,8 +111,6 @@ namespace rows {
 
         bool Contains(const CalendarVisit &visit) const;
 
-        bool ContainsNear(const CalendarVisit &visit) const;
-
         const LocalServiceUser &User(const rows::ServiceUser &service_user) const;
 
         const rows::Carer &Carer(int vehicle) const;
@@ -187,6 +186,27 @@ namespace rows {
         void OnConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                               const operations_research::RoutingModel &model);
 
+        void AddTravelTime(operations_research::Solver *solver,
+                           operations_research::RoutingModel &model,
+                           const operations_research::RoutingIndexManager &index_manager);
+
+        void AddVisitsHandling(operations_research::Solver *solver,
+                               operations_research::RoutingModel &model,
+                               const operations_research::RoutingIndexManager &index_manager);
+
+        void AddCarerHandling(operations_research::Solver *solver,
+                              operations_research::RoutingModel &model,
+                              const operations_research::RoutingIndexManager &index_manager);
+
+        void AddDroppedVisitsHandling(operations_research::Solver *solver,
+                                      operations_research::RoutingModel &model,
+                                      const operations_research::RoutingIndexManager &index_manager);
+
+        void LimitDroppedVisits(operations_research::Solver *solver,
+                                operations_research::RoutingModel &model,
+                                const operations_research::RoutingIndexManager &index_manager,
+                                int max_dropped_visits);
+
         void AddSkillHandling(operations_research::Solver *solver,
                               operations_research::RoutingModel &model,
                               const operations_research::RoutingIndexManager &index_manager);
@@ -239,6 +259,7 @@ namespace rows {
         bool IsNear(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const;
 
         const rows::Problem problem_;
+        RealProblemData problem_data_;
         const Location depot_;
         const LocalServiceUser depot_service_user_;
         boost::posix_time::ptime start_horizon_;

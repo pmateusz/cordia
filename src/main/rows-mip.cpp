@@ -2418,7 +2418,9 @@ std::unique_ptr<Model> CreateModel(const rows::Problem &problem,
         locations.push_back(visit.location().get());
     }
 
-    rows::CachedLocationContainer location_container(std::cbegin(locations), std::cend(locations), engine_config);
+    rows::CachedLocationContainer location_container(std::cbegin(locations),
+                                                     std::cend(locations),
+                                                     std::make_unique<rows::RealLocationContainer>(engine_config));
     location_container.ComputeDistances();
 
     auto single_break_during_working_hours = true;

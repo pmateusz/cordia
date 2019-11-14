@@ -263,8 +263,7 @@ bool rows::ThreeStepSchedulingWorker::Init(rows::Problem problem,
 std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThirdStageSolver(
         const operations_research::RoutingSearchParameters &search_params,
         int64 last_dropped_visit_penalty,
-        std::size_t max_dropped_visits_count,
-        const std::vector<rows::RouteValidatorBase::Metrics> &vehicle_metrics) {
+        std::size_t max_dropped_visits_count) {
     CHECK_NE(third_stage_strategy_, ThirdStageStrategy::NONE);
 
     if (third_stage_strategy_ == ThirdStageStrategy::DEFAULT || third_stage_strategy_ == ThirdStageStrategy::DISTANCE) {
@@ -277,8 +276,7 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                        post_opt_time_limit_,
                                                        last_dropped_visit_penalty,
                                                        max_dropped_visits_count,
-                                                       false,
-                                                       vehicle_metrics);
+                                                       false);
     } else {
         CHECK_EQ(third_stage_strategy_, ThirdStageStrategy::VEHICLE_REDUCTION);
         return std::make_unique<rows::ThirdStepReductionSolver>(problem_,
@@ -289,8 +287,7 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                                 begin_end_shift_time_extension_,
                                                                 post_opt_time_limit_,
                                                                 last_dropped_visit_penalty,
-                                                                max_dropped_visits_count,
-                                                                vehicle_metrics);
+                                                                max_dropped_visits_count);
     }
 }
 
@@ -436,7 +433,8 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         }
     } else if (first_stage_strategy_ == FirstStageStrategy::SOFT_TIME_WINDOWS) {
         auto internal_search_params = operations_research::DefaultRoutingSearchParameters();
-        internal_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_AUTOMATIC); // do not use cp_sat but sweeping
+        internal_search_params.set_first_solution_strategy(
+                operations_research::FirstSolutionStrategy_Value_AUTOMATIC); // do not use cp_sat but sweeping
 //        internal_search_params.set_first_solution_strategy(
 //                operations_research::FirstSolutionStrategy_Value_SAVINGS); // do not use cp_sat but sweeping
 //        internal_search_params.set_savings_max_memory_usage_bytes(1024.0 * 1024.0 * 1024.0);
@@ -532,7 +530,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveSecondStag
     second_stage_solver.ConfigureModel(second_stage_index_manager, *second_stage_model, printer_, CancelToken());
 
     std::stringstream penalty_msg;
-    penalty_msg << "MissedVisitPenalty: " << second_stage_solver.DroppedVisitPenalty();
+    penalty_msg << "MissedVisitPenalty: " << second_stage_solver.GetDroppedVisitPenalty();
     printer_->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
 
     const auto second_stage_initial_assignment = second_stage_model->ReadAssignmentFromRoutes(second_stage_initial_routes, true);
@@ -583,12 +581,11 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
 
 
     const auto third_search_params = CreateThirdStageRoutingSearchParameters();
-    const auto third_stage_penalty = second_stage_solver.DroppedVisitPenalty();
+    const auto third_stage_penalty = second_stage_solver.GetDroppedVisitPenalty();
     const auto vehicle_metrics = GetVehicleMetrics(second_stage_routes, second_stage_solver);
     std::unique_ptr<rows::SolverWrapper> third_step_solver = CreateThirdStageSolver(third_search_params,
                                                                                     third_stage_penalty,
-                                                                                    max_dropped_visits_count,
-                                                                                    vehicle_metrics);
+                                                                                    max_dropped_visits_count);
 
     third_step_solver->ConfigureModel(*third_stage_index_manager, *third_stage_model, printer_, CancelToken());
 

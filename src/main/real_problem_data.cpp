@@ -5,13 +5,15 @@
 
 const operations_research::RoutingIndexManager::NodeIndex rows::RealProblemData::DEPOT{0};
 
-rows::RealProblemData::RealProblemData(const rows::Problem &problem) {
+rows::RealProblemData::RealProblemData(Problem problem, std::unique_ptr<CachedLocationContainer> location_container)
+        : problem_{std::move(problem)},
+          location_container_{std::move(location_container)} {
     node_index_.emplace(DEPOT, CalendarVisit()); // depot visit
 
     // visit that needs multiple carers is referenced by multiple nodes
     // all such nodes must be either performed or unperformed
     operations_research::RoutingNodeIndex current_visit_node{1};
-    for (const auto &visit : problem.visits()) {
+    for (const auto &visit : problem_.visits()) {
         DCHECK_GT(visit.carer_count(), 0);
 
         auto insert_pair = visit_index_.emplace(visit, std::vector<operations_research::RoutingNodeIndex>{});
@@ -27,6 +29,41 @@ rows::RealProblemData::RealProblemData(const rows::Problem &problem) {
         }
     }
     DCHECK_EQ(current_visit_node.value(), node_index_.size());
+}
+
+int rows::RealProblemData::vehicles() const {
+    return static_cast<int>(problem_.carers().size());
+}
+
+int rows::RealProblemData::nodes() const {
+    return static_cast<int>(node_index_.size());
+}
+
+int64 rows::RealProblemData::Distance(operations_research::RoutingNodeIndex from, operations_research::RoutingNodeIndex to) {
+    if (from == DEPOT || to == DEPOT) {
+        return 0;
+    }
+
+    return location_container_->Distance(NodeToVisit(from).location().get(), NodeToVisit(to).location().get());
+}
+
+int64 rows::RealProblemData::ServiceTime(operations_research::RoutingNodeIndex node) {
+    if (node == DEPOT) {
+        return 0;
+    }
+
+    const auto visit = NodeToVisit(node);
+    return visit.duration().total_seconds();
+}
+
+int64 rows::RealProblemData::ServicePlusTravelTime(operations_research::RoutingNodeIndex from, operations_research::RoutingNodeIndex to) {
+    if (from == DEPOT) {
+        return 0;
+    }
+
+    const auto service_time = ServiceTime(from);
+    const auto travel_time = Distance(from, to);
+    return service_time + travel_time;
 }
 
 const std::vector<operations_research::RoutingNodeIndex> &rows::RealProblemData::GetNodes(const rows::CalendarVisit &visit) const {
