@@ -17,12 +17,10 @@ namespace rows {
 
     class SingleStepSolver : public SolverWrapper {
     public:
-        SingleStepSolver(const rows::Problem &problem,
-                         osrm::EngineConfig &config,
+        SingleStepSolver(const rows::RealProblemData &problem_data,
                          const operations_research::RoutingSearchParameters &search_parameters);
 
-        SingleStepSolver(const rows::Problem &problem,
-                         osrm::EngineConfig &config,
+        SingleStepSolver(const rows::RealProblemData &problem_data,
                          const operations_research::RoutingSearchParameters &search_parameters,
                          boost::posix_time::time_duration visit_time_window,
                          boost::posix_time::time_duration break_time_window,

@@ -146,7 +146,7 @@ boost::posix_time::time_period GetTimeHorizon(const rows::Problem &problem) {
     }
 
     return {boost::posix_time::ptime(min_visit_start.date(), boost::posix_time::time_duration()),
-            boost::posix_time::seconds(rows::SolverWrapper::SECONDS_IN_DIMENSION)};
+            boost::posix_time::seconds(rows::RealProblemData::SECONDS_IN_DIMENSION)};
 }
 
 std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > GetCarers(const rows::Problem &problem) {
@@ -1142,7 +1142,7 @@ public:
         }
 
         horizon_start_ = boost::posix_time::ptime(min_visit_start.date(), boost::posix_time::time_duration());
-        horizon_duration_ = boost::posix_time::seconds(rows::SolverWrapper::SECONDS_IN_DIMENSION);
+        horizon_duration_ = boost::posix_time::seconds(rows::RealProblemData::SECONDS_IN_DIMENSION);
         boost::posix_time::time_period time_horizon(horizon_start_, horizon_duration_);
         for (std::size_t carer_index = 0; carer_index < num_carers_; ++carer_index) {
             // reset current node so all breaks start from the same node
@@ -2474,20 +2474,20 @@ int main(int argc, char *argv[]) {
         LOG(INFO) << "Loaded an initial guess from the file: " << FLAGS_solution;
     }
 
+    rows::RealProblemDataFactory problem_data_factory{engine_config};
+    const auto problem_data = problem_data_factory(problem);
     const auto search_params = operations_research::DefaultRoutingSearchParameters();
-    std::unique_ptr<rows::SecondStepSolver> solver_wrapper
-            = std::make_unique<rows::SecondStepSolver>(problem,
-                                                       engine_config,
-                                                       search_params,
-                                                       visit_time_window,
-                                                       break_time_window,
-                                                       overtime_window,
-                                                       no_progress_time_limit);
+    std::unique_ptr<rows::SecondStepSolver> solver_wrapper = std::make_unique<rows::SecondStepSolver>(*problem_data,
+                                                                                                      search_params,
+                                                                                                      visit_time_window,
+                                                                                                      break_time_window,
+                                                                                                      overtime_window,
+                                                                                                      no_progress_time_limit);
 
     std::unique_ptr<operations_research::RoutingIndexManager> index_manager
             = std::make_unique<operations_research::RoutingIndexManager>(solver_wrapper->nodes(),
                                                                          solver_wrapper->vehicles(),
-                                                                         rows::SolverWrapper::DEPOT);
+                                                                         rows::RealProblemData::DEPOT);
 
     std::unique_ptr<operations_research::RoutingModel> routing_model
             = std::make_unique<operations_research::RoutingModel>(*index_manager);

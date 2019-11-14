@@ -22,7 +22,7 @@ namespace rows {
 
     class RealLocationContainer : public LocationContainer {
     public:
-        RealLocationContainer(osrm::EngineConfig &config);
+        RealLocationContainer(osrm::EngineConfig config);
 
         int64 Distance(const Location &from, const Location &to) override;
 

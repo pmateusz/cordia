@@ -213,9 +213,10 @@ int RunSingleStepSchedulingWorker() {
                 search_parameters.mutable_time_limit()));
     }
 
+    const rows::RealProblemDataFactory problem_data_factory{engine_config};
+    const auto problem_data = problem_data_factory(problem_to_use);
     rows::SingleStepSchedulingWorker worker{printer};
-    if (worker.Init(problem_to_use,
-                    engine_config,
+    if (worker.Init(*problem_data,
                     solution,
                     search_parameters,
                     FLAGS_output)) {
@@ -241,10 +242,15 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         const boost::posix_time::time_duration &pre_opt_noprogress_time_limit,
                         const boost::posix_time::time_duration &opt_noprogress_time_limit,
                         const boost::posix_time::time_duration &post_opt_noprogress_time_limit) {
+    rows::RealProblemDataFactory problem_data_factory{engine_config};
+    auto problem_data = problem_data_factory(problem);
+
     if (first_stage_strategy != rows::FirstStageStrategy::NONE || third_stage_strategy != rows::ThirdStageStrategy::NONE) {
-        rows::ThreeStepSchedulingWorker worker{std::move(printer), first_stage_strategy, third_stage_strategy};
-        if (worker.Init(problem,
-                        engine_config,
+        rows::ThreeStepSchedulingWorker worker{std::move(printer),
+                                               first_stage_strategy,
+                                               third_stage_strategy,
+                                               problem_data_factory};
+        if (worker.Init(problem_data,
                         output,
                         visit_time_window,
                         break_time_window,
@@ -257,8 +263,7 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
         return worker.ReturnCode();
     } else {
         rows::SingleStepSchedulingWorker worker{std::move(printer)};
-        if (worker.Init(problem,
-                        engine_config,
+        if (worker.Init(*problem_data,
                         output,
                         visit_time_window,
                         break_time_window,
@@ -282,10 +287,14 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                    const boost::posix_time::time_duration &pre_opt_noprogress_time_limit,
                                    const boost::posix_time::time_duration &opt_noprogress_time_limit,
                                    const boost::posix_time::time_duration &post_opt_noprogress_time_limit) {
+    const rows::RealProblemDataFactory problem_data_factory{engine_config};
+    const auto problem_data = problem_data_factory(problem);
     if (first_stage_strategy != rows::FirstStageStrategy::NONE || third_stage_strategy != rows::ThirdStageStrategy::NONE) {
-        rows::ThreeStepSchedulingWorker worker{std::move(printer), first_stage_strategy, third_stage_strategy};
-        if (worker.Init(problem,
-                        engine_config,
+        rows::ThreeStepSchedulingWorker worker{std::move(printer),
+                                               first_stage_strategy,
+                                               third_stage_strategy,
+                                               problem_data_factory};
+        if (worker.Init(problem_data,
                         output,
                         visit_time_window,
                         break_time_window,
@@ -301,8 +310,7 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
         return worker.ReturnCode();
     } else {
         rows::SingleStepSchedulingWorker worker{std::move(printer)};
-        if (worker.Init(problem,
-                        engine_config,
+        if (worker.Init(*problem_data,
                         output,
                         visit_time_window,
                         break_time_window,

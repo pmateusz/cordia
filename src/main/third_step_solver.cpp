@@ -5,8 +5,7 @@
 #include "cancel_search_limit.h"
 #include "stalled_search_limit.h"
 
-rows::ThirdStepSolver::ThirdStepSolver(const rows::Problem &problem,
-                                       osrm::EngineConfig &config,
+rows::ThirdStepSolver::ThirdStepSolver(const rows::RealProblemData &problem_data,
                                        const operations_research::RoutingSearchParameters &search_parameters,
                                        boost::posix_time::time_duration visit_time_window,
                                        boost::posix_time::time_duration break_time_window,
@@ -15,8 +14,7 @@ rows::ThirdStepSolver::ThirdStepSolver(const rows::Problem &problem,
                                        int64 dropped_visit_penalty,
                                        int64 max_dropped_visits,
                                        bool optional_orders)
-        : SolverWrapper(problem,
-                        config,
+        : SolverWrapper(problem_data,
                         search_parameters,
                         std::move(visit_time_window),
                         std::move(break_time_window),

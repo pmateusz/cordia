@@ -5,8 +5,7 @@
 #include "cancel_search_limit.h"
 #include "stalled_search_limit.h"
 
-rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const rows::Problem &problem,
-                                                         osrm::EngineConfig &config,
+rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const RealProblemData &problem_data,
                                                          const operations_research::RoutingSearchParameters &search_parameters,
                                                          boost::posix_time::time_duration visit_time_window,
                                                          boost::posix_time::time_duration break_time_window,
@@ -14,8 +13,7 @@ rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const rows::Problem &pr
                                                          boost::posix_time::time_duration no_progress_time_limit,
                                                          int64 dropped_visit_penalty,
                                                          int64 max_dropped_visits)
-        : SolverWrapper(problem,
-                        config,
+        : SolverWrapper(problem_data,
                         search_parameters,
                         std::move(visit_time_window),
                         std::move(break_time_window),
@@ -44,13 +42,9 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
     for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
-        const auto &carer = Carer(vehicle);
-        const auto &diary_opt = problem_.diary(carer, schedule_day);
-
-        if (diary_opt.is_initialized()) {
-            const auto &diary = diary_opt.get();
-
-            int64 local_carer_penalty = diary.duration().total_seconds();
+        const auto working_hours = problem_data_.TotalWorkingHours(vehicle, schedule_day);
+        if (working_hours > boost::posix_time::seconds(0)) {
+            int64 local_carer_penalty = working_hours.total_seconds();
             global_carer_penalty = std::max(global_carer_penalty, local_carer_penalty);
 
             model.SetFixedCostOfVehicle(local_carer_penalty, vehicle);

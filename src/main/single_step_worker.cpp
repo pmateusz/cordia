@@ -17,15 +17,15 @@ rows::SingleStepSchedulingWorker::~SingleStepSchedulingWorker() {
     initial_assignment_ = nullptr;
 }
 
-bool rows::SingleStepSchedulingWorker::Init(rows::Problem problem, osrm::EngineConfig engine_config,
+bool rows::SingleStepSchedulingWorker::Init(const rows::RealProblemData &problem_data,
                                             boost::optional<rows::Solution> past_solution,
                                             operations_research::RoutingSearchParameters search_parameters,
                                             std::string output_file) {
     try {
-        solver_ = std::make_unique<rows::SingleStepSolver>(problem, engine_config, search_parameters);
+        solver_ = std::make_unique<rows::SingleStepSolver>(problem_data, search_parameters);
         index_manager_ = std::make_unique<operations_research::RoutingIndexManager>(solver_->nodes(),
                                                                                     solver_->vehicles(),
-                                                                                    rows::SolverWrapper::DEPOT);
+                                                                                    rows::RealProblemData::DEPOT);
         model_ = std::make_unique<operations_research::RoutingModel>(*index_manager_);
 
         solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken());
@@ -62,8 +62,7 @@ bool rows::SingleStepSchedulingWorker::Init(rows::Problem problem, osrm::EngineC
     }
 }
 
-bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
-                                            osrm::EngineConfig &engine_config,
+bool rows::SingleStepSchedulingWorker::Init(const rows::RealProblemData &problem_data,
                                             const std::string &output_file,
                                             const boost::posix_time::time_duration &visit_time_window,
                                             const boost::posix_time::time_duration &break_time_window,
@@ -72,8 +71,7 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
     try {
         auto search_params = operations_research::DefaultRoutingSearchParameters();
         search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-        solver_ = std::make_unique<rows::SingleStepSolver>(problem,
-                                                           engine_config,
+        solver_ = std::make_unique<rows::SingleStepSolver>(problem_data,
                                                            search_params,
                                                            visit_time_window,
                                                            break_time_window,
@@ -82,7 +80,7 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
 
         index_manager_ = std::make_unique<operations_research::RoutingIndexManager>(solver_->nodes(),
                                                                                     solver_->vehicles(),
-                                                                                    rows::SolverWrapper::DEPOT);
+                                                                                    rows::RealProblemData::DEPOT);
         model_ = std::make_unique<operations_research::RoutingModel>(*index_manager_);
 
         solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken());

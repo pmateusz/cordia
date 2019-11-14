@@ -54,7 +54,14 @@ namespace rows {
         GexfEnvironmentWrapper gexf;
         gexf.SetDescription(solver.GetDescription(index_manager, model, solution));
 
-        const auto central_location = solver.depot();
+        std::vector<rows::Location> locations;
+        for (operations_research::RoutingNodeIndex visit_index{1}; visit_index < model.nodes(); ++visit_index) {
+            const auto &visit = solver.NodeToVisit(visit_index);
+            if (visit.location()) {
+                locations.emplace_back(visit.location().get());
+            }
+        }
+        const auto central_location = Location::GetCentralLocation(std::begin(locations), std::end(locations));
         gexf.SetDefaultValues(central_location);
 
         for (operations_research::RoutingNodeIndex visit_index{1}; visit_index < model.nodes(); ++visit_index) {
@@ -155,7 +162,7 @@ namespace rows {
             DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit_index))));
             do {
                 const auto start_visit_node = index_manager.IndexToNode(start_visit_index);
-                if (start_visit_node != SolverWrapper::DEPOT) {
+                if (start_visit_node != RealProblemData::DEPOT) {
                     std::string start_visit_id = gexf.VisitId(start_visit_node);
 
                     const auto &calendar_visit = solver.NodeToVisit(start_visit_node);
@@ -184,7 +191,7 @@ namespace rows {
 
                     const auto end_visit_index = solution.Value(model.NextVar(start_visit_index));
                     const auto end_visit_node = index_manager.IndexToNode(end_visit_index);
-                    if (end_visit_node != SolverWrapper::DEPOT) {
+                    if (end_visit_node != RealProblemData::DEPOT) {
                         std::string end_visit_id = gexf.VisitId(end_visit_node);
 
                         const auto visit_visit_edge_id = gexf.EdgeId(start_visit_id, end_visit_id, "r_");

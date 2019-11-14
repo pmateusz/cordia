@@ -115,7 +115,7 @@ namespace rows {
     std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>>
     RouteValidatorBase::ValidateAll(const std::vector<rows::Route> &routes,
                                     const rows::Problem &problem,
-                                    SolverWrapper &solver) const {
+                                    rows::SolverWrapper &solver) const {
         std::vector<std::unique_ptr<rows::RouteValidatorBase::ValidationError>> validation_errors;
 
         // find visits with incomplete information
@@ -362,8 +362,7 @@ namespace rows {
                && visit.type() == ScheduledVisit::VisitType::UNKNOWN;
     }
 
-    RouteValidatorBase::ValidationResult RouteValidatorBase::Validate(const rows::Route &route,
-                                                                      rows::SolverWrapper &solver) const {
+    RouteValidatorBase::ValidationResult RouteValidatorBase::Validate(const rows::Route &route, rows::SolverWrapper &solver) const {
         static const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> empty_map{};
         return Validate(route, solver, empty_map);
     }
@@ -753,16 +752,16 @@ namespace rows {
             return;
         }
 
-        nodes_.push_back(solver_.DEPOT);
+        nodes_.push_back(RealProblemData::DEPOT);
         for (const auto &visit : visits_) {
             nodes_.push_back(GetNode(visit));
         }
-        nodes_.push_back(solver_.DEPOT);
+        nodes_.push_back(RealProblemData::DEPOT);
 
         last_node_ = nodes_.front();
         current_visit_ = 0;
         current_node_ = nodes_[1];
-        next_node_ = solver_.DEPOT;
+        next_node_ = RealProblemData::DEPOT;
         if (nodes_.size() > 2) {
             next_node_ = nodes_[2];
         }
@@ -804,7 +803,7 @@ namespace rows {
             total_available_time_ += event.duration();
         }
 
-        auto last_node = solver_.DEPOT;
+        auto last_node = RealProblemData::DEPOT;
         for (auto node_pos = 1; node_pos < nodes_.size(); ++node_pos) {
             auto current_node = nodes_[node_pos];
             total_travel_time_ += boost::posix_time::seconds(solver_.Distance(last_node, current_node));
@@ -854,7 +853,7 @@ namespace rows {
         if (current_visit_ + 1 < visits_.size()) {
             next_node_ = GetNode(visits_[current_visit_ + 1]);
         } else {
-            next_node_ = SolverWrapper::DEPOT;
+            next_node_ = RealProblemData::DEPOT;
         }
 
         current_time_ = service_start + visit.duration();
@@ -1015,7 +1014,7 @@ namespace rows {
         std::vector<boost::posix_time::time_period> idle_periods;
 
         const auto &time_dim = model.GetDimensionOrDie(SolverWrapper::TIME_DIMENSION);
-        auto last_node = SolverWrapper::DEPOT;
+        auto last_node = RealProblemData::DEPOT;
         const ptime start_of_day{date, boost::posix_time::seconds(0)};
         const ptime end_of_day = solver.EndHorizon();
         for (auto node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {
@@ -1182,7 +1181,7 @@ namespace rows {
         const auto &time_dim = model.GetDimensionOrDie(SolverWrapper::TIME_DIMENSION);
         const auto today = visits.front().datetime().date();
         const auto diary = solver.problem().diary(carer, today).get();
-        auto last_visit_node = SolverWrapper::DEPOT;
+        auto last_visit_node = RealProblemData::DEPOT;
         boost::posix_time::ptime last_min_visit_complete = boost::posix_time::not_a_date_time;
         boost::posix_time::ptime last_max_visit_complete = boost::posix_time::not_a_date_time;
         for (std::size_t node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {
@@ -1229,7 +1228,7 @@ namespace rows {
                 }
             }
 
-            if (last_visit_node != SolverWrapper::DEPOT) {
+            if (last_visit_node != RealProblemData::DEPOT) {
                 const auto travel_time = boost::posix_time::seconds(
                         solver.Distance(last_visit_node, current_visit_node));
                 const auto max_departure_to_arrive_on_time = max_arrival - travel_time;

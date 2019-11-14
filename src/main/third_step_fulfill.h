@@ -9,8 +9,7 @@ namespace rows {
 
     class ThirdStepFulfillSolver : public SolverWrapper {
     public:
-        ThirdStepFulfillSolver(const Problem &problem,
-                               osrm::EngineConfig &config,
+        ThirdStepFulfillSolver(const RealProblemData &problem_data,
                                const operations_research::RoutingSearchParameters &search_parameters,
                                boost::posix_time::time_duration visit_time_window,
                                boost::posix_time::time_duration break_time_window,

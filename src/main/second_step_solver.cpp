@@ -8,15 +8,13 @@
 #include "stalled_search_limit.h"
 #include "min_dropped_visits_collector.h"
 
-rows::SecondStepSolver::SecondStepSolver(const rows::Problem &problem,
-                                         osrm::EngineConfig &config,
+rows::SecondStepSolver::SecondStepSolver(const RealProblemData &problem_data,
                                          const operations_research::RoutingSearchParameters &search_parameters,
                                          boost::posix_time::time_duration visit_time_window,
                                          boost::posix_time::time_duration break_time_window,
                                          boost::posix_time::time_duration begin_end_work_day_adjustment,
                                          boost::posix_time::time_duration no_progress_time_limit)
-        : SolverWrapper(problem,
-                        config,
+        : SolverWrapper(problem_data,
                         search_parameters,
                         std::move(visit_time_window),
                         std::move(break_time_window),

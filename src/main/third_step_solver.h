@@ -9,8 +9,7 @@ namespace rows {
 
     class ThirdStepSolver : public SolverWrapper {
     public:
-        ThirdStepSolver(const Problem &problem,
-                        osrm::EngineConfig &config,
+        ThirdStepSolver(const RealProblemData &problem_data,
                         const operations_research::RoutingSearchParameters &search_parameters,
                         boost::posix_time::time_duration visit_time_window,
                         boost::posix_time::time_duration break_time_window,

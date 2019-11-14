@@ -3,20 +3,22 @@
 #include <boost/algorithm/string/join.hpp>
 #include <boost/date_time/time.hpp>
 
+#include "solver_wrapper.h"
+
 namespace rows {
 
     BreakConstraint::BreakConstraint(const operations_research::RoutingDimension *dimension,
                                      const operations_research::RoutingIndexManager *index_manager,
                                      int vehicle,
                                      std::vector<operations_research::IntervalVar *> break_intervals,
-                                     SolverWrapper &solver_wrapper)
+                                     RealProblemData &problem_data)
             : Constraint(dimension->model()->solver()),
               dimension_(dimension),
               index_manager_(index_manager),
               vehicle_(vehicle),
               break_intervals_(std::move(break_intervals)),
               status_(solver()->MakeBoolVar((boost::format("status %1%") % vehicle).str())),
-              solver_(solver_wrapper) {}
+              problem_data_(problem_data) {}
 
     void BreakConstraint::Post() {
         operations_research::RoutingModel *const model = dimension_->model();
@@ -63,8 +65,8 @@ namespace rows {
             const auto next_node = index_manager_->IndexToNode(next_index);
 
             // create visit interval
-            if (SolverWrapper::DEPOT != current_node) {
-                const auto visit_duration = solver_.ServiceTime(current_node);
+            if (RealProblemData::DEPOT != current_node) {
+                const auto visit_duration = problem_data_.ServiceTime(current_node);
                 DCHECK_GT(visit_duration, 0);
 
                 operations_research::IntervalVar *const visit_interval = solver()->MakeFixedDurationIntervalVar(
@@ -87,7 +89,7 @@ namespace rows {
             }
 
             // create travel interval
-            const auto travel_duration = solver_.Distance(current_node, next_node);
+            const auto travel_duration = problem_data_.Distance(current_node, next_node);
             if (travel_duration > 0) {
                 int64 min_travel_start = 0;
                 if (last_visit_interval != nullptr) {
@@ -95,7 +97,7 @@ namespace rows {
                 }
 
                 const auto max_travel_start = std::min(dimension_->CumulVar(next_index)->Max() - travel_duration,
-                                                       SolverWrapper::SECONDS_IN_DIMENSION);
+                                                       RealProblemData::SECONDS_IN_DIMENSION);
                 if (min_travel_start > max_travel_start) {
                     solver()->Fail();
                 }

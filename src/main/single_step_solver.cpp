@@ -12,26 +12,22 @@
 
 namespace rows {
 
-    SingleStepSolver::SingleStepSolver(const rows::Problem &problem,
-                                       osrm::EngineConfig &config,
+    SingleStepSolver::SingleStepSolver(const rows::RealProblemData &problem_data,
                                        const operations_research::RoutingSearchParameters &search_parameters,
                                        boost::posix_time::time_duration visit_time_window,
                                        boost::posix_time::time_duration break_time_window,
                                        boost::posix_time::time_duration begin_end_work_day_adjustment,
                                        boost::posix_time::time_duration no_progress_time_limit)
-            : SolverWrapper(problem,
-                            config,
+            : SolverWrapper(problem_data,
                             search_parameters,
                             std::move(visit_time_window),
                             std::move(break_time_window),
                             std::move(begin_end_work_day_adjustment)),
               no_progress_time_limit_(no_progress_time_limit) {}
 
-    SingleStepSolver::SingleStepSolver(const rows::Problem &problem,
-                                       osrm::EngineConfig &config,
+    SingleStepSolver::SingleStepSolver(const rows::RealProblemData &problem_data,
                                        const operations_research::RoutingSearchParameters &search_parameters)
-            : SingleStepSolver(problem,
-                               config,
+            : SingleStepSolver(problem_data,
                                search_parameters,
                                boost::posix_time::minutes(120),
                                boost::posix_time::minutes(0),
