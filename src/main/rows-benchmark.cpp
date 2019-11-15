@@ -2,7 +2,6 @@
 #include <thread>
 
 
-
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
@@ -42,13 +41,9 @@ int main(int argc, char *argv[]) {
     util::SetupLogging(argv[0]);
     ParseArgs(argc, argv);
 
-
     auto problem_data_factory = rows::BenchmarkProblemDataFactory::Load(FLAGS_problem);
     auto problem_data_factory_ptr = std::make_shared<rows::BenchmarkProblemDataFactory>(problem_data_factory);
-
-    auto problem_data_ptr = std::make_shared<rows::BenchmarkProblemData>(problem, time_horizon, extra_staff_penalty, node_index, visit_index,
-                                                                         distance_matrix);
-
+    auto problem_data_ptr = problem_data_factory_ptr->operator()();
 
     auto printer = util::CreatePrinter(util::LOG_FORMAT);
     rows::ThreeStepSchedulingWorker worker{std::move(printer),

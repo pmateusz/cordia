@@ -71,20 +71,34 @@ namespace rows {
     public:
         static BenchmarkProblemDataFactory Load(const std::string &file_path);
 
+        std::shared_ptr<ProblemData> operator()() const;
+
         std::shared_ptr<ProblemData> operator()(Problem problem) const override;
 
     private:
-        std::vector<rows::ExtendedServiceUser> users;
-        std::vector<rows::CalendarVisit> calendar_visits;
-        std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>> carers;
+        BenchmarkProblemDataFactory(std::vector<rows::ExtendedServiceUser> users,
+                                    std::vector<rows::CalendarVisit> calendar_visits,
+                                    std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>> carers,
+                                    boost::posix_time::time_period time_horizon,
+                                    int64 carer_used_penalty,
+                                    std::unordered_map<operations_research::RoutingIndexManager::NodeIndex, rows::CalendarVisit> node_index,
+                                    std::unordered_map<rows::CalendarVisit,
+                                            std::vector<operations_research::RoutingIndexManager::NodeIndex>,
+                                            rows::Problem::PartialVisitOperations,
+                                            rows::Problem::PartialVisitOperations> visit_index,
+                                    std::vector<std::vector<int>> distance_matrix);
 
-        boost::posix_time::time_period time_horizon;
-        std::unordered_map<operations_research::RoutingIndexManager::NodeIndex, rows::CalendarVisit> node_index;
+        std::vector<rows::ExtendedServiceUser> users_;
+        std::vector<rows::CalendarVisit> calendar_visits_;
+        std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>> carers_;
+        boost::posix_time::time_period time_horizon_;
+        int64 carer_used_penalty_;
+        std::unordered_map<operations_research::RoutingIndexManager::NodeIndex, rows::CalendarVisit> node_index_;
         std::unordered_map<rows::CalendarVisit,
                 std::vector<operations_research::RoutingIndexManager::NodeIndex>,
                 rows::Problem::PartialVisitOperations,
-                rows::Problem::PartialVisitOperations> visit_index;
-        std::vector<std::vector<int>> distance_matrix;
+                rows::Problem::PartialVisitOperations> visit_index_;
+        std::vector<std::vector<int>> distance_matrix_;
     };
 }
 

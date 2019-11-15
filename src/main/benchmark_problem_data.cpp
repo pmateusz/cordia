@@ -128,7 +128,20 @@ int64 rows::BenchmarkProblemData::GetDroppedVisitPenalty() const {
     return 2 * carer_used_penalty_;
 }
 
+std::shared_ptr<rows::ProblemData> rows::BenchmarkProblemDataFactory::operator()() const {
+    return std::make_shared<rows::BenchmarkProblemData>(
+            rows::Problem{calendar_visits_, carers_, users_},
+            time_horizon_,
+            carer_used_penalty_,
+            node_index_,
+            visit_index_,
+            distance_matrix_);
+}
+
 std::shared_ptr<rows::ProblemData> rows::BenchmarkProblemDataFactory::operator()(rows::Problem problem) const {
+    // TODO: build node index
+    // TODO: build visit index
+    LOG(FATAL) << "Not implemented";
     return nullptr;
 }
 
@@ -244,5 +257,31 @@ rows::BenchmarkProblemDataFactory rows::BenchmarkProblemDataFactory::Load(const 
         distance_matrix.at(values.at(0)).at(values.at(1)) = values.at(3);
     }
 
-    return rows::BenchmarkProblemDataFactory();
+    return {std::move(users),
+            std::move(calendar_visits),
+            std::move(carers),
+            time_horizon,
+            extra_staff_penalty,
+            std::move(node_index),
+            std::move(visit_index),
+            std::move(distance_matrix)};
 }
+
+rows::BenchmarkProblemDataFactory::BenchmarkProblemDataFactory(std::vector<rows::ExtendedServiceUser> users,
+                                                               std::vector<rows::CalendarVisit> calendar_visits,
+                                                               std::vector<std::pair<rows::Carer, std::vector<rows::Diary>>> carers,
+                                                               boost::posix_time::time_period time_horizon, int64 carer_used_penalty,
+                                                               std::unordered_map<operations_research::RoutingIndexManager::NodeIndex, rows::CalendarVisit> node_index,
+                                                               std::unordered_map<rows::CalendarVisit,
+                                                                       std::vector<operations_research::RoutingIndexManager::NodeIndex>,
+                                                                       rows::Problem::PartialVisitOperations,
+                                                                       rows::Problem::PartialVisitOperations> visit_index,
+                                                               std::vector<std::vector<int>> distance_matrix)
+        : users_{std::move(users)},
+          calendar_visits_{std::move(calendar_visits)},
+          carers_{std::move(carers)},
+          time_horizon_{time_horizon},
+          carer_used_penalty_{carer_used_penalty},
+          node_index_{std::move(node_index)},
+          visit_index_{std::move(visit_index)},
+          distance_matrix_{std::move(distance_matrix)} {}
