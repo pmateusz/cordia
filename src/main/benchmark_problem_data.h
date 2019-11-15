@@ -71,7 +71,7 @@ namespace rows {
     public:
         static BenchmarkProblemDataFactory Load(const std::string &file_path);
 
-        std::shared_ptr<ProblemData> operator()() const;
+        std::shared_ptr<BenchmarkProblemData> operator()() const;
 
         std::shared_ptr<ProblemData> operator()(Problem problem) const override;
 

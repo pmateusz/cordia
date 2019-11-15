@@ -1202,8 +1202,8 @@ namespace rows {
                 }
             }
 
-            const ptime fastest_arrival{today, seconds(solver.GetBeginVisitWindow(visit.datetime().time_of_day()))};
-            const ptime latest_arrival{today, seconds(solver.GetEndVisitWindow(visit.datetime().time_of_day()))};
+            const ptime fastest_arrival{today, seconds(solver.GetBeginVisitWindow(visit.calendar_visit()->time_windows().begin().time_of_day()))};
+            const ptime latest_arrival{today, seconds(solver.GetEndVisitWindow(visit.calendar_visit()->time_windows().end().time_of_day()))};
             const ptime min_arrival{today, seconds(solution.Min(time_dim.CumulVar(visit_index)))};
             const ptime max_arrival{today, seconds(solution.Max(time_dim.CumulVar(visit_index)))};
 

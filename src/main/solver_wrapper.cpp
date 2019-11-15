@@ -623,7 +623,8 @@ namespace rows {
 
     int64 SolverWrapper::GetEndWindow(boost::posix_time::time_duration value,
                                       boost::posix_time::time_duration window_size) const {
-        return std::min(static_cast<int64>((value + window_size).total_seconds()), RealProblemData::SECONDS_IN_DIMENSION);
+        return std::min(static_cast<int64>((value + window_size).total_seconds()),
+                        static_cast<int64>((problem_data_.EndHorizon() - problem_data_.StartHorizon()).total_seconds()));
     }
 
     const Problem &SolverWrapper::problem() const {
@@ -980,9 +981,11 @@ namespace rows {
         const auto service_time_callback_handle = model.RegisterTransitCallback([this, &index_manager](int64 from_index, int64 to_index) -> int64 {
             return this->problem_data_.ServicePlusTravelTime(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
         });
+
+        const auto seconds_in_horizon = (problem_data_.EndHorizon() - problem_data_.StartHorizon()).total_seconds();
         model.AddDimension(service_time_callback_handle,
-                           RealProblemData::SECONDS_IN_DIMENSION,
-                           RealProblemData::SECONDS_IN_DIMENSION,
+                           seconds_in_horizon,
+                           seconds_in_horizon,
                            START_FROM_ZERO_TIME,
                            TIME_DIMENSION);
     }
@@ -999,8 +1002,13 @@ namespace rows {
         auto total_multiple_carer_visits = 0;
         for (operations_research::RoutingIndexManager::NodeIndex visit_node{1}; visit_node < problem_data_.nodes(); ++visit_node) {
             const auto &visit = problem_data_.NodeToVisit(visit_node);
-            const auto visit_start = problem_data_.VisitStart(visit_node);
-            DCHECK(!visit_start.is_negative()) << visit.id();
+            const auto &visit_time_windows = visit.time_windows();
+            const auto visit_start_begin = visit_time_windows.begin() - problem_data_.StartHorizon();
+            const auto visit_start_end = visit_time_windows.end() - problem_data_.StartHorizon();
+
+            CHECK(!visit_start_begin.is_negative()) << visit.id();
+            CHECK(!visit_start_end.is_negative()) << visit.id();
+            CHECK_LE(visit_start_begin, visit_start_end);
 
             std::vector<int64> visit_indices;
             for (const auto &local_visit_node : problem_data_.GetNodes(visit_node)) {
@@ -1008,19 +1016,24 @@ namespace rows {
                 visit_indices.push_back(visit_index);
 
                 if (HasTimeWindows()) {
-                    const auto start_window = GetBeginVisitWindow(visit_start);
-                    const auto end_window = GetEndVisitWindow(visit_start);
+                    const auto start_window = GetBeginVisitWindow(visit_start_begin);
+                    const auto end_window = GetEndVisitWindow(visit_start_end);
 
                     time_dimension
                             ->CumulVar(visit_index)
                             ->SetRange(start_window, end_window);
 
                     DCHECK_LT(start_window, end_window) << visit.id();
-                    DCHECK_LE(start_window, visit_start.total_seconds()) << visit.id();
-                    DCHECK_LE(visit_start.total_seconds(), end_window) << visit.id();
+                    DCHECK_LE(start_window, visit_start_begin.total_seconds()) << visit.id();
+                    DCHECK_LE(visit_start_begin.total_seconds(), end_window) << visit.id();
+                } else if (visit_start_begin < visit_start_end) {
+                    time_dimension
+                            ->CumulVar(visit_index)
+                            ->SetRange(visit_start_begin.total_seconds(), visit_start_end.total_seconds());
                 } else {
-                    time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
+                    time_dimension->CumulVar(visit_index)->SetValue(visit_start_begin.total_seconds());
                 }
+
                 model.AddToAssignment(time_dimension->CumulVar(visit_index));
                 model.AddToAssignment(time_dimension->SlackVar(visit_index));
             }
@@ -1093,19 +1106,21 @@ namespace rows {
                 CHECK_LE(begin_time, end_time) << carer.sap_number();
 
                 const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
-                for (const auto &break_item : breaks) {
-                    model.AddIntervalToAssignment(break_item);
-                }
+                if (!breaks.empty()) {
+                    for (const auto &break_item : breaks) {
+                        model.AddIntervalToAssignment(break_item);
+                    }
 
-                VLOG(1) << "Carer:" << carer.sap_number() << " Vehicle:" << vehicle;
-                for (const auto &break_item : breaks) {
-                    VLOG(1) << "[" << boost::posix_time::seconds(break_item->StartMin())
-                            << ", " << boost::posix_time::seconds(break_item->StartMax())
-                            << "] [" << boost::posix_time::seconds(break_item->EndMin())
-                            << ", " << boost::posix_time::seconds(break_item->EndMax()) << "]";
-                }
+                    VLOG(1) << "Carer:" << carer.sap_number() << " Vehicle:" << vehicle;
+                    for (const auto &break_item : breaks) {
+                        VLOG(1) << "[" << boost::posix_time::seconds(break_item->StartMin())
+                                << ", " << boost::posix_time::seconds(break_item->StartMax())
+                                << "] [" << boost::posix_time::seconds(break_item->EndMin())
+                                << ", " << boost::posix_time::seconds(break_item->EndMax()) << "]";
+                    }
 
-                time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
+                    time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
+                }
             }
 
             time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);

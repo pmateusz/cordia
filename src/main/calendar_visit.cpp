@@ -21,23 +21,6 @@ namespace rows {
     CalendarVisit::CalendarVisit(std::size_t id,
                                  ServiceUser service_user,
                                  Address address,
-                                 boost::optional<Location> location,
-                                 boost::posix_time::ptime date_time,
-                                 boost::posix_time::ptime::time_duration_type duration,
-                                 int carer_count,
-                                 std::vector<int> tasks)
-            : id_(id),
-              service_user_(std::move(service_user)),
-              address_(std::move(address)),
-              location_(std::move(location)),
-              date_time_(date_time),
-              duration_(std::move(duration)),
-              carer_count_(carer_count),
-              tasks_(std::move(tasks)) {}
-
-    CalendarVisit::CalendarVisit(std::size_t id,
-                                 ServiceUser service_user,
-                                 Address address,
                                  boost::posix_time::ptime date_time,
                                  boost::posix_time::time_duration duration,
                                  int carer_count,
@@ -51,49 +34,39 @@ namespace rows {
                             carer_count,
                             std::move(tasks)) {}
 
-    CalendarVisit::CalendarVisit(const CalendarVisit &other)
-            : id_(other.id_),
-              service_user_(other.service_user_),
-              address_(other.address_),
-              location_(other.location_),
-              date_time_(other.date_time_),
-              duration_(other.duration_),
-              carer_count_(other.carer_count_),
-              tasks_(other.tasks_) {}
+    CalendarVisit::CalendarVisit(std::size_t id,
+                                 ServiceUser service_user,
+                                 Address address,
+                                 boost::optional<Location> location,
+                                 boost::posix_time::time_period time_windows,
+                                 boost::posix_time::time_duration duration,
+                                 int carer_count,
+                                 std::vector<int> tasks)
+            : id_(id),
+              service_user_(std::move(service_user)),
+              address_(std::move(address)),
+              location_(std::move(location)),
+              time_windows_(time_windows),
+              duration_(std::move(duration)),
+              carer_count_(carer_count),
+              tasks_(std::move(tasks)) {}
 
-    CalendarVisit::CalendarVisit(CalendarVisit &&other) noexcept
-            : id_(other.id_),
-              service_user_(std::move(other.service_user_)),
-              address_(std::move(other.address_)),
-              location_(other.location_),
-              date_time_(other.date_time_),
-              duration_(other.duration_),
-              carer_count_(other.carer_count_),
-              tasks_{std::move(other.tasks_)} {}
-
-    CalendarVisit &CalendarVisit::operator=(const CalendarVisit &other) {
-        id_ = other.id_;
-        service_user_ = other.service_user_;
-        address_ = other.address_;
-        location_ = other.location_;
-        date_time_ = other.date_time_;
-        duration_ = other.duration_;
-        carer_count_ = other.carer_count_;
-        tasks_ = other.tasks_;
-        return *this;
-    }
-
-    CalendarVisit &CalendarVisit::operator=(CalendarVisit &&other) noexcept {
-        id_ = other.id_;
-        service_user_ = std::move(other.service_user_);
-        address_ = std::move(other.address_);
-        location_ = other.location_;
-        date_time_ = other.date_time_;
-        duration_ = other.duration_;
-        carer_count_ = other.carer_count_;
-        tasks_ = other.tasks_;
-        return *this;
-    }
+    CalendarVisit::CalendarVisit(std::size_t id,
+                                 ServiceUser service_user,
+                                 Address address,
+                                 boost::optional<Location> location,
+                                 boost::posix_time::ptime date_time,
+                                 boost::posix_time::ptime::time_duration_type duration,
+                                 int carer_count,
+                                 std::vector<int> tasks)
+            : CalendarVisit{id,
+                            service_user,
+                            address,
+                            location,
+                            boost::posix_time::time_period{date_time, date_time},
+                            duration,
+                            carer_count,
+                            tasks} {}
 
     std::ostream &operator<<(std::ostream &out, const CalendarVisit &object) {
         out << boost::format("(%1% %2%, %3%, %4%, %5%, %6%, %7%)")
@@ -101,7 +74,7 @@ namespace rows {
                % object.service_user_
                % object.address_
                % object.location_
-               % object.date_time_
+               % object.time_windows_
                % object.duration_
                % object.carer_count_;
         return out;
@@ -111,7 +84,7 @@ namespace rows {
         return id_ == other.id_
                && service_user_ == other.service_user_
                && address_ == other.address_
-               && date_time_ == other.date_time_
+               && time_windows_ == other.time_windows_
                && duration_ == other.duration_
                && location_ == other.location_
                && carer_count_ == other.carer_count_
@@ -143,11 +116,15 @@ namespace rows {
     }
 
     const boost::posix_time::ptime CalendarVisit::datetime() const {
-        return date_time_;
+        return time_windows_.begin() + time_windows_.length() / 2;
     }
 
-    const boost::posix_time::time_duration CalendarVisit::duration() const {
+    const boost::posix_time::time_duration &CalendarVisit::duration() const {
         return duration_;
+    }
+
+    const boost::posix_time::time_period &CalendarVisit::time_windows() const {
+        return time_windows_;
     }
 
     const ServiceUser &CalendarVisit::service_user() const {
@@ -171,7 +148,7 @@ namespace rows {
     }
 
     void CalendarVisit::datetime(const boost::posix_time::ptime &date_time) {
-        date_time_ = date_time;
+        time_windows_ = boost::posix_time::time_period{date_time, date_time};
     }
 
     void CalendarVisit::duration(const boost::posix_time::ptime::time_duration_type &duration) {

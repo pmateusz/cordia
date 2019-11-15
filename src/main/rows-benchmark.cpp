@@ -1,6 +1,4 @@
-#include <cstdlib>
 #include <thread>
-
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -15,13 +13,10 @@
 #include "scheduling_worker.h"
 #include "benchmark_problem_data.h"
 
-DEFINE_string(problem,
-              "../problem.json", "a file path to the problem instance");
-DEFINE_validator(problem, &util::file::Exists
-);
+DEFINE_string(problem, "../problem.json", "a file path to the problem instance");
+DEFINE_validator(problem, &util::file::Exists);
 
-DEFINE_string(output,
-              "output.gexf", "an output file");
+DEFINE_string(output, "output.gexf", "an output file");
 
 void ParseArgs(int argc, char *argv[]) {
     gflags::SetVersionString("0.0.1");
@@ -52,12 +47,12 @@ int main(int argc, char *argv[]) {
                                            problem_data_factory_ptr};
     if (worker.Init(problem_data_ptr,
                     FLAGS_output,
-                    boost::posix_time::minutes(90),
-                    boost::posix_time::minutes(90),
-                    boost::posix_time::minutes(0),
+                    boost::posix_time::seconds(0),
+                    boost::posix_time::seconds(0),
+                    boost::posix_time::seconds(0),
                     boost::posix_time::seconds(5),
-                    boost::posix_time::seconds(30),
-                    boost::posix_time::seconds(30))) {
+                    boost::posix_time::seconds(60),
+                    boost::posix_time::seconds(60))) {
         worker.Start();
         std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
         chat_thread.detach();
