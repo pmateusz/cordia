@@ -78,16 +78,16 @@ namespace rows {
             std::vector<int> skills_;
         };
 
-        ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer, RealProblemDataFactory data_factory);
+        ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer, std::shared_ptr<ProblemDataFactory> data_factory);
 
         ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                   FirstStageStrategy first_stage_strategy,
                                   ThirdStageStrategy third_stage_strategy,
-                                  RealProblemDataFactory data_factory);
+                                  std::shared_ptr<ProblemDataFactory> data_factory);
 
         void Run() override;
 
-        bool Init(std::shared_ptr<const RealProblemData> problem_data,
+        bool Init(std::shared_ptr<const ProblemData> problem_data,
                   std::string output_file,
                   boost::posix_time::time_duration visit_time_window,
                   boost::posix_time::time_duration break_time_window,
@@ -120,7 +120,7 @@ namespace rows {
         std::vector<rows::RouteValidatorBase::Metrics> GetVehicleMetrics(const std::vector<std::vector<int64> > &routes,
                                                                          const rows::SolverWrapper &second_stage_wrapper);
 
-        RealProblemDataFactory data_factory_;
+        std::shared_ptr<ProblemDataFactory> data_factory_;
 
         boost::posix_time::time_duration visit_time_window_;
         boost::posix_time::time_duration break_time_window_;
@@ -135,7 +135,7 @@ namespace rows {
         FirstStageStrategy first_stage_strategy_;
         ThirdStageStrategy third_stage_strategy_;
 
-        std::shared_ptr<const RealProblemData> problem_data_;
+        std::shared_ptr<const ProblemData> problem_data_;
 
         SolutionValidator solution_validator_;
         GexfWriter solution_writer_;

@@ -169,24 +169,6 @@ void ParseArgs(int argc, char **argv) {
                % GetYesOrNoOption(FLAGS_solve_all);
 }
 
-void ChatBot(rows::SchedulingWorker &worker) {
-    std::regex non_printable_character_pattern{"[\\W]"};
-
-    std::string line;
-    while (true) {
-        std::getline(std::cin, line);
-        util::string::Strip(line);
-        util::string::ToLower(line);
-
-        if (!line.empty() && line == "stop") {
-            worker.Cancel();
-            break;
-        }
-
-        line.clear();
-    }
-}
-
 int RunSingleStepSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
@@ -222,7 +204,7 @@ int RunSingleStepSchedulingWorker() {
                     FLAGS_output)) {
 
         worker.Start();
-        std::thread chat_thread(ChatBot, std::ref(worker));
+        std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
         chat_thread.detach();
         worker.Join();
     }
@@ -242,14 +224,14 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         const boost::posix_time::time_duration &pre_opt_noprogress_time_limit,
                         const boost::posix_time::time_duration &opt_noprogress_time_limit,
                         const boost::posix_time::time_duration &post_opt_noprogress_time_limit) {
-    rows::RealProblemDataFactory problem_data_factory{engine_config};
-    auto problem_data = problem_data_factory(problem);
+    auto problem_data_factory_ptr = std::make_shared<rows::RealProblemDataFactory>(engine_config);
+    auto problem_data = problem_data_factory_ptr->operator()(problem);
 
     if (first_stage_strategy != rows::FirstStageStrategy::NONE || third_stage_strategy != rows::ThirdStageStrategy::NONE) {
         rows::ThreeStepSchedulingWorker worker{std::move(printer),
                                                first_stage_strategy,
                                                third_stage_strategy,
-                                               problem_data_factory};
+                                               problem_data_factory_ptr};
         if (worker.Init(problem_data,
                         output,
                         visit_time_window,
@@ -287,13 +269,13 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                    const boost::posix_time::time_duration &pre_opt_noprogress_time_limit,
                                    const boost::posix_time::time_duration &opt_noprogress_time_limit,
                                    const boost::posix_time::time_duration &post_opt_noprogress_time_limit) {
-    const rows::RealProblemDataFactory problem_data_factory{engine_config};
-    const auto problem_data = problem_data_factory(problem);
+    auto problem_data_factory_ptr = std::make_shared<rows::RealProblemDataFactory>(engine_config);
+    const auto problem_data = problem_data_factory_ptr->operator()(problem);
     if (first_stage_strategy != rows::FirstStageStrategy::NONE || third_stage_strategy != rows::ThirdStageStrategy::NONE) {
         rows::ThreeStepSchedulingWorker worker{std::move(printer),
                                                first_stage_strategy,
                                                third_stage_strategy,
-                                               problem_data_factory};
+                                               problem_data_factory_ptr};
         if (worker.Init(problem_data,
                         output,
                         visit_time_window,
@@ -303,7 +285,7 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         opt_noprogress_time_limit,
                         post_opt_noprogress_time_limit)) {
             worker.Start();
-            std::thread chat_thread(ChatBot, std::ref(worker));
+            std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
             chat_thread.detach();
             worker.Join();
         }
@@ -318,7 +300,7 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         opt_noprogress_time_limit)) {
 
             worker.Start();
-            std::thread chat_thread(ChatBot, std::ref(worker));
+            std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
             chat_thread.detach();
             worker.Join();
         }

@@ -12,7 +12,7 @@
 
 namespace rows {
 
-    SingleStepSolver::SingleStepSolver(const rows::RealProblemData &problem_data,
+    SingleStepSolver::SingleStepSolver(const rows::ProblemData &problem_data,
                                        const operations_research::RoutingSearchParameters &search_parameters,
                                        boost::posix_time::time_duration visit_time_window,
                                        boost::posix_time::time_duration break_time_window,
@@ -25,7 +25,7 @@ namespace rows {
                             std::move(begin_end_work_day_adjustment)),
               no_progress_time_limit_(no_progress_time_limit) {}
 
-    SingleStepSolver::SingleStepSolver(const rows::RealProblemData &problem_data,
+    SingleStepSolver::SingleStepSolver(const rows::ProblemData &problem_data,
                                        const operations_research::RoutingSearchParameters &search_parameters)
             : SingleStepSolver(problem_data,
                                search_parameters,

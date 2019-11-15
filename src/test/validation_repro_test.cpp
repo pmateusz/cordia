@@ -26,16 +26,19 @@ TEST(RouteValidation, CanValidateRoute) {
 
     auto printer = util::CreatePrinter(util::TEXT_FORMAT);
     auto problem = util::LoadReducedProblem(problem_path, "2017-10-04", printer);
+    auto engine_config = util::CreateEngineConfig(maps_path);
+    rows::RealProblemDataFactory problem_factory{engine_config};
     auto solution = util::LoadSolution(solution_path, problem, TIME_WINDOW);
     solution.UpdateVisitProperties(problem.visits());
     problem.RemoveCancelled(solution.visits());
 
-    auto engine_config = util::CreateEngineConfig(maps_path);
-    rows::SingleStepSolver wrapper(problem, engine_config, operations_research::DefaultRoutingSearchParameters());
+
+    auto problem_data_ptr = problem_factory(problem);
+    rows::SingleStepSolver wrapper(*problem_data_ptr, operations_research::DefaultRoutingSearchParameters());
 
     operations_research::RoutingIndexManager index_manager{wrapper.nodes(),
                                                            wrapper.vehicles(),
-                                                           rows::SolverWrapper::DEPOT};
+                                                           rows::ProblemData::DEPOT};
 
     operations_research::RoutingModel model(index_manager);
     std::shared_ptr<std::atomic<bool> > cancel_token = std::make_shared<std::atomic<bool> >(false);

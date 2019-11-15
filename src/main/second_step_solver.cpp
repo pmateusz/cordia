@@ -8,7 +8,7 @@
 #include "stalled_search_limit.h"
 #include "min_dropped_visits_collector.h"
 
-rows::SecondStepSolver::SecondStepSolver(const RealProblemData &problem_data,
+rows::SecondStepSolver::SecondStepSolver(const ProblemData &problem_data,
                                          const operations_research::RoutingSearchParameters &search_parameters,
                                          boost::posix_time::time_duration visit_time_window,
                                          boost::posix_time::time_duration break_time_window,

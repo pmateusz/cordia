@@ -11,14 +11,14 @@
 #include "problem.h"
 #include "calendar_visit.h"
 #include "location_container.h"
+#include "problem_data.h"
 
 namespace rows {
 
     class Problem;
 
-    class RealProblemData {
+    class RealProblemData : public ProblemData {
     public:
-        static const operations_research::RoutingNodeIndex DEPOT;
         static const int64 SECONDS_IN_DIMENSION;
 
         RealProblemData(Problem problem, std::unique_ptr<CachedLocationContainer> location_container);
@@ -28,8 +28,6 @@ namespace rows {
         const std::vector<operations_research::RoutingNodeIndex> &GetNodes(operations_research::RoutingNodeIndex node) const;
 
         const CalendarVisit &NodeToVisit(const operations_research::RoutingNodeIndex &node) const;
-
-        std::pair<operations_research::RoutingNodeIndex, operations_research::RoutingNodeIndex> GetNodePair(const rows::CalendarVisit &visit) const;
 
         int vehicles() const;
 
@@ -73,11 +71,11 @@ namespace rows {
                 Problem::PartialVisitOperations> visit_index_;
     };
 
-    class RealProblemDataFactory {
+    class RealProblemDataFactory : public ProblemDataFactory {
     public:
         explicit RealProblemDataFactory(osrm::EngineConfig engine_config);
 
-        std::shared_ptr<RealProblemData> operator()(Problem problem) const;
+        std::shared_ptr<ProblemData> operator()(Problem problem) const override;
 
     private:
         osrm::EngineConfig engine_config_;

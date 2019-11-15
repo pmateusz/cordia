@@ -15,7 +15,6 @@ std::vector<rows::Location> DistinctLocations(const rows::Problem &problem) {
     return {std::begin(locations), std::end(locations)};
 }
 
-const operations_research::RoutingIndexManager::NodeIndex rows::RealProblemData::DEPOT{0};
 const int64 rows::RealProblemData::SECONDS_IN_DIMENSION = 24 * 3600 + 2 * 3600;
 
 rows::RealProblemData::RealProblemData(Problem problem, std::unique_ptr<CachedLocationContainer> location_container)
@@ -120,22 +119,6 @@ const rows::CalendarVisit &rows::RealProblemData::NodeToVisit(const operations_r
     return node_index_.at(node);
 }
 
-std::pair<operations_research::RoutingNodeIndex, operations_research::RoutingNodeIndex>
-rows::RealProblemData::GetNodePair(const rows::CalendarVisit &visit) const {
-    const auto &nodes = GetNodes(visit);
-    CHECK_EQ(nodes.size(), 2);
-
-    const auto first_node = *std::begin(nodes);
-    const auto second_node = *std::next(std::begin(nodes));
-    auto first_node_to_use = first_node;
-    auto second_node_to_use = second_node;
-    if (first_node_to_use > second_node_to_use) {
-        std::swap(first_node_to_use, second_node_to_use);
-    }
-
-    return std::make_pair(first_node_to_use, second_node_to_use);
-}
-
 int64 rows::RealProblemData::GetDroppedVisitPenalty() const {
     const auto distances = location_container_->LargestDistances(3);
     return std::accumulate(std::cbegin(distances), std::cend(distances), static_cast<int64>(1));
@@ -148,7 +131,7 @@ bool rows::RealProblemData::Contains(const rows::CalendarVisit &visit) const {
 rows::RealProblemDataFactory::RealProblemDataFactory(osrm::EngineConfig engine_config)
         : engine_config_{std::move(engine_config)} {}
 
-std::shared_ptr<rows::RealProblemData> rows::RealProblemDataFactory::operator()(rows::Problem problem) const {
+std::shared_ptr<rows::ProblemData> rows::RealProblemDataFactory::operator()(rows::Problem problem) const {
     const auto locations = DistinctLocations(problem);
     return std::make_shared<RealProblemData>(problem, std::make_unique<CachedLocationContainer>(std::begin(locations),
                                                                                                 std::end(locations),

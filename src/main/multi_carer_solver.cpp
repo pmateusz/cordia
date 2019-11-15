@@ -4,7 +4,7 @@
 #include "cancel_search_limit.h"
 #include "stalled_search_limit.h"
 
-rows::MultiCarerSolver::MultiCarerSolver(const rows::RealProblemData &problem_data,
+rows::MultiCarerSolver::MultiCarerSolver(const rows::ProblemData &problem_data,
                                          const operations_research::RoutingSearchParameters &search_parameters,
                                          boost::posix_time::time_duration visit_time_window,
                                          boost::posix_time::time_duration break_time_window,

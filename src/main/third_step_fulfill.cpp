@@ -6,7 +6,7 @@
 #include "cancel_search_limit.h"
 #include "stalled_search_limit.h"
 
-rows::ThirdStepFulfillSolver::ThirdStepFulfillSolver(const RealProblemData &problem_data,
+rows::ThirdStepFulfillSolver::ThirdStepFulfillSolver(const ProblemData &problem_data,
                                                      const operations_research::RoutingSearchParameters &search_parameters,
                                                      boost::posix_time::time_duration visit_time_window,
                                                      boost::posix_time::time_duration break_time_window,

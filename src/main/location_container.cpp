@@ -136,7 +136,7 @@ namespace rows {
     }
 
     RealLocationContainer::RealLocationContainer(osrm::EngineConfig config)
-            : routing_service_{std::move(config)} {}
+            : routing_service_{config} {}
 
     int64 RealLocationContainer::Distance(const Location &from, const Location &to) {
         static const auto INFINITE_DISTANCE = std::numeric_limits<int64>::max();

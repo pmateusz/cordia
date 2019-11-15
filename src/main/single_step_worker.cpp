@@ -17,7 +17,7 @@ rows::SingleStepSchedulingWorker::~SingleStepSchedulingWorker() {
     initial_assignment_ = nullptr;
 }
 
-bool rows::SingleStepSchedulingWorker::Init(const rows::RealProblemData &problem_data,
+bool rows::SingleStepSchedulingWorker::Init(const rows::ProblemData &problem_data,
                                             boost::optional<rows::Solution> past_solution,
                                             operations_research::RoutingSearchParameters search_parameters,
                                             std::string output_file) {
@@ -62,7 +62,7 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::RealProblemData &problem
     }
 }
 
-bool rows::SingleStepSchedulingWorker::Init(const rows::RealProblemData &problem_data,
+bool rows::SingleStepSchedulingWorker::Init(const rows::ProblemData &problem_data,
                                             const std::string &output_file,
                                             const boost::posix_time::time_duration &visit_time_window,
                                             const boost::posix_time::time_duration &break_time_window,

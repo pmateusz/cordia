@@ -78,10 +78,10 @@ namespace rows {
         static const int64 MAX_CARERS_SINGLE_VISITS;
         static const int64 MAX_CARERS_MULTIPLE_VISITS;
 
-        SolverWrapper(const rows::RealProblemData &problem_data,
+        SolverWrapper(const rows::ProblemData &problem_data,
                       const operations_research::RoutingSearchParameters &search_parameters);
 
-        SolverWrapper(const rows::RealProblemData &problem_data,
+        SolverWrapper(const rows::ProblemData &problem_data,
                       const operations_research::RoutingSearchParameters &search_parameters,
                       boost::posix_time::time_duration visit_time_window,
                       boost::posix_time::time_duration break_time_window,
@@ -250,7 +250,7 @@ namespace rows {
 
         bool IsNear(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const;
 
-        const RealProblemData &problem_data_;
+        const ProblemData &problem_data_;
         const LocalServiceUser depot_service_user_;
 
         bool out_office_hours_breaks_enabled_;

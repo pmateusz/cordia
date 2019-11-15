@@ -24,12 +24,12 @@ namespace rows {
 
         ~SingleStepSchedulingWorker() override;
 
-        bool Init(const rows::RealProblemData &problem,
+        bool Init(const rows::ProblemData &problem,
                   boost::optional<rows::Solution> past_solution,
                   operations_research::RoutingSearchParameters search_parameters,
                   std::string output_file);
 
-        bool Init(const rows::RealProblemData &problem,
+        bool Init(const rows::ProblemData &problem,
                   const std::string &output,
                   const boost::posix_time::time_duration &visit_time_window,
                   const boost::posix_time::time_duration &break_time_window,

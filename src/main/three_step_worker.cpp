@@ -163,20 +163,20 @@ void rows::ThreeStepSchedulingWorker::Run() {
     SetReturnCode(0);
 }
 
-rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer, RealProblemDataFactory data_factory)
-        : ThreeStepSchedulingWorker(std::move(printer), FirstStageStrategy::DEFAULT, ThirdStageStrategy::DEFAULT, std::move(data_factory)) {}
+rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer, std::shared_ptr<ProblemDataFactory> data_factory)
+        : ThreeStepSchedulingWorker(std::move(printer), FirstStageStrategy::DEFAULT, ThirdStageStrategy::DEFAULT, data_factory) {}
 
 rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                                            FirstStageStrategy first_stage_strategy,
                                                            ThirdStageStrategy third_stage_strategy,
-                                                           RealProblemDataFactory data_factory)
+                                                           std::shared_ptr<ProblemDataFactory> data_factory)
         : printer_{std::move(printer)},
           first_stage_strategy_{first_stage_strategy},
           third_stage_strategy_{third_stage_strategy},
           pre_opt_time_limit_{boost::posix_time::not_a_date_time},
           opt_time_limit_{boost::posix_time::not_a_date_time},
           post_opt_time_limit_{boost::posix_time::not_a_date_time},
-          data_factory_{std::move(data_factory)} {}
+          data_factory_{data_factory} {}
 
 std::vector<rows::ThreeStepSchedulingWorker::CarerTeam> rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
     std::vector<std::pair<rows::Carer, rows::Diary> > carer_diaries;
@@ -240,7 +240,7 @@ std::vector<rows::ThreeStepSchedulingWorker::CarerTeam> rows::ThreeStepSchedulin
     return teams;
 }
 
-bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const RealProblemData> problem_data,
+bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> problem_data,
                                            std::string output_file,
                                            boost::posix_time::time_duration visit_time_window,
                                            boost::posix_time::time_duration break_time_window,
@@ -347,7 +347,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         search_params.use_cp();
 
         rows::Problem sub_problem{team_visits, team_carers, problem_data_->problem().service_users()};
-        const auto sub_problem_data = data_factory_(sub_problem);
+        const auto sub_problem_data = data_factory_->operator()(sub_problem);
         std::unique_ptr<rows::SolverWrapper> first_stage_wrapper
                 = std::make_unique<rows::SingleStepSolver>(*sub_problem_data,
                                                            search_params,
@@ -450,7 +450,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         }
 
         rows::Problem sub_problem{team_visits, problem_data_->problem().carers(), problem_data_->problem().service_users()};
-        const auto sub_problem_data = data_factory_(sub_problem);
+        const auto sub_problem_data = data_factory_->operator()(sub_problem);
         std::unique_ptr<rows::MultiCarerSolver> multi_carer_wrapper
                 = std::make_unique<rows::MultiCarerSolver>(*sub_problem_data,
                                                            internal_search_params,

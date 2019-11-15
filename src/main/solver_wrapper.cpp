@@ -44,7 +44,7 @@ namespace rows {
 
     const std::string SolverWrapper::TIME_DIMENSION{"Time"};
 
-    SolverWrapper::SolverWrapper(const rows::RealProblemData &problem_data,
+    SolverWrapper::SolverWrapper(const ProblemData &problem_data,
                                  const operations_research::RoutingSearchParameters &search_parameters)
             : SolverWrapper(problem_data,
                             search_parameters,
@@ -52,7 +52,7 @@ namespace rows {
                             boost::posix_time::minutes(120),
                             boost::posix_time::not_a_date_time) {}
 
-    SolverWrapper::SolverWrapper(const rows::RealProblemData &problem_data,
+    SolverWrapper::SolverWrapper(const ProblemData &problem_data,
                                  const operations_research::RoutingSearchParameters &search_parameters,
                                  boost::posix_time::time_duration visit_time_window,
                                  boost::posix_time::time_duration break_time_window,
