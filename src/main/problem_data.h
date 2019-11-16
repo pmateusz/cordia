@@ -47,7 +47,7 @@ namespace rows {
 
     class ProblemDataFactory {
     public:
-        virtual std::shared_ptr<ProblemData> operator()(Problem problem) const = 0;
+        virtual std::shared_ptr<ProblemData> makeProblem(Problem problem) const = 0;
     };
 }
 

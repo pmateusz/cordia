@@ -75,7 +75,7 @@ namespace rows {
     public:
         explicit RealProblemDataFactory(osrm::EngineConfig engine_config);
 
-        std::shared_ptr<ProblemData> operator()(Problem problem) const override;
+        std::shared_ptr<ProblemData> makeProblem(Problem problem) const override;
 
     private:
         osrm::EngineConfig engine_config_;

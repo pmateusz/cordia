@@ -71,9 +71,11 @@ namespace rows {
     public:
         static BenchmarkProblemDataFactory Load(const std::string &file_path);
 
-        std::shared_ptr<BenchmarkProblemData> operator()() const;
+        std::shared_ptr<BenchmarkProblemData> makeProblem() const;
 
-        std::shared_ptr<ProblemData> operator()(Problem problem) const override;
+        std::shared_ptr<ProblemData> makeProblem(Problem problem) const override;
+
+        inline double CostNormalizationFactor() const { return cost_normalization_factor_; }
 
     private:
         BenchmarkProblemDataFactory(std::vector<rows::ExtendedServiceUser> users,
@@ -86,7 +88,8 @@ namespace rows {
                                             std::vector<operations_research::RoutingIndexManager::NodeIndex>,
                                             rows::Problem::PartialVisitOperations,
                                             rows::Problem::PartialVisitOperations> visit_index,
-                                    std::vector<std::vector<int>> distance_matrix);
+                                    std::vector<std::vector<int>> distance_matrix,
+                                    double cost_normalization_factor);
 
         std::vector<rows::ExtendedServiceUser> users_;
         std::vector<rows::CalendarVisit> calendar_visits_;
@@ -99,6 +102,7 @@ namespace rows {
                 rows::Problem::PartialVisitOperations,
                 rows::Problem::PartialVisitOperations> visit_index_;
         std::vector<std::vector<int>> distance_matrix_;
+        double cost_normalization_factor_;
     };
 }
 

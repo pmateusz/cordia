@@ -37,7 +37,8 @@ namespace rows {
     void SingleStepSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                           operations_research::RoutingModel &model,
                                           const std::shared_ptr<Printer> &printer,
-                                          std::shared_ptr<const std::atomic<bool> > cancel_token) {
+                                          std::shared_ptr<const std::atomic<bool> > cancel_token,
+                                          double cost_normalization_factor) {
         OnConfigureModel(index_manager, model);
 
         operations_research::Solver *const solver = model.solver();
@@ -69,7 +70,7 @@ namespace rows {
                                                                       - start_time_model_closing).count();
 
         auto solver_ptr = model.solver();
-        model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+        model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
         model.AddSearchMonitor(solver_ptr->RevAlloc(new MinDroppedVisitsSolutionCollector(&model, true)));
         model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 

@@ -10,8 +10,14 @@
 namespace rows {
 
     ProgressPrinterMonitor::ProgressPrinterMonitor(const operations_research::RoutingModel &model, std::shared_ptr<rows::Printer> printer)
+            : ProgressPrinterMonitor(model, printer, 1.0) {}
+
+    ProgressPrinterMonitor::ProgressPrinterMonitor(const operations_research::RoutingModel &model,
+                                                   std::shared_ptr<rows::Printer> printer,
+                                                   double cost_normalization_factor)
             : ProgressMonitor(model),
               printer_(std::move(printer)),
+              cost_normalization_factor_{cost_normalization_factor},
               last_solution_cost_{std::numeric_limits<double>::max()} {}
 
     ProgressPrinterMonitor::~ProgressPrinterMonitor() {
@@ -24,12 +30,10 @@ namespace rows {
             return operations_research::SearchMonitor::AtSolution();
         }
 
-        // TODO: print if number of visits dropped
-
         last_solution_cost_ = current_solution_cost;
         const auto wall_time = util::WallTime(solver());
         const auto memory_usage = operations_research::Solver::MemoryUsage();
-        printer_->operator<<(ProgressStep(current_solution_cost,
+        printer_->operator<<(ProgressStep(current_solution_cost * cost_normalization_factor_,
                                           util::GetDroppedVisitCount(model()),
                                           boost::posix_time::time_duration{wall_time.hours(),
                                                                            wall_time.minutes(),

@@ -176,6 +176,7 @@ rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows:
           pre_opt_time_limit_{boost::posix_time::not_a_date_time},
           opt_time_limit_{boost::posix_time::not_a_date_time},
           post_opt_time_limit_{boost::posix_time::not_a_date_time},
+          cost_normalization_factor_{1.0},
           data_factory_{data_factory} {}
 
 std::vector<rows::ThreeStepSchedulingWorker::CarerTeam> rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
@@ -247,7 +248,8 @@ bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> pr
                                            boost::posix_time::time_duration begin_end_shift_time_extension,
                                            boost::posix_time::time_duration pre_opt_time_limit,
                                            boost::posix_time::time_duration opt_time_limit,
-                                           boost::posix_time::time_duration post_opt_time_limit) {
+                                           boost::posix_time::time_duration post_opt_time_limit,
+                                           double cost_normalization_factor) {
     problem_data_ = problem_data;
     output_file_ = std::move(output_file);
     visit_time_window_ = std::move(visit_time_window);
@@ -256,6 +258,7 @@ bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> pr
     pre_opt_time_limit_ = std::move(pre_opt_time_limit);
     opt_time_limit_ = std::move(opt_time_limit);
     post_opt_time_limit_ = std::move(post_opt_time_limit);
+    cost_normalization_factor_ = cost_normalization_factor;
     return true;
 }
 
@@ -297,6 +300,15 @@ operations_research::RoutingSearchParameters rows::ThreeStepSchedulingWorker::Cr
 //    parameters.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
 //    parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
 //    parameters.set_use_full_propagation(true);
+
+// testing
+    parameters.mutable_local_search_operators()->set_use_exchange_subtrip(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_relocate_expensive_chain(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_light_relocate_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_relocate(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_tsp_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
 
 // we are fishing for optimal solutions in scenarios in which all orders are performed
     parameters.mutable_local_search_operators()->set_use_cross_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
@@ -347,7 +359,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         search_params.use_cp();
 
         rows::Problem sub_problem{team_visits, team_carers, problem_data_->problem().service_users()};
-        const auto sub_problem_data = data_factory_->operator()(sub_problem);
+        const auto sub_problem_data = data_factory_->makeProblem(sub_problem);
         std::unique_ptr<rows::SolverWrapper> first_stage_wrapper
                 = std::make_unique<rows::SingleStepSolver>(*sub_problem_data,
                                                            search_params,
@@ -362,7 +374,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
                                                                              rows::RealProblemData::DEPOT);
         std::unique_ptr<operations_research::RoutingModel> first_step_model
                 = std::make_unique<operations_research::RoutingModel>(*first_step_index_manager);
-        first_stage_wrapper->ConfigureModel(*first_step_index_manager, *first_step_model, printer_, CancelToken());
+        first_stage_wrapper->ConfigureModel(*first_step_index_manager, *first_step_model, printer_, CancelToken(), cost_normalization_factor_);
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage1"));
 //        first_step_model->solver()->set_fail_intercept(&FailureInterceptor);
@@ -450,7 +462,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         }
 
         rows::Problem sub_problem{team_visits, problem_data_->problem().carers(), problem_data_->problem().service_users()};
-        const auto sub_problem_data = data_factory_->operator()(sub_problem);
+        const auto sub_problem_data = data_factory_->makeProblem(sub_problem);
         std::unique_ptr<rows::MultiCarerSolver> multi_carer_wrapper
                 = std::make_unique<rows::MultiCarerSolver>(*sub_problem_data,
                                                            internal_search_params,
@@ -464,7 +476,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
                                                                              rows::RealProblemData::DEPOT);
         std::unique_ptr<operations_research::RoutingModel> multi_carer_model
                 = std::make_unique<operations_research::RoutingModel>(*multi_carer_index_manager);
-        multi_carer_wrapper->ConfigureModel(*multi_carer_index_manager, *multi_carer_model, printer_, CancelToken());
+        multi_carer_wrapper->ConfigureModel(*multi_carer_index_manager, *multi_carer_model, printer_, CancelToken(), cost_normalization_factor_);
         auto result = multi_carer_model->SolveWithParameters(internal_search_params);
         operations_research::Assignment const *multi_carer_assignment = multi_carer_wrapper->GetBestSolution();
         if (multi_carer_assignment == nullptr) {
@@ -524,7 +536,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveSecondStag
 
     auto second_stage_model = std::make_unique<operations_research::RoutingModel>(second_stage_index_manager);
 //    second_stage_model->solver()->set_fail_intercept(&FailureInterceptor);
-    second_stage_solver.ConfigureModel(second_stage_index_manager, *second_stage_model, printer_, CancelToken());
+    second_stage_solver.ConfigureModel(second_stage_index_manager, *second_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 
     std::stringstream penalty_msg;
     penalty_msg << "MissedVisitPenalty: " << second_stage_solver.GetDroppedVisitPenalty();
@@ -583,7 +595,7 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
                                                                                     third_stage_penalty,
                                                                                     max_dropped_visits_count);
 
-    third_step_solver->ConfigureModel(*third_stage_index_manager, *third_stage_model, printer_, CancelToken());
+    third_step_solver->ConfigureModel(*third_stage_index_manager, *third_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 
 //    third_stage_model->solver()->set_fail_intercept(FailureInterceptor);
     const auto third_stage_preassignment = third_stage_model->ReadAssignmentFromRoutes(second_stage_routes, true);
@@ -637,7 +649,7 @@ rows::ThreeStepSchedulingWorker::GetVehicleMetrics(const std::vector<std::vector
                                                                          rows::RealProblemData::DEPOT);
     std::unique_ptr<operations_research::RoutingModel> intermediate_model
             = std::make_unique<operations_research::RoutingModel>(*intermediate_index_manager);
-    intermediate_wrapper->ConfigureModel(*intermediate_index_manager, *intermediate_model, printer_, CancelToken());
+    intermediate_wrapper->ConfigureModel(*intermediate_index_manager, *intermediate_model, printer_, CancelToken(), cost_normalization_factor_);
 
 // useful for debugging
 //    const auto warm_start_solution = util::LoadSolution(

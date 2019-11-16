@@ -2475,7 +2475,7 @@ int main(int argc, char *argv[]) {
     }
 
     rows::RealProblemDataFactory problem_data_factory{engine_config};
-    const auto problem_data = problem_data_factory(problem);
+    const auto problem_data = problem_data_factory.makeProblem(problem);
     const auto search_params = operations_research::DefaultRoutingSearchParameters();
     std::unique_ptr<rows::SecondStepSolver> solver_wrapper = std::make_unique<rows::SecondStepSolver>(*problem_data,
                                                                                                       search_params,
@@ -2491,7 +2491,7 @@ int main(int argc, char *argv[]) {
 
     std::unique_ptr<operations_research::RoutingModel> routing_model
             = std::make_unique<operations_research::RoutingModel>(*index_manager);
-    solver_wrapper->ConfigureModel(*index_manager, *routing_model, printer, cancel_token);
+    solver_wrapper->ConfigureModel(*index_manager, *routing_model, printer, cancel_token, 1.0);
     static const rows::SolutionValidator solution_validator{};
 
     if (solution_opt) {

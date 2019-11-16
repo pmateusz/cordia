@@ -90,7 +90,8 @@ namespace rows {
         virtual void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                     operations_research::RoutingModel &model,
                                     const std::shared_ptr<Printer> &printer,
-                                    std::shared_ptr<const std::atomic<bool> > cancel_token) = 0;
+                                    std::shared_ptr<const std::atomic<bool> > cancel_token,
+                                    double cost_normalization_factor) = 0;
 
         virtual std::string GetDescription(const operations_research::RoutingIndexManager &index_manager,
                                            const operations_research::RoutingModel &model,

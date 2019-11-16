@@ -34,7 +34,8 @@ namespace rows {
                   const boost::posix_time::time_duration &visit_time_window,
                   const boost::posix_time::time_duration &break_time_window,
                   const boost::posix_time::time_duration &begin_end_shfit_time_extension,
-                  const boost::posix_time::time_duration &opt_time_limit);
+                  const boost::posix_time::time_duration &opt_time_limit,
+                  double cost_normalization_factor);
 
         void Run() override;
 

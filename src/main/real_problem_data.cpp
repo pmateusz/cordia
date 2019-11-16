@@ -131,7 +131,7 @@ bool rows::RealProblemData::Contains(const rows::CalendarVisit &visit) const {
 rows::RealProblemDataFactory::RealProblemDataFactory(osrm::EngineConfig engine_config)
         : engine_config_{std::move(engine_config)} {}
 
-std::shared_ptr<rows::ProblemData> rows::RealProblemDataFactory::operator()(rows::Problem problem) const {
+std::shared_ptr<rows::ProblemData> rows::RealProblemDataFactory::makeProblem(rows::Problem problem) const {
     const auto locations = DistinctLocations(problem);
     return std::make_shared<RealProblemData>(problem, std::make_unique<CachedLocationContainer>(std::begin(locations),
                                                                                                 std::end(locations),

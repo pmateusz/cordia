@@ -94,7 +94,8 @@ namespace rows {
                   boost::posix_time::time_duration begin_end_shift_time_extension,
                   boost::posix_time::time_duration pre_opt_time_limit,
                   boost::posix_time::time_duration opt_time_limit,
-                  boost::posix_time::time_duration post_opt_time_limit);
+                  boost::posix_time::time_duration post_opt_time_limit,
+                  double cost_normalization_factor);
 
     private:
 
@@ -128,6 +129,7 @@ namespace rows {
         boost::posix_time::time_duration pre_opt_time_limit_;
         boost::posix_time::time_duration opt_time_limit_;
         boost::posix_time::time_duration post_opt_time_limit_;
+        double cost_normalization_factor_;
 
         std::string output_file_;
 

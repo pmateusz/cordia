@@ -21,9 +21,8 @@ DEFINE_string(output, "output.gexf", "an output file");
 void ParseArgs(int argc, char *argv[]) {
     gflags::SetVersionString("0.0.1");
     gflags::SetUsageMessage("Robust Optimization for Workforce Scheduling\n"
-                            "Example: rows-mip"
-                            " --problem=problem.json"
-                            " --maps=./data/scotland-latest.osrm");
+                            "Example: rows-benchmark"
+                            " --problem=problem.json");
 
     static const auto REMOVE_FLAGS = false;
     gflags::ParseCommandLineFlags(&argc, &argv, REMOVE_FLAGS);
@@ -38,7 +37,7 @@ int main(int argc, char *argv[]) {
 
     auto problem_data_factory = rows::BenchmarkProblemDataFactory::Load(FLAGS_problem);
     auto problem_data_factory_ptr = std::make_shared<rows::BenchmarkProblemDataFactory>(problem_data_factory);
-    auto problem_data_ptr = problem_data_factory_ptr->operator()();
+    auto problem_data_ptr = problem_data_factory_ptr->makeProblem();
 
     auto printer = util::CreatePrinter(util::LOG_FORMAT);
     rows::ThreeStepSchedulingWorker worker{std::move(printer),
@@ -52,7 +51,8 @@ int main(int argc, char *argv[]) {
                     boost::posix_time::seconds(0),
                     boost::posix_time::seconds(5),
                     boost::posix_time::seconds(60),
-                    boost::posix_time::seconds(60))) {
+                    boost::posix_time::minutes(5),
+                    problem_data_factory_ptr->CostNormalizationFactor())) {
         worker.Start();
         std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
         chat_thread.detach();

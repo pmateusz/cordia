@@ -25,7 +25,8 @@ rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const ProblemData &prob
 void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                                     operations_research::RoutingModel &model,
                                                     const std::shared_ptr<Printer> &printer,
-                                                    std::shared_ptr<const std::atomic<bool> > cancel_token) {
+                                                    std::shared_ptr<const std::atomic<bool> > cancel_token,
+                                                    double cost_normalization_factor) {
     CHECK_GE(max_dropped_visits_, 0);
     const auto are_visits_optional = max_dropped_visits_ > 0;
 
@@ -71,7 +72,7 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
     }
 
     model.CloseModelWithParameters(parameters_);
-    model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+    model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(

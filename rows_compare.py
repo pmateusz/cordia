@@ -64,6 +64,7 @@ __CONTRAST_WORKLOAD_COMMAND = 'contrast-workload'
 __COMPARE_PREDICTION_ERROR_COMMAND = 'compare-prediction-error'
 __COMPARE_BENCHMARK_COMMAND = 'compare-benchmark'
 __COMPARE_BENCHMARK_TABLE_COMMAND = 'compare-benchmark-table'
+__COMPARE_LITERATURE_TABLE_COMMAND = 'compare-literature-table'
 __COMPARE_QUALITY_OPTIMIZER_COMMAND = 'compare-quality-optimizer'
 __TYPE_ARG = 'type'
 __ACTIVITY_TYPE = 'activity'
@@ -185,6 +186,8 @@ def configure_parser():
 
     compare_benchmark_parser = subparsers.add_parser(__COMPARE_BENCHMARK_COMMAND)
     compare_benchmark_parser.add_argument(__FILE_ARG)
+
+    subparsers.add_parser(__COMPARE_LITERATURE_TABLE_COMMAND)
 
     subparsers.add_parser(__COMPARE_BENCHMARK_TABLE_COMMAND)
 
@@ -843,7 +846,7 @@ class TraceLog:
         return self.__events
 
 
-def read_traces(trace_file) -> TraceLog:
+def read_traces(trace_file) -> typing.List[TraceLog]:
     log_line_pattern = re.compile('^\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?]\s+(?P<body>.*)$')
     other_line_pattern = re.compile('^.*?\[\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?\]\s+(?P<body>.*)$')
 
@@ -2075,6 +2078,100 @@ def compare_benchmark_table(args, settings):
     print(tabulate.tabulate(data_frame, tablefmt='latex', headers='keys', showindex=False))
 
 
+def compare_literature_table(args, settings):
+    InstanceConfig = collections.namedtuple('InstanceConfig', ['name', 'literature_result', 'is_optimal', 'comment'])
+    instance_data = [
+        InstanceConfig(name='case_1_20_4_2_2', literature_result=3.55, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_1_20_4_2_3', literature_result=3.55, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_1_20_4_2_4', literature_result=3.39, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_2_20_4_2_2', literature_result=4.27, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_2_20_4_2_3', literature_result=3.58, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_2_20_4_2_4', literature_result=3.42, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_3_20_4_2_2', literature_result=3.63, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_3_20_4_2_3', literature_result=3.33, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_3_20_4_2_4', literature_result=3.29, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_4_20_4_2_2', literature_result=6.14, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_4_20_4_2_3', literature_result=5.67, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_4_20_4_2_4', literature_result=5.13, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_5_20_4_2_2', literature_result=3.93, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_5_20_4_2_3', literature_result=3.53, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_5_20_4_2_4', literature_result=3.34, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+
+        InstanceConfig(name='case_1_50_10_5_2', literature_result=8.14, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_1_50_10_5_3', literature_result=7.7, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_1_50_10_5_4', literature_result=7.14, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_2_50_10_5_2', literature_result=8.39, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_2_50_10_5_3', literature_result=7.48, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_2_50_10_5_4', literature_result=6.88, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_3_50_10_5_2', literature_result=9.54, is_optimal=True,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_3_50_10_5_3', literature_result=8.54, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_3_50_10_5_4', literature_result=8, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+
+        InstanceConfig(name='case_1_80_16_8_2', literature_result=11.93, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_1_80_16_8_3', literature_result=10.92, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_1_80_16_8_4', literature_result=10.49, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_2_80_16_8_2', literature_result=8.60, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_2_80_16_8_3', literature_result=7.62, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints'),
+        InstanceConfig(name='case_2_80_16_8_4', literature_result=7.75, is_optimal=False,
+                       comment='Combined vehicle routing and scheduling with temporal precedence and synchronization constraints')
+    ]
+    instance_dirs = ['/home/pmateusz/dev/cordia/simulations/current_review_simulations/hc/solutions/case20',
+                     '/home/pmateusz/dev/cordia/simulations/current_review_simulations/hc/solutions/case50']
+    instance_dict = {instance.name: instance for instance in instance_data}
+    print_data = []
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore')
+        for instance_dir in instance_dirs:
+            for instance in instance_data:
+                instance_log_path = os.path.join(instance_dir, instance.name + '.dat.err.log')
+                if not os.path.exists(instance_log_path):
+                    continue
+                solver_logs = read_traces(instance_log_path)
+                if solver_logs:
+                    instance = instance_dict[instance.name]
+                    first_solver_logs = solver_logs[0]
+                    print_data.append(collections.OrderedDict(
+                        name=instance.name,
+                        literature_result=instance.literature_result,
+                        is_optimal=instance.is_optimal,
+                        result=first_solver_logs.best_cost(),
+                        time=first_solver_logs.best_cost_time(),
+                        source=instance.comment
+                    ))
+
+    print(tabulate.tabulate(pandas.DataFrame(data=print_data), showindex=True, tablefmt='psql', headers='keys'))
+
+
 def compare_planner_optimizer_quality(args, settings):
     data_file = getattr(args, __FILE_ARG)
     data_frame = pandas.read_csv(data_file)
@@ -2458,6 +2555,8 @@ if __name__ == '__main__':
         compare_schedule_cost(__args, __settings)
     elif __command == __COMPARE_BENCHMARK_TABLE_COMMAND:
         compare_benchmark_table(__args, __settings)
+    elif __command == __COMPARE_LITERATURE_TABLE_COMMAND:
+        compare_literature_table(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:

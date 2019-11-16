@@ -28,7 +28,8 @@ rows::ThirdStepFulfillSolver::ThirdStepFulfillSolver(const ProblemData &problem_
 void rows::ThirdStepFulfillSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                                   operations_research::RoutingModel &model,
                                                   const std::shared_ptr<Printer> &printer,
-                                                  std::shared_ptr<const std::atomic<bool> > cancel_token) {
+                                                  std::shared_ptr<const std::atomic<bool> > cancel_token,
+                                                  double cost_normalization_factor) {
     OnConfigureModel(index_manager, model);
 
     operations_research::Solver *const solver = model.solver();
@@ -74,7 +75,7 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(const operations_research::Rou
 
 
     model.CloseModelWithParameters(parameters_);
-    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver->RevAlloc(new StalledSearchLimit(

@@ -3,6 +3,7 @@
 #include <ampl/ampl.h>
 
 #include <utility>
+#include <boost/filesystem/path.hpp>
 
 
 static std::vector<int> MemberRangeToVector(const ampl::Set::MemberRange &member_range) {
@@ -77,7 +78,8 @@ int64 rows::BenchmarkProblemData::Distance(operations_research::RoutingNodeIndex
         to_node = NodeToVisit(to).id();
     }
 
-    return distance_matrix_.at(from_node.value()).at(to_node.value());
+    const auto result = distance_matrix_.at(from_node.value()).at(to_node.value());
+    return result;
 }
 
 int64 rows::BenchmarkProblemData::ServiceTime(operations_research::RoutingNodeIndex node) const {
@@ -90,10 +92,6 @@ int64 rows::BenchmarkProblemData::ServiceTime(operations_research::RoutingNodeIn
 }
 
 int64 rows::BenchmarkProblemData::ServicePlusTravelTime(operations_research::RoutingNodeIndex from, operations_research::RoutingNodeIndex to) const {
-    if (from == DEPOT) {
-        return 0;
-    }
-
     const auto service_time = ServiceTime(from);
     const auto travel_time = Distance(from, to);
     return service_time + travel_time;
@@ -136,7 +134,7 @@ int64 rows::BenchmarkProblemData::GetDroppedVisitPenalty() const {
     return 2 * carer_used_penalty_;
 }
 
-std::shared_ptr<rows::BenchmarkProblemData> rows::BenchmarkProblemDataFactory::operator()() const {
+std::shared_ptr<rows::BenchmarkProblemData> rows::BenchmarkProblemDataFactory::makeProblem() const {
     return std::make_shared<rows::BenchmarkProblemData>(
             rows::Problem{calendar_visits_, carers_, users_},
             time_horizon_,
@@ -146,7 +144,7 @@ std::shared_ptr<rows::BenchmarkProblemData> rows::BenchmarkProblemDataFactory::o
             distance_matrix_);
 }
 
-std::shared_ptr<rows::ProblemData> rows::BenchmarkProblemDataFactory::operator()(rows::Problem problem) const {
+std::shared_ptr<rows::ProblemData> rows::BenchmarkProblemDataFactory::makeProblem(rows::Problem problem) const {
     std::unordered_map<operations_research::RoutingIndexManager::NodeIndex, rows::CalendarVisit> node_index;
     std::unordered_map<rows::CalendarVisit,
             std::vector<operations_research::RoutingIndexManager::NodeIndex>,
@@ -175,6 +173,13 @@ std::shared_ptr<rows::ProblemData> rows::BenchmarkProblemDataFactory::operator()
 }
 
 rows::BenchmarkProblemDataFactory rows::BenchmarkProblemDataFactory::Load(const std::string &file_path) {
+    auto visit_duration_factor = 1.0;
+    boost::filesystem::path problem_file_path{file_path};
+    const auto stem = problem_file_path.stem().string();
+    if (stem.find("3_50_10") != std::string::npos || stem.find("1_80_16") != std::string::npos) {
+        visit_duration_factor = 1.4;
+    }
+
     ampl::Environment env("/home/pmateusz/Applications/ampl.linux64");
     ampl::AMPL ampl{env};
     ampl.eval("param NO_Staff;"
@@ -251,7 +256,7 @@ rows::BenchmarkProblemDataFactory rows::BenchmarkProblemDataFactory::Load(const 
                                         address,
                                         boost::none,
                                         visit_time_windows,
-                                        boost::posix_time::minutes(duration.at(visit_node)),
+                                        boost::posix_time::minutes(std::floor(duration.at(visit_node) * visit_duration_factor)),
                                         static_cast<int>(local_visit_nodes.size()),
                                         std::vector<int>{}};
 
@@ -291,7 +296,8 @@ rows::BenchmarkProblemDataFactory rows::BenchmarkProblemDataFactory::Load(const 
             extra_staff_penalty,
             std::move(node_index),
             std::move(visit_index),
-            std::move(distance_matrix)};
+            std::move(distance_matrix),
+            9.0 / 60.0 / T_max};
 }
 
 rows::BenchmarkProblemDataFactory::BenchmarkProblemDataFactory(std::vector<rows::ExtendedServiceUser> users,
@@ -304,7 +310,8 @@ rows::BenchmarkProblemDataFactory::BenchmarkProblemDataFactory(std::vector<rows:
                                                                        std::vector<operations_research::RoutingIndexManager::NodeIndex>,
                                                                        rows::Problem::PartialVisitOperations,
                                                                        rows::Problem::PartialVisitOperations> visit_index,
-                                                               std::vector<std::vector<int>> distance_matrix)
+                                                               std::vector<std::vector<int>> distance_matrix,
+                                                               double cost_normalization_factor)
         : users_{std::move(users)},
           calendar_visits_{std::move(calendar_visits)},
           carers_{std::move(carers)},
@@ -312,4 +319,5 @@ rows::BenchmarkProblemDataFactory::BenchmarkProblemDataFactory(std::vector<rows:
           carer_used_penalty_{carer_used_penalty},
           node_index_{std::move(node_index)},
           visit_index_{std::move(visit_index)},
-          distance_matrix_{std::move(distance_matrix)} {}
+          distance_matrix_{std::move(distance_matrix)},
+          cost_normalization_factor_{cost_normalization_factor} {}

@@ -22,7 +22,8 @@ rows::MultiCarerSolver::MultiCarerSolver(const rows::ProblemData &problem_data,
 void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                             operations_research::RoutingModel &model,
                                             const std::shared_ptr<Printer> &printer,
-                                            std::shared_ptr<const std::atomic<bool> > cancel_token) {
+                                            std::shared_ptr<const std::atomic<bool> > cancel_token,
+                                            double cost_normalization_factor) {
     static const auto START_FROM_ZERO_TIME = false;
 
     OnConfigureModel(index_manager, model);
@@ -150,7 +151,7 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
 
 
     model.AddSearchMonitor(solution_collector_);
-    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
     model.AddSearchMonitor(solver->RevAlloc(new CancelSearchLimit(cancel_token, solver)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
