@@ -249,6 +249,7 @@ bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> pr
                                            boost::posix_time::time_duration pre_opt_time_limit,
                                            boost::posix_time::time_duration opt_time_limit,
                                            boost::posix_time::time_duration post_opt_time_limit,
+                                           boost::optional<boost::posix_time::time_duration> time_limit,
                                            double cost_normalization_factor) {
     problem_data_ = problem_data;
     output_file_ = std::move(output_file);
@@ -259,6 +260,7 @@ bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> pr
     opt_time_limit_ = std::move(opt_time_limit);
     post_opt_time_limit_ = std::move(post_opt_time_limit);
     cost_normalization_factor_ = cost_normalization_factor;
+    time_limit_ = time_limit;
     return true;
 }
 
@@ -306,6 +308,11 @@ operations_research::RoutingSearchParameters rows::ThreeStepSchedulingWorker::Cr
     parameters.mutable_local_search_operators()->set_use_relocate_expensive_chain(operations_research::OptionalBoolean::BOOL_TRUE);
     parameters.mutable_local_search_operators()->set_use_light_relocate_pair(operations_research::OptionalBoolean::BOOL_TRUE);
     parameters.mutable_local_search_operators()->set_use_relocate(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_exchange_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
 //    parameters.mutable_local_search_operators()->set_use_tsp_lns(operations_research::OptionalBoolean::BOOL_TRUE);
 //    parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
 //    parameters.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
@@ -318,6 +325,10 @@ operations_research::RoutingSearchParameters rows::ThreeStepSchedulingWorker::Cr
 // not worth as we don't usually deal with unperformed visits
 //  parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
 //  parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(operations_research::OptionalBoolean::BOOL_TRUE);
+
+    if (time_limit_) {
+        CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(time_limit_->total_seconds()), parameters.mutable_time_limit()));
+    }
 
     return parameters;
 }

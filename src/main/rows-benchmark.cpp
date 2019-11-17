@@ -51,7 +51,8 @@ int main(int argc, char *argv[]) {
                     boost::posix_time::seconds(0),
                     boost::posix_time::seconds(5),
                     boost::posix_time::seconds(60),
-                    boost::posix_time::minutes(5),
+                    boost::posix_time::minutes(60),
+                    boost::posix_time::minutes(60),
                     problem_data_factory_ptr->CostNormalizationFactor())) {
         worker.Start();
         std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));

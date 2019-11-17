@@ -240,6 +240,7 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         pre_opt_noprogress_time_limit,
                         opt_noprogress_time_limit,
                         post_opt_noprogress_time_limit,
+                        boost::none,
                         1.0)) {
             worker.Run();
         }
@@ -286,6 +287,7 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         pre_opt_noprogress_time_limit,
                         opt_noprogress_time_limit,
                         post_opt_noprogress_time_limit,
+                        boost::none,
                         1.0)) {
             worker.Start();
             std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
