@@ -112,6 +112,20 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     auto second_stage_search_params = operations_research::DefaultRoutingSearchParameters();
     second_stage_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_PARALLEL_CHEAPEST_INSERTION);
+//    second_stage_search_params.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    second_stage_search_params.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(10), second_stage_search_params.mutable_lns_time_limit()));
+    second_stage_search_params.mutable_local_search_operators()->set_use_exchange_subtrip(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_relocate_expensive_chain(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_light_relocate_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_relocate(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_exchange_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.set_use_full_propagation(true);
+//    second_stage_search_params.set_use_cp_sat(operations_research::OptionalBoolean::BOOL_TRUE);
 
     std::unique_ptr<rows::SecondStepSolver> second_stage_wrapper = std::make_unique<rows::SecondStepSolver>(*problem_data_,
                                                                                                             second_stage_search_params,
@@ -321,6 +335,7 @@ operations_research::RoutingSearchParameters rows::ThreeStepSchedulingWorker::Cr
     parameters.mutable_local_search_operators()->set_use_cross_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
     parameters.mutable_local_search_operators()->set_use_relocate_neighbors(operations_research::OptionalBoolean::BOOL_TRUE);
     parameters.set_local_search_metaheuristic(operations_research::LocalSearchMetaheuristic_Value_GUIDED_LOCAL_SEARCH);
+    parameters.set_guided_local_search_lambda_coefficient(1.0);
 
 // not worth as we don't usually deal with unperformed visits
 //  parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);

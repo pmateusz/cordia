@@ -774,7 +774,13 @@ class TraceLog:
             self.__problem = body_to_use
         else:
             body_to_use = body
-        self.__events.append([time_point - self.__start, self.__current_stage, time_point, body_to_use])
+
+        # quick fix to prevent negative computation time if the time frame crosses midnight
+        if self.__start < time_point:
+            computation_time = time_point - self.__start
+        else:
+            computation_time = time_point + datetime.timedelta(hours=24) - self.__start
+        self.__events.append([computation_time, self.__current_stage, time_point, body_to_use])
 
     def has_stages(self):
         for relative_time, stage, absolute_time, event in self.__events:
@@ -2183,8 +2189,7 @@ def compare_literature_table(args, settings):
                 normalized_result = float('inf')
                 if first_solver_logs.best_cost() < 100:
                     normalized_result = round(first_solver_logs.best_cost(), 2)
-                best_result = min(normalized_result, instance.literature_result)
-                delta = round((instance.literature_result - normalized_result) / best_result * 100, 2)
+                delta = round((instance.literature_result - normalized_result) / instance.literature_result * 100, 2)
 
                 printable_literature_result = str(instance.literature_result)
                 if instance.is_optimal:
