@@ -39,13 +39,14 @@ namespace rows {
                       int carer_count,
                       std::vector<int> tasks);
 
-        CalendarVisit(const CalendarVisit &other);
-
-        CalendarVisit &operator=(const CalendarVisit &other);
-
-        CalendarVisit(CalendarVisit &&other) noexcept;
-
-        CalendarVisit &operator=(CalendarVisit &&other) noexcept;
+        CalendarVisit(std::size_t id,
+                      ServiceUser service_user,
+                      Address address,
+                      boost::optional<Location> location,
+                      boost::posix_time::time_period time_window,
+                      boost::posix_time::time_duration duration,
+                      int carer_count,
+                      std::vector<int> tasks);
 
         friend struct std::hash<rows::CalendarVisit>;
 
@@ -73,7 +74,9 @@ namespace rows {
 
         void datetime(const boost::posix_time::ptime &date_time);
 
-        const boost::posix_time::ptime::time_duration_type duration() const;
+        const boost::posix_time::ptime::time_duration_type &duration() const;
+
+        const boost::posix_time::time_period &time_windows() const;
 
         void duration(const boost::posix_time::ptime::time_duration_type &duration);
 
@@ -94,7 +97,7 @@ namespace rows {
         ServiceUser service_user_;
         Address address_;
         boost::optional<Location> location_;
-        boost::posix_time::ptime date_time_;
+        boost::posix_time::time_period time_windows_;
         boost::posix_time::ptime::time_duration_type duration_;
         int carer_count_;
         std::vector<int> tasks_;
@@ -157,7 +160,8 @@ namespace std {
             std::size_t seed = 0;
             boost::hash_combine(seed, hash_address(object.address_));
             boost::hash_combine(seed, hash_service_user(object.service_user_));
-            boost::hash_combine(seed, hash_date_time(object.date_time_));
+            boost::hash_combine(seed, hash_date_time(object.time_windows_.begin()));
+            boost::hash_combine(seed, hash_date_time(object.time_windows_.end()));
             boost::hash_combine(seed, hash_duration(object.duration_));
             boost::hash_combine(seed, object.carer_count_);
 

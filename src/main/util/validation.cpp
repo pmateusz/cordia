@@ -117,17 +117,3 @@ bool util::date::IsPositive(const char *flagname, const std::string &value) {
     }
     return true;
 }
-
-void util::string::Strip(std::string &text) {
-    static const std::regex NON_PRINTABLE_CHARACTER_PATTERN{"[\\W]"};
-    text = std::regex_replace(text, NON_PRINTABLE_CHARACTER_PATTERN, "");
-}
-
-void util::string::ToLower(std::string &text) {
-    static const std::locale CURRENT_LOCALE("");
-
-    std::transform(std::begin(text), std::end(text), std::begin(text),
-                   [](auto character) {
-                       return std::tolower(character, CURRENT_LOCALE);
-                   });
-}

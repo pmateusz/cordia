@@ -14,6 +14,7 @@ import rows.pull_command
 import rows.solve_command
 import rows.version_command
 import rows.solution_command
+import rows.history_command
 import rows.visualisation_command
 import rows.make_instance_command
 import rows.version
@@ -45,7 +46,8 @@ class Application:
                            rows.parser.Parser.VERSION_COMMAND: rows.version_command.Handler(self),
                            rows.parser.Parser.SOLUTION_COMMAND: rows.solution_command.Handler(self),
                            rows.parser.Parser.VISUALISATION_COMMAND: rows.visualisation_command.Handler(self),
-                           rows.parser.Parser.MAKE_INSTANCE_COMMAND: rows.make_instance_command.Handler(self)}
+                           rows.parser.Parser.MAKE_INSTANCE_COMMAND: rows.make_instance_command.Handler(self),
+                           rows.parser.Parser.HISTORY_COMMAND: rows.history_command.Handler(self)}
         self.__output_file_mode = output_file_mode
 
     def load(self, args):

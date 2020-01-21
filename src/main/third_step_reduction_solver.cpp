@@ -5,18 +5,15 @@
 #include "cancel_search_limit.h"
 #include "stalled_search_limit.h"
 
-rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const rows::Problem &problem,
-                                                         osrm::EngineConfig &config,
+rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const ProblemData &problem_data,
                                                          const operations_research::RoutingSearchParameters &search_parameters,
                                                          boost::posix_time::time_duration visit_time_window,
                                                          boost::posix_time::time_duration break_time_window,
                                                          boost::posix_time::time_duration begin_end_work_day_adjustment,
                                                          boost::posix_time::time_duration no_progress_time_limit,
                                                          int64 dropped_visit_penalty,
-                                                         int64 max_dropped_visits,
-                                                         std::vector<RouteValidatorBase::Metrics> vehicle_metrics)
-        : SolverWrapper(problem,
-                        config,
+                                                         int64 max_dropped_visits)
+        : SolverWrapper(problem_data,
                         search_parameters,
                         std::move(visit_time_window),
                         std::move(break_time_window),
@@ -28,129 +25,34 @@ rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const rows::Problem &pr
 void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                                     operations_research::RoutingModel &model,
                                                     const std::shared_ptr<Printer> &printer,
-                                                    std::shared_ptr<const std::atomic<bool> > cancel_token) {
+                                                    std::shared_ptr<const std::atomic<bool> > cancel_token,
+                                                    double cost_normalization_factor) {
     CHECK_GE(max_dropped_visits_, 0);
     const auto are_visits_optional = max_dropped_visits_ > 0;
 
     OnConfigureModel(index_manager, model);
 
-    const auto transit_callback_handle = model.RegisterTransitCallback(
-            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
-                return this->Distance(index_manager.IndexToNode(from_index), index_manager.IndexToNode(to_index));
-            });
-    model.SetArcCostEvaluatorOfAllVehicles(transit_callback_handle);
-
-    const auto service_time_callback_handle = model.RegisterTransitCallback(
-            [this, &index_manager](int64 from_index, int64 to_index) -> int64 {
-                return this->ServicePlusTravelTime(index_manager.IndexToNode(from_index),
-                                                   index_manager.IndexToNode(to_index));
-            });
-    static const auto START_FROM_ZERO_TIME = false;
-    model.AddDimension(service_time_callback_handle,
-                       SECONDS_IN_DIMENSION,
-                       SECONDS_IN_DIMENSION,
-                       START_FROM_ZERO_TIME,
-                       TIME_DIMENSION);
-
-    operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
-
     operations_research::Solver *const solver = model.solver();
-    time_dimension->CumulVar(index_manager.NodeToIndex(DEPOT))->SetRange(0, SECONDS_IN_DIMENSION);
-
-    // visit that needs multiple carers is referenced by multiple nodes
-    // all such nodes must be either performed or unperformed
-    auto total_multiple_carer_visits = 0;
-    for (const auto &visit_index_pair : visit_index_) {
-        const auto visit_start = visit_index_pair.first.datetime() - StartHorizon();
-        CHECK(!visit_start.is_negative()) << visit_index_pair.first.id();
-
-        std::vector<int64> visit_indices;
-        for (const auto &visit_node : visit_index_pair.second) {
-            const auto visit_index = index_manager.NodeToIndex(visit_node);
-            visit_indices.push_back(visit_index);
-
-            if (HasTimeWindows()) {
-                const auto start_window = GetBeginVisitWindow(visit_start);
-                const auto end_window = GetEndVisitWindow(visit_start);
-
-                time_dimension->CumulVar(visit_index)->SetRange(start_window, end_window);
-
-                DCHECK_LT(start_window, end_window) << visit_index_pair.first.id();
-                DCHECK_LE(start_window, visit_start.total_seconds()) << visit_index_pair.first.id();
-                DCHECK_LE(visit_start.total_seconds(), end_window) << visit_index_pair.first.id();
-            } else {
-                time_dimension->CumulVar(visit_index)->SetValue(visit_start.total_seconds());
-            }
-            model.AddToAssignment(time_dimension->SlackVar(visit_index));
-        }
-
-        const auto visit_indices_size = visit_indices.size();
-        if (visit_indices_size > 1) {
-            CHECK_EQ(visit_indices_size, 2);
-
-            auto first_visit_to_use = visit_indices[0];
-            auto second_visit_to_use = visit_indices[1];
-            if (first_visit_to_use > second_visit_to_use) {
-                std::swap(first_visit_to_use, second_visit_to_use);
-            }
-
-            solver->AddConstraint(solver->MakeEquality(time_dimension->CumulVar(first_visit_to_use),
-                                                       time_dimension->CumulVar(second_visit_to_use)));
-
-            if (are_visits_optional) {
-                solver->AddConstraint(solver->MakeEquality(model.ActiveVar(first_visit_to_use), model.ActiveVar(second_visit_to_use)));
-            }
-
-            const auto second_vehicle_var_to_use = solver->MakeMax(model.VehicleVar(second_visit_to_use), solver->MakeIntConst(0));
-            solver->AddConstraint(solver->MakeLess(model.VehicleVar(first_visit_to_use), second_vehicle_var_to_use));
-
-            ++total_multiple_carer_visits;
-        }
-    }
-
+    AddTravelTime(solver, model, index_manager);
+    AddVisitsHandling(solver, model, index_manager);
     AddSkillHandling(solver, model, index_manager);
     AddContinuityOfCare(solver, model, index_manager);
-
-    // could be interesting to use the Google constraint for breaks
-    // initial results show violation of some breaks
-    std::vector<int64> service_times(model.Size());
-    for (std::size_t node = 0; node < model.Size(); node++) {
-        if (node >= model.nodes() || node == 0) {
-            service_times[node] = 0;
-        } else {
-            const auto &visit = visit_by_node_.at(node);
-            service_times[node] = visit.duration().total_seconds();
-        }
-    }
 
     int64 global_carer_penalty = 0;
 
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
     for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
-        const auto &carer = Carer(vehicle);
-        const auto &diary_opt = problem_.diary(carer, schedule_day);
-
-        int64 begin_time = 0;
-        int64 end_time = 0;
-        if (diary_opt.is_initialized()) {
-            const auto &diary = diary_opt.get();
-
-            begin_time = GetAdjustedWorkdayStart(diary.begin_time());
-            end_time = GetAdjustedWorkdayFinish(diary.end_time());
-
-            int64 local_carer_penalty = diary.duration().total_seconds();
+        const auto working_hours = problem_data_.TotalWorkingHours(vehicle, schedule_day);
+        if (working_hours > boost::posix_time::seconds(0)) {
+            int64 local_carer_penalty = working_hours.total_seconds();
             global_carer_penalty = std::max(global_carer_penalty, local_carer_penalty);
 
             model.SetFixedCostOfVehicle(local_carer_penalty, vehicle);
-
-            const auto breaks = CreateBreakIntervals(solver_ptr, carer, diary);
-            time_dimension->SetBreakIntervalsOfVehicle(breaks, vehicle, service_times);
         }
-        time_dimension->CumulVar(model.Start(vehicle))->SetRange(begin_time, end_time);
-        time_dimension->CumulVar(model.End(vehicle))->SetRange(begin_time, end_time);
     }
-//    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new operations_research::GlobalVehicleBreaksConstraint(time_dimension)));
+
+    AddCarerHandling(solver, model, index_manager);
 
     std::stringstream penalty_msg;
     penalty_msg << "CarerUsedPenalty: " << global_carer_penalty;
@@ -165,21 +67,12 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
                                           GetAdjustment()));
 
     if (are_visits_optional) {
-        for (const auto &visit_bundle : visit_index_) {
-            std::vector<int64> visit_indices = index_manager.NodesToIndices(visit_bundle.second);
-            model.AddDisjunction(visit_indices, dropped_visit_penalty_, static_cast<int64>(visit_indices.size()));
-        }
-
-        std::vector<operations_research::IntVar *> all_visits;
-        for (const auto &visit_bundle : visit_index_) {
-            const auto visit_node = *std::begin(visit_bundle.second);
-            all_visits.push_back(model.VehicleVar(index_manager.NodeToIndex(visit_node)));
-        }
-        solver->AddConstraint(solver->MakeAtMost(all_visits, -1, max_dropped_visits_));
+        AddDroppedVisitsHandling(solver, model, index_manager);
+        LimitDroppedVisits(solver, model, index_manager, max_dropped_visits_);
     }
 
     model.CloseModelWithParameters(parameters_);
-    model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer)));
+    model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver_ptr->RevAlloc(new StalledSearchLimit(

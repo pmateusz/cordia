@@ -7,7 +7,7 @@
 #include <ortools/constraint_solver/routing.h>
 #include <ortools/constraint_solver/constraint_solveri.h>
 
-#include "solver_wrapper.h"
+#include "real_problem_data.h"
 
 namespace rows {
 
@@ -17,7 +17,7 @@ namespace rows {
                         const operations_research::RoutingIndexManager *index_manager,
                         int vehicle,
                         std::vector<operations_research::IntervalVar *> break_intervals,
-                        SolverWrapper &solver_wrapper);
+                        RealProblemData &problem_data);
 
         ~BreakConstraint() override = default;
 
@@ -33,7 +33,7 @@ namespace rows {
         const int vehicle_;
         std::vector<operations_research::IntervalVar *> break_intervals_;
         operations_research::IntVar *const status_;
-        SolverWrapper &solver_;
+        RealProblemData &problem_data_;
     };
 }
 

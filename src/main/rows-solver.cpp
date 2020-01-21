@@ -169,24 +169,6 @@ void ParseArgs(int argc, char **argv) {
                % GetYesOrNoOption(FLAGS_solve_all);
 }
 
-void ChatBot(rows::SchedulingWorker &worker) {
-    std::regex non_printable_character_pattern{"[\\W]"};
-
-    std::string line;
-    while (true) {
-        std::getline(std::cin, line);
-        util::string::Strip(line);
-        util::string::ToLower(line);
-
-        if (!line.empty() && line == "stop") {
-            worker.Cancel();
-            break;
-        }
-
-        line.clear();
-    }
-}
-
 int RunSingleStepSchedulingWorker() {
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
@@ -213,15 +195,16 @@ int RunSingleStepSchedulingWorker() {
                 search_parameters.mutable_time_limit()));
     }
 
+    const rows::RealProblemDataFactory problem_data_factory{engine_config};
+    const auto problem_data = problem_data_factory.makeProblem(problem_to_use);
     rows::SingleStepSchedulingWorker worker{printer};
-    if (worker.Init(problem_to_use,
-                    engine_config,
+    if (worker.Init(*problem_data,
                     solution,
                     search_parameters,
                     FLAGS_output)) {
 
         worker.Start();
-        std::thread chat_thread(ChatBot, std::ref(worker));
+        std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
         chat_thread.detach();
         worker.Join();
     }
@@ -241,29 +224,36 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         const boost::posix_time::time_duration &pre_opt_noprogress_time_limit,
                         const boost::posix_time::time_duration &opt_noprogress_time_limit,
                         const boost::posix_time::time_duration &post_opt_noprogress_time_limit) {
+    auto problem_data_factory_ptr = std::make_shared<rows::RealProblemDataFactory>(engine_config);
+    auto problem_data = problem_data_factory_ptr->makeProblem(problem);
+
     if (first_stage_strategy != rows::FirstStageStrategy::NONE || third_stage_strategy != rows::ThirdStageStrategy::NONE) {
-        rows::ThreeStepSchedulingWorker worker{std::move(printer), first_stage_strategy, third_stage_strategy};
-        if (worker.Init(problem,
-                        engine_config,
+        rows::ThreeStepSchedulingWorker worker{std::move(printer),
+                                               first_stage_strategy,
+                                               third_stage_strategy,
+                                               problem_data_factory_ptr};
+        if (worker.Init(problem_data,
                         output,
                         visit_time_window,
                         break_time_window,
                         begin_end_shift_time_extension,
                         pre_opt_noprogress_time_limit,
                         opt_noprogress_time_limit,
-                        post_opt_noprogress_time_limit)) {
+                        post_opt_noprogress_time_limit,
+                        boost::none,
+                        1.0)) {
             worker.Run();
         }
         return worker.ReturnCode();
     } else {
         rows::SingleStepSchedulingWorker worker{std::move(printer)};
-        if (worker.Init(problem,
-                        engine_config,
+        if (worker.Init(*problem_data,
                         output,
                         visit_time_window,
                         break_time_window,
                         begin_end_shift_time_extension,
-                        opt_noprogress_time_limit)) {
+                        opt_noprogress_time_limit,
+                        1.0)) {
             worker.Run();
         }
         return worker.ReturnCode();
@@ -282,35 +272,41 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                    const boost::posix_time::time_duration &pre_opt_noprogress_time_limit,
                                    const boost::posix_time::time_duration &opt_noprogress_time_limit,
                                    const boost::posix_time::time_duration &post_opt_noprogress_time_limit) {
+    auto problem_data_factory_ptr = std::make_shared<rows::RealProblemDataFactory>(engine_config);
+    const auto problem_data = problem_data_factory_ptr->makeProblem(problem);
     if (first_stage_strategy != rows::FirstStageStrategy::NONE || third_stage_strategy != rows::ThirdStageStrategy::NONE) {
-        rows::ThreeStepSchedulingWorker worker{std::move(printer), first_stage_strategy, third_stage_strategy};
-        if (worker.Init(problem,
-                        engine_config,
+        rows::ThreeStepSchedulingWorker worker{std::move(printer),
+                                               first_stage_strategy,
+                                               third_stage_strategy,
+                                               problem_data_factory_ptr};
+        if (worker.Init(problem_data,
                         output,
                         visit_time_window,
                         break_time_window,
                         begin_end_shift_time_extension,
                         pre_opt_noprogress_time_limit,
                         opt_noprogress_time_limit,
-                        post_opt_noprogress_time_limit)) {
+                        post_opt_noprogress_time_limit,
+                        boost::none,
+                        1.0)) {
             worker.Start();
-            std::thread chat_thread(ChatBot, std::ref(worker));
+            std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
             chat_thread.detach();
             worker.Join();
         }
         return worker.ReturnCode();
     } else {
         rows::SingleStepSchedulingWorker worker{std::move(printer)};
-        if (worker.Init(problem,
-                        engine_config,
+        if (worker.Init(*problem_data,
                         output,
                         visit_time_window,
                         break_time_window,
                         begin_end_shift_time_extension,
-                        opt_noprogress_time_limit)) {
+                        opt_noprogress_time_limit,
+                        1.0)) {
 
             worker.Start();
-            std::thread chat_thread(ChatBot, std::ref(worker));
+            std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
             chat_thread.detach();
             worker.Join();
         }

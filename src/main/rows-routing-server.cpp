@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
         throw util::ApplicationError("Invalid Open Street Map engine configuration", util::ErrorCode::ERROR);
     }
 
-    rows::LocationContainer location_container{routing_config};
+    rows::RealLocationContainer location_container{routing_config};
 
     std::string current_line;
     while (std::getline(std::cin, current_line)) {

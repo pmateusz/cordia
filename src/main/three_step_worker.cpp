@@ -101,7 +101,7 @@ int64 GetMaxDistance(rows::SolverWrapper &solver, const std::vector<std::vector<
 
 void rows::ThreeStepSchedulingWorker::Run() {
     bool has_multiple_carer_visits = false;
-    for (const auto &visit : problem_.visits()) {
+    for (const auto &visit : problem_data_->problem().visits()) {
         CHECK_GT(visit.duration().total_seconds(), 0);
         if (visit.carer_count() > 1) {
             has_multiple_carer_visits = true;
@@ -112,9 +112,22 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     auto second_stage_search_params = operations_research::DefaultRoutingSearchParameters();
     second_stage_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_PARALLEL_CHEAPEST_INSERTION);
+//    second_stage_search_params.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    second_stage_search_params.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(10), second_stage_search_params.mutable_lns_time_limit()));
+    second_stage_search_params.mutable_local_search_operators()->set_use_exchange_subtrip(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_relocate_expensive_chain(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_light_relocate_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_relocate(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_exchange_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.set_use_full_propagation(true);
+//    second_stage_search_params.set_use_cp_sat(operations_research::OptionalBoolean::BOOL_TRUE);
 
-    std::unique_ptr<rows::SecondStepSolver> second_stage_wrapper = std::make_unique<rows::SecondStepSolver>(problem_,
-                                                                                                            routing_parameters_,
+    std::unique_ptr<rows::SecondStepSolver> second_stage_wrapper = std::make_unique<rows::SecondStepSolver>(*problem_data_,
                                                                                                             second_stage_search_params,
                                                                                                             visit_time_window_,
                                                                                                             break_time_window_,
@@ -131,7 +144,7 @@ void rows::ThreeStepSchedulingWorker::Run() {
     std::unique_ptr<operations_research::RoutingIndexManager> second_stage_index_manager
             = std::make_unique<operations_research::RoutingIndexManager>(second_stage_wrapper->nodes(),
                                                                          second_stage_wrapper->vehicles(),
-                                                                         rows::SolverWrapper::DEPOT);
+                                                                         rows::RealProblemData::DEPOT);
 
     std::vector<std::vector<int64>> second_step_initial_routes{static_cast<std::size_t>(second_stage_wrapper->vehicles())};
     if (first_stage_strategy_ != FirstStageStrategy::NONE && has_multiple_carer_visits) {
@@ -164,18 +177,21 @@ void rows::ThreeStepSchedulingWorker::Run() {
     SetReturnCode(0);
 }
 
-rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer)
-        : ThreeStepSchedulingWorker(std::move(printer), FirstStageStrategy::DEFAULT, ThirdStageStrategy::DEFAULT) {}
+rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer, std::shared_ptr<ProblemDataFactory> data_factory)
+        : ThreeStepSchedulingWorker(std::move(printer), FirstStageStrategy::DEFAULT, ThirdStageStrategy::DEFAULT, data_factory) {}
 
 rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                                            FirstStageStrategy first_stage_strategy,
-                                                           ThirdStageStrategy third_stage_strategy)
+                                                           ThirdStageStrategy third_stage_strategy,
+                                                           std::shared_ptr<ProblemDataFactory> data_factory)
         : printer_{std::move(printer)},
           first_stage_strategy_{first_stage_strategy},
           third_stage_strategy_{third_stage_strategy},
           pre_opt_time_limit_{boost::posix_time::not_a_date_time},
           opt_time_limit_{boost::posix_time::not_a_date_time},
-          post_opt_time_limit_{boost::posix_time::not_a_date_time} {}
+          post_opt_time_limit_{boost::posix_time::not_a_date_time},
+          cost_normalization_factor_{1.0},
+          data_factory_{data_factory} {}
 
 std::vector<rows::ThreeStepSchedulingWorker::CarerTeam> rows::ThreeStepSchedulingWorker::GetCarerTeams(const rows::Problem &problem) {
     std::vector<std::pair<rows::Carer, rows::Diary> > carer_diaries;
@@ -239,17 +255,17 @@ std::vector<rows::ThreeStepSchedulingWorker::CarerTeam> rows::ThreeStepSchedulin
     return teams;
 }
 
-bool rows::ThreeStepSchedulingWorker::Init(rows::Problem problem,
-                                           osrm::EngineConfig routing_config,
+bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> problem_data,
                                            std::string output_file,
                                            boost::posix_time::time_duration visit_time_window,
                                            boost::posix_time::time_duration break_time_window,
                                            boost::posix_time::time_duration begin_end_shift_time_extension,
                                            boost::posix_time::time_duration pre_opt_time_limit,
                                            boost::posix_time::time_duration opt_time_limit,
-                                           boost::posix_time::time_duration post_opt_time_limit) {
-    problem_ = std::move(problem);
-    routing_parameters_ = std::move(routing_config);
+                                           boost::posix_time::time_duration post_opt_time_limit,
+                                           boost::optional<boost::posix_time::time_duration> time_limit,
+                                           double cost_normalization_factor) {
+    problem_data_ = problem_data;
     output_file_ = std::move(output_file);
     visit_time_window_ = std::move(visit_time_window);
     break_time_window_ = std::move(break_time_window);
@@ -257,19 +273,19 @@ bool rows::ThreeStepSchedulingWorker::Init(rows::Problem problem,
     pre_opt_time_limit_ = std::move(pre_opt_time_limit);
     opt_time_limit_ = std::move(opt_time_limit);
     post_opt_time_limit_ = std::move(post_opt_time_limit);
+    cost_normalization_factor_ = cost_normalization_factor;
+    time_limit_ = time_limit;
     return true;
 }
 
 std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThirdStageSolver(
         const operations_research::RoutingSearchParameters &search_params,
         int64 last_dropped_visit_penalty,
-        std::size_t max_dropped_visits_count,
-        const std::vector<rows::RouteValidatorBase::Metrics> &vehicle_metrics) {
+        std::size_t max_dropped_visits_count) {
     CHECK_NE(third_stage_strategy_, ThirdStageStrategy::NONE);
 
     if (third_stage_strategy_ == ThirdStageStrategy::DEFAULT || third_stage_strategy_ == ThirdStageStrategy::DISTANCE) {
-        return std::make_unique<rows::ThirdStepSolver>(problem_,
-                                                       routing_parameters_,
+        return std::make_unique<rows::ThirdStepSolver>(*problem_data_,
                                                        search_params,
                                                        visit_time_window_,
                                                        break_time_window_,
@@ -277,20 +293,17 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                        post_opt_time_limit_,
                                                        last_dropped_visit_penalty,
                                                        max_dropped_visits_count,
-                                                       false,
-                                                       vehicle_metrics);
+                                                       false);
     } else {
         CHECK_EQ(third_stage_strategy_, ThirdStageStrategy::VEHICLE_REDUCTION);
-        return std::make_unique<rows::ThirdStepReductionSolver>(problem_,
-                                                                routing_parameters_,
+        return std::make_unique<rows::ThirdStepReductionSolver>(*problem_data_,
                                                                 search_params,
                                                                 visit_time_window_,
                                                                 break_time_window_,
                                                                 begin_end_shift_time_extension_,
                                                                 post_opt_time_limit_,
                                                                 last_dropped_visit_penalty,
-                                                                max_dropped_visits_count,
-                                                                vehicle_metrics);
+                                                                max_dropped_visits_count);
     }
 }
 
@@ -304,14 +317,33 @@ operations_research::RoutingSearchParameters rows::ThreeStepSchedulingWorker::Cr
 //    parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
 //    parameters.set_use_full_propagation(true);
 
+// testing
+    parameters.mutable_local_search_operators()->set_use_exchange_subtrip(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_relocate_expensive_chain(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_light_relocate_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_relocate(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_exchange_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_tsp_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+
 // we are fishing for optimal solutions in scenarios in which all orders are performed
     parameters.mutable_local_search_operators()->set_use_cross_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
     parameters.mutable_local_search_operators()->set_use_relocate_neighbors(operations_research::OptionalBoolean::BOOL_TRUE);
     parameters.set_local_search_metaheuristic(operations_research::LocalSearchMetaheuristic_Value_GUIDED_LOCAL_SEARCH);
+    parameters.set_guided_local_search_lambda_coefficient(1.0);
 
 // not worth as we don't usually deal with unperformed visits
 //  parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
 //  parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(operations_research::OptionalBoolean::BOOL_TRUE);
+
+    if (time_limit_) {
+        CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(time_limit_->total_seconds()), parameters.mutable_time_limit()));
+    }
 
     return parameters;
 }
@@ -325,7 +357,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         std::unordered_map<rows::Carer, CarerTeam> teams;
         int id = 0;
         std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > team_carers;
-        for (auto &team : GetCarerTeams(problem_)) {
+        for (auto &team : GetCarerTeams(problem_data_->problem())) {
             rows::Carer carer{(boost::format("team-%1%") % ++id).str(), rows::Transport::Foot, team.Skills()};
 
             if (team.size() > 1) {
@@ -336,7 +368,7 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         }
 
         std::vector<rows::CalendarVisit> team_visits;
-        for (const auto &visit: problem_.visits()) {
+        for (const auto &visit: problem_data_->problem().visits()) {
             if (visit.carer_count() > 1) {
                 rows::CalendarVisit visit_copy{visit};
                 visit_copy.carer_count(1);
@@ -352,10 +384,10 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_PARALLEL_CHEAPEST_INSERTION);
         search_params.use_cp();
 
-        rows::Problem sub_problem{team_visits, team_carers, problem_.service_users()};
+        rows::Problem sub_problem{team_visits, team_carers, problem_data_->problem().service_users()};
+        const auto sub_problem_data = data_factory_->makeProblem(sub_problem);
         std::unique_ptr<rows::SolverWrapper> first_stage_wrapper
-                = std::make_unique<rows::SingleStepSolver>(sub_problem,
-                                                           routing_parameters_,
+                = std::make_unique<rows::SingleStepSolver>(*sub_problem_data,
                                                            search_params,
                                                            visit_time_window_,
                         // break time window is 0 for teams, because their breaks have to be synchronized
@@ -365,10 +397,10 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         std::unique_ptr<operations_research::RoutingIndexManager> first_step_index_manager
                 = std::make_unique<operations_research::RoutingIndexManager>(first_stage_wrapper->nodes(),
                                                                              first_stage_wrapper->vehicles(),
-                                                                             rows::SolverWrapper::DEPOT);
+                                                                             rows::RealProblemData::DEPOT);
         std::unique_ptr<operations_research::RoutingModel> first_step_model
                 = std::make_unique<operations_research::RoutingModel>(*first_step_index_manager);
-        first_stage_wrapper->ConfigureModel(*first_step_index_manager, *first_step_model, printer_, CancelToken());
+        first_stage_wrapper->ConfigureModel(*first_step_index_manager, *first_step_model, printer_, CancelToken(), cost_normalization_factor_);
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage1"));
 //        first_step_model->solver()->set_fail_intercept(&FailureInterceptor);
@@ -436,7 +468,8 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         }
     } else if (first_stage_strategy_ == FirstStageStrategy::SOFT_TIME_WINDOWS) {
         auto internal_search_params = operations_research::DefaultRoutingSearchParameters();
-        internal_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_AUTOMATIC); // do not use cp_sat but sweeping
+        internal_search_params.set_first_solution_strategy(
+                operations_research::FirstSolutionStrategy_Value_AUTOMATIC); // do not use cp_sat but sweeping
 //        internal_search_params.set_first_solution_strategy(
 //                operations_research::FirstSolutionStrategy_Value_SAVINGS); // do not use cp_sat but sweeping
 //        internal_search_params.set_savings_max_memory_usage_bytes(1024.0 * 1024.0 * 1024.0);
@@ -447,17 +480,17 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         internal_search_params.set_local_search_metaheuristic(operations_research::LocalSearchMetaheuristic_Value_TABU_SEARCH);
 
         std::vector<rows::CalendarVisit> team_visits;
-        for (const auto &visit: problem_.visits()) {
+        for (const auto &visit: problem_data_->problem().visits()) {
             if (visit.carer_count() > 1) {
                 CHECK_EQ(visit.carer_count(), 2);
                 team_visits.emplace_back(visit);
             }
         }
 
-        rows::Problem sub_problem{team_visits, problem_.carers(), problem_.service_users()};
+        rows::Problem sub_problem{team_visits, problem_data_->problem().carers(), problem_data_->problem().service_users()};
+        const auto sub_problem_data = data_factory_->makeProblem(sub_problem);
         std::unique_ptr<rows::MultiCarerSolver> multi_carer_wrapper
-                = std::make_unique<rows::MultiCarerSolver>(sub_problem,
-                                                           routing_parameters_,
+                = std::make_unique<rows::MultiCarerSolver>(*sub_problem_data,
                                                            internal_search_params,
                                                            visit_time_window_,
                                                            break_time_window_,
@@ -466,10 +499,10 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
         std::unique_ptr<operations_research::RoutingIndexManager> multi_carer_index_manager
                 = std::make_unique<operations_research::RoutingIndexManager>(multi_carer_wrapper->nodes(),
                                                                              multi_carer_wrapper->vehicles(),
-                                                                             rows::SolverWrapper::DEPOT);
+                                                                             rows::RealProblemData::DEPOT);
         std::unique_ptr<operations_research::RoutingModel> multi_carer_model
                 = std::make_unique<operations_research::RoutingModel>(*multi_carer_index_manager);
-        multi_carer_wrapper->ConfigureModel(*multi_carer_index_manager, *multi_carer_model, printer_, CancelToken());
+        multi_carer_wrapper->ConfigureModel(*multi_carer_index_manager, *multi_carer_model, printer_, CancelToken(), cost_normalization_factor_);
         auto result = multi_carer_model->SolveWithParameters(internal_search_params);
         operations_research::Assignment const *multi_carer_assignment = multi_carer_wrapper->GetBestSolution();
         if (multi_carer_assignment == nullptr) {
@@ -529,10 +562,10 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveSecondStag
 
     auto second_stage_model = std::make_unique<operations_research::RoutingModel>(second_stage_index_manager);
 //    second_stage_model->solver()->set_fail_intercept(&FailureInterceptor);
-    second_stage_solver.ConfigureModel(second_stage_index_manager, *second_stage_model, printer_, CancelToken());
+    second_stage_solver.ConfigureModel(second_stage_index_manager, *second_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 
     std::stringstream penalty_msg;
-    penalty_msg << "MissedVisitPenalty: " << second_stage_solver.DroppedVisitPenalty();
+    penalty_msg << "MissedVisitPenalty: " << second_stage_solver.GetDroppedVisitPenalty();
     printer_->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
 
     const auto second_stage_initial_assignment = second_stage_model->ReadAssignmentFromRoutes(second_stage_initial_routes, true);
@@ -572,7 +605,7 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
     std::unique_ptr<operations_research::RoutingIndexManager> third_stage_index_manager
             = std::make_unique<operations_research::RoutingIndexManager>(second_stage_solver.nodes(),
                                                                          second_stage_solver.vehicles(),
-                                                                         rows::SolverWrapper::DEPOT);
+                                                                         rows::RealProblemData::DEPOT);
 
     std::unique_ptr<operations_research::RoutingModel> third_stage_model
             = std::make_unique<operations_research::RoutingModel>(*third_stage_index_manager);
@@ -583,14 +616,12 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
 
 
     const auto third_search_params = CreateThirdStageRoutingSearchParameters();
-    const auto third_stage_penalty = second_stage_solver.DroppedVisitPenalty();
-    const auto vehicle_metrics = GetVehicleMetrics(second_stage_routes, second_stage_solver);
+    const auto third_stage_penalty = second_stage_solver.GetDroppedVisitPenalty();
     std::unique_ptr<rows::SolverWrapper> third_step_solver = CreateThirdStageSolver(third_search_params,
                                                                                     third_stage_penalty,
-                                                                                    max_dropped_visits_count,
-                                                                                    vehicle_metrics);
+                                                                                    max_dropped_visits_count);
 
-    third_step_solver->ConfigureModel(*third_stage_index_manager, *third_stage_model, printer_, CancelToken());
+    third_step_solver->ConfigureModel(*third_stage_index_manager, *third_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 
 //    third_stage_model->solver()->set_fail_intercept(FailureInterceptor);
     const auto third_stage_preassignment = third_stage_model->ReadAssignmentFromRoutes(second_stage_routes, true);
@@ -632,8 +663,7 @@ rows::ThreeStepSchedulingWorker::GetVehicleMetrics(const std::vector<std::vector
     const auto search_params = operations_research::DefaultRoutingSearchParameters();
 
     std::unique_ptr<rows::SecondStepSolver> intermediate_wrapper
-            = std::make_unique<rows::SecondStepSolver>(problem_,
-                                                       routing_parameters_,
+            = std::make_unique<rows::SecondStepSolver>(*problem_data_,
                                                        search_params,
                                                        visit_time_window_,
                                                        break_time_window_,
@@ -642,10 +672,10 @@ rows::ThreeStepSchedulingWorker::GetVehicleMetrics(const std::vector<std::vector
     std::unique_ptr<operations_research::RoutingIndexManager> intermediate_index_manager
             = std::make_unique<operations_research::RoutingIndexManager>(second_stage_wrapper.nodes(),
                                                                          second_stage_wrapper.vehicles(),
-                                                                         rows::SolverWrapper::DEPOT);
+                                                                         rows::RealProblemData::DEPOT);
     std::unique_ptr<operations_research::RoutingModel> intermediate_model
             = std::make_unique<operations_research::RoutingModel>(*intermediate_index_manager);
-    intermediate_wrapper->ConfigureModel(*intermediate_index_manager, *intermediate_model, printer_, CancelToken());
+    intermediate_wrapper->ConfigureModel(*intermediate_index_manager, *intermediate_model, printer_, CancelToken(), cost_normalization_factor_);
 
 // useful for debugging
 //    const auto warm_start_solution = util::LoadSolution(

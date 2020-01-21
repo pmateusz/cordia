@@ -78,33 +78,31 @@ namespace rows {
             std::vector<int> skills_;
         };
 
-        explicit ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer>
-                                           printer);
+        ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer, std::shared_ptr<ProblemDataFactory> data_factory);
 
-        ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer>
-                                  printer,
+        ThreeStepSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                   FirstStageStrategy first_stage_strategy,
-                                  ThirdStageStrategy
-                                  third_stage_strategy);
+                                  ThirdStageStrategy third_stage_strategy,
+                                  std::shared_ptr<ProblemDataFactory> data_factory);
 
         void Run() override;
 
-        bool Init(rows::Problem problem,
-                  osrm::EngineConfig routing_config,
+        bool Init(std::shared_ptr<const ProblemData> problem_data,
                   std::string output_file,
                   boost::posix_time::time_duration visit_time_window,
                   boost::posix_time::time_duration break_time_window,
                   boost::posix_time::time_duration begin_end_shift_time_extension,
                   boost::posix_time::time_duration pre_opt_time_limit,
                   boost::posix_time::time_duration opt_time_limit,
-                  boost::posix_time::time_duration post_opt_time_limit);
+                  boost::posix_time::time_duration post_opt_time_limit,
+                  boost::optional<boost::posix_time::time_duration> time_limit,
+                  double cost_normalization_factor);
 
     private:
 
         std::unique_ptr<rows::SolverWrapper> CreateThirdStageSolver(const operations_research::RoutingSearchParameters &search_params,
                                                                     int64 last_dropped_visit_penalty,
-                                                                    std::size_t max_dropped_visits_count,
-                                                                    const std::vector<rows::RouteValidatorBase::Metrics> &vehicle_metrics);
+                                                                    std::size_t max_dropped_visits_count);
 
         std::vector<std::vector<int64>> SolveFirstStage(const rows::SolverWrapper &second_step_wrapper,
                                                         const operations_research::RoutingIndexManager &second_step_index_manager);
@@ -124,12 +122,16 @@ namespace rows {
         std::vector<rows::RouteValidatorBase::Metrics> GetVehicleMetrics(const std::vector<std::vector<int64> > &routes,
                                                                          const rows::SolverWrapper &second_stage_wrapper);
 
+        std::shared_ptr<ProblemDataFactory> data_factory_;
+
         boost::posix_time::time_duration visit_time_window_;
         boost::posix_time::time_duration break_time_window_;
         boost::posix_time::time_duration begin_end_shift_time_extension_;
         boost::posix_time::time_duration pre_opt_time_limit_;
         boost::posix_time::time_duration opt_time_limit_;
         boost::posix_time::time_duration post_opt_time_limit_;
+        boost::optional<boost::posix_time::time_duration> time_limit_;
+        double cost_normalization_factor_;
 
         std::string output_file_;
 
@@ -137,8 +139,7 @@ namespace rows {
         FirstStageStrategy first_stage_strategy_;
         ThirdStageStrategy third_stage_strategy_;
 
-        osrm::EngineConfig routing_parameters_;
-        Problem problem_;
+        std::shared_ptr<const ProblemData> problem_data_;
 
         SolutionValidator solution_validator_;
         GexfWriter solution_writer_;

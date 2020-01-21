@@ -33,6 +33,7 @@ from rows.model.diary import Diary
 from rows.model.event import AbsoluteEvent
 from rows.model.problem import Problem
 from rows.model.service_user import ServiceUser
+from rows.model.historical_visit import HistoricalVisit
 import rows.analysis
 import rows.clustering
 
@@ -430,6 +431,33 @@ AND (carer_visits.CheckInMethod = 1 OR carer_visits.CheckInMethod = 2)
 AND visit_window.visit_date BETWEEN '{1}' AND '{2}'
 GROUP BY carer_visits.VisitID
 ORDER BY carer_visits.VisitID"""
+
+    VISITS_HISTORY = """SELECT visits.visit_id,
+carer_visits.PlannedStartDateTime as 'planned_start_time',
+carer_visits.PlannedEndDateTime as 'planned_end_time',
+carer_visits.CheckInDateTime as 'check_in',
+carer_visits.CheckOutDateTime as 'check_out',
+visits.service_user_id as 'service_user_id',
+visits.tasks as 'tasks' FROM (
+SELECT visit_task.visit_id,
+MIN(visit_task.service_user_id) as 'service_user_id',
+STRING_AGG(visit_task.task, ';') WITHIN GROUP (ORDER BY visit_task.task) as 'tasks'
+FROM (
+	SELECT visit_window.visit_id as 'visit_id',
+	MIN(visit_window.service_user_id) as 'service_user_id',
+	CONVERT(int, visit_window.task_no) as 'task'
+	FROM dbo.ListVisitsWithinWindow visit_window
+		INNER JOIN ListAom aom
+	ON visit_window.aom_code = aom.aom_id
+	WHERE aom.area_code = '{0}'
+	GROUP BY visit_window.visit_id, visit_window.task_no
+) visit_task GROUP BY visit_task.visit_id
+) visits LEFT OUTER JOIN dbo.ListCarerVisits carer_visits
+ON visits.visit_id = carer_visits.VisitID
+LEFT OUTER JOIN dbo.ListEmployees emp
+ON emp.carer_id = carer_visits.PlannedCarerID
+WHERE carer_visits.VisitID IS NOT NULL
+ORDER BY visits.visit_id"""
 
     class IntervalEstimatorBase(object):
 
@@ -1230,6 +1258,62 @@ ORDER BY carer_visits.VisitID"""
 
         return [Problem.LocalVisits(service_user=str(service_user_id), visits=visits)
                 for service_user_id, visits in visits_by_service_user.items()]
+
+    def get_historical_visits(self, area) -> typing.List[HistoricalVisit]:
+        visits: typing.Dict[int, typing.List[HistoricalVisit]] = collections.defaultdict(list)
+        for row in self.__get_connection().cursor().execute(SqlDataSource.VISITS_HISTORY.format(area.code)).fetchall():
+            visit_id, planned_checkin, planned_checkout, real_checkin, real_checkout, service_user_id, raw_tasks = row
+            tasks = self.__parse_tasks(raw_tasks)
+            visits[visit_id].append(HistoricalVisit(visit=visit_id,
+                                                    service_user=service_user_id,
+                                                    tasks=tasks,
+                                                    planned_check_in=planned_checkin,
+                                                    planned_check_out=planned_checkout,
+                                                    real_check_in=real_checkin,
+                                                    real_check_out=real_checkout))
+
+        def mean_duration(visits: typing.List[HistoricalVisit],
+                          get_duration: typing.Callable[[HistoricalVisit], datetime.timedelta]) -> datetime.timedelta:
+            durations = []
+            for visit in visits:
+                duration = get_duration(visit)
+                if duration > datetime.timedelta():
+                    durations.append(duration)
+            if len(durations) > 0:
+                average_total_seconds = sum(duration.total_seconds() for duration in durations) / len(durations)
+                return datetime.timedelta(seconds=average_total_seconds)
+            return datetime.timedelta()
+
+        def real_duration(visit: HistoricalVisit) -> datetime.timedelta:
+            return visit.real_check_out - visit.real_check_in
+
+        def planned_duration(visit: HistoricalVisit) -> datetime.timedelta:
+            return visit.planned_check_out - visit.planned_check_in
+
+        unique_visits = []
+        for visit_sequence in visits.values():
+            if len(visit_sequence) > 1:
+                authentic_sequence = [visit for visit in visit_sequence
+                                      if visit.real_check_in != visit.planned_check_in and visit.real_check_out != visit.planned_check_out]
+                if authentic_sequence:
+                    real_duration_value = mean_duration(authentic_sequence, real_duration)
+                else:
+                    real_duration_value = mean_duration(visit_sequence, real_duration)
+            else:
+                real_duration_value = mean_duration(visit_sequence, real_duration)
+            planned_duration_value = mean_duration(visit_sequence, planned_duration)
+            representative = visit_sequence[0]
+            unique_visits.append(PastVisit(visit=representative.visit,
+                                           service_user=representative.service_user,
+                                           tasks=representative.tasks,
+                                           planned_check_in=representative.planned_check_in,
+                                           planned_check_out=representative.planned_check_out,
+                                           planned_duration=planned_duration_value,
+                                           real_check_in=representative.real_check_in,
+                                           real_check_out=representative.real_check_out,
+                                           real_duration=real_duration_value,
+                                           carer_count=len(visit_sequence)))
+        return unique_visits
 
     def get_carers_areas(self):
         area_by_carer = {}

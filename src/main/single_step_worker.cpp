@@ -17,18 +17,18 @@ rows::SingleStepSchedulingWorker::~SingleStepSchedulingWorker() {
     initial_assignment_ = nullptr;
 }
 
-bool rows::SingleStepSchedulingWorker::Init(rows::Problem problem, osrm::EngineConfig engine_config,
+bool rows::SingleStepSchedulingWorker::Init(const rows::ProblemData &problem_data,
                                             boost::optional<rows::Solution> past_solution,
                                             operations_research::RoutingSearchParameters search_parameters,
                                             std::string output_file) {
     try {
-        solver_ = std::make_unique<rows::SingleStepSolver>(problem, engine_config, search_parameters);
+        solver_ = std::make_unique<rows::SingleStepSolver>(problem_data, search_parameters);
         index_manager_ = std::make_unique<operations_research::RoutingIndexManager>(solver_->nodes(),
                                                                                     solver_->vehicles(),
-                                                                                    rows::SolverWrapper::DEPOT);
+                                                                                    rows::RealProblemData::DEPOT);
         model_ = std::make_unique<operations_research::RoutingModel>(*index_manager_);
 
-        solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken());
+        solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken(), 1.0);
         VLOG(1) << "Completed routing model configuration with status: " << solver_->GetModelStatus(model_->status());
         if (past_solution) {
             VLOG(1) << "Starting with a solution.";
@@ -62,18 +62,17 @@ bool rows::SingleStepSchedulingWorker::Init(rows::Problem problem, osrm::EngineC
     }
 }
 
-bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
-                                            osrm::EngineConfig &engine_config,
+bool rows::SingleStepSchedulingWorker::Init(const rows::ProblemData &problem_data,
                                             const std::string &output_file,
                                             const boost::posix_time::time_duration &visit_time_window,
                                             const boost::posix_time::time_duration &break_time_window,
                                             const boost::posix_time::time_duration &begin_end_shift_time_extension,
-                                            const boost::posix_time::time_duration &opt_time_limit) {
+                                            const boost::posix_time::time_duration &opt_time_limit,
+                                            double cost_normalization_factor) {
     try {
         auto search_params = operations_research::DefaultRoutingSearchParameters();
         search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
-        solver_ = std::make_unique<rows::SingleStepSolver>(problem,
-                                                           engine_config,
+        solver_ = std::make_unique<rows::SingleStepSolver>(problem_data,
                                                            search_params,
                                                            visit_time_window,
                                                            break_time_window,
@@ -82,10 +81,10 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::Problem &problem,
 
         index_manager_ = std::make_unique<operations_research::RoutingIndexManager>(solver_->nodes(),
                                                                                     solver_->vehicles(),
-                                                                                    rows::SolverWrapper::DEPOT);
+                                                                                    rows::RealProblemData::DEPOT);
         model_ = std::make_unique<operations_research::RoutingModel>(*index_manager_);
 
-        solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken());
+        solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken(), cost_normalization_factor);
         VLOG(1) << "Completed routing model configuration with status: " << solver_->GetModelStatus(model_->status());
 
         output_file_ = output_file;

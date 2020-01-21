@@ -9,8 +9,7 @@ namespace rows {
 
     class ThirdStepFulfillSolver : public SolverWrapper {
     public:
-        ThirdStepFulfillSolver(const Problem &problem,
-                               osrm::EngineConfig &config,
+        ThirdStepFulfillSolver(const ProblemData &problem_data,
                                const operations_research::RoutingSearchParameters &search_parameters,
                                boost::posix_time::time_duration visit_time_window,
                                boost::posix_time::time_duration break_time_window,
@@ -23,7 +22,8 @@ namespace rows {
         void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                             operations_research::RoutingModel &model,
                             const std::shared_ptr<Printer> &printer,
-                            std::shared_ptr<const std::atomic<bool> > cancel_token) override;
+                            std::shared_ptr<const std::atomic<bool> > cancel_token,
+                            double cost_normalization_factor) override;
 
     private:
         boost::posix_time::time_duration no_progress_time_limit_;

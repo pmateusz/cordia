@@ -28,6 +28,7 @@
 #include "route_validator.h"
 #include "service_user.h"
 #include "printer.h"
+#include "real_problem_data.h"
 
 namespace rows {
 
@@ -73,19 +74,14 @@ namespace rows {
             virtual std::string RenderDescription() const;
         };
 
-        static const operations_research::RoutingNodeIndex DEPOT;
-        static const int64 SECONDS_IN_DAY;
-        static const int64 SECONDS_IN_DIMENSION;
         static const std::string TIME_DIMENSION;
         static const int64 MAX_CARERS_SINGLE_VISITS;
         static const int64 MAX_CARERS_MULTIPLE_VISITS;
 
-        SolverWrapper(const rows::Problem &problem,
-                      osrm::EngineConfig &config,
+        SolverWrapper(const rows::ProblemData &problem_data,
                       const operations_research::RoutingSearchParameters &search_parameters);
 
-        SolverWrapper(const rows::Problem &problem,
-                      osrm::EngineConfig &config,
+        SolverWrapper(const rows::ProblemData &problem_data,
                       const operations_research::RoutingSearchParameters &search_parameters,
                       boost::posix_time::time_duration visit_time_window,
                       boost::posix_time::time_duration break_time_window,
@@ -94,7 +90,8 @@ namespace rows {
         virtual void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                                     operations_research::RoutingModel &model,
                                     const std::shared_ptr<Printer> &printer,
-                                    std::shared_ptr<const std::atomic<bool> > cancel_token) = 0;
+                                    std::shared_ptr<const std::atomic<bool> > cancel_token,
+                                    double cost_normalization_factor) = 0;
 
         virtual std::string GetDescription(const operations_research::RoutingIndexManager &index_manager,
                                            const operations_research::RoutingModel &model,
@@ -109,8 +106,6 @@ namespace rows {
                                     operations_research::RoutingNodeIndex to);
 
         bool Contains(const CalendarVisit &visit) const;
-
-        bool ContainsNear(const CalendarVisit &visit) const;
 
         const LocalServiceUser &User(const rows::ServiceUser &service_user) const;
 
@@ -176,16 +171,34 @@ namespace rows {
         bool out_office_hours_breaks_enabled() const;
 
     protected:
-        SolverWrapper(const rows::Problem &problem,
-                      const std::vector<rows::Location> &locations,
-                      osrm::EngineConfig &config,
-                      const operations_research::RoutingSearchParameters &search_parameters,
-                      boost::posix_time::time_duration visit_time_window,
-                      boost::posix_time::time_duration break_time_window,
-                      boost::posix_time::time_duration begin_end_work_day_adjustment);
-
         void OnConfigureModel(const operations_research::RoutingIndexManager &index_manager,
                               const operations_research::RoutingModel &model);
+
+        void AddTravelTime(operations_research::Solver *solver,
+                           operations_research::RoutingModel &model,
+                           const operations_research::RoutingIndexManager &index_manager);
+
+        void AddVisitsHandling(operations_research::Solver *solver,
+                               operations_research::RoutingModel &model,
+                               const operations_research::RoutingIndexManager &index_manager);
+
+        void AddCarerHandling(operations_research::Solver *solver,
+                              operations_research::RoutingModel &model,
+                              const operations_research::RoutingIndexManager &index_manager);
+
+        void AddDroppedVisitsHandling(operations_research::Solver *solver,
+                                      operations_research::RoutingModel &model,
+                                      const operations_research::RoutingIndexManager &index_manager);
+
+        void AddDroppedVisitsHandling(operations_research::Solver *solver,
+                                      operations_research::RoutingModel &model,
+                                      const operations_research::RoutingIndexManager &index_manager,
+                                      int64 penalty);
+
+        void LimitDroppedVisits(operations_research::Solver *solver,
+                                operations_research::RoutingModel &model,
+                                const operations_research::RoutingIndexManager &index_manager,
+                                int max_dropped_visits);
 
         void AddSkillHandling(operations_research::Solver *solver,
                               operations_research::RoutingModel &model,
@@ -238,10 +251,8 @@ namespace rows {
 
         bool IsNear(const rows::CalendarVisit &left, const rows::CalendarVisit &right) const;
 
-        const rows::Problem problem_;
-        const Location depot_;
+        const ProblemData &problem_data_;
         const LocalServiceUser depot_service_user_;
-        boost::posix_time::ptime start_horizon_;
 
         bool out_office_hours_breaks_enabled_;
 
@@ -249,16 +260,7 @@ namespace rows {
         boost::posix_time::time_duration break_time_window_;
         boost::posix_time::time_duration begin_end_work_day_adjustment_;
 
-        rows::CachedLocationContainer location_container_;
         operations_research::RoutingSearchParameters parameters_;
-
-        std::unordered_map<rows::CalendarVisit,
-                std::vector<operations_research::RoutingNodeIndex>,
-                Problem::PartialVisitOperations,
-                Problem::PartialVisitOperations> visit_index_;
-
-        std::vector<rows::CalendarVisit> visit_by_node_;
-
         std::unordered_map<rows::ServiceUser, rows::SolverWrapper::LocalServiceUser> service_users_;
     };
 }

@@ -18,6 +18,7 @@
 #include "scheduled_visit.h"
 #include "route.h"
 #include "routing_variables_store.h"
+#include "real_problem_data.h"
 
 namespace rows {
 
@@ -311,7 +312,7 @@ namespace rows {
 
         static RouteValidatorBase::ScheduledVisitError CreateSkillNotSatisfied(const rows::Route &route,
                                                                                const rows::ScheduledVisit &visit,
-                                                                               const int skill_number);
+                                                                               int skill_number);
 
         static RouteValidatorBase::ScheduledVisitError CreateLateArrivalError(const rows::Route &route,
                                                                               const rows::ScheduledVisit &visit,

@@ -153,8 +153,7 @@ namespace rows {
 
             service_users.emplace_back(std::move(key),
                                        std::move(address),
-                                       std::move(location),
-                                       std::move(carer_preference));
+                                       std::move(location));
         }
 
         return service_users;

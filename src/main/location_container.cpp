@@ -14,9 +14,6 @@
 #include <osrm/coordinate.hpp>
 #include <osrm/engine_config.hpp>
 #include <osrm/json_container.hpp>
-#include <osrm/storage_config.hpp>
-#include <mapbox/variant_io.hpp>
-
 #include <osrm/osrm.hpp>
 
 #include <boost/format.hpp>
@@ -69,12 +66,79 @@ namespace osrm {
     }
 }
 
+osrm::util::Coordinate ToCoordinate(const rows::Location &location) {
+    return {location.longitude(), location.latitude()};
+}
+
 namespace rows {
 
-    LocationContainer::LocationContainer(osrm::EngineConfig &config)
-            : routing_service_(config) {}
+    int64 CachedLocationContainer::Distance(const Location &from, const Location &to) {
+        const auto from_it = location_index_.find(from);
+        DCHECK(from_it != std::end(location_index_));
 
-    int64 LocationContainer::Distance(const Location &from, const Location &to) const {
+        const auto to_it = location_index_.find(to);
+        DCHECK(to_it != std::end(location_index_));
+
+        const auto cached_distance = distance_matrix_[from_it->second][to_it->second];
+        if (cached_distance >= 0) {
+            return cached_distance;
+        }
+
+        const auto distance = location_container_->Distance(from, to);
+        DCHECK_GE(distance, 0);
+
+        distance_matrix_[from_it->second][to_it->second] = distance;
+
+        return distance;
+    }
+
+    std::vector<int64> CachedLocationContainer::LargestDistances(std::size_t top) {
+        const auto num_locations = location_index_.size();
+
+        std::vector<int64> distances;
+        distances.reserve(num_locations * (num_locations - 1) / 2);
+        const auto location_index_end = std::cend(location_index_);
+        for (auto left = std::cbegin(location_index_); left != location_index_end; ++left) {
+            for (auto right = left; right != location_index_end; ++right) {
+                if (left == right) { continue; }
+                distances.emplace_back(Distance(left->first, right->first));
+            }
+        }
+
+        std::sort(distances.begin(), distances.end(), std::greater<>());
+        distances.resize(top);
+        return distances;
+    }
+
+    std::size_t CachedLocationContainer::ComputeDistances() {
+        std::size_t distance_pairs = 0;
+
+        for (const auto &source_pair : location_index_) {
+            const auto &source_location = source_pair.first;
+            const auto source_index = source_pair.second;
+
+            for (const auto &destination_pair : location_index_) {
+                const auto &target_location = destination_pair.first;
+                const auto target_index = destination_pair.second;
+
+                int64 distance = 0;
+                if (source_index != target_index) {
+                    distance = location_container_->Distance(source_location, target_location);
+                    CHECK_GE(distance, 0);
+                    ++distance_pairs;
+                }
+
+                distance_matrix_[source_index][target_index] = distance;
+            }
+        }
+
+        return distance_pairs;
+    }
+
+    RealLocationContainer::RealLocationContainer(osrm::EngineConfig config)
+            : routing_service_{config} {}
+
+    int64 RealLocationContainer::Distance(const Location &from, const Location &to) {
         static const auto INFINITE_DISTANCE = std::numeric_limits<int64>::max();
 
         if (from == to) {
@@ -137,72 +201,5 @@ namespace rows {
                           % msg.str();
             return INFINITE_DISTANCE;
         }
-    }
-
-    osrm::util::Coordinate LocationContainer::ToCoordinate(const Location &location) {
-        return {location.longitude(), location.latitude()};
-    }
-
-    int64 CachedLocationContainer::Distance(const Location &from, const Location &to) {
-        const auto from_it = location_index_.find(from);
-        DCHECK(from_it != std::end(location_index_));
-
-        const auto to_it = location_index_.find(to);
-        DCHECK(to_it != std::end(location_index_));
-
-        const auto cached_distance = distance_matrix_[from_it->second][to_it->second];
-        if (cached_distance >= 0) {
-            return cached_distance;
-        }
-
-        const auto distance = location_container_.Distance(from, to);
-        DCHECK_GE(distance, 0);
-
-        distance_matrix_[from_it->second][to_it->second] = distance;
-
-        return distance;
-    }
-
-    std::vector<int64> CachedLocationContainer::LargestDistances(std::size_t top) {
-        const auto num_locations = location_index_.size();
-
-        std::vector<int64> distances;
-        distances.reserve(num_locations * (num_locations - 1) / 2);
-        const auto location_index_end = std::cend(location_index_);
-        for (auto left = std::cbegin(location_index_); left != location_index_end; ++left) {
-            for (auto right = left; right != location_index_end; ++right) {
-                if (left == right) { continue; }
-                distances.emplace_back(Distance(left->first, right->first));
-            }
-        }
-
-        std::sort(distances.begin(), distances.end(), std::greater<>());
-        distances.resize(top);
-        return distances;
-    }
-
-    std::size_t CachedLocationContainer::ComputeDistances() {
-        std::size_t distance_pairs = 0;
-
-        for (const auto &source_pair : location_index_) {
-            const auto &source_location = source_pair.first;
-            const auto source_index = source_pair.second;
-
-            for (const auto &destination_pair : location_index_) {
-                const auto &target_location = destination_pair.first;
-                const auto target_index = destination_pair.second;
-
-                int64 distance = 0;
-                if (source_index != target_index) {
-                    distance = location_container_.Distance(source_location, target_location);
-                    CHECK_GE(distance, 0);
-                    ++distance_pairs;
-                }
-
-                distance_matrix_[source_index][target_index] = distance;
-            }
-        }
-
-        return distance_pairs;
     }
 }

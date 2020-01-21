@@ -46,34 +46,29 @@ namespace rows {
     }
 
     ExtendedServiceUser::ExtendedServiceUser()
-            : ExtendedServiceUser("", Address(), Location("", ""), std::unordered_map<Carer, double>()) {}
+            : ExtendedServiceUser("", Address(), Location("", "")) {}
 
     ExtendedServiceUser::ExtendedServiceUser(std::string id,
                                              Address address,
-                                             Location location,
-                                             std::unordered_map<Carer, double> carer_preference)
+                                             Location location)
             : ServiceUser(std::move(id)),
               location_(std::move(location)),
-              address_(std::move(address)),
-              carer_preference_(std::move(carer_preference)) {}
+              address_(std::move(address)) {}
 
     ExtendedServiceUser::ExtendedServiceUser(const ExtendedServiceUser &other)
             : ServiceUser(other),
               location_(other.location_),
-              address_(other.address_),
-              carer_preference_(other.carer_preference_) {}
+              address_(other.address_) {}
 
     ExtendedServiceUser::ExtendedServiceUser(ExtendedServiceUser &&other) noexcept
             : ServiceUser(std::move(other)),
               location_(std::move(other.location_)),
-              address_(std::move(other.address_)),
-              carer_preference_(other.carer_preference_) {}
+              address_(std::move(other.address_)) {}
 
     ExtendedServiceUser &ExtendedServiceUser::operator=(const ExtendedServiceUser &other) {
         this->ServiceUser::operator=(other);
         location_ = other.location_;
         address_ = other.address_;
-        carer_preference_ = other.carer_preference_;
         return *this;
     }
 
@@ -81,7 +76,6 @@ namespace rows {
         this->ServiceUser::operator=(other);
         location_ = std::move(other.location_);
         address_ = std::move(other.address_);
-        carer_preference_ = std::move(other.carer_preference_);
         return *this;
     }
 
@@ -96,15 +90,13 @@ namespace rows {
     bool ExtendedServiceUser::operator==(const ExtendedServiceUser &other) const {
         return this->ServiceUser::operator==(other)
                && address_ == other.address_
-               && location_ == other.location_
-               && carer_preference_ == other.carer_preference_;
+               && location_ == other.location_;
     }
 
     bool ExtendedServiceUser::operator!=(const ExtendedServiceUser &other) const {
         return this->ServiceUser::operator!=(other)
                || address_ != other.address_
-               || location_ != other.location_
-               || carer_preference_ != other.carer_preference_;
+               || location_ != other.location_;
     }
 
     const Address &ExtendedServiceUser::address() const {
@@ -113,17 +105,5 @@ namespace rows {
 
     const Location &ExtendedServiceUser::location() const {
         return location_;
-    }
-
-    bool ExtendedServiceUser::IsPreferred(const Carer &carer) const {
-        return carer_preference_.find(carer) != std::end(carer_preference_);
-    }
-
-    double ExtendedServiceUser::preference(const Carer &carer) const {
-        const auto carer_preference_it = carer_preference_.find(carer);
-        if (carer_preference_it == std::end(carer_preference_)) {
-            return 0.0;
-        }
-        return carer_preference_it->second;
     }
 }

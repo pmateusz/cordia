@@ -3,6 +3,7 @@
 
 #include <string>
 #include <memory>
+#include <regex>
 
 #include "problem.h"
 #include "printer.h"
@@ -24,6 +25,13 @@ namespace util {
     static const std::string TEXT_FORMAT{"txt"};
     static const std::string LOG_FORMAT{"log"};
 
+    namespace string {
+
+        void Strip(std::string &text);
+
+        void ToLower(std::string &text);
+    }
+
     rows::Problem LoadProblem(const std::string &problem_path, std::shared_ptr<rows::Printer> printer);
 
     rows::Problem LoadReducedProblem(const std::string &problem_path,
@@ -42,6 +50,25 @@ namespace util {
                                                               boost::posix_time::time_duration default_value);
 
     osrm::EngineConfig CreateEngineConfig(const std::string &maps_file);
+
+    template<typename CancellableType>
+    void ChatBot(CancellableType &cancellation_token) {
+        std::regex non_printable_character_pattern{"[\\W]"};
+
+        std::string line;
+        while (true) {
+            std::getline(std::cin, line);
+            util::string::Strip(line);
+            util::string::ToLower(line);
+
+            if (!line.empty() && line == "stop") {
+                cancellation_token.Cancel();
+                break;
+            }
+
+            line.clear();
+        }
+    }
 }
 
 

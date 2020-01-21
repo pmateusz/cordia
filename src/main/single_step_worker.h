@@ -24,19 +24,18 @@ namespace rows {
 
         ~SingleStepSchedulingWorker() override;
 
-        bool Init(rows::Problem problem,
-                  osrm::EngineConfig engine_config,
+        bool Init(const rows::ProblemData &problem,
                   boost::optional<rows::Solution> past_solution,
                   operations_research::RoutingSearchParameters search_parameters,
                   std::string output_file);
 
-        bool Init(const Problem &problem,
-                  osrm::EngineConfig &routing_config,
+        bool Init(const rows::ProblemData &problem,
                   const std::string &output,
                   const boost::posix_time::time_duration &visit_time_window,
                   const boost::posix_time::time_duration &break_time_window,
                   const boost::posix_time::time_duration &begin_end_shfit_time_extension,
-                  const boost::posix_time::time_duration &opt_time_limit);
+                  const boost::posix_time::time_duration &opt_time_limit,
+                  double cost_normalization_factor);
 
         void Run() override;
 

@@ -16,6 +16,10 @@ namespace rows {
     public:
         ProgressPrinterMonitor(const operations_research::RoutingModel &model, std::shared_ptr<rows::Printer> printer);
 
+        ProgressPrinterMonitor(const operations_research::RoutingModel &model,
+                               std::shared_ptr<rows::Printer> printer,
+                               double cost_normalization_factor);
+
         virtual ~ProgressPrinterMonitor();
 
         bool AtSolution() override;
@@ -23,6 +27,7 @@ namespace rows {
     private:
         std::shared_ptr<rows::Printer> printer_;
 
+        double cost_normalization_factor_;
         double last_solution_cost_;
     };
 }

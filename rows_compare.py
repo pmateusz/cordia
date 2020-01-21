@@ -64,6 +64,7 @@ __CONTRAST_WORKLOAD_COMMAND = 'contrast-workload'
 __COMPARE_PREDICTION_ERROR_COMMAND = 'compare-prediction-error'
 __COMPARE_BENCHMARK_COMMAND = 'compare-benchmark'
 __COMPARE_BENCHMARK_TABLE_COMMAND = 'compare-benchmark-table'
+__COMPARE_LITERATURE_TABLE_COMMAND = 'compare-literature-table'
 __COMPARE_QUALITY_OPTIMIZER_COMMAND = 'compare-quality-optimizer'
 __TYPE_ARG = 'type'
 __ACTIVITY_TYPE = 'activity'
@@ -185,6 +186,8 @@ def configure_parser():
 
     compare_benchmark_parser = subparsers.add_parser(__COMPARE_BENCHMARK_COMMAND)
     compare_benchmark_parser.add_argument(__FILE_ARG)
+
+    subparsers.add_parser(__COMPARE_LITERATURE_TABLE_COMMAND)
 
     subparsers.add_parser(__COMPARE_BENCHMARK_TABLE_COMMAND)
 
@@ -771,7 +774,13 @@ class TraceLog:
             self.__problem = body_to_use
         else:
             body_to_use = body
-        self.__events.append([time_point - self.__start, self.__current_stage, time_point, body_to_use])
+
+        # quick fix to prevent negative computation time if the time frame crosses midnight
+        if self.__start < time_point:
+            computation_time = time_point - self.__start
+        else:
+            computation_time = time_point + datetime.timedelta(hours=24) - self.__start
+        self.__events.append([computation_time, self.__current_stage, time_point, body_to_use])
 
     def has_stages(self):
         for relative_time, stage, absolute_time, event in self.__events:
@@ -843,7 +852,7 @@ class TraceLog:
         return self.__events
 
 
-def read_traces(trace_file) -> TraceLog:
+def read_traces(trace_file) -> typing.List[TraceLog]:
     log_line_pattern = re.compile('^\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?]\s+(?P<body>.*)$')
     other_line_pattern = re.compile('^.*?\[\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?\]\s+(?P<body>.*)$')
 
@@ -2029,7 +2038,6 @@ def compare_benchmark_table(args, settings):
             windows_best_time=get_computation_time_label(cp_window_log.best_cost_time())))
 
     data_frame = pandas.DataFrame(data=data)
-    print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
 
     def get_duration_label(time_delta: datetime.timedelta) -> str:
         assert time_delta.days == 0
@@ -2058,22 +2066,153 @@ def compare_benchmark_table(args, settings):
                                                   Penalty=get_cost_label(cp_team_log.missed_visit_penalty),
                                                   LB=get_cost_label(mip_log.best_bound()),
                                                   MIP_COST=get_cost_label(mip_log.best_cost()),
-                                                  # MIP_GAP=get_gap_label(get_gap(mip_log.best_cost(), mip_log.best_bound())),
-                                                  # MIP_DELTA=get_gap_label(get_delta(mip_log.best_cost(), best_cost)),
+                                                  MIP_GAP=get_gap_label(get_gap(mip_log.best_cost(), mip_log.best_bound())),
+                                                  MIP_DELTA=get_gap_label(get_delta(mip_log.best_cost(), best_cost)),
                                                   MIP_TIME=get_duration_label(mip_log.best_cost_time()),
-                                                  # TEAMS_GAP=get_gap_label(get_gap(cp_team_log.best_cost(), mip_log.best_bound())),
-                                                  # TEAMS_DELTA=get_gap_label(get_delta(cp_team_log.best_cost(), best_cost)),
+                                                  TEAMS_GAP=get_gap_label(get_gap(cp_team_log.best_cost(), mip_log.best_bound())),
+                                                  TEAMS_DELTA=get_gap_label(get_delta(cp_team_log.best_cost(), best_cost)),
                                                   TEAMS_COST=get_cost_label(cp_team_log.best_cost()),
                                                   TEAMS_Time=get_duration_label(cp_team_log.best_cost_time()),
                                                   WINDOWS_COST=get_cost_label(cp_window_log.best_cost()),
-                                                  # WINDOWS_GAP=get_gap_label(get_gap(cp_window_log.best_cost(), mip_log.best_bound())),
-                                                  # WINDOWS_DELTA=get_gap_label(get_delta(cp_window_log.best_cost(), best_cost)),
+                                                  WINDOWS_GAP=get_gap_label(get_gap(cp_window_log.best_cost(), mip_log.best_bound())),
+                                                  WINDOWS_DELTA=get_gap_label(get_delta(cp_window_log.best_cost(), best_cost)),
                                                   WINDOWS_TIME=get_duration_label(cp_window_log.best_cost_time())
                                                   ))
 
     data_frame = pandas.DataFrame(data=print_data)
-    print(tabulate.tabulate(data_frame, tablefmt='latex', headers='keys', showindex=False))
+    print(tabulate.tabulate(
+        data_frame[['Problem', 'Penalty', 'LB', 'MIP_COST', 'MIP_TIME', 'TEAMS_COST', 'TEAMS_Time', 'WINDOWS_COST', 'WINDOWS_TIME']],
+        tablefmt='latex', headers='keys', showindex=False))
 
+    print(tabulate.tabulate(
+        data_frame[['Problem', 'MIP_GAP', 'MIP_DELTA', 'MIP_TIME', 'TEAMS_GAP', 'TEAMS_DELTA', 'TEAMS_Time', 'WINDOWS_GAP', 'WINDOWS_DELTA',
+                    'WINDOWS_TIME']],
+        tablefmt='latex', headers='keys', showindex=False))
+
+
+def compare_literature_table(args, settings):
+    InstanceConfig = collections.namedtuple('InstanceConfig', ['name', 'literature_result', 'is_optimal'])
+    instance_data = [
+        InstanceConfig(name='case_1_20_4_2_1', literature_result=5.13, is_optimal=True),
+        InstanceConfig(name='case_2_20_4_2_1', literature_result=4.98, is_optimal=True),
+        InstanceConfig(name='case_3_20_4_2_1', literature_result=5.19, is_optimal=True),
+        InstanceConfig(name='case_4_20_4_2_1', literature_result=7.21, is_optimal=True),
+        InstanceConfig(name='case_5_20_4_2_1', literature_result=5.37, is_optimal=True),
+        InstanceConfig(name='case_1_50_10_5_1', literature_result=14.45, is_optimal=True),
+        InstanceConfig(name='case_2_50_10_5_1', literature_result=13.02, is_optimal=True),
+        InstanceConfig(name='case_3_50_10_5_1', literature_result=float('inf'), is_optimal=False),
+        InstanceConfig(name='case_1_80_16_8_1', literature_result=float('inf'), is_optimal=False),
+        InstanceConfig(name='case_2_80_16_8_1', literature_result=float('inf'), is_optimal=False),
+
+        InstanceConfig(name='case_1_20_4_2_2', literature_result=3.55, is_optimal=True),
+        InstanceConfig(name='case_2_20_4_2_2', literature_result=4.27, is_optimal=True),
+        InstanceConfig(name='case_3_20_4_2_2', literature_result=3.63, is_optimal=True),
+        InstanceConfig(name='case_4_20_4_2_2', literature_result=6.14, is_optimal=True),
+        InstanceConfig(name='case_5_20_4_2_2', literature_result=3.93, is_optimal=True),
+        InstanceConfig(name='case_1_50_10_5_2', literature_result=8.14, is_optimal=True),
+        InstanceConfig(name='case_2_50_10_5_2', literature_result=8.39, is_optimal=True),
+        InstanceConfig(name='case_3_50_10_5_2', literature_result=9.54, is_optimal=True),
+        InstanceConfig(name='case_1_80_16_8_2', literature_result=11.93, is_optimal=False),
+        InstanceConfig(name='case_2_80_16_8_2', literature_result=8.60, is_optimal=False),
+
+        InstanceConfig(name='case_1_20_4_2_3', literature_result=3.55, is_optimal=True),
+        InstanceConfig(name='case_2_20_4_2_3', literature_result=3.58, is_optimal=True),
+        InstanceConfig(name='case_3_20_4_2_3', literature_result=3.33, is_optimal=True),
+        InstanceConfig(name='case_4_20_4_2_3', literature_result=5.67, is_optimal=True),
+        InstanceConfig(name='case_5_20_4_2_3', literature_result=3.53, is_optimal=True),
+        InstanceConfig(name='case_1_50_10_5_3', literature_result=7.7, is_optimal=False),
+        InstanceConfig(name='case_2_50_10_5_3', literature_result=7.48, is_optimal=False),
+        InstanceConfig(name='case_3_50_10_5_3', literature_result=8.54, is_optimal=True),
+        InstanceConfig(name='case_1_80_16_8_3', literature_result=10.92, is_optimal=False),
+        InstanceConfig(name='case_2_80_16_8_3', literature_result=7.62, is_optimal=False),
+
+        InstanceConfig(name='case_1_20_4_2_4', literature_result=3.39, is_optimal=True),
+        InstanceConfig(name='case_2_20_4_2_4', literature_result=3.42, is_optimal=True),
+        InstanceConfig(name='case_3_20_4_2_4', literature_result=3.29, is_optimal=True),
+        InstanceConfig(name='case_4_20_4_2_4', literature_result=5.13, is_optimal=True),
+        InstanceConfig(name='case_5_20_4_2_4', literature_result=3.34, is_optimal=True),
+        InstanceConfig(name='case_1_50_10_5_4', literature_result=7.14, is_optimal=True),
+        InstanceConfig(name='case_2_50_10_5_4', literature_result=6.88, is_optimal=False),
+        InstanceConfig(name='case_3_50_10_5_4', literature_result=8, is_optimal=False),
+        InstanceConfig(name='case_1_80_16_8_4', literature_result=10.49, is_optimal=False),
+        InstanceConfig(name='case_2_80_16_8_4', literature_result=7.75, is_optimal=False),
+
+        InstanceConfig(name='case_1_20_4_2_5', literature_result=3.12, is_optimal=False),
+        InstanceConfig(name='case_2_20_4_2_5', literature_result=2.97, is_optimal=False),
+        InstanceConfig(name='case_3_20_4_2_5', literature_result=2.85, is_optimal=False),
+        InstanceConfig(name='case_4_20_4_2_5', literature_result=4.29, is_optimal=False),
+        InstanceConfig(name='case_5_20_4_2_5', literature_result=2.92, is_optimal=False),
+        InstanceConfig(name='case_1_50_10_5_5', literature_result=6.48, is_optimal=False),
+        InstanceConfig(name='case_2_50_10_5_5', literature_result=5.92, is_optimal=False),
+        InstanceConfig(name='case_3_50_10_5_5', literature_result=6.74, is_optimal=False),
+        InstanceConfig(name='case_1_80_16_8_5', literature_result=9.18, is_optimal=False),
+        InstanceConfig(name='case_2_80_16_8_5', literature_result=7.15, is_optimal=False)
+    ]
+    instance_dirs = ['/home/pmateusz/dev/cordia/simulations/current_review_simulations/hc/solutions/case20',
+                     '/home/pmateusz/dev/cordia/simulations/current_review_simulations/hc/solutions/case50',
+                     '/home/pmateusz/dev/cordia/simulations/current_review_simulations/hc/solutions/case80']
+    instance_dict = {instance.name: instance for instance in instance_data}
+    print_data = []
+
+    instance_pattern = re.compile(r'case_(?P<case>\d+)_(?P<visits>\d+)_(?P<carers>\d+)_(?P<synchronized_visits>\d+)_(?P<windows>\d+)')
+
+    instance_counter = 1
+    last_visits = None
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore')
+        for instance_dir in instance_dirs:
+            for instance in instance_data:
+                instance_log_path = os.path.join(instance_dir, instance.name + '.dat.err.log')
+                if not os.path.exists(instance_log_path):
+                    continue
+                solver_logs = read_traces(instance_log_path)
+                if not solver_logs:
+                    continue
+
+                instance = instance_dict[instance.name]
+                name_match = instance_pattern.match(instance.name)
+                if not name_match:
+                    continue
+
+                first_solver_logs = solver_logs[0]
+
+                case = int(name_match.group('case'))
+                visits = int(name_match.group('visits'))
+                carers = int(name_match.group('carers'))
+
+                if last_visits and last_visits != visits:
+                    instance_counter = 1
+
+                synchronized_visits = int(name_match.group('synchronized_visits'))
+                windows_configuration = int(name_match.group('windows'))
+
+                normalized_result = float('inf')
+                if first_solver_logs.best_cost() < 100:
+                    normalized_result = round(first_solver_logs.best_cost(), 2)
+                delta = round((instance.literature_result - normalized_result) / instance.literature_result * 100, 2)
+
+                printable_literature_result = str(instance.literature_result)
+                if instance.is_optimal:
+                    printable_literature_result += '*'
+
+                print_data.append(collections.OrderedDict(
+                    problem='{0:2} {1:2}/{2} {3}'.format(instance_counter, visits - 2 * synchronized_visits, synchronized_visits,
+                                                         ['', '-', 'S', 'M', 'L', 'H'][windows_configuration]),
+                    case=instance_counter,
+                    visits=visits,
+                    synchronized_visits=synchronized_visits,
+                    carers=carers,
+                    time_windows=['', '-', 'S', 'M', 'L', 'H'][windows_configuration],
+                    literature_result=printable_literature_result,
+                    result=normalized_result,
+                    delta=delta,
+                    time=round(first_solver_logs.best_cost_time().total_seconds(), 2)
+                ))
+                last_visits = visits
+                instance_counter += 1
+
+        print(tabulate.tabulate(pandas.DataFrame(data=print_data)[['problem', 'literature_result', 'result', 'delta', 'time']], showindex=False,
+                                tablefmt='latex', headers='keys'))
 
 def compare_planner_optimizer_quality(args, settings):
     data_file = getattr(args, __FILE_ARG)
@@ -2458,6 +2597,8 @@ if __name__ == '__main__':
         compare_schedule_cost(__args, __settings)
     elif __command == __COMPARE_BENCHMARK_TABLE_COMMAND:
         compare_benchmark_table(__args, __settings)
+    elif __command == __COMPARE_LITERATURE_TABLE_COMMAND:
+        compare_literature_table(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:
