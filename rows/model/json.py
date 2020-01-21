@@ -17,6 +17,7 @@ from rows.model.problem import Problem
 from rows.model.schedule import Schedule
 from rows.model.service_user import ServiceUser
 from rows.model.visit import Visit
+from rows.model.historical_visit import HistoricalVisit
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -30,6 +31,7 @@ class JSONEncoder(json.JSONEncoder):
                      Location,
                      Metadata,
                      PastVisit,
+                     HistoricalVisit,
                      Problem,
                      Problem.CarerShift,
                      Problem.LocalVisit,

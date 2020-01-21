@@ -73,6 +73,10 @@ class Parser:
     PULL_DURATION_ESTIMATOR_ARG = '--duration-estimator'
     PULL_RESOURCES_ESTIMATOR_ARG = '--resource-estimator'
 
+    HISTORY_COMMAND = 'history'
+    HISTORY_AREA_ARG = 'area'
+    HISTORY_OUTPUT_ARG = '--output'
+
     SOLUTION_COMMAND = 'solution'
     SOLUTION_AREA_ARG = PULL_AREA_ARG
     SOLUTION_SCHEDULE_DATE_ARG = SOLVE_SCHEDULE_DATE_ARG
@@ -241,6 +245,11 @@ class Parser:
                                           type=str,
                                           default=None)
         add_verbose_option(visualisation_parser)
+
+        history_parser = subparsers.add_parser(name=Parser.HISTORY_COMMAND)
+        history_parser.add_argument(Parser.HISTORY_AREA_ARG, type=str)
+        history_parser.add_argument(Parser.HISTORY_OUTPUT_ARG, default='history.json', type=str)
+        add_verbose_option(history_parser)
 
     def parse_args(self, args=None):
         """Parse command line arguments"""
