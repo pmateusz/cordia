@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
                                            rows::ThirdStageStrategy::DISTANCE,
                                            problem_data_factory_ptr};
     if (worker.Init(problem_data_ptr,
-                    boost::none,
+                    std::make_shared<rows::History>(),
                     FLAGS_output,
                     boost::posix_time::seconds(0),
                     boost::posix_time::seconds(0),

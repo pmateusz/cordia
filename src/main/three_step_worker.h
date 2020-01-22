@@ -17,6 +17,7 @@
 #include "printer.h"
 #include "carer.h"
 #include "diary.h"
+#include "history.h"
 #include "second_step_solver.h"
 #include "single_step_solver.h"
 #include "multi_carer_solver.h"
@@ -41,7 +42,8 @@ namespace rows {
         DEFAULT,
         NONE,
         DISTANCE,
-        VEHICLE_REDUCTION
+        VEHICLE_REDUCTION,
+        DELAY_REDUCTION
     };
 
     boost::optional<ThirdStageStrategy> ParseThirdStageStrategy(const std::string &value);
@@ -88,7 +90,7 @@ namespace rows {
         void Run() override;
 
         bool Init(std::shared_ptr<const ProblemData> problem_data,
-                  boost::optional<boost::filesystem::path> past_visits_file,
+                  std::shared_ptr<const rows::History> history,
                   std::string output_file,
                   boost::posix_time::time_duration visit_time_window,
                   boost::posix_time::time_duration break_time_window,
@@ -134,7 +136,6 @@ namespace rows {
         boost::optional<boost::posix_time::time_duration> time_limit_;
         double cost_normalization_factor_;
 
-        boost::optional<boost::filesystem::path> past_visits_file_;
         std::string output_file_;
 
         std::shared_ptr<Printer> printer_;
@@ -142,6 +143,7 @@ namespace rows {
         ThirdStageStrategy third_stage_strategy_;
 
         std::shared_ptr<const ProblemData> problem_data_;
+        std::shared_ptr<const History> history_;
 
         SolutionValidator solution_validator_;
         GexfWriter solution_writer_;

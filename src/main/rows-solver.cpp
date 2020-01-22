@@ -8,6 +8,7 @@
 #include <future>
 #include <iostream>
 #include <regex>
+#include <chrono>
 
 #include <boost/date_time/gregorian/gregorian.hpp>
 #include <boost/format.hpp>
@@ -29,6 +30,7 @@
 #include "solution.h"
 #include "problem.h"
 #include "printer.h"
+#include "history.h"
 #include "scheduling_worker.h"
 #include "three_step_worker.h"
 #include "single_step_worker.h"
@@ -224,7 +226,7 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         const rows::FirstStageStrategy first_stage_strategy,
                         const rows::ThirdStageStrategy third_stage_strategy,
                         const rows::Problem &problem,
-                        boost::optional<boost::filesystem::path> past_visits_file,
+                        std::shared_ptr<const rows::History> history,
                         const std::string &output,
                         osrm::EngineConfig &engine_config,
                         const boost::posix_time::time_duration &visit_time_window,
@@ -242,7 +244,7 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                                third_stage_strategy,
                                                problem_data_factory_ptr};
         if (worker.Init(problem_data,
-                        std::move(past_visits_file),
+                        std::move(history),
                         output,
                         visit_time_window,
                         break_time_window,
@@ -274,7 +276,7 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                    const rows::FirstStageStrategy &first_stage_strategy,
                                    const rows::ThirdStageStrategy &third_stage_strategy,
                                    const rows::Problem &problem,
-                                   boost::optional<boost::filesystem::path> past_visits_file,
+                                   std::shared_ptr<const rows::History> history,
                                    const std::string &output,
                                    osrm::EngineConfig &engine_config,
                                    const boost::posix_time::time_duration &visit_time_window,
@@ -291,7 +293,7 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                                third_stage_strategy,
                                                problem_data_factory_ptr};
         if (worker.Init(problem_data,
-                        std::move(past_visits_file),
+                        std::move(history),
                         output,
                         visit_time_window,
                         break_time_window,
@@ -327,20 +329,15 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
 }
 
 int RunSchedulingWorkerEx(const std::shared_ptr<rows::Printer> &printer,
+                          std::shared_ptr<const rows::History> history,
                           const rows::FirstStageStrategy &first_stage_strategy,
                           const rows::ThirdStageStrategy &third_stage_strategy) {
-    boost::optional<boost::filesystem::path> past_visits_file;
-    if (!FLAGS_history.empty()) {
-        past_visits_file = boost::make_optional(FLAGS_history);
-    }
-
-
     auto engine_config = util::CreateEngineConfig(FLAGS_maps);
     return RunCancellableSchedulingWorker(printer,
                                           first_stage_strategy,
                                           third_stage_strategy,
                                           util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
-                                          past_visits_file,
+                                          std::move(history),
                                           FLAGS_output,
                                           engine_config,
                                           util::GetTimeDurationOrDefault(FLAGS_visit_time_window, boost::posix_time::not_a_date_time),
@@ -360,9 +357,10 @@ int main(int argc, char **argv) {
 
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
 
-    std::vector<rows::PastVisit> past_visits;
+    std::shared_ptr<const rows::History> history;
     if (!FLAGS_history.empty()) {
-        LOG(INFO) << FLAGS_history;
+        const auto loading_history_start = std::chrono::high_resolution_clock::now();
+
         std::ifstream past_visit_stream;
         past_visit_stream.open(FLAGS_history);
         if (!past_visit_stream.is_open()) {
@@ -379,7 +377,8 @@ int main(int argc, char **argv) {
         }
 
         try {
-            past_visits = past_visits_json.get<std::vector<rows::PastVisit>>();
+            std::vector<rows::PastVisit> past_visits = past_visits_json.get<std::vector<rows::PastVisit>>();
+            history = std::make_shared<const rows::History>(std::move(past_visits));
         } catch (...) {
             throw util::ApplicationError((boost::format("Failed to parse the file: %1%") % FLAGS_history).str(),
                                          boost::current_exception_diagnostic_information(),
@@ -387,6 +386,18 @@ int main(int argc, char **argv) {
         }
 
         past_visit_stream.close();
+        const auto loading_history_end = std::chrono::high_resolution_clock::now();
+
+        LOG(INFO) << "Loaded past visits in "
+                  << std::chrono::duration_cast<std::chrono::seconds>(loading_history_end - loading_history_start).count()
+                  << " seconds";
+    } else {
+        history = std::make_shared<const rows::History>();
+    }
+
+    if (third_stage_strategy == rows::ThirdStageStrategy::DELAY_REDUCTION) {
+        CHECK(history && !history->empty())
+                        << "History of past visits cannot be empty when " << rows::ThirdStageStrategy::DELAY_REDUCTION << " strategy is in use";
     }
 
 
@@ -441,7 +452,7 @@ int main(int argc, char **argv) {
                                    rows::FirstStageStrategy,
                                    rows::ThirdStageStrategy,
                                    const rows::Problem &,
-                                   boost::optional<boost::filesystem::path>,
+                                   std::shared_ptr<const rows::History>,
                                    const std::string &,
                                    osrm::EngineConfig &,
                                    const boost::posix_time::time_duration,
@@ -455,7 +466,7 @@ int main(int argc, char **argv) {
                              first_stage_strategy,
                              third_stage_strategy,
                              sub_problem,
-                             boost::none,
+                             history,
                              output_file,
                              engine_config,
                              visit_time_window,
@@ -480,6 +491,6 @@ int main(int argc, char **argv) {
 
         return 0;
     } else {
-        return RunSchedulingWorkerEx(printer, first_stage_strategy, third_stage_strategy);
+        return RunSchedulingWorkerEx(printer, history, first_stage_strategy, third_stage_strategy);
     }
 }

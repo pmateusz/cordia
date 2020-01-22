@@ -11,6 +11,7 @@
 
 #include <glog/logging.h>
 
+#include "util/hash.h"
 #include "location.h"
 #include "address.h"
 #include "service_user.h"
@@ -105,45 +106,6 @@ namespace rows {
 }
 
 namespace std {
-
-    template<>
-    struct hash<boost::posix_time::ptime::date_type> {
-        typedef boost::posix_time::ptime::date_type argument_type;
-        typedef std::size_t result_type;
-
-        result_type operator()(const argument_type &object) const noexcept {
-            if (!object.is_special()) {
-                return object.day_count().as_number();
-            }
-            return object.as_special();
-        }
-    };
-
-    template<>
-    struct hash<boost::posix_time::ptime::time_duration_type> {
-        typedef boost::posix_time::ptime::time_duration_type argument_type;
-        typedef std::size_t result_type;
-
-        result_type operator()(const argument_type &object) const noexcept {
-            return static_cast<result_type>(object.get_rep().as_number());
-        }
-    };
-
-    template<>
-    struct hash<boost::posix_time::ptime> {
-        typedef boost::posix_time::ptime argument_type;
-        typedef std::size_t result_type;
-
-        result_type operator()(const argument_type &object) const noexcept {
-            static const std::hash<boost::posix_time::ptime::date_type> hash_date{};
-            static const std::hash<boost::posix_time::ptime::time_duration_type> hash_time{};
-
-            std::size_t seed = 0;
-            boost::hash_combine(seed, hash_date(object.date()));
-            boost::hash_combine(seed, hash_time(object.time_of_day()));
-            return seed;
-        }
-    };
 
     template<>
     struct hash<rows::CalendarVisit> {
