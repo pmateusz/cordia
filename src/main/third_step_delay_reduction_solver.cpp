@@ -5,6 +5,7 @@
 #include "progress_printer_monitor.h"
 #include "cancel_search_limit.h"
 #include "stalled_search_limit.h"
+#include "riskiness_constraint.h"
 
 rows::ThirdStepDelayReductionSolver::ThirdStepDelayReductionSolver(const ProblemData &problem_data,
                                                                    const operations_research::RoutingSearchParameters &search_parameters,
@@ -39,25 +40,31 @@ void rows::ThirdStepDelayReductionSolver::ConfigureModel(const operations_resear
     AddSkillHandling(solver, model, index_manager);
     AddContinuityOfCare(solver, model, index_manager);
 
-    int64 global_carer_penalty = 0;
-
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
-    for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
-        const auto working_hours = problem_data_.TotalWorkingHours(vehicle, schedule_day);
-        if (working_hours > boost::posix_time::seconds(0)) {
-            int64 local_carer_penalty = working_hours.total_seconds();
-            global_carer_penalty = std::max(global_carer_penalty, local_carer_penalty);
 
-            model.SetFixedCostOfVehicle(local_carer_penalty, vehicle);
-        }
-    }
+//    int64 global_carer_penalty = 0;
+//
+
+//    for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+//        const auto working_hours = problem_data_.TotalWorkingHours(vehicle, schedule_day);
+//        if (working_hours > boost::posix_time::seconds(0)) {
+//            int64 local_carer_penalty = working_hours.total_seconds();
+//            global_carer_penalty = std::max(global_carer_penalty, local_carer_penalty);
+//
+//            model.SetFixedCostOfVehicle(local_carer_penalty, vehicle);
+//        }
+//    }
 
     AddCarerHandling(solver, model, index_manager);
 
-    std::stringstream penalty_msg;
-    penalty_msg << "CarerUsedPenalty: " << global_carer_penalty;
-    printer->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
+//    std::stringstream penalty_msg;
+//    penalty_msg << "CarerUsedPenalty: " << global_carer_penalty;
+//    printer->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
+
+    auto riskiness_index_var = solver_ptr->MakeIntVar(0, kint64max, "riskiness_index");
+    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new RiskinessConstraint(riskiness_index_var, &model.GetDimensionOrDie(TIME_DIMENSION))));
+    model.AddVariableMinimizedByFinalizer(riskiness_index_var);
 
     printer->operator<<(ProblemDefinition(model.vehicles(),
                                           model.nodes() - 1,
@@ -73,6 +80,8 @@ void rows::ThirdStepDelayReductionSolver::ConfigureModel(const operations_resear
     }
 
     model.CloseModelWithParameters(parameters_);
+    model.OverrideCostVar(riskiness_index_var);
+
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
