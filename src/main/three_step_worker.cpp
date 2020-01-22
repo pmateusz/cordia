@@ -100,6 +100,10 @@ int64 GetMaxDistance(rows::SolverWrapper &solver, const std::vector<std::vector<
 }
 
 void rows::ThreeStepSchedulingWorker::Run() {
+    if (past_visits_file_) {
+        // TODO: load json file
+    }
+
     bool has_multiple_carer_visits = false;
     for (const auto &visit : problem_data_->problem().visits()) {
         CHECK_GT(visit.duration().total_seconds(), 0);
@@ -127,12 +131,12 @@ void rows::ThreeStepSchedulingWorker::Run() {
     second_stage_search_params.set_use_full_propagation(true);
 //    second_stage_search_params.set_use_cp_sat(operations_research::OptionalBoolean::BOOL_TRUE);
 
-    std::unique_ptr<rows::SecondStepSolver> second_stage_wrapper = std::make_unique<rows::SecondStepSolver>(*problem_data_,
-                                                                                                            second_stage_search_params,
-                                                                                                            visit_time_window_,
-                                                                                                            break_time_window_,
-                                                                                                            begin_end_shift_time_extension_,
-                                                                                                            opt_time_limit_);
+    std::unique_ptr <rows::SecondStepSolver> second_stage_wrapper = std::make_unique<rows::SecondStepSolver>(*problem_data_,
+                                                                                                             second_stage_search_params,
+                                                                                                             visit_time_window_,
+                                                                                                             break_time_window_,
+                                                                                                             begin_end_shift_time_extension_,
+                                                                                                             opt_time_limit_);
 
     if (second_stage_wrapper->vehicles() == 0) {
         LOG(FATAL) << "No carers available";
@@ -141,12 +145,12 @@ void rows::ThreeStepSchedulingWorker::Run() {
         return;
     }
 
-    std::unique_ptr<operations_research::RoutingIndexManager> second_stage_index_manager
+    std::unique_ptr <operations_research::RoutingIndexManager> second_stage_index_manager
             = std::make_unique<operations_research::RoutingIndexManager>(second_stage_wrapper->nodes(),
                                                                          second_stage_wrapper->vehicles(),
                                                                          rows::RealProblemData::DEPOT);
 
-    std::vector<std::vector<int64>> second_step_initial_routes{static_cast<std::size_t>(second_stage_wrapper->vehicles())};
+    std::vector <std::vector<int64>> second_step_initial_routes{static_cast<std::size_t>(second_stage_wrapper->vehicles())};
     if (first_stage_strategy_ != FirstStageStrategy::NONE && has_multiple_carer_visits) {
         LOG(INFO) << "Solving the first stage using " << GetAlias(first_stage_strategy_) << " strategy";
 
@@ -187,6 +191,7 @@ rows::ThreeStepSchedulingWorker::ThreeStepSchedulingWorker(std::shared_ptr<rows:
         : printer_{std::move(printer)},
           first_stage_strategy_{first_stage_strategy},
           third_stage_strategy_{third_stage_strategy},
+          past_visits_file_{boost::none},
           pre_opt_time_limit_{boost::posix_time::not_a_date_time},
           opt_time_limit_{boost::posix_time::not_a_date_time},
           post_opt_time_limit_{boost::posix_time::not_a_date_time},
@@ -256,6 +261,7 @@ std::vector<rows::ThreeStepSchedulingWorker::CarerTeam> rows::ThreeStepSchedulin
 }
 
 bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> problem_data,
+                                           boost::optional<boost::filesystem::path> past_visits_file,
                                            std::string output_file,
                                            boost::posix_time::time_duration visit_time_window,
                                            boost::posix_time::time_duration break_time_window,
@@ -266,6 +272,7 @@ bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> pr
                                            boost::optional<boost::posix_time::time_duration> time_limit,
                                            double cost_normalization_factor) {
     problem_data_ = problem_data;
+    past_visits_file_ = std::move(past_visits_file);
     output_file_ = std::move(output_file);
     visit_time_window_ = std::move(visit_time_window);
     break_time_window_ = std::move(break_time_window);

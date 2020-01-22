@@ -1,4 +1,5 @@
 #include <string>
+#include <utility>
 #include <vector>
 #include <algorithm>
 #include <utility>
@@ -31,6 +32,7 @@
 #include "scheduling_worker.h"
 #include "three_step_worker.h"
 #include "single_step_worker.h"
+#include "past_visit.h"
 
 DEFINE_string(problem, "../problem.json", "a file path to the problem instance");
 DEFINE_validator(problem, &util::file::Exists);
@@ -84,6 +86,10 @@ DEFINE_string(begin_end_shift_time_extension,
 DEFINE_validator(begin_end_shift_time_extension, &util::time_duration::IsNullOrPositive);
 
 DEFINE_bool(solve_all, false, "solve the scheduling problem for all instances");
+
+DEFINE_string(history, "", "a file path to the history of past visits");
+DEFINE_validator(history, &util::file::IsNullOrExists);
+
 
 DEFINE_string(output, "solution.gexf", "a file path to save the solution");
 DEFINE_validator(output, &util::file::IsNullOrNotExists);
@@ -153,7 +159,8 @@ void ParseArgs(int argc, char **argv) {
                              "opt-time-limit: %10%\n"
                              "post-opt-time-limit: %11%\n"
                              "solutions-limit: %12%\n"
-                             "solve-all: %13%")
+                             "solve-all: %13%\n"
+                             "history: %14%")
                % FLAGS_problem
                % FLAGS_maps
                % FLAGS_solution
@@ -166,56 +173,58 @@ void ParseArgs(int argc, char **argv) {
                % FlagOrDefaultValue(FLAGS_opt_noprogress_time_limit, "no")
                % FlagOrDefaultValue(FLAGS_postopt_noprogress_time_limit, "no")
                % FLAGS_solutions_limit
-               % GetYesOrNoOption(FLAGS_solve_all);
+               % GetYesOrNoOption(FLAGS_solve_all)
+               % FlagOrDefaultValue(FLAGS_history, "not set");
 }
 
-int RunSingleStepSchedulingWorker() {
-    std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
-
-    auto problem_to_use = util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer);
-
-    boost::optional<rows::Solution> solution;
-    if (!FLAGS_solution.empty()) {
-        static const boost::posix_time::time_duration ZERO_DURATION;
-        solution = util::LoadSolution(FLAGS_solution, problem_to_use, ZERO_DURATION);
-        solution.get().UpdateVisitProperties(problem_to_use.visits());
-        problem_to_use.RemoveCancelled(solution.get().visits());
-    }
-
-    auto search_parameters = operations_research::DefaultRoutingSearchParameters();
-    auto engine_config = util::CreateEngineConfig(FLAGS_maps);
-    if (FLAGS_solutions_limit != DEFAULT_SOLUTION_LIMIT) {
-        search_parameters.set_solution_limit(FLAGS_solutions_limit);
-    }
-
-    if (!FLAGS_opt_noprogress_time_limit.empty()) {
-        const auto duration_limit = boost::posix_time::duration_from_string(FLAGS_opt_noprogress_time_limit);
-        CHECK_OK(util_time::EncodeGoogleApiProto(
-                absl::Milliseconds(duration_limit.total_milliseconds()),
-                search_parameters.mutable_time_limit()));
-    }
-
-    const rows::RealProblemDataFactory problem_data_factory{engine_config};
-    const auto problem_data = problem_data_factory.makeProblem(problem_to_use);
-    rows::SingleStepSchedulingWorker worker{printer};
-    if (worker.Init(*problem_data,
-                    solution,
-                    search_parameters,
-                    FLAGS_output)) {
-
-        worker.Start();
-        std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
-        chat_thread.detach();
-        worker.Join();
-    }
-
-    return worker.ReturnCode();
-}
+//int RunSingleStepSchedulingWorker() {
+//    std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
+//
+//    auto problem_to_use = util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer);
+//
+//    boost::optional<rows::Solution> solution;
+//    if (!FLAGS_solution.empty()) {
+//        static const boost::posix_time::time_duration ZERO_DURATION;
+//        solution = util::LoadSolution(FLAGS_solution, problem_to_use, ZERO_DURATION);
+//        solution.get().UpdateVisitProperties(problem_to_use.visits());
+//        problem_to_use.RemoveCancelled(solution.get().visits());
+//    }
+//
+//    auto search_parameters = operations_research::DefaultRoutingSearchParameters();
+//    auto engine_config = util::CreateEngineConfig(FLAGS_maps);
+//    if (FLAGS_solutions_limit != DEFAULT_SOLUTION_LIMIT) {
+//        search_parameters.set_solution_limit(FLAGS_solutions_limit);
+//    }
+//
+//    if (!FLAGS_opt_noprogress_time_limit.empty()) {
+//        const auto duration_limit = boost::posix_time::duration_from_string(FLAGS_opt_noprogress_time_limit);
+//        CHECK_OK(util_time::EncodeGoogleApiProto(
+//                absl::Milliseconds(duration_limit.total_milliseconds()),
+//                search_parameters.mutable_time_limit()));
+//    }
+//
+//    const rows::RealProblemDataFactory problem_data_factory{engine_config};
+//    const auto problem_data = problem_data_factory.makeProblem(problem_to_use);
+//    rows::SingleStepSchedulingWorker worker{printer};
+//    if (worker.Init(*problem_data,
+//                    solution,
+//                    search_parameters,
+//                    FLAGS_output)) {
+//
+//        worker.Start();
+//        std::thread chat_thread(util::ChatBot<rows::SchedulingWorker>, std::ref(worker));
+//        chat_thread.detach();
+//        worker.Join();
+//    }
+//
+//    return worker.ReturnCode();
+//}
 
 int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                         const rows::FirstStageStrategy first_stage_strategy,
                         const rows::ThirdStageStrategy third_stage_strategy,
                         const rows::Problem &problem,
+                        boost::optional<boost::filesystem::path> past_visits_file,
                         const std::string &output,
                         osrm::EngineConfig &engine_config,
                         const boost::posix_time::time_duration &visit_time_window,
@@ -233,6 +242,7 @@ int RunSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                                third_stage_strategy,
                                                problem_data_factory_ptr};
         if (worker.Init(problem_data,
+                        std::move(past_visits_file),
                         output,
                         visit_time_window,
                         break_time_window,
@@ -264,6 +274,7 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                    const rows::FirstStageStrategy &first_stage_strategy,
                                    const rows::ThirdStageStrategy &third_stage_strategy,
                                    const rows::Problem &problem,
+                                   boost::optional<boost::filesystem::path> past_visits_file,
                                    const std::string &output,
                                    osrm::EngineConfig &engine_config,
                                    const boost::posix_time::time_duration &visit_time_window,
@@ -280,6 +291,7 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
                                                third_stage_strategy,
                                                problem_data_factory_ptr};
         if (worker.Init(problem_data,
+                        std::move(past_visits_file),
                         output,
                         visit_time_window,
                         break_time_window,
@@ -317,11 +329,18 @@ int RunCancellableSchedulingWorker(std::shared_ptr<rows::Printer> printer,
 int RunSchedulingWorkerEx(const std::shared_ptr<rows::Printer> &printer,
                           const rows::FirstStageStrategy &first_stage_strategy,
                           const rows::ThirdStageStrategy &third_stage_strategy) {
+    boost::optional<boost::filesystem::path> past_visits_file;
+    if (!FLAGS_history.empty()) {
+        past_visits_file = boost::make_optional(FLAGS_history);
+    }
+
+
     auto engine_config = util::CreateEngineConfig(FLAGS_maps);
     return RunCancellableSchedulingWorker(printer,
                                           first_stage_strategy,
                                           third_stage_strategy,
                                           util::LoadReducedProblem(FLAGS_problem, FLAGS_scheduling_date, printer),
+                                          past_visits_file,
                                           FLAGS_output,
                                           engine_config,
                                           util::GetTimeDurationOrDefault(FLAGS_visit_time_window, boost::posix_time::not_a_date_time),
@@ -340,6 +359,36 @@ int main(int argc, char **argv) {
     const auto third_stage_strategy = rows::ParseThirdStageStrategy(FLAGS_third_stage).get();
 
     std::shared_ptr<rows::Printer> printer = util::CreatePrinter(FLAGS_console_format);
+
+    std::vector<rows::PastVisit> past_visits;
+    if (!FLAGS_history.empty()) {
+        LOG(INFO) << FLAGS_history;
+        std::ifstream past_visit_stream;
+        past_visit_stream.open(FLAGS_history);
+        if (!past_visit_stream.is_open()) {
+            throw util::ApplicationError((boost::format("Failed to open the file: %1%") % FLAGS_history).str(), util::ErrorCode::ERROR);
+        }
+
+        nlohmann::json past_visits_json;
+        try {
+            past_visit_stream >> past_visits_json;
+        } catch (...) {
+            throw util::ApplicationError((boost::format("Failed to open the file: %1%") % FLAGS_history).str(),
+                                         boost::current_exception_diagnostic_information(),
+                                         util::ErrorCode::ERROR);
+        }
+
+        try {
+            past_visits = past_visits_json.get<std::vector<rows::PastVisit>>();
+        } catch (...) {
+            throw util::ApplicationError((boost::format("Failed to parse the file: %1%") % FLAGS_history).str(),
+                                         boost::current_exception_diagnostic_information(),
+                                         util::ErrorCode::ERROR);
+        }
+
+        past_visit_stream.close();
+    }
+
 
     if (FLAGS_solve_all) {
         const auto problem = util::LoadProblem(FLAGS_problem, printer);
@@ -392,6 +441,7 @@ int main(int argc, char **argv) {
                                    rows::FirstStageStrategy,
                                    rows::ThirdStageStrategy,
                                    const rows::Problem &,
+                                   boost::optional<boost::filesystem::path>,
                                    const std::string &,
                                    osrm::EngineConfig &,
                                    const boost::posix_time::time_duration,
@@ -405,6 +455,7 @@ int main(int argc, char **argv) {
                              first_stage_strategy,
                              third_stage_strategy,
                              sub_problem,
+                             boost::none,
                              output_file,
                              engine_config,
                              visit_time_window,

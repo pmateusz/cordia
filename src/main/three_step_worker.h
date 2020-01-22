@@ -88,6 +88,7 @@ namespace rows {
         void Run() override;
 
         bool Init(std::shared_ptr<const ProblemData> problem_data,
+                  boost::optional<boost::filesystem::path> past_visits_file,
                   std::string output_file,
                   boost::posix_time::time_duration visit_time_window,
                   boost::posix_time::time_duration break_time_window,
@@ -133,6 +134,7 @@ namespace rows {
         boost::optional<boost::posix_time::time_duration> time_limit_;
         double cost_normalization_factor_;
 
+        boost::optional<boost::filesystem::path> past_visits_file_;
         std::string output_file_;
 
         std::shared_ptr<Printer> printer_;
