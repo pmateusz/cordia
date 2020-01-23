@@ -63,7 +63,7 @@ void rows::ThirdStepDelayReductionSolver::ConfigureModel(operations_research::Ro
 //    penalty_msg << "CarerUsedPenalty: " << global_carer_penalty;
 //    printer->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
 
-    auto riskiness_index_var = solver_ptr->MakeIntVar(-1, kint64max, "riskiness_index");
+    auto riskiness_index_var = solver_ptr->MakeIntVar(0, kint64max, "riskiness_index");
     solver_ptr->AddConstraint(solver_ptr->RevAlloc(new RiskinessConstraint(riskiness_index_var,
                                                                            &model.GetDimensionOrDie(TIME_DIMENSION),
                                                                            std::make_shared<const DurationSample>(*this, history_, model))));

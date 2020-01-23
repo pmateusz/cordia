@@ -27,13 +27,21 @@ namespace rows {
             int64 break_duration;
         };
 
-        void PropagateVehicle(int vehicle);
+        void PropagatePath(int vehicle);
 
-        void ResetNode(int64 index);
+        void UpdatePath(int vehicle);
+
+        void PostPathConstraints(int vehicle);
+
+        void ComputePathDelay(int vehicle);
+
+        void PropagateFull();
 
         void PropagateNode(int64 index, std::size_t scenario);
 
-        void ComputeDelay(const std::vector<int64> &start_nodes);
+        void PropagateNodeWithSiblings(int64 index, std::size_t scenario, std::unordered_set<int64> &siblings_updated);
+
+        int64 GetArrivalTime(const TrackRecord &record, std::size_t scenario) const;
 
         int64 MaxDelay(int64 index) const;
 
@@ -47,6 +55,7 @@ namespace rows {
 
         std::vector<operations_research::IntVar *> completed_paths_;
         std::vector<operations_research::Demon *> vehicle_demons_;
+        operations_research::IntVar *all_paths_completed_;
 
         std::vector<TrackRecord> records_;
         std::vector<std::vector<int64>> start_;
