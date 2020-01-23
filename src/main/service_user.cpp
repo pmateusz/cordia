@@ -7,10 +7,10 @@ namespace rows {
     const ServiceUser ServiceUser::DEFAULT{};
 
     ServiceUser::ServiceUser()
-            : ServiceUser("") {}
+            : ServiceUser(0) {}
 
-    ServiceUser::ServiceUser(std::string id)
-            : id_(std::move(id)) {}
+    ServiceUser::ServiceUser(long id)
+            : id_(id) {}
 
     ServiceUser::ServiceUser(const ServiceUser &other)
             : id_(other.id_) {}
@@ -24,7 +24,7 @@ namespace rows {
     }
 
     ServiceUser &ServiceUser::operator=(ServiceUser &&other) noexcept {
-        id_ = std::move(other.id_);
+        id_ = other.id_;
         return *this;
     }
 
@@ -41,17 +41,17 @@ namespace rows {
         return !this->operator==(other);
     }
 
-    const std::string &ServiceUser::id() const {
+    long ServiceUser::id() const {
         return id_;
     }
 
     ExtendedServiceUser::ExtendedServiceUser()
-            : ExtendedServiceUser("", Address(), Location("", "")) {}
+            : ExtendedServiceUser(0, Address(), Location("", "")) {}
 
-    ExtendedServiceUser::ExtendedServiceUser(std::string id,
+    ExtendedServiceUser::ExtendedServiceUser(long id,
                                              Address address,
                                              Location location)
-            : ServiceUser(std::move(id)),
+            : ServiceUser(id),
               location_(std::move(location)),
               address_(std::move(address)) {}
 

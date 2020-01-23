@@ -20,7 +20,7 @@ namespace rows {
 
         ServiceUser();
 
-        explicit ServiceUser(std::string id);
+        explicit ServiceUser(long id);
 
         ServiceUser(const ServiceUser &other);
 
@@ -38,17 +38,17 @@ namespace rows {
 
         bool operator!=(const ServiceUser &other) const;
 
-        const std::string &id() const;
+        long id() const;
 
     private:
-        std::string id_;
+        long id_;
     };
 
     class ExtendedServiceUser : public ServiceUser {
     public:
         ExtendedServiceUser();
 
-        ExtendedServiceUser(std::string id,
+        ExtendedServiceUser(long id,
                             Address address,
                             Location location);
 
@@ -86,8 +86,7 @@ namespace std {
         typedef std::size_t result_type;
 
         result_type operator()(const argument_type &object) const noexcept {
-            static const std::hash<std::string> hash_id{};
-            return hash_id(object.id_);
+            return object.id_;
         }
     };
 

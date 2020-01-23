@@ -18,7 +18,12 @@ void boost::posix_time::to_json(nlohmann::json &json, const boost::posix_time::t
 }
 
 void boost::posix_time::from_json(const nlohmann::json &json, boost::posix_time::time_duration &value) {
-    value = boost::posix_time::duration_from_string(json.get<std::string>());
+    const auto raw_duration = json.get<std::string>();
+    if (raw_duration.find(':') == std::string::npos) {
+        value = boost::posix_time::seconds(std::stol(raw_duration));
+    } else {
+        value = boost::posix_time::duration_from_string(raw_duration);
+    }
 }
 
 void boost::posix_time::to_json(nlohmann::json &json, const boost::posix_time::time_period &value) {

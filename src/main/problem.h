@@ -82,7 +82,7 @@ namespace rows {
             template<typename JsonType>
             std::vector<std::pair<rows::Carer, std::vector<rows::Diary> > > LoadCarers(const JsonType &document);
 
-            std::domain_error OnUserPropertyNotSet(std::string item_key, std::string user_key) const;
+            std::domain_error OnUserPropertyNotSet(std::string item_key, long user_key) const;
         };
 
         void RemoveCancelled(const std::vector<rows::ScheduledVisit> &visits);
@@ -120,7 +120,7 @@ namespace rows {
         for (const auto &service_user_json : service_users_it.value()) {
             const auto key_it = service_user_json.find("key");
             if (key_it == std::end(service_user_json)) { throw OnKeyNotFound("key"); }
-            auto key = key_it.value().template get<std::string>();
+            auto key = std::stol(key_it.value().template get<std::string>());
 
             const auto address_it = service_user_json.find("address");
             if (address_it == std::end(service_user_json)) { throw OnUserPropertyNotSet("address", key); }
@@ -173,7 +173,7 @@ namespace rows {
         for (const auto &group_visits_json : group_visits_it.value()) {
             const auto service_user_it = group_visits_json.find("service_user");
             if (service_user_it == std::end(group_visits_json)) { throw OnKeyNotFound("service_user"); }
-            const ServiceUser service_user{service_user_it.value().template get<std::string>()};
+            const ServiceUser service_user{std::stol(service_user_it.value().template get<std::string>())};
 
             const auto service_user_index_it = service_user_index.find(service_user);
             DCHECK(service_user_index_it != std::end(service_user_index));

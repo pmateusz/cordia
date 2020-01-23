@@ -250,7 +250,7 @@ rows::BenchmarkProblemDataFactory rows::BenchmarkProblemDataFactory::Load(const 
 
         const rows::Address address{};
         const rows::Location location{};
-        const rows::ServiceUser user{std::to_string(visit_node)};
+        const rows::ServiceUser user{visit_node};
         const rows::CalendarVisit visit{static_cast<std::size_t>(visit_node),
                                         user,
                                         address,

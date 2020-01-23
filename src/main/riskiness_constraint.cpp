@@ -2,7 +2,7 @@
 
 rows::RiskinessConstraint::RiskinessConstraint(operations_research::IntVar *riskiness_index,
                                                const operations_research::RoutingDimension *dimension,
-                                               std::shared_ptr<DurationSample> duration_sample)
+                                               std::shared_ptr<const DurationSample> duration_sample)
         : Constraint(dimension->model()->solver()),
           riskiness_index_{riskiness_index},
           model_{dimension->model()},
@@ -10,6 +10,17 @@ rows::RiskinessConstraint::RiskinessConstraint(operations_research::IntVar *risk
           duration_sample_{std::move(duration_sample)} {
     completed_paths_.resize(model_->vehicles());
     vehicle_demons_.resize(model_->vehicles());
+
+    const auto num_indices = duration_sample_->num_indices();
+    const auto num_samples = duration_sample_->size();
+    records_.resize(num_indices);
+    start_.resize(num_indices);
+    delay_.resize(num_indices);
+    for (auto index = 0; index < num_indices; ++index) {
+        records_[index].index = index;
+        start_[index].resize(num_samples, duration_sample_->start_min(index));
+        delay_[index].resize(num_samples, 0);
+    }
 }
 
 void rows::RiskinessConstraint::Post() {
@@ -46,13 +57,6 @@ void rows::RiskinessConstraint::InitialPropagate() {
     }
 }
 
-struct NodeRecord {
-    int64 next;
-    int64 travel_time;
-    int64 break_min;
-    int64 break_duration;
-};
-
 void rows::RiskinessConstraint::PropagateVehicle(int vehicle) {
     if (completed_paths_[vehicle]->Max() == 0) {
         return;
@@ -79,15 +83,12 @@ void rows::RiskinessConstraint::PropagateVehicle(int vehicle) {
         break_duration.emplace_back(interval->DurationMin());
     }
 
-    std::vector<NodeRecord> records;
-    records.resize(model_->nodes());
-
     int64 break_pos = 0;
     while (break_pos < num_breaks && break_start_min[break_pos] + break_duration[break_pos] <= dimension_->CumulVar(current_index)->Min()) {
         ++break_pos;
     }
 
-    current_index = next_index;
+    std::vector<int64> path{current_index};
     while (!model_->IsEnd(current_index)) {
         next_index = model_->NextVar(current_index)->Value();
 
@@ -101,17 +102,91 @@ void rows::RiskinessConstraint::PropagateVehicle(int vehicle) {
             ++break_pos;
         }
 
-        auto &record = records.at(current_index);
+        auto &record = records_.at(current_index);
         record.next = next_index;
         record.travel_time = model_->GetArcCostForVehicle(current_index, next_index, vehicle);
         record.break_min = last_break_min + last_break_duration - current_break_duration;
         record.break_duration = current_break_duration;
 
         current_index = next_index;
+        path.emplace_back(current_index);
     }
 
     // either iterated through all breaks or finished before the last break
     CHECK(break_pos == num_breaks || dimension_->CumulVar(current_index)->Min() <= break_start_min[break_pos]);
 
-    solver()->AddConstraint(solver()->MakeGreaterOrEqual(riskiness_index_, 1000));
+    ComputeDelay({model_->Start(vehicle)});
+
+    for (const auto index : path) {
+        if (duration_sample_->is_visit(index)) {
+            const auto max_delay = MaxDelay(index);
+            if (max_delay > 0) {
+                const int64 mean_delay = MeanDelay(index);
+                if (mean_delay > riskiness_index_->Min()) {
+                    solver()->AddConstraint(solver()->MakeGreaterOrEqual(riskiness_index_, mean_delay));
+                }
+            }
+        }
+    }
+
+    if (riskiness_index_->Min() < 0) {
+        solver()->AddConstraint(solver()->MakeGreaterOrEqual(riskiness_index_, 1));
+    }
+}
+
+void rows::RiskinessConstraint::ResetNode(int64 index) {
+    std::fill(std::begin(start_.at(index)), std::end(start_.at(index)), duration_sample_->start_min(index));
+    std::fill(std::begin(delay_.at(index)), std::end(delay_.at(index)), 0);
+}
+
+void rows::RiskinessConstraint::PropagateNode(int64 index, std::size_t scenario) {
+    auto current_index = index;
+    while (!model_->IsEnd(current_index)) {
+        const auto &current_record = records_.at(current_index);
+        auto next_index = current_record.next;
+
+        auto arrival_time = start_.at(current_index).at(scenario) + duration_sample_->duration(current_index, scenario) + current_record.travel_time;
+        if (arrival_time > current_record.break_min) {
+            arrival_time += current_record.break_duration;
+        } else {
+            arrival_time = std::max(arrival_time, current_record.break_min + current_record.break_duration);
+        }
+        start_.at(next_index).at(scenario) = std::max(arrival_time, start_.at(next_index).at(scenario));
+
+        current_index = next_index;
+    }
+}
+
+// TODO: compute delay synchronizing nodes
+void rows::RiskinessConstraint::ComputeDelay(const std::vector<int64> &start_nodes) {
+    for (const auto start_node : start_nodes) {
+        auto current_index = start_node;
+        while (!model_->IsEnd(current_index)) {
+            ResetNode(current_index);
+            current_index = records_.at(current_index).next;
+        }
+    }
+
+    const auto num_samples = duration_sample_->size();
+    for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
+        for (const auto start_node : start_nodes) {
+            PropagateNode(start_node, scenario);
+        }
+    }
+
+    const auto num_indices = start_.size();
+    for (int64 index = 0; index < num_indices; ++index) {
+        for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
+            delay_.at(index).at(scenario) = start_.at(index).at(scenario) - duration_sample_->start_max(index);
+        }
+    }
+}
+
+int64 rows::RiskinessConstraint::MaxDelay(int64 index) const {
+    return *std::max_element(std::cbegin(delay_.at(index)), std::cend(delay_.at(index)));
+}
+
+int64 rows::RiskinessConstraint::MeanDelay(int64 index) const {
+    const auto accumulated_value = std::accumulate(std::cbegin(delay_.at(index)), std::cend(delay_.at(index)), 0l);
+    return accumulated_value / static_cast<int64>(delay_.at(index).size());
 }

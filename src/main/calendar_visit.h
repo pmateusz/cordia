@@ -171,7 +171,7 @@ namespace rows {
         ServiceUser service_user;
         const auto service_user_it = document.find("service_user");
         if (service_user_it != std::end(document)) {
-            service_user = ServiceUser(service_user_it.value().template get<std::string>());
+            service_user = ServiceUser(std::stol(service_user_it.value().template get<std::string>()));
         }
 
         int carer_count = 1;

@@ -354,7 +354,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
 
                 breaks.emplace(node_id, Break(std::move(carer), start_time, duration));
             } else if (type_property_it->second == "user") {
-                users.emplace(node_id, rows::ServiceUser{GetCheckNotEmpty(properties, attributes.Id)});
+                users.emplace(node_id, rows::ServiceUser{std::stol(GetCheckNotEmpty(properties, attributes.Id))});
             } else if (type_property_it->second == "carer") {
                 carers.emplace(node_id, rows::Carer{GetCheckNotEmpty(properties, attributes.SapNumber)});
             } else {

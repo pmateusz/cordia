@@ -56,7 +56,7 @@ TEST(TestScheduledVisit, CanExecuteContainerOperations) {
             boost::posix_time::ptime(boost::gregorian::date(2017, 2, 1), boost::posix_time::time_duration(8, 51, 0)),
             boost::make_optional(rows::CalendarVisit{
                     0,
-                    rows::ServiceUser{"9082143"},
+                    rows::ServiceUser{9082143},
                     rows::Address{"1", "Dusk Place", "Glasgow", "G13 4LH"},
                     boost::make_optional(rows::Location{"55.8886", "-4.34296"}),
                     boost::posix_time::ptime(boost::gregorian::date(2017, 2, 1),

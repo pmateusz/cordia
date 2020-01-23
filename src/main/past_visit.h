@@ -24,6 +24,12 @@ namespace rows {
 
         inline boost::gregorian::date date() const { return planned_check_in_.date(); }
 
+        inline const boost::posix_time::ptime &planned_check_in() const { return planned_check_in_; }
+
+        inline const std::vector<int> &tasks() const { return tasks_; }
+
+        inline const boost::posix_time::time_duration &real_duration() const { return real_duration_; }
+
     private:
         long visit_;
         long service_user_;

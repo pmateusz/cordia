@@ -97,7 +97,7 @@ void rows::from_json(const nlohmann::json &json, rows::PastVisit &visit) {
     }
 
     boost::posix_time::time_duration real_duration = boost::posix_time::seconds(0);
-    const auto real_duration_it = json.find("planned_duration");
+    const auto real_duration_it = json.find("real_duration");
     if (real_duration_it != std::end(json)) {
         real_duration = real_duration_it->get<boost::posix_time::time_duration>();
     }
