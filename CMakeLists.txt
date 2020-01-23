@@ -9,12 +9,12 @@ set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set(CMAKE_VERBOSE_MAKEFILE FALSE)
 
 if (CMAKE_COMPILER_IS_GNUCXX)
-    set(CMAKE_CXX_FLAGS_DEBUG "-g -ggdb -pg")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb")
     set(CMAKE_CXX_FLAGS_RELEASE "-O4 -DNDEBUG -march=native")
 endif ()
 
 # uncomment for a debug mode build
-set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/pmateusz-ortoools-7.1)
+set(ORTOOLS_ROOT_DIR /home/pmateusz/dev/pmateusz-ortools-7.1)
 set(AMPL_ROOT_DIR /home/pmateusz/dev/amplapi-linux64)
 
 set(default_build_type "RELEASE")
