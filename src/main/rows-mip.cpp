@@ -2477,21 +2477,15 @@ int main(int argc, char *argv[]) {
     rows::RealProblemDataFactory problem_data_factory{engine_config};
     const auto problem_data = problem_data_factory.makeProblem(problem);
     const auto search_params = operations_research::DefaultRoutingSearchParameters();
-    std::unique_ptr<rows::SecondStepSolver> solver_wrapper = std::make_unique<rows::SecondStepSolver>(*problem_data,
-                                                                                                      search_params,
-                                                                                                      visit_time_window,
-                                                                                                      break_time_window,
-                                                                                                      overtime_window,
-                                                                                                      no_progress_time_limit);
+    rows::SecondStepSolver solver_wrapper{*problem_data,
+                                          search_params,
+                                          visit_time_window,
+                                          break_time_window,
+                                          overtime_window,
+                                          no_progress_time_limit};
 
-    std::unique_ptr<operations_research::RoutingIndexManager> index_manager
-            = std::make_unique<operations_research::RoutingIndexManager>(solver_wrapper->nodes(),
-                                                                         solver_wrapper->vehicles(),
-                                                                         rows::RealProblemData::DEPOT);
-
-    std::unique_ptr<operations_research::RoutingModel> routing_model
-            = std::make_unique<operations_research::RoutingModel>(*index_manager);
-    solver_wrapper->ConfigureModel(*index_manager, *routing_model, printer, cancel_token, 1.0);
+    operations_research::RoutingModel routing_model{solver_wrapper.index_manager()};
+    solver_wrapper.ConfigureModel(routing_model, printer, cancel_token, 1.0);
     static const rows::SolutionValidator solution_validator{};
 
     if (solution_opt) {
@@ -2499,10 +2493,9 @@ int main(int argc, char *argv[]) {
             VLOG(1) << visit;
         }
 
-        const auto initial_routes = solver_wrapper->GetRoutes(solution_opt.get(), *index_manager, *routing_model);
-        operations_research::Assignment *initial_assignment
-                = routing_model->ReadAssignmentFromRoutes(initial_routes, false);
-        if (initial_assignment == nullptr || !routing_model->solver()->CheckAssignment(initial_assignment)) {
+        const auto initial_routes = solver_wrapper.GetRoutes(solution_opt.get(), routing_model);
+        operations_research::Assignment *initial_assignment = routing_model.ReadAssignmentFromRoutes(initial_routes, false);
+        if (initial_assignment == nullptr || !routing_model.solver()->CheckAssignment(initial_assignment)) {
             LOG(WARNING) << "Solution for warm start was rejected by the CP solver.";
         }
     }
@@ -2510,30 +2503,23 @@ int main(int argc, char *argv[]) {
     auto problem_model = CreateModel(problem, engine_config, visit_time_window, break_time_window, overtime_window);
     const auto ip_solution = problem_model->Solve(solution_opt, mip_time_limit);
 
-    const auto routes = solver_wrapper->GetRoutes(ip_solution, *index_manager, *routing_model);
-
-    operations_research::Assignment *assignment = routing_model->ReadAssignmentFromRoutes(routes, false);
+    const auto routes = solver_wrapper.GetRoutes(ip_solution, routing_model);
+    operations_research::Assignment *assignment = routing_model.ReadAssignmentFromRoutes(routes, false);
     if (assignment == nullptr) {
         throw util::ApplicationError("Failed to create a CP assignment for the solution.", util::ErrorCode::ERROR);
     }
 
-    for (auto vehicle = 0; vehicle < solver_wrapper->vehicles(); ++vehicle) {
-        const auto validation_result = solution_validator.ValidateFull(vehicle,
-                                                                       *assignment,
-                                                                       *index_manager,
-                                                                       *routing_model,
-                                                                       *solver_wrapper);
+    for (auto vehicle = 0; vehicle < solver_wrapper.vehicles(); ++vehicle) {
+        const auto validation_result = solution_validator.ValidateFull(vehicle, *assignment, routing_model, solver_wrapper);
         CHECK(validation_result.error() == nullptr);
     }
 
     const rows::GexfWriter solution_writer;
     boost::filesystem::path output_file{FLAGS_output};
-    solution_writer.Write(output_file, *solver_wrapper, *index_manager, *routing_model, *assignment, boost::none);
+    solution_writer.Write(output_file, solver_wrapper, routing_model, *assignment, boost::none);
 
-
-    if (!routing_model->solver()->CheckAssignment(assignment)) {
-        throw util::ApplicationError("Final solution rejected by the CP solver in the validation phase.",
-                                     util::ErrorCode::ERROR);
+    if (!routing_model.solver()->CheckAssignment(assignment)) {
+        throw util::ApplicationError("Final solution rejected by the CP solver in the validation phase.", util::ErrorCode::ERROR);
     }
 
     return EXIT_SUCCESS;

@@ -25,15 +25,12 @@ rows::ThirdStepFulfillSolver::ThirdStepFulfillSolver(const ProblemData &problem_
           max_dropped_visits_{max_dropped_visits},
           vehicle_metrics_{std::move(vehicle_metrics)} {}
 
-void rows::ThirdStepFulfillSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                                                  operations_research::RoutingModel &model,
+void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingModel &model,
                                                   const std::shared_ptr<Printer> &printer,
                                                   std::shared_ptr<const std::atomic<bool> > cancel_token,
                                                   double cost_normalization_factor) {
-    OnConfigureModel(index_manager, model);
-
-    operations_research::Solver *const solver = model.solver();
-    AddTravelTime(solver, model, index_manager);
+    OnConfigureModel(model);
+    AddTravelTime(model);
 
     const auto FIXED_COST = 5 * 3600;
     for (decltype(vehicle_metrics_.size()) vehicle_number = 0; vehicle_number < vehicle_metrics_.size(); ++vehicle_number) {
@@ -53,10 +50,10 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(const operations_research::Rou
 
     // visit that needs multiple carers is referenced by multiple nodes
     // all such nodes must be either performed or unperformed
-    AddVisitsHandling(solver, model, index_manager);
-    AddSkillHandling(solver, model, index_manager);
-    AddContinuityOfCare(solver, model, index_manager);
-    AddCarerHandling(solver, model, index_manager);
+    AddVisitsHandling(model);
+    AddSkillHandling(model);
+    AddContinuityOfCare(model);
+    AddCarerHandling(model);
 
     const auto schedule_day = GetScheduleDate();
     printer->operator<<(ProblemDefinition(model.vehicles(),
@@ -69,21 +66,21 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(const operations_research::Rou
 
     CHECK_GE(max_dropped_visits_, 0);
     if (max_dropped_visits_ > 0) {
-        AddDroppedVisitsHandling(solver, model, index_manager);
+        AddDroppedVisitsHandling(model);
     }
-    LimitDroppedVisits(solver, model, index_manager, max_dropped_visits_);
+    LimitDroppedVisits(model, max_dropped_visits_);
 
 
     model.CloseModelWithParameters(parameters_);
-    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
+    model.AddSearchMonitor(model.solver()->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
-        model.AddSearchMonitor(solver->RevAlloc(new StalledSearchLimit(
+        model.AddSearchMonitor(model.solver()->RevAlloc(new StalledSearchLimit(
                 no_progress_time_limit_.total_milliseconds(),
                 &model,
                 model.solver()
         )));
     }
 
-    model.AddSearchMonitor(solver->RevAlloc(new CancelSearchLimit(cancel_token, solver)));
+    model.AddSearchMonitor(model.solver()->RevAlloc(new CancelSearchLimit(cancel_token, model.solver())));
 }

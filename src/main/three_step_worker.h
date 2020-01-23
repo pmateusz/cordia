@@ -107,16 +107,13 @@ namespace rows {
                                                                     int64 last_dropped_visit_penalty,
                                                                     std::size_t max_dropped_visits_count);
 
-        std::vector<std::vector<int64>> SolveFirstStage(const rows::SolverWrapper &second_step_wrapper,
-                                                        const operations_research::RoutingIndexManager &second_step_index_manager);
+        std::vector<std::vector<int64>> SolveFirstStage(const rows::SolverWrapper &second_step_wrapper);
 
         std::vector<std::vector<int64>> SolveSecondStage(const std::vector<std::vector<int64> > &second_stage_initial_routes,
                                                          rows::SecondStepSolver &second_stage_solver,
-                                                         const operations_research::RoutingIndexManager &second_stage_index_manager,
                                                          const operations_research::RoutingSearchParameters &search_params);
 
-        void SolveThirdStage(const std::vector<std::vector<int64> > &second_stage_routes,
-                             rows::SecondStepSolver &second_stage_solver);
+        void SolveThirdStage(const std::vector<std::vector<int64> > &second_stage_routes, rows::SecondStepSolver &second_stage_solver);
 
         operations_research::RoutingSearchParameters CreateThirdStageRoutingSearchParameters();
 

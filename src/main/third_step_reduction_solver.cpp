@@ -22,21 +22,19 @@ rows::ThirdStepReductionSolver::ThirdStepReductionSolver(const ProblemData &prob
           dropped_visit_penalty_{dropped_visit_penalty},
           max_dropped_visits_{max_dropped_visits} {}
 
-void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                                                    operations_research::RoutingModel &model,
+void rows::ThirdStepReductionSolver::ConfigureModel(operations_research::RoutingModel &model,
                                                     const std::shared_ptr<Printer> &printer,
                                                     std::shared_ptr<const std::atomic<bool> > cancel_token,
                                                     double cost_normalization_factor) {
     CHECK_GE(max_dropped_visits_, 0);
     const auto are_visits_optional = max_dropped_visits_ > 0;
 
-    OnConfigureModel(index_manager, model);
+    OnConfigureModel(model);
 
-    operations_research::Solver *const solver = model.solver();
-    AddTravelTime(solver, model, index_manager);
-    AddVisitsHandling(solver, model, index_manager);
-    AddSkillHandling(solver, model, index_manager);
-    AddContinuityOfCare(solver, model, index_manager);
+    AddTravelTime(model);
+    AddVisitsHandling(model);
+    AddSkillHandling(model);
+    AddContinuityOfCare(model);
 
     int64 global_carer_penalty = 0;
 
@@ -52,7 +50,7 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
         }
     }
 
-    AddCarerHandling(solver, model, index_manager);
+    AddCarerHandling(model);
 
     std::stringstream penalty_msg;
     penalty_msg << "CarerUsedPenalty: " << global_carer_penalty;
@@ -67,8 +65,8 @@ void rows::ThirdStepReductionSolver::ConfigureModel(const operations_research::R
                                           GetAdjustment()));
 
     if (are_visits_optional) {
-        AddDroppedVisitsHandling(solver, model, index_manager);
-        LimitDroppedVisits(solver, model, index_manager, max_dropped_visits_);
+        AddDroppedVisitsHandling(model);
+        LimitDroppedVisits(model, max_dropped_visits_);
     }
 
     model.CloseModelWithParameters(parameters_);

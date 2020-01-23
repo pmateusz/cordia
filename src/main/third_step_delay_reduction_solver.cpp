@@ -8,6 +8,7 @@
 #include "riskiness_constraint.h"
 
 rows::ThirdStepDelayReductionSolver::ThirdStepDelayReductionSolver(const ProblemData &problem_data,
+                                                                   const History &history,
                                                                    const operations_research::RoutingSearchParameters &search_parameters,
                                                                    boost::posix_time::time_duration visit_time_window,
                                                                    boost::posix_time::time_duration break_time_window,
@@ -20,25 +21,25 @@ rows::ThirdStepDelayReductionSolver::ThirdStepDelayReductionSolver(const Problem
                         std::move(visit_time_window),
                         std::move(break_time_window),
                         std::move(begin_end_work_day_adjustment)),
+          history_{history},
           no_progress_time_limit_{std::move(no_progress_time_limit)},
           dropped_visit_penalty_{dropped_visit_penalty},
           max_dropped_visits_{max_dropped_visits} {}
 
-void rows::ThirdStepDelayReductionSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                                                         operations_research::RoutingModel &model,
+void rows::ThirdStepDelayReductionSolver::ConfigureModel(operations_research::RoutingModel &model,
                                                          const std::shared_ptr<Printer> &printer,
                                                          std::shared_ptr<const std::atomic<bool> > cancel_token,
                                                          double cost_normalization_factor) {
     CHECK_GE(max_dropped_visits_, 0);
     const auto are_visits_optional = max_dropped_visits_ > 0;
 
-    OnConfigureModel(index_manager, model);
+    OnConfigureModel(model);
 
     operations_research::Solver *const solver = model.solver();
-    AddTravelTime(solver, model, index_manager);
-    AddVisitsHandling(solver, model, index_manager);
-    AddSkillHandling(solver, model, index_manager);
-    AddContinuityOfCare(solver, model, index_manager);
+    AddTravelTime(model);
+    AddVisitsHandling(model);
+    AddSkillHandling(model);
+    AddContinuityOfCare(model);
 
     const auto schedule_day = GetScheduleDate();
     auto solver_ptr = model.solver();
@@ -56,14 +57,17 @@ void rows::ThirdStepDelayReductionSolver::ConfigureModel(const operations_resear
 //        }
 //    }
 
-    AddCarerHandling(solver, model, index_manager);
+    AddCarerHandling(model);
 
 //    std::stringstream penalty_msg;
 //    penalty_msg << "CarerUsedPenalty: " << global_carer_penalty;
 //    printer->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
 
+    auto duration_sample = std::make_shared<DurationSample>(problem(), *this, history_, model);
     auto riskiness_index_var = solver_ptr->MakeIntVar(0, kint64max, "riskiness_index");
-    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new RiskinessConstraint(riskiness_index_var, &model.GetDimensionOrDie(TIME_DIMENSION))));
+    solver_ptr->AddConstraint(solver_ptr->RevAlloc(new RiskinessConstraint(riskiness_index_var,
+                                                                           &model.GetDimensionOrDie(TIME_DIMENSION),
+                                                                           duration_sample)));
     model.AddVariableMinimizedByFinalizer(riskiness_index_var);
 
     printer->operator<<(ProblemDefinition(model.vehicles(),
@@ -75,13 +79,12 @@ void rows::ThirdStepDelayReductionSolver::ConfigureModel(const operations_resear
                                           GetAdjustment()));
 
     if (are_visits_optional) {
-        AddDroppedVisitsHandling(solver, model, index_manager);
-        LimitDroppedVisits(solver, model, index_manager, max_dropped_visits_);
+        AddDroppedVisitsHandling(model);
+        LimitDroppedVisits(model, max_dropped_visits_);
     }
 
     model.CloseModelWithParameters(parameters_);
     model.OverrideCostVar(riskiness_index_var);
-
     model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {

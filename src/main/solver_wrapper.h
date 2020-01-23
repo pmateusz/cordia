@@ -87,23 +87,18 @@ namespace rows {
                       boost::posix_time::time_duration break_time_window,
                       boost::posix_time::time_duration begin_end_work_day_adjustment);
 
-        virtual void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                                    operations_research::RoutingModel &model,
+        virtual void ConfigureModel(operations_research::RoutingModel &model,
                                     const std::shared_ptr<Printer> &printer,
                                     std::shared_ptr<const std::atomic<bool> > cancel_token,
                                     double cost_normalization_factor) = 0;
 
-        virtual std::string GetDescription(const operations_research::RoutingIndexManager &index_manager,
-                                           const operations_research::RoutingModel &model,
-                                           const operations_research::Assignment &solution);
+        virtual std::string GetDescription(const operations_research::RoutingModel &model, const operations_research::Assignment &solution);
 
-        int64 Distance(operations_research::RoutingNodeIndex from,
-                       operations_research::RoutingNodeIndex to);
+        int64 Distance(operations_research::RoutingNodeIndex from, operations_research::RoutingNodeIndex to);
 
         int64 ServiceTime(operations_research::RoutingNodeIndex node);
 
-        int64 ServicePlusTravelTime(operations_research::RoutingNodeIndex from,
-                                    operations_research::RoutingNodeIndex to);
+        int64 ServicePlusTravelTime(operations_research::RoutingNodeIndex from, operations_research::RoutingNodeIndex to);
 
         bool Contains(const CalendarVisit &visit) const;
 
@@ -133,8 +128,7 @@ namespace rows {
 
         const std::vector<operations_research::RoutingNodeIndex> &GetNodes(const ScheduledVisit &visit) const;
 
-        std::pair<operations_research::RoutingNodeIndex,
-                operations_research::RoutingNodeIndex> GetNodePair(const rows::CalendarVisit &visit) const;
+        std::pair<operations_research::RoutingNodeIndex, operations_research::RoutingNodeIndex> GetNodePair(const rows::CalendarVisit &visit) const;
 
         int64 GetBeginVisitWindow(boost::posix_time::time_duration value) const;
 
@@ -152,17 +146,11 @@ namespace rows {
 
         const CalendarVisit &NodeToVisit(const operations_research::RoutingNodeIndex &node) const;
 
-        void DisplayPlan(const operations_research::RoutingIndexManager &index_manager,
-                         const operations_research::RoutingModel &routing,
-                         const operations_research::Assignment &plan);
+        void DisplayPlan(const operations_research::RoutingModel &routing, const operations_research::Assignment &plan);
 
-        Solution ResolveValidationErrors(const rows::Solution &solution,
-                                         const operations_research::RoutingIndexManager &index_manager,
-                                         const operations_research::RoutingModel &model);
+        Solution ResolveValidationErrors(const rows::Solution &solution, const operations_research::RoutingModel &model);
 
-        std::vector<std::vector<int64> > GetRoutes(const rows::Solution &solution,
-                                                   const operations_research::RoutingIndexManager &index_manager,
-                                                   const operations_research::RoutingModel &model) const;
+        std::vector<std::vector<int64> > GetRoutes(const rows::Solution &solution, const operations_research::RoutingModel &model) const;
 
         std::string GetModelStatus(int status);
 
@@ -170,43 +158,26 @@ namespace rows {
 
         bool out_office_hours_breaks_enabled() const;
 
+        const operations_research::RoutingIndexManager &index_manager() const { return index_manager_; }
+
     protected:
-        void OnConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                              const operations_research::RoutingModel &model);
+        void OnConfigureModel(const operations_research::RoutingModel &model);
 
-        void AddTravelTime(operations_research::Solver *solver,
-                           operations_research::RoutingModel &model,
-                           const operations_research::RoutingIndexManager &index_manager);
+        void AddTravelTime(operations_research::RoutingModel &model);
 
-        void AddVisitsHandling(operations_research::Solver *solver,
-                               operations_research::RoutingModel &model,
-                               const operations_research::RoutingIndexManager &index_manager);
+        void AddVisitsHandling(operations_research::RoutingModel &model);
 
-        void AddCarerHandling(operations_research::Solver *solver,
-                              operations_research::RoutingModel &model,
-                              const operations_research::RoutingIndexManager &index_manager);
+        void AddCarerHandling(operations_research::RoutingModel &model);
 
-        void AddDroppedVisitsHandling(operations_research::Solver *solver,
-                                      operations_research::RoutingModel &model,
-                                      const operations_research::RoutingIndexManager &index_manager);
+        void AddDroppedVisitsHandling(operations_research::RoutingModel &model);
 
-        void AddDroppedVisitsHandling(operations_research::Solver *solver,
-                                      operations_research::RoutingModel &model,
-                                      const operations_research::RoutingIndexManager &index_manager,
-                                      int64 penalty);
+        void AddDroppedVisitsHandling(operations_research::RoutingModel &model, int64 penalty);
 
-        void LimitDroppedVisits(operations_research::Solver *solver,
-                                operations_research::RoutingModel &model,
-                                const operations_research::RoutingIndexManager &index_manager,
-                                int max_dropped_visits);
+        void LimitDroppedVisits(operations_research::RoutingModel &model, int max_dropped_visits);
 
-        void AddSkillHandling(operations_research::Solver *solver,
-                              operations_research::RoutingModel &model,
-                              const operations_research::RoutingIndexManager &index_manager);
+        void AddSkillHandling(operations_research::RoutingModel &model);
 
-        void AddContinuityOfCare(operations_research::Solver *solver,
-                                 operations_research::RoutingModel &model,
-                                 const operations_research::RoutingIndexManager &index_manager);
+        void AddContinuityOfCare(operations_research::RoutingModel &model);
 
         std::vector<operations_research::IntervalVar *> CreateBreakIntervals(operations_research::Solver *solver,
                                                                              const rows::Carer &carer,
@@ -234,11 +205,9 @@ namespace rows {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
         };
 
-        int64 GetBeginWindow(boost::posix_time::time_duration value,
-                             boost::posix_time::time_duration window_size) const;
+        int64 GetBeginWindow(boost::posix_time::time_duration value, boost::posix_time::time_duration window_size) const;
 
-        int64 GetEndWindow(boost::posix_time::time_duration value,
-                           boost::posix_time::time_duration window_size) const;
+        int64 GetEndWindow(boost::posix_time::time_duration value, boost::posix_time::time_duration window_size) const;
 
         int64 GetAdjustedWorkdayStart(boost::posix_time::time_duration start_time) const;
 
@@ -262,6 +231,8 @@ namespace rows {
 
         operations_research::RoutingSearchParameters parameters_;
         std::unordered_map<rows::ServiceUser, rows::SolverWrapper::LocalServiceUser> service_users_;
+
+        operations_research::RoutingIndexManager index_manager_;
     };
 }
 

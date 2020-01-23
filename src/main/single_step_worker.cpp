@@ -19,24 +19,19 @@ rows::SingleStepSchedulingWorker::~SingleStepSchedulingWorker() {
 
 bool rows::SingleStepSchedulingWorker::Init(const rows::ProblemData &problem_data,
                                             boost::optional<rows::Solution> past_solution,
-                                            operations_research::RoutingSearchParameters search_parameters,
+                                            const operations_research::RoutingSearchParameters& search_parameters,
                                             std::string output_file) {
     try {
         solver_ = std::make_unique<rows::SingleStepSolver>(problem_data, search_parameters);
-        index_manager_ = std::make_unique<operations_research::RoutingIndexManager>(solver_->nodes(),
-                                                                                    solver_->vehicles(),
-                                                                                    rows::RealProblemData::DEPOT);
-        model_ = std::make_unique<operations_research::RoutingModel>(*index_manager_);
+        model_ = std::make_unique<operations_research::RoutingModel>(solver_->index_manager());
 
-        solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken(), 1.0);
+        solver_->ConfigureModel(*model_, printer_, CancelToken(), 1.0);
         VLOG(1) << "Completed routing model configuration with status: " << solver_->GetModelStatus(model_->status());
         if (past_solution) {
             VLOG(1) << "Starting with a solution.";
-            VLOG(1) << past_solution->DebugStatus(*solver_, *index_manager_, *model_);
-            const auto solution_to_use = solver_->ResolveValidationErrors(past_solution.get(),
-                                                                          *index_manager_,
-                                                                          *model_);
-            VLOG(1) << solution_to_use.DebugStatus(*solver_, *index_manager_, *model_);
+            VLOG(1) << past_solution->DebugStatus(*solver_, *model_);
+            const auto solution_to_use = solver_->ResolveValidationErrors(past_solution.get(), *model_);
+            VLOG(1) << solution_to_use.DebugStatus(*solver_, *model_);
 
             if (VLOG_IS_ON(2)) {
                 for (const auto &visit : solution_to_use.visits()) {
@@ -46,7 +41,7 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::ProblemData &problem_dat
                 }
             }
 
-            const auto routes = solver_->GetRoutes(solution_to_use, *index_manager_, *model_);
+            const auto routes = solver_->GetRoutes(solution_to_use, *model_);
             initial_assignment_ = model_->ReadAssignmentFromRoutes(routes, false);
             if (initial_assignment_ == nullptr || !model_->solver()->CheckAssignment(initial_assignment_)) {
                 throw util::ApplicationError("Solution for warm start is not valid.", util::ErrorCode::ERROR);
@@ -84,7 +79,7 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::ProblemData &problem_dat
                                                                                     rows::RealProblemData::DEPOT);
         model_ = std::make_unique<operations_research::RoutingModel>(*index_manager_);
 
-        solver_->ConfigureModel(*index_manager_, *model_, printer_, CancelToken(), cost_normalization_factor);
+        solver_->ConfigureModel(*model_, printer_, CancelToken(), cost_normalization_factor);
         VLOG(1) << "Completed routing model configuration with status: " << solver_->GetModelStatus(model_->status());
 
         output_file_ = output_file;
@@ -121,8 +116,8 @@ void rows::SingleStepSchedulingWorker::Run() {
         DCHECK(is_solution_correct);
 
         rows::GexfWriter solution_writer;
-        solution_writer.Write(output_file_, *solver_, *index_manager_, *model_, *assignment, boost::none);
-        solver_->DisplayPlan(*index_manager_, *model_, *assignment);
+        solution_writer.Write(output_file_, *solver_, *model_, *assignment, boost::none);
+        solver_->DisplayPlan(*model_, *assignment);
         SetReturnCode(STATUS_OK);
     } catch (util::ApplicationError &ex) {
         LOG(ERROR) << ex.msg() << std::endl << ex.diagnostic_info();

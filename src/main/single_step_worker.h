@@ -26,7 +26,7 @@ namespace rows {
 
         bool Init(const rows::ProblemData &problem,
                   boost::optional<rows::Solution> past_solution,
-                  operations_research::RoutingSearchParameters search_parameters,
+                  const operations_research::RoutingSearchParameters& search_parameters,
                   std::string output_file);
 
         bool Init(const rows::ProblemData &problem,

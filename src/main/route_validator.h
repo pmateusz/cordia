@@ -366,19 +366,16 @@ namespace rows {
     public:
         RouteValidatorBase::ValidationResult ValidateFast(int vehicle,
                                                           const operations_research::Assignment &solution,
-                                                          const operations_research::RoutingIndexManager &index_manager,
                                                           const operations_research::RoutingModel &model,
                                                           rows::SolverWrapper &solver) const;
 
         RouteValidatorBase::ValidationResult ValidateFull(int vehicle,
                                                           const operations_research::Assignment &solution,
-                                                          const operations_research::RoutingIndexManager &index_manager,
                                                           const operations_research::RoutingModel &model,
                                                           rows::SolverWrapper &solver) const;
 
 
         RouteValidatorBase::ValidationResult ValidateFull(const operations_research::Assignment &solution,
-                                                          const operations_research::RoutingIndexManager &index_manager,
                                                           const operations_research::RoutingModel &model,
                                                           rows::SolverWrapper &solver) const;
 

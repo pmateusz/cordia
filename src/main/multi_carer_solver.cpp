@@ -19,23 +19,22 @@ rows::MultiCarerSolver::MultiCarerSolver(const rows::ProblemData &problem_data,
           solution_collector_{nullptr} {
 }
 
-void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                                            operations_research::RoutingModel &model,
+void rows::MultiCarerSolver::ConfigureModel(operations_research::RoutingModel &model,
                                             const std::shared_ptr<Printer> &printer,
                                             std::shared_ptr<const std::atomic<bool> > cancel_token,
                                             double cost_normalization_factor) {
     static const auto START_FROM_ZERO_TIME = false;
 
-    OnConfigureModel(index_manager, model);
+    OnConfigureModel(model);
 
     solution_collector_ = model.solver()->MakeBestValueSolutionCollector(false);
 
     operations_research::Solver *const solver = model.solver();
 
-    AddTravelTime(solver, model, index_manager);
+    AddTravelTime(model);
 
     operations_research::RoutingDimension *time_dimension = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
-    time_dimension->CumulVar(index_manager.NodeToIndex(RealProblemData::DEPOT))->SetRange(0, RealProblemData::SECONDS_IN_DIMENSION);
+    time_dimension->CumulVar(index_manager_.NodeToIndex(RealProblemData::DEPOT))->SetRange(0, RealProblemData::SECONDS_IN_DIMENSION);
 
     // visit that needs multiple carers is referenced by multiple nodes
     // all such nodes must be either performed or unperformed
@@ -58,7 +57,7 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
 
         std::vector<int64> visit_indices;
         for (const auto local_visit_node : problem_data_.GetNodes(visit)) {
-            const auto visit_index = index_manager.NodeToIndex(local_visit_node);
+            const auto visit_index = index_manager_.NodeToIndex(local_visit_node);
             visit_indices.push_back(visit_index);
 
             if (HasTimeWindows()) {
@@ -113,9 +112,9 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
         }
     }
 
-    AddSkillHandling(solver, model, index_manager);
-    AddContinuityOfCare(solver, model, index_manager);
-    AddCarerHandling(solver, model, index_manager);
+    AddSkillHandling(model);
+    AddContinuityOfCare(model);
+    AddCarerHandling(model);
 
     const auto schedule_day = GetScheduleDate();
     printer->operator<<(ProblemDefinition(model.vehicles(),
@@ -127,7 +126,7 @@ void rows::MultiCarerSolver::ConfigureModel(const operations_research::RoutingIn
                                           GetAdjustment()));
 
 //     override max distance if it is zero or small
-    AddDroppedVisitsHandling(solver, model, index_manager, VISIT_NOT_MADE_PENALTY);
+    AddDroppedVisitsHandling(model, VISIT_NOT_MADE_PENALTY);
 
     VLOG(1) << "Finalizing definition of the routing model...";
     const auto start_time_model_closing = std::chrono::high_resolution_clock::now();

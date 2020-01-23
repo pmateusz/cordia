@@ -36,14 +36,10 @@ TEST(RouteValidation, CanValidateRoute) {
     auto problem_data_ptr = problem_factory.makeProblem(problem);
     rows::SingleStepSolver wrapper(*problem_data_ptr, operations_research::DefaultRoutingSearchParameters());
 
-    operations_research::RoutingIndexManager index_manager{wrapper.nodes(),
-                                                           wrapper.vehicles(),
-                                                           rows::ProblemData::DEPOT};
-
-    operations_research::RoutingModel model(index_manager);
+    operations_research::RoutingModel model(wrapper.index_manager());
     std::shared_ptr<std::atomic<bool> > cancel_token = std::make_shared<std::atomic<bool> >(false);
     std::shared_ptr<rows::Printer> console_printer = std::make_shared<rows::ConsolePrinter>();
-    wrapper.ConfigureModel(index_manager, model, console_printer, cancel_token, 1.0);
+    wrapper.ConfigureModel(model, console_printer, cancel_token, 1.0);
 
     const auto route = solution.GetRoute(wrapper.Carer(0));
 

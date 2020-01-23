@@ -35,7 +35,6 @@ namespace rows {
 
     void GexfWriter::Write(const boost::filesystem::path &file_path,
                            SolverWrapper &solver,
-                           const operations_research::RoutingIndexManager &index_manager,
                            const operations_research::RoutingModel &model,
                            const operations_research::Assignment &solution,
                            const boost::optional<
@@ -48,11 +47,10 @@ namespace rows {
         static const auto BREAK_NODE = "break";
         static const auto SERVICE_USER_NODE = "user";
         static const auto TRUE_VALUE = "true";
-        operations_research::RoutingDimension const *time_dim = model.GetMutableDimension(
-                rows::SolverWrapper::TIME_DIMENSION);
+        operations_research::RoutingDimension const *time_dim = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
         GexfEnvironmentWrapper gexf;
-        gexf.SetDescription(solver.GetDescription(index_manager, model, solution));
+        gexf.SetDescription(solver.GetDescription(model, solution));
 
         std::vector<rows::Location> locations;
         for (operations_research::RoutingNodeIndex visit_index{1}; visit_index < model.nodes(); ++visit_index) {
@@ -79,7 +77,7 @@ namespace rows {
                 gexf.SetNodeValue(visit_id, DROPPED, TRUE_VALUE);
             }
 
-            const auto start_time_sec = solution.Min(time_dim->CumulVar(index_manager.NodeToIndex(visit_index)));
+            const auto start_time_sec = solution.Min(time_dim->CumulVar(solver.index_manager().NodeToIndex(visit_index)));
             gexf.SetNodeValue(visit_id,
                               START_TIME,
                               boost::posix_time::ptime{visit.datetime().date(),
@@ -161,7 +159,7 @@ namespace rows {
             auto start_visit_index = model.Start(vehicle);
             DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit_index))));
             do {
-                const auto start_visit_node = index_manager.IndexToNode(start_visit_index);
+                const auto start_visit_node = solver.index_manager().IndexToNode(start_visit_index);
                 if (start_visit_node != RealProblemData::DEPOT) {
                     std::string start_visit_id = gexf.VisitId(start_visit_node);
 
@@ -190,7 +188,7 @@ namespace rows {
                     }
 
                     const auto end_visit_index = solution.Value(model.NextVar(start_visit_index));
-                    const auto end_visit_node = index_manager.IndexToNode(end_visit_index);
+                    const auto end_visit_node = solver.index_manager().IndexToNode(end_visit_index);
                     if (end_visit_node != RealProblemData::DEPOT) {
                         std::string end_visit_id = gexf.VisitId(end_visit_node);
 
@@ -237,7 +235,7 @@ namespace rows {
             }
 
             gexf.SetNodeValue(carer_id, UTIL_VISITS_COUNT, std::to_string(route.size()));
-            const auto validation_result = validator.ValidateFull(vehicle, solution, index_manager, model, solver);
+            const auto validation_result = validator.ValidateFull(vehicle, solution, model, solver);
             if (validation_result.error()) {
                 LOG(ERROR) << (boost::format("Route %1% is invalid %2%")
                                % carer

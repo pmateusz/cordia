@@ -34,21 +34,18 @@ namespace rows {
                                boost::posix_time::minutes(0),
                                boost::posix_time::not_a_date_time) {}
 
-    void SingleStepSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                                          operations_research::RoutingModel &model,
+    void SingleStepSolver::ConfigureModel(operations_research::RoutingModel &model,
                                           const std::shared_ptr<Printer> &printer,
                                           std::shared_ptr<const std::atomic<bool> > cancel_token,
                                           double cost_normalization_factor) {
-        OnConfigureModel(index_manager, model);
+        OnConfigureModel(model);
 
-        operations_research::Solver *const solver = model.solver();
-
-        AddTravelTime(solver, model, index_manager);
-        AddVisitsHandling(solver, model, index_manager);
-        AddSkillHandling(solver, model, index_manager);
-        AddContinuityOfCare(solver, model, index_manager);
-        AddCarerHandling(solver, model, index_manager);
-        AddDroppedVisitsHandling(solver, model, index_manager);
+        AddTravelTime(model);
+        AddVisitsHandling(model);
+        AddSkillHandling(model);
+        AddContinuityOfCare(model);
+        AddCarerHandling(model);
+        AddDroppedVisitsHandling(model);
 
         const auto schedule_day = GetScheduleDate();
         printer->operator<<(ProblemDefinition(model.vehicles(),

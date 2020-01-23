@@ -199,9 +199,7 @@ void rows::Solution::UpdateVisitProperties(const std::vector<rows::CalendarVisit
     }
 }
 
-std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver,
-                                        const operations_research::RoutingIndexManager &index_manager,
-                                        const operations_research::RoutingModel &model) const {
+std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver, const operations_research::RoutingModel &model) const {
     std::stringstream status_stream;
 
     const auto visits_with_calendar = std::count_if(std::begin(visits_),
@@ -215,7 +213,7 @@ std::string rows::Solution::DebugStatus(rows::SolverWrapper &solver,
                   << " total, ratio: " << static_cast<double>(visits_with_calendar) / visits_.size()
                   << std::endl;
 
-    const auto routes = solver.GetRoutes(*this, index_manager, model);
+    const auto routes = solver.GetRoutes(*this, model);
     DCHECK_EQ(routes.size(), model.vehicles());
 
     for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {

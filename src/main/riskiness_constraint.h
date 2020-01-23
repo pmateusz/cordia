@@ -4,11 +4,15 @@
 #include <ortools/constraint_solver/routing.h>
 #include <ortools/constraint_solver/constraint_solveri.h>
 
+#include "duration_sample.h"
+
 namespace rows {
 
     class RiskinessConstraint : public operations_research::Constraint {
     public:
-        RiskinessConstraint(operations_research::IntVar *riskiness_index, const operations_research::RoutingDimension *dimension);
+        RiskinessConstraint(operations_research::IntVar *riskiness_index,
+                            const operations_research::RoutingDimension *dimension,
+                            std::shared_ptr<DurationSample> duration_sample);
 
         void Post() override;
 
@@ -21,6 +25,7 @@ namespace rows {
         const operations_research::RoutingModel *model_;
         const operations_research::RoutingDimension *dimension_;
 
+        std::shared_ptr<DurationSample> duration_sample_;
 
         std::vector<operations_research::IntVar *> completed_paths_;
         std::vector<operations_research::Demon *> vehicle_demons_;

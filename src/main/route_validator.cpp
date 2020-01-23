@@ -971,7 +971,6 @@ namespace rows {
     // then should call validate full for the final confirmation
     RouteValidatorBase::ValidationResult SolutionValidator::ValidateFast(int vehicle,
                                                                          const operations_research::Assignment &solution,
-                                                                         const operations_research::RoutingIndexManager &index_manager,
                                                                          const operations_research::RoutingModel &model,
                                                                          SolverWrapper &solver) const {
         static const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> NO_OVERRIDE_ARRIVAL;
@@ -995,7 +994,7 @@ namespace rows {
             const auto node_index = indices[node_pos];
             visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
                                 carer,
-                                solver.NodeToVisit(index_manager.IndexToNode(node_index)));
+                                solver.NodeToVisit(solver.index_manager().IndexToNode(node_index)));
         }
         CHECK_EQ(visits.size() + 2, indices.size());
 
@@ -1057,8 +1056,8 @@ namespace rows {
             const auto &current_visit = visits.at(current_node_pos);
             const auto next_node_pos = current_node_pos + 1;
             const auto next_node_index = indices.at(next_node_pos);
-            const auto travel_time = session.GetTravelTime(index_manager.IndexToNode(current_node_index),
-                                                           index_manager.IndexToNode(next_node_index));
+            const auto travel_time = session.GetTravelTime(solver.index_manager().IndexToNode(current_node_index),
+                                                           solver.index_manager().IndexToNode(next_node_index));
 
             const ptime min_current_start{date, seconds(solution.Min(time_dim.CumulVar(current_node_index)))};
             const ptime min_current_finish = min_current_start + current_visit.duration();
@@ -1140,7 +1139,6 @@ namespace rows {
 
     RouteValidatorBase::ValidationResult SolutionValidator::ValidateFull(int vehicle,
                                                                          const operations_research::Assignment &solution,
-                                                                         const operations_research::RoutingIndexManager &index_manager,
                                                                          const operations_research::RoutingModel &model,
                                                                          rows::SolverWrapper &solver) const {
         static const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> NO_OVERRIDE_ARRIVAL;
@@ -1166,7 +1164,7 @@ namespace rows {
             const auto node_index = indices[node_pos];
             visits.emplace_back(ScheduledVisit::VisitType::UNKNOWN,
                                 carer,
-                                solver.NodeToVisit(index_manager.IndexToNode(node_index)));
+                                solver.NodeToVisit(solver.index_manager().IndexToNode(node_index)));
         }
 
         Route route{carer, visits};
@@ -1186,7 +1184,7 @@ namespace rows {
         boost::posix_time::ptime last_max_visit_complete = boost::posix_time::not_a_date_time;
         for (std::size_t node_pos = 1; node_pos < indices.size() - 1; ++node_pos) {
             const auto visit_index = indices[node_pos];
-            const auto current_visit_node = index_manager.IndexToNode(visit_index);
+            const auto current_visit_node = solver.index_manager().IndexToNode(visit_index);
             const auto &visit = visits[node_pos - 1];
 
             for (const auto task : visit.calendar_visit()->tasks()) {
@@ -1394,14 +1392,13 @@ namespace rows {
     }
 
     RouteValidatorBase::ValidationResult SolutionValidator::ValidateFull(const operations_research::Assignment &solution,
-                                                                         const operations_research::RoutingIndexManager &index_manager,
                                                                          const operations_research::RoutingModel &model,
                                                                          rows::SolverWrapper &solver) const {
         std::unordered_map<ServiceUser, std::unordered_set<int> > user_visited_vehicles;
         std::unordered_map<ServiceUser, bool> has_multiple_carer_visits;
 
         for (auto vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
-            auto validation_result = ValidateFull(vehicle, solution, index_manager, model, solver);
+            auto validation_result = ValidateFull(vehicle, solution, model, solver);
             if (validation_result.error()) {
                 return std::move(validation_result);
             }
@@ -1416,7 +1413,7 @@ namespace rows {
             CHECK_GE(visit_indices.size(), 2);
 
             for (std::size_t position = 1; position < visit_indices.size() - 1; ++position) {
-                const auto &visit = solver.NodeToVisit(index_manager.IndexToNode(visit_indices.at(position)));
+                const auto &visit = solver.NodeToVisit(solver.index_manager().IndexToNode(visit_indices.at(position)));
 
                 auto find_it = user_visited_vehicles.find(visit.service_user());
                 if (find_it == std::end(user_visited_vehicles)) {

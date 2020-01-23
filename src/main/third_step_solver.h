@@ -19,8 +19,7 @@ namespace rows {
                         int64 max_dropped_visits,
                         bool optional_orders);
 
-        void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                            operations_research::RoutingModel &model,
+        void ConfigureModel(operations_research::RoutingModel &model,
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token,
                             double cost_normalization_factor) override;

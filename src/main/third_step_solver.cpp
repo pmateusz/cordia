@@ -24,23 +24,19 @@ rows::ThirdStepSolver::ThirdStepSolver(const rows::ProblemData &problem_data,
           optional_orders_{optional_orders},
           max_dropped_visits_{max_dropped_visits} {}
 
-void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                                           operations_research::RoutingModel &model,
+void rows::ThirdStepSolver::ConfigureModel(operations_research::RoutingModel &model,
                                            const std::shared_ptr<Printer> &printer,
                                            std::shared_ptr<const std::atomic<bool> > cancel_token,
                                            double cost_normalization_factor) {
     CHECK_GE(max_dropped_visits_, 0);
     const auto are_visits_optional = max_dropped_visits_ > 0 || optional_orders_;
 
-    OnConfigureModel(index_manager, model);
-
-    operations_research::Solver *const solver = model.solver();
-
-    AddTravelTime(solver, model, index_manager);
-    AddVisitsHandling(solver, model, index_manager);
-    AddSkillHandling(solver, model, index_manager);
-    AddContinuityOfCare(solver, model, index_manager);
-    AddCarerHandling(solver, model, index_manager);
+    OnConfigureModel(model);
+    AddTravelTime(model);
+    AddVisitsHandling(model);
+    AddSkillHandling(model);
+    AddContinuityOfCare(model);
+    AddCarerHandling(model);
 
     const auto schedule_day = GetScheduleDate();
     printer->operator<<(ProblemDefinition(model.vehicles(),
@@ -52,20 +48,18 @@ void rows::ThirdStepSolver::ConfigureModel(const operations_research::RoutingInd
                                           GetAdjustment()));
 
     if (are_visits_optional) {
-        AddDroppedVisitsHandling(solver, model, index_manager);
-        LimitDroppedVisits(solver, model, index_manager, max_dropped_visits_);
+        AddDroppedVisitsHandling(model);
+        LimitDroppedVisits(model, max_dropped_visits_);
     }
 
     model.CloseModelWithParameters(parameters_);
 
+    auto solver = model.solver();
     model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver->RevAlloc(new StalledSearchLimit(
-                no_progress_time_limit_.total_milliseconds(),
-                &model,
-                model.solver()
-        )));
+                no_progress_time_limit_.total_milliseconds(), &model, model.solver())));
     }
 
     model.AddSearchMonitor(solver->RevAlloc(new CancelSearchLimit(cancel_token, solver)));

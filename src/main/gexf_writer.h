@@ -67,12 +67,10 @@ namespace rows {
 
         void Write(const boost::filesystem::path &file_path,
                    SolverWrapper &solver,
-                   const operations_research::RoutingIndexManager &index_manager,
                    const operations_research::RoutingModel &model,
                    const operations_research::Assignment &solution,
                    const boost::optional<
-                           std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > >
-                   > &activities) const;
+                           std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > > > &activities) const;
 
     private:
         class GexfEnvironmentWrapper {

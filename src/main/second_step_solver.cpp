@@ -23,21 +23,20 @@ rows::SecondStepSolver::SecondStepSolver(const ProblemData &problem_data,
           solution_collector_{nullptr},
           solution_repository_{std::make_shared<rows::SolutionRepository>()} {}
 
-void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                                            operations_research::RoutingModel &model,
+void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &model,
                                             const std::shared_ptr<Printer> &printer,
                                             std::shared_ptr<const std::atomic<bool> > cancel_token,
                                             double cost_normalization_factor) {
-    OnConfigureModel(index_manager, model);
+    OnConfigureModel(model);
 
     operations_research::Solver *const solver = model.solver();
 
-    AddTravelTime(solver, model, index_manager);
-    AddVisitsHandling(solver, model, index_manager);
-    AddSkillHandling(solver, model, index_manager);
-    AddContinuityOfCare(solver, model, index_manager);
-    AddCarerHandling(solver, model, index_manager);
-    AddDroppedVisitsHandling(solver, model, index_manager);
+    AddTravelTime(model);
+    AddVisitsHandling(model);
+    AddSkillHandling(model);
+    AddContinuityOfCare(model);
+    AddCarerHandling(model);
+    AddDroppedVisitsHandling(model);
 
     const auto schedule_day = GetScheduleDate();
     printer->operator<<(ProblemDefinition(model.vehicles(),
@@ -51,7 +50,7 @@ void rows::SecondStepSolver::ConfigureModel(const operations_research::RoutingIn
     model.CloseModelWithParameters(parameters_);
 
     model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
-    model.AddSearchMonitor(solver->RevAlloc(new SolutionLogMonitor(&index_manager, &model, solution_repository_)));
+    model.AddSearchMonitor(solver->RevAlloc(new SolutionLogMonitor(&index_manager_, &model, solution_repository_)));
     solution_collector_ = solver->RevAlloc(new MinDroppedVisitsSolutionCollector(&model, true));
     model.AddSearchMonitor(solution_collector_);
 

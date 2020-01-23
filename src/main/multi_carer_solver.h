@@ -24,8 +24,7 @@ namespace rows {
                          boost::posix_time::time_duration begin_end_work_day_adjustment,
                          boost::posix_time::time_duration no_progress_time_limit);
 
-        void ConfigureModel(const operations_research::RoutingIndexManager &index_manager,
-                            operations_research::RoutingModel &model,
+        void ConfigureModel(operations_research::RoutingModel &model,
                             const std::shared_ptr<Printer> &printer,
                             std::shared_ptr<const std::atomic<bool> > cancel_token,
                             double cost_normalization_factor) override;
