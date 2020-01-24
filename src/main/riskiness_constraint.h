@@ -47,6 +47,8 @@ namespace rows {
 
         int64 MeanDelay(int64 index) const;
 
+        int64 GetEssentialRiskiness(int64 index) const;
+
         operations_research::IntVar *riskiness_index_;
         const operations_research::RoutingModel *model_;
         const operations_research::RoutingDimension *dimension_;

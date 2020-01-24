@@ -86,8 +86,6 @@ void rows::RiskinessConstraint::PropagatePath(int vehicle) {
 }
 
 void rows::RiskinessConstraint::PropagateFull() {
-    // TODO: log time of full propagation
-
     if (all_paths_completed_->Min() == 0) {
         return;
     }
@@ -129,7 +127,8 @@ void rows::RiskinessConstraint::PropagateFull() {
     }
 
     const auto end = std::chrono::high_resolution_clock::now();
-    LOG(INFO) << "FullPropagation in  " << std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count() << " ms: (" << riskiness_index_->Min() << ", " << riskiness_index_->Max() << ")";
+    LOG(INFO) << "FullPropagation in  " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms: ("
+              << riskiness_index_->Min() << ", " << riskiness_index_->Max() << ")";
 }
 
 void rows::RiskinessConstraint::UpdatePath(int vehicle) {
@@ -196,9 +195,9 @@ void rows::RiskinessConstraint::PostPathConstraints(int vehicle) {
         if (duration_sample_->is_visit(current_index)) {
             const auto max_delay = MaxDelay(current_index);
             if (max_delay > 0) {
-                const int64 mean_delay = MeanDelay(current_index);
-                if (mean_delay > riskiness_index_->Min()) {
-                    solver()->AddConstraint(solver()->MakeGreaterOrEqual(riskiness_index_, mean_delay));
+                const int64 essential_riskiness = GetEssentialRiskiness(current_index);
+                if (essential_riskiness > riskiness_index_->Min()) {
+                    solver()->AddConstraint(solver()->MakeGreaterOrEqual(riskiness_index_, essential_riskiness));
                 }
             }
         }
@@ -258,4 +257,57 @@ int64 rows::RiskinessConstraint::MaxDelay(int64 index) const {
 int64 rows::RiskinessConstraint::MeanDelay(int64 index) const {
     const auto accumulated_value = std::accumulate(std::cbegin(delay_.at(index)), std::cend(delay_.at(index)), 0l);
     return accumulated_value / static_cast<int64>(delay_.at(index).size());
+}
+
+int64 rows::RiskinessConstraint::GetEssentialRiskiness(int64 index) const {
+    std::vector<int64> delays = delay_.at(index);
+    std::sort(std::begin(delays), std::end(delays));
+
+    // if last element is negative then index is zero
+    const auto num_delays = delays.size();
+    int64 delay_pos = num_delays - 1;
+    if (delays.at(delay_pos) <= 0) {
+        return 0;
+    }
+
+    if (delays.at(0) >= 0) {
+        return kint64max;
+    }
+
+    // compute total delay
+    int64 total_delay = 0;
+    for (; delay_pos >= 0 && delays.at(delay_pos) >= 0; --delay_pos) {
+        total_delay += delays.at(delay_pos);
+    }
+    CHECK_GT(total_delay, 0);
+    CHECK_GT(delay_pos, 0);
+
+    // return when not possible to increase the riskiness index
+    if ((delay_pos + 1) * riskiness_index_->Min() >= total_delay) {
+        return riskiness_index_->Min();
+    }
+
+    // find minimum traffic index that compensates the total delay
+    int64 delay_budget = 0;
+    for (; delay_pos > 0 && delay_budget + (delay_pos + 1) * delays.at(delay_pos) + total_delay > 0; --delay_pos) {
+        delay_budget += delays.at(delay_pos);
+    }
+
+    int64 delay_balance = delay_budget + (delay_pos + 1) * delays.at(delay_pos) + total_delay;
+    if (delay_balance < 0) {
+        int64 riskiness_index = std::min(0l, delays.at(delay_pos + 1));
+        CHECK_LE(riskiness_index, 0);
+
+        int64 remaining_balance = total_delay + delay_budget + (delay_pos + 1) * riskiness_index;
+        CHECK_GE(remaining_balance, 0);
+
+        riskiness_index -= std::ceil(static_cast<double>(remaining_balance) / static_cast<double>(delay_pos + 1));
+        CHECK_LE(riskiness_index * (delay_pos + 1) + delay_budget + total_delay, 0);
+
+        return -riskiness_index;
+    } else if (delay_balance > 0) {
+        return kint64max;
+    }
+
+    return delays.at(delay_pos);
 }
