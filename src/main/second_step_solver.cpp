@@ -7,6 +7,7 @@
 #include "solution_log_monitor.h"
 #include "stalled_search_limit.h"
 #include "min_dropped_visits_collector.h"
+#include "delay_not_expected_constraint.h"
 
 rows::SecondStepSolver::SecondStepSolver(const ProblemData &problem_data,
                                          const operations_research::RoutingSearchParameters &search_parameters,

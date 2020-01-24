@@ -1,13 +1,11 @@
-#include "riskiness_constraint.h"
+#include "delay_riskiness_constraint.h"
 
-rows::RiskinessConstraint::RiskinessConstraint(operations_research::IntVar *riskiness_index,
-                                               const operations_research::RoutingDimension *dimension,
-                                               std::shared_ptr<const DurationSample> duration_sample)
-        : DelayConstraint(dimension, std::move(duration_sample)),
+rows::DelayRiskinessConstraint::DelayRiskinessConstraint(operations_research::IntVar *riskiness_index, std::unique_ptr<DelayTracker> delay_tracker)
+        : DelayConstraint(std::move(delay_tracker)),
           riskiness_index_{riskiness_index} {
 }
 
-void rows::RiskinessConstraint::Post() {
+void rows::DelayRiskinessConstraint::Post() {
     DelayConstraint::Post();
 
 //    for (int vehicle = 0; vehicle < model()->vehicles(); ++vehicle) {
@@ -25,28 +23,14 @@ void rows::RiskinessConstraint::Post() {
     all_paths_completed_->WhenBound(all_paths_completed_demon);
 }
 
-void rows::RiskinessConstraint::PostNodeConstraints(int64 node) {
-    const auto max_delay = MaxDelay(node);
-    if (max_delay > 0) {
-        const int64 essential_riskiness = GetEssentialRiskiness(node);
-        if (essential_riskiness > riskiness_index_->Min()) {
-            solver()->AddConstraint(solver()->MakeGreaterOrEqual(riskiness_index_, essential_riskiness));
-        }
+void rows::DelayRiskinessConstraint::PostNodeConstraints(int64 node) {
+    const int64 essential_riskiness = GetEssentialRiskiness(node);
+    if (essential_riskiness > riskiness_index_->Min()) {
+        solver()->AddConstraint(solver()->MakeGreaterOrEqual(riskiness_index_, essential_riskiness));
     }
 }
 
-int64 rows::RiskinessConstraint::MaxDelay(int64 index) const {
-    const std::vector<int64> &delays = Delay(index);
-    return *std::max_element(std::cbegin(delays), std::cend(delays));
-}
-
-int64 rows::RiskinessConstraint::MeanDelay(int64 index) const {
-    const std::vector<int64> &delays = Delay(index);
-    const auto accumulated_value = std::accumulate(std::cbegin(delays), std::cend(delays), 0l);
-    return accumulated_value / static_cast<int64>(delays.size());
-}
-
-int64 rows::RiskinessConstraint::GetEssentialRiskiness(int64 index) const {
+int64 rows::DelayRiskinessConstraint::GetEssentialRiskiness(int64 index) const {
     std::vector<int64> delays = Delay(index);
     std::sort(std::begin(delays), std::end(delays));
 
@@ -57,9 +41,9 @@ int64 rows::RiskinessConstraint::GetEssentialRiskiness(int64 index) const {
         return 0;
     }
 
-    if (delays.at(0) >= 0) {
-        return kint64max;
-    }
+//    if (delays.at(0) >= 0) {
+//        return kint64max;
+//    }
 
     // compute total delay
     int64 total_delay = 0;
@@ -67,7 +51,13 @@ int64 rows::RiskinessConstraint::GetEssentialRiskiness(int64 index) const {
         total_delay += delays.at(delay_pos);
     }
     CHECK_GT(total_delay, 0);
-    CHECK_GT(delay_pos, 0);
+//    CHECK_GT(delay_pos, 0);
+
+//    if (delays.at(0) >= 0) {
+    if (delay_pos == -1) {
+        return total_delay;
+        return kint64max;
+    }
 
     // return when not possible to increase the riskiness index
     if ((delay_pos + 1) * riskiness_index_->Min() >= total_delay) {
@@ -93,6 +83,8 @@ int64 rows::RiskinessConstraint::GetEssentialRiskiness(int64 index) const {
 
         return -riskiness_index;
     } else if (delay_balance > 0) {
+        CHECK_EQ(delay_pos, 0);
+        return delay_balance;
         return kint64max;
     }
 

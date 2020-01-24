@@ -3,8 +3,7 @@
 
 rows::DurationSample::DurationSample(const rows::SolverWrapper &solver,
                                      const rows::History &history,
-                                     operations_research::RoutingModel &model) {
-    const auto &time_dim = model.GetDimensionOrDie(SolverWrapper::TIME_DIMENSION);
+                                     const operations_research::RoutingDimension *dimension) {
     const auto &index_manager = solver.index_manager();
 
     // build indexed sample of historical visit durations
@@ -19,7 +18,7 @@ rows::DurationSample::DurationSample(const rows::SolverWrapper &solver,
         visit_indices_.emplace(visit_indices[0]);
         if (visit_indices.size() == 2) {
             visit_indices_.emplace(visit_indices[1]);
-            
+
             sibling_index_.emplace(visit_indices[0], visit_indices[1]);
             sibling_index_.emplace(visit_indices[1], visit_indices[0]);
         }
@@ -58,8 +57,8 @@ rows::DurationSample::DurationSample(const rows::SolverWrapper &solver,
     start_min_.resize(index_manager.num_indices());
     start_max_.resize(index_manager.num_indices());
     for (auto index = 0; index < index_manager.num_indices(); ++index) {
-        start_min_.at(index) = time_dim.CumulVar(index)->Min();
-        start_max_.at(index) = time_dim.CumulVar(index)->Max();
+        start_min_.at(index) = dimension->CumulVar(index)->Min();
+        start_max_.at(index) = dimension->CumulVar(index)->Max();
     }
 
     // build matrix with visits duration: visit index x date

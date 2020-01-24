@@ -6,6 +6,7 @@
 
 #include "solver_wrapper.h"
 #include "solution_repository.h"
+#include "history.h"
 
 namespace rows {
 

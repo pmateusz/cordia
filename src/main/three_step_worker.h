@@ -43,7 +43,8 @@ namespace rows {
         NONE,
         DISTANCE,
         VEHICLE_REDUCTION,
-        DELAY_REDUCTION
+        DELAY_RISKINESS_REDUCTION,
+        DELAY_PROBABILITY_REDUCTION
     };
 
     boost::optional<ThirdStageStrategy> ParseThirdStageStrategy(const std::string &value);

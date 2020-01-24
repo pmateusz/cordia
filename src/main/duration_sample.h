@@ -12,7 +12,7 @@ namespace rows {
 
     class DurationSample {
     public:
-        DurationSample(const SolverWrapper &solver, const History &history, operations_research::RoutingModel &model);
+        DurationSample(const SolverWrapper &solver, const History &history, const operations_research::RoutingDimension *dimension);
 
         inline std::size_t size() const { return num_dates_; }
 

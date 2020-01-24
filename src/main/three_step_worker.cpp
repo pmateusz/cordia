@@ -10,7 +10,8 @@
 #include "third_step_solver.h"
 #include "multi_carer_solver.h"
 #include "third_step_reduction_solver.h"
-#include "third_step_delay_reduction_solver.h"
+#include "delay_riskiness_reduction_solver.h"
+#include "delay_probability_reduction_solver.h"
 
 void FailureInterceptor() {
     LOG(INFO) << "Failure";
@@ -297,9 +298,8 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                                 post_opt_time_limit_,
                                                                 last_dropped_visit_penalty,
                                                                 max_dropped_visits_count);
-    } else {
-        CHECK_EQ(third_stage_strategy_, ThirdStageStrategy::DELAY_REDUCTION);
-        return std::make_unique<rows::ThirdStepDelayReductionSolver>(*problem_data_,
+    } else if (third_stage_strategy_ == ThirdStageStrategy::DELAY_RISKINESS_REDUCTION) {
+        return std::make_unique<rows::DelayRiskinessReductionSolver>(*problem_data_,
                                                                      *history_,
                                                                      search_params,
                                                                      visit_time_window_,
@@ -308,6 +308,17 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                                      post_opt_time_limit_,
                                                                      last_dropped_visit_penalty,
                                                                      max_dropped_visits_count);
+    } else {
+        CHECK_EQ(third_stage_strategy_, ThirdStageStrategy::DELAY_PROBABILITY_REDUCTION);
+        return std::make_unique<rows::DelayProbabilityReductionSolver>(*problem_data_,
+                                                                       *history_,
+                                                                       search_params,
+                                                                       visit_time_window_,
+                                                                       break_time_window_,
+                                                                       begin_end_shift_time_extension_,
+                                                                       post_opt_time_limit_,
+                                                                       last_dropped_visit_penalty,
+                                                                       max_dropped_visits_count);
     }
 }
 
@@ -731,8 +742,12 @@ boost::optional<rows::ThirdStageStrategy> rows::ParseThirdStageStrategy(const st
         return boost::make_optional(ThirdStageStrategy::VEHICLE_REDUCTION);
     }
 
-    if (value == "delay-reduction") {
-        return boost::make_optional(ThirdStageStrategy::DELAY_REDUCTION);
+    if (value == "delay-riskiness-reduction") {
+        return boost::make_optional(ThirdStageStrategy::DELAY_RISKINESS_REDUCTION);
+    }
+
+    if (value == "delay-probability-reduction") {
+        return boost::make_optional(ThirdStageStrategy::DELAY_PROBABILITY_REDUCTION);
     }
 
     return boost::none;
@@ -761,8 +776,11 @@ std::ostream &rows::operator<<(std::ostream &out, rows::ThirdStageStrategy value
         case ThirdStageStrategy::VEHICLE_REDUCTION:
             out << "VEHICLE_REDUCTION";
             break;
-        case ThirdStageStrategy::DELAY_REDUCTION:
-            out << "DELAY_REDUCTION";
+        case ThirdStageStrategy::DELAY_RISKINESS_REDUCTION:
+            out << "DELAY_RISKINESS_REDUCTION";
+            break;
+        case ThirdStageStrategy::DELAY_PROBABILITY_REDUCTION:
+            out << "DELAY_PROBABILITY_REDUCTION";
             break;
         default:
             LOG(FATAL) << "Translation of value " << static_cast<int>(value) << " to string is not implemented";

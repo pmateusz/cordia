@@ -1,5 +1,5 @@
-#ifndef ROWS_THIRD_STEP_DELAY_REDUCTION_SOLVER_H
-#define ROWS_THIRD_STEP_DELAY_REDUCTION_SOLVER_H
+#ifndef ROWS_DELAY_RISKINESS_REDUCTION_SOLVER_H
+#define ROWS_DELAY_RISKINESS_REDUCTION_SOLVER_H
 
 #include "solver_wrapper.h"
 #include "history.h"
@@ -8,9 +8,9 @@
 
 namespace rows {
 
-    class ThirdStepDelayReductionSolver : public SolverWrapper {
+    class DelayRiskinessReductionSolver : public SolverWrapper {
     public:
-        ThirdStepDelayReductionSolver(const ProblemData &problem_data,
+        DelayRiskinessReductionSolver(const ProblemData &problem_data,
                                       const History &history,
                                       const operations_research::RoutingSearchParameters &search_parameters,
                                       boost::posix_time::time_duration visit_time_window,
@@ -35,4 +35,4 @@ namespace rows {
 }
 
 
-#endif //ROWS_THIRD_STEP_DELAY_REDUCTION_SOLVER_H
+#endif //ROWS_DELAY_RISKINESS_REDUCTION_SOLVER_H

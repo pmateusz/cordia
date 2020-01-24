@@ -395,9 +395,10 @@ int main(int argc, char **argv) {
         history = std::make_shared<const rows::History>();
     }
 
-    if (third_stage_strategy == rows::ThirdStageStrategy::DELAY_REDUCTION) {
+    if (third_stage_strategy == rows::ThirdStageStrategy::DELAY_RISKINESS_REDUCTION
+        || third_stage_strategy == rows::ThirdStageStrategy::DELAY_PROBABILITY_REDUCTION) {
         CHECK(history && !history->empty())
-                        << "History of past visits cannot be empty when " << rows::ThirdStageStrategy::DELAY_REDUCTION << " strategy is in use";
+                        << "History of past visits cannot be empty when " << third_stage_strategy << " strategy is in use";
     }
 
 
