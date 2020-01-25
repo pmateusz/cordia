@@ -22,6 +22,7 @@
 #include "single_step_solver.h"
 #include "multi_carer_solver.h"
 #include "gexf_writer.h"
+#include "second_step_solver_no_expected_delay.h"
 
 namespace rows {
 
@@ -114,7 +115,7 @@ namespace rows {
                                                          rows::SecondStepSolver &second_stage_solver,
                                                          const operations_research::RoutingSearchParameters &search_params);
 
-        void SolveThirdStage(const std::vector<std::vector<int64> > &second_stage_routes, rows::SecondStepSolver &second_stage_solver);
+        void SolveThirdStage(const std::vector<std::vector<int64> > &second_stage_routes, rows::SolverWrapper &second_stage_solver);
 
         operations_research::RoutingSearchParameters CreateThirdStageRoutingSearchParameters();
 

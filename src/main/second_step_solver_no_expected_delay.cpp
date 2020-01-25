@@ -1,4 +1,4 @@
-#include "second_step_solver.h"
+#include "second_step_solver_no_expected_delay.h"
 
 #include "util/aplication_error.h"
 #include "break_constraint.h"
@@ -7,26 +7,29 @@
 #include "solution_log_monitor.h"
 #include "stalled_search_limit.h"
 #include "min_dropped_visits_collector.h"
+#include "delay_not_expected_constraint.h"
 
-rows::SecondStepSolver::SecondStepSolver(const ProblemData &problem_data,
-                                         const operations_research::RoutingSearchParameters &search_parameters,
-                                         boost::posix_time::time_duration visit_time_window,
-                                         boost::posix_time::time_duration break_time_window,
-                                         boost::posix_time::time_duration begin_end_work_day_adjustment,
-                                         boost::posix_time::time_duration no_progress_time_limit)
+rows::SecondStepSolverNoExpectedDelay::SecondStepSolverNoExpectedDelay(const ProblemData &problem_data,
+                                                                       const History &history,
+                                                                       const operations_research::RoutingSearchParameters &search_parameters,
+                                                                       boost::posix_time::time_duration visit_time_window,
+                                                                       boost::posix_time::time_duration break_time_window,
+                                                                       boost::posix_time::time_duration begin_end_work_day_adjustment,
+                                                                       boost::posix_time::time_duration no_progress_time_limit)
         : SolverWrapper(problem_data,
                         search_parameters,
                         std::move(visit_time_window),
                         std::move(break_time_window),
                         std::move(begin_end_work_day_adjustment)),
+          history_{history},
           no_progress_time_limit_(std::move(no_progress_time_limit)),
           solution_collector_{nullptr},
           solution_repository_{std::make_shared<rows::SolutionRepository>()} {}
 
-void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &model,
-                                            const std::shared_ptr<Printer> &printer,
-                                            std::shared_ptr<const std::atomic<bool> > cancel_token,
-                                            double cost_normalization_factor) {
+void rows::SecondStepSolverNoExpectedDelay::ConfigureModel(operations_research::RoutingModel &model,
+                                                           const std::shared_ptr<Printer> &printer,
+                                                           std::shared_ptr<const std::atomic<bool> > cancel_token,
+                                                           double cost_normalization_factor) {
     OnConfigureModel(model);
 
     operations_research::Solver *const solver = model.solver();
@@ -37,6 +40,10 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     AddContinuityOfCare(model);
     AddCarerHandling(model);
     AddDroppedVisitsHandling(model);
+
+    model.solver()->AddConstraint(
+            model.solver()->RevAlloc(new DelayNotExpectedConstraint(
+                    std::make_unique<DelayTracker>(*this, history_, &model.GetDimensionOrDie(TIME_DIMENSION)))));
 
     const auto schedule_day = GetScheduleDate();
     printer->operator<<(ProblemDefinition(model.vehicles(),
@@ -65,6 +72,6 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     model.AddSearchMonitor(solver->RevAlloc(new CancelSearchLimit(cancel_token, solver)));
 }
 
-std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolver::solution_repository() {
+std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolverNoExpectedDelay::solution_repository() {
     return solution_repository_;
 }

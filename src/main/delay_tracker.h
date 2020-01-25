@@ -12,6 +12,7 @@ namespace rows {
     public:
         struct TrackRecord {
             int64 index;
+            int64 duration;
             int64 next;
             int64 travel_time;
             int64 break_min;
@@ -24,16 +25,32 @@ namespace rows {
 
         inline const std::vector<int64> &Delay(int64 node) const { return delay_.at(node); }
 
+        int64 GetMeanDelay(int64 node) const;
+
+        int64 GetDelayProbability(int64 node) const;
+
         inline const operations_research::RoutingModel *model() const { return model_; }
 
         void UpdateAllPaths();
 
+        void UpdateAllPaths(operations_research::Assignment *assignment);
+
         void UpdatePath(int vehicle);
 
+        void UpdatePath(int vehicle, operations_research::Assignment *assignment);
+
     private:
+        void LogNodeDetails(int vehicle, int64 node);
+
+        void LogNodeDetails(int vehicle, int64 node, operations_research::Assignment *assignment);
+
         void UpdatePathRecords(int vehicle);
 
+        void UpdatePathRecords(int vehicle, operations_research::Assignment *assignment);
+
         void ComputePathDelay(int vehicle);
+
+        void ComputeAllPathsDelay();
 
         void PropagateNode(int64 index, std::size_t scenario);
 

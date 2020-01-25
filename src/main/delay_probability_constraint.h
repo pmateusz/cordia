@@ -14,8 +14,6 @@ namespace rows {
     protected:
         void PostNodeConstraints(int64 node) override;
 
-        int64 GetDelayProbability(int64 node) const;
-
     private:
         operations_research::IntVar *worst_delay_probability_;
     };

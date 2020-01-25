@@ -15,22 +15,16 @@ void rows::DelayNotExpectedConstraint::Post() {
         completed_paths_[vehicle]->WhenBound(vehicle_demon);
     }
 
-    auto all_paths_completed_demon = MakeConstraintDemon0(solver(),
-                                                          static_cast<DelayConstraint *>(this),
-                                                          &DelayConstraint::PropagateAllPaths,
-                                                          "NoExpectedDelayPropagateAllPaths");
+    auto all_paths_completed_demon = MakeDelayedConstraintDemon0(solver(),
+                                                                 static_cast<DelayConstraint *>(this),
+                                                                 &DelayConstraint::PropagateAllPaths,
+                                                                 "NoExpectedDelayPropagateAllPaths");
     all_paths_completed_->WhenBound(all_paths_completed_demon);
 }
 
 void rows::DelayNotExpectedConstraint::PostNodeConstraints(int64 node) {
-    const auto expected_delay = GetExpectedDelay(node);
-    if (expected_delay > 0) {
-        solver()->AddConstraint(solver()->MakeFalseConstraint());
+    const auto mean_delay = GetMeanDelay(node);
+    if (mean_delay > 0) {
+        solver()->Fail();
     }
-}
-
-int64 rows::DelayNotExpectedConstraint::GetExpectedDelay(int64 node) const {
-    const auto &delay = Delay(node);
-    const int64 total_delay = std::accumulate(std::cbegin(delay), std::cend(delay), 0l);
-    return total_delay / static_cast<int64>(delay.size());
 }

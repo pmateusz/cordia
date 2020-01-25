@@ -22,6 +22,10 @@ namespace rows {
         void PropagateAllPaths();
 
     protected:
+        inline int64 GetMeanDelay(int64 node) const { return delay_tracker_->GetMeanDelay(node); }
+
+        inline int64 GetDelayProbability(int64 node) const { return delay_tracker_->GetDelayProbability(node); }
+
         virtual void PostNodeConstraints(int64 node) = 0;
 
         inline const operations_research::RoutingModel *model() const { return delay_tracker_->model(); }

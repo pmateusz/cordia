@@ -29,14 +29,3 @@ void rows::DelayProbabilityConstraint::PostNodeConstraints(int64 node) {
         solver()->AddConstraint(solver()->MakeGreaterOrEqual(worst_delay_probability_, delay_probability));
     }
 }
-
-int64 rows::DelayProbabilityConstraint::GetDelayProbability(int64 node) const {
-    int64 count_positive_delay = 0;
-    const auto &delay = Delay(node);
-    const int64 num_scenarios = delay.size();
-    for (auto scenario = 0; scenario < num_scenarios; ++scenario) {
-        if (delay[scenario] > 0) { ++count_positive_delay; }
-    }
-
-    return std::ceil(static_cast<double>(count_positive_delay) / num_scenarios);
-}

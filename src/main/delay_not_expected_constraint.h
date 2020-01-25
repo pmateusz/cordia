@@ -13,8 +13,6 @@ namespace rows {
 
     protected:
         void PostNodeConstraints(int64 node) override;
-
-        int64 GetExpectedDelay(int64 node) const;
     };
 }
 
