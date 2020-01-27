@@ -81,3 +81,11 @@ void rows::DelayConstraint::PostPathConstraints(int vehicle) {
         current_index = delay_tracker_->Record(current_index).next;
     }
 }
+
+operations_research::Demon *rows::DelayConstraint::MakeAllPathsDelayedDemon(const std::string &demon_name) {
+    return MakeDelayedConstraintDemon0(solver(), this, &DelayConstraint::PropagateAllPaths, demon_name);
+}
+
+operations_research::Demon *rows::DelayConstraint::MakePathDelayedDemon(int vehicle, const std::string &demon_name) {
+    return MakeDelayedConstraintDemon1(solver(), this, &DelayConstraint::PropagatePath, demon_name, vehicle);
+}

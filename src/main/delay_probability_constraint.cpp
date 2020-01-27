@@ -8,19 +8,7 @@ rows::DelayProbabilityConstraint::DelayProbabilityConstraint(operations_research
 void rows::DelayProbabilityConstraint::Post() {
     DelayConstraint::Post();
 
-//    for (int vehicle = 0; vehicle < model()->vehicles(); ++vehicle) {
-//        auto vehicle_demon = MakeDelayedConstraintDemon1(
-//                solver(), static_cast<DelayConstraint *>(this), &DelayConstraint::PropagatePath,
-//                "RiskinessPropagateVehicle", vehicle);
-//
-//        completed_paths_[vehicle]->WhenBound(vehicle_demon);
-//    }
-
-    auto all_paths_completed_demon = MakeDelayedConstraintDemon0(solver(),
-                                                                 static_cast<DelayConstraint *>(this),
-                                                                 &DelayConstraint::PropagateAllPaths,
-                                                                 "ProbabilityPropagateAllPaths");
-    all_paths_completed_->WhenBound(all_paths_completed_demon);
+    all_paths_completed_->WhenBound(MakeAllPathsDelayedDemon("ProbabilityPropagateAllPaths"));
 }
 
 void rows::DelayProbabilityConstraint::PostNodeConstraints(int64 node) {

@@ -22,6 +22,10 @@ namespace rows {
         void PropagateAllPaths();
 
     protected:
+        operations_research::Demon *MakeAllPathsDelayedDemon(const std::string &demon_name);
+
+        operations_research::Demon *MakePathDelayedDemon(int vehicle, const std::string &demon_name);
+
         inline int64 GetMeanDelay(int64 node) const { return delay_tracker_->GetMeanDelay(node); }
 
         inline int64 GetDelayProbability(int64 node) const { return delay_tracker_->GetDelayProbability(node); }
