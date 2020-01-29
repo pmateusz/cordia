@@ -87,8 +87,7 @@ namespace rows {
 
             std::string VisitId(operations_research::RoutingNodeIndex visit_index) const;
 
-            std::string BreakId(operations_research::RoutingNodeIndex carer_index,
-                                operations_research::RoutingNodeIndex break_node) const;
+            std::string BreakId(operations_research::RoutingNodeIndex carer_index, operations_research::RoutingNodeIndex break_node) const;
 
             std::string EdgeId(const std::string &from_id,
                                const std::string &to_id,

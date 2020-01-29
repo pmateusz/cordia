@@ -1,5 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="solve plain" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="--problem=test_used_global_percentile_problem.json --maps=./data/cars/scotland-latest.osrm --scheduling-date=2017-02-01 --output=test_solution.gexf" WORKING_DIR="file://$PROJECT_DIR$" PASS_PARENT_ENVS_2="true" PROJECT_NAME="rows" TARGET_NAME="build_all" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="rows" RUN_TARGET_NAME="rows-routing-server">
-    <method />
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
   </configuration>
 </component>

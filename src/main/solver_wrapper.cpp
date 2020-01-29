@@ -331,7 +331,7 @@ namespace rows {
         for (const auto &visit : solution.visits()) {
             for (auto &item : matching) {
                 if (IsNear(item.first, visit.calendar_visit().get())) {
-                    if (!item.second) {
+                    if (!item.second || item.first.id() == visit.calendar_visit()->id()) {
                         item.second = visit.calendar_visit().get();
                     } else if (item.first.id() != item.second->id()) {
                         const auto current_distance = abs_time_distance(item.first.datetime(), item.second->datetime());
@@ -344,13 +344,13 @@ namespace rows {
             }
         }
 
-        auto not_matched_visits = 0;
-        for (const auto &item : matching) {
-            if (!item.second) {
-                LOG(WARNING) << "Visit not matched " << item.first;
-                ++not_matched_visits;
-            }
-        }
+//        auto not_matched_visits = 0;
+//        for (const auto &item : matching) {
+//            if (!item.second) {
+//                LOG(WARNING) << "Visit not matched " << item.first;
+//                ++not_matched_visits;
+//            }
+//        }
 
         std::unordered_map<rows::CalendarVisit, rows::CalendarVisit> reverse_matching;
         for (const auto &item : matching) {
@@ -367,11 +367,21 @@ namespace rows {
 
             std::vector<int64> route;
             const auto local_route = solution.GetRoute(carer);
+//            if (vehicle == 61) {
+//                for (const auto &event : GetEffectiveBreaks(*problem().diary(carer, GetScheduleDate()))) {
+//                    LOG(INFO) << event;
+//                }
+//
+//                for (const auto &visit : local_route.visits()) {
+//                    LOG(INFO) << visit;
+//                }
+//            }
+
             for (const auto &visit : local_route.visits()) {
                 const auto find_it = reverse_matching.find(visit.calendar_visit().get());
                 if (find_it == std::end(reverse_matching)) {
                     LOG(INFO) << "Visit not found: " << visit.calendar_visit().get();
-                    for (const auto &visit_item: reverse_matching) {
+                    for (const auto &visit_item: matching) {
                         LOG(INFO) << visit_item.first;
                     }
 
@@ -409,7 +419,7 @@ namespace rows {
             CHECK_EQ(routes.at(vehicle).size(), local_route.visits().size());
         }
 
-        const auto solution_visits = solution.visits();
+        const auto &solution_visits = solution.visits();
         for (operations_research::RoutingNodeIndex node_index{1}; node_index < index_manager_.num_nodes(); ++node_index) {
             const auto &visit = problem_data_.NodeToVisit(node_index);
             const auto &visit_nodes = problem_data_.GetNodes(visit);
@@ -422,7 +432,7 @@ namespace rows {
             auto solution_count = 0;
             for (const auto &carer : solution.Carers()) {
                 const auto &route = solution.GetRoute(carer);
-                for (const auto visit_candidate :route.visits()) {
+                for (const auto &visit_candidate :route.visits()) {
                     if (visit_candidate.calendar_visit()->id() == visit.id()) {
                         ++solution_count;
                     }
@@ -454,6 +464,16 @@ namespace rows {
             total_nodes_solution += solution_route.visits().size();
         }
         CHECK_EQ(total_nodes_visited, total_nodes_solution);
+
+//        LOG(INFO) << Carer(61) << " " << routes.at(61).at(0);
+//        const auto &diary_opt = problem().diary(Carer(61), GetScheduleDate());
+//        if (diary_opt) {
+//            for (const auto &event : diary_opt->events()) {
+//                LOG(INFO) << event;
+//            }
+//        }
+//
+//        LOG(INFO) << NodeToVisit(index_manager_.IndexToNode(615));
 
         return routes;
     }
@@ -763,22 +783,6 @@ namespace rows {
         }
         return std::min(static_cast<int64>((finish_time + begin_end_work_day_adjustment_).total_seconds()),
                         RealProblemData::SECONDS_IN_DIMENSION);
-    }
-
-    void SolverWrapper::OnConfigureModel(const operations_research::RoutingModel &model) {
-        if (model.nodes() == 0) {
-            throw util::ApplicationError("Model contains no visits.", util::ErrorCode::ERROR);
-        }
-
-        const auto schedule_day = GetScheduleDate();
-        if (model.nodes() > 1) {
-            for (operations_research::RoutingNodeIndex visit_node{2}; visit_node < model.nodes(); ++visit_node) {
-                const auto &visit = NodeToVisit(visit_node);
-                if (visit.datetime().date() != schedule_day) {
-                    throw util::ApplicationError("Visits span across multiple days.", util::ErrorCode::ERROR);
-                }
-            }
-        }
     }
 
     boost::posix_time::time_duration SolverWrapper::GetAdjustment() const {
@@ -1141,5 +1145,40 @@ namespace rows {
 
     int64 SolverWrapper::GetDroppedVisitPenalty() {
         return problem_data_.GetDroppedVisitPenalty();
+    }
+
+    void SolverWrapper::ConfigureModel(operations_research::RoutingModel &model,
+                                       const std::shared_ptr<Printer> &printer,
+                                       std::shared_ptr<const std::atomic<bool> > cancel_token,
+                                       double cost_normalization_factor) {
+        if (model.nodes() == 0) {
+            throw util::ApplicationError("Model contains no visits.", util::ErrorCode::ERROR);
+        }
+
+        const auto schedule_day = GetScheduleDate();
+        if (model.nodes() > 1) {
+            for (operations_research::RoutingNodeIndex visit_node{2}; visit_node < model.nodes(); ++visit_node) {
+                const auto &visit = NodeToVisit(visit_node);
+                if (visit.datetime().date() != schedule_day) {
+                    throw util::ApplicationError("Visits span across multiple days.", util::ErrorCode::ERROR);
+                }
+            }
+        }
+
+//        for (auto index = 0; index < index_manager_.num_indices(); ++index) {
+//            const auto active_var = model.ActiveVar(index);
+//            if (active_var != nullptr) {
+//                model.AddToAssignment(model.ActiveVar(index));
+//            }
+//
+//            const auto vehicle_var = model.VehicleVar(index);
+//            if (vehicle_var != nullptr) {
+//                model.AddToAssignment(model.VehicleVar(index));
+//            }
+//
+//            const auto next_var = model.NextVar(index);
+//            CHECK(next_var != nullptr);
+//            model.AddToAssignment(model.NextVar(index));
+//        }
     }
 }

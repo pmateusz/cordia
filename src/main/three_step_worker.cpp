@@ -565,6 +565,8 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
     static const auto LOAD_DEBUG_FILES = true;
     static const auto SOLUTION_EXTENSION = ".bin";
 
+    const std::string SECOND_STAGE_XML_SOLUTION = "/home/pmateusz/dev/cordia/simulations/current_review_simulations/interesting_second_stage_solution.gexf";
+
     const auto scheduling_day = second_stage_solver.GetScheduleDate();
 
     std::stringstream second_stage_solution_name;
@@ -580,9 +582,9 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
 //    second_stage_model->solver()->set_fail_intercept(&FailureInterceptor);
     second_stage_solver.ConfigureModel(second_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 
-    operations_research::Assignment const *second_stage_assignment;
-    operations_research::Assignment const *filtered_assignment;
     std::vector<std::vector<int64>> solution;
+    operations_research::Assignment const *second_stage_assignment = nullptr;
+    operations_research::Assignment const *filtered_assignment = nullptr;
 
     auto second_stage_search_params = operations_research::DefaultRoutingSearchParameters();
     second_stage_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_PARALLEL_CHEAPEST_INSERTION);
@@ -618,8 +620,13 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         return solution;
     }
 
-    if (LOAD_DEBUG_FILES && boost::filesystem::is_regular_file(assignment_save_copy)) {
+    if (!SECOND_STAGE_XML_SOLUTION.empty() && boost::filesystem::is_regular_file(SECOND_STAGE_XML_SOLUTION)) {
+        rows::Solution::XmlLoader loader;
+        const auto xml_solution = loader.Load(SECOND_STAGE_XML_SOLUTION);
+        solution = second_stage_solver.GetRoutes(xml_solution, second_stage_model);
+    } else if (LOAD_DEBUG_FILES && boost::filesystem::is_regular_file(assignment_save_copy)) {
         second_stage_assignment = second_stage_model.ReadAssignment(assignment_save_copy);
+        CHECK(second_stage_assignment) << "Failed to load: " << assignment_save_copy;
         second_stage_model.AssignmentToRoutes(*second_stage_assignment, &solution);
     } else {
         std::stringstream penalty_msg;
@@ -627,13 +634,18 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         printer_->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
 
         const auto second_stage_initial_assignment = second_stage_model.ReadAssignmentFromRoutes(second_stage_initial_routes, true);
-
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2"));
         second_stage_assignment = second_stage_model.SolveFromAssignmentWithParameters(second_stage_initial_assignment, search_params);
         printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage2"));
 
         if (second_stage_assignment == nullptr) {
             throw util::ApplicationError("No second stage solution found.", util::ErrorCode::ERROR);
+        }
+
+        if (LOAD_DEBUG_FILES) {
+            const auto save_status = second_stage_model.WriteAssignment(assignment_save_copy);
+            CHECK(save_status);
+            LOG(INFO) << "Second stage assignment written to file: " << assignment_save_copy;
         }
 
         for (int vehicle = 0; vehicle < second_stage_model.vehicles(); ++vehicle) {
@@ -653,14 +665,14 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
                                second_stage_solver,
                                second_stage_model, *second_stage_assignment, boost::none);
 
-        if (LOAD_DEBUG_FILES) { second_stage_assignment->Save(assignment_save_copy); }
-
-        solution = second_stage_solver.solution_repository()->GetSolution();
+        second_stage_model.AssignmentToRoutes(*second_stage_assignment, &solution);
     }
 
     if (third_stage_strategy_ == ThirdStageStrategy::DELAY_RISKINESS_REDUCTION
         || third_stage_strategy_ == ThirdStageStrategy::DELAY_PROBABILITY_REDUCTION) {
+//        second_stage_model.solver()->set_fail_intercept(FailureInterceptor);
         const auto solution_assignment = second_stage_model.ReadAssignmentFromRoutes(solution, false);
+        CHECK(solution_assignment != nullptr);
         DelayTracker delay_tracker{second_stage_solver, *history_, &second_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
         delay_tracker.UpdateAllPaths(solution_assignment);
 
@@ -673,6 +685,17 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
                 }
                 current_index = delay_tracker.Record(current_index).next;
             }
+        }
+
+        {
+            std::stringstream path46;
+            path46 << second_stage_model.Start(46);
+            int64 current_index = delay_tracker.Record(second_stage_model.Start(46)).next;
+            while (!second_stage_model.IsEnd(current_index)) {
+                path46 << ", " << current_index;
+                current_index = delay_tracker.Record(current_index).next;
+            }
+            LOG(INFO) << "Path46: " << path46.str();
         }
 
         std::vector<std::vector<int64>> filtered_tours;
@@ -691,13 +714,19 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2-Patch"));
         auto valid_second_stage_assignment = filtered_second_stage_model.SolveFromAssignmentWithParameters(filtered_assignment,
                                                                                                            second_stage_search_params);
-
         if (valid_second_stage_assignment == nullptr) {
             throw util::ApplicationError("No second stage patched solution found.", util::ErrorCode::ERROR);
         }
-        valid_second_stage_assignment->Save(final_assignment_save_copy);
+
+        if (LOAD_DEBUG_FILES) {
+            const auto save_status = filtered_second_stage_model.WriteAssignment(final_assignment_save_copy);
+            CHECK(save_status);
+            LOG(INFO) << "Patched second stage assignment written to file: " << final_assignment_save_copy;
+        }
+
         printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage2-Patch"));
-        return filtered_second_stage_wrapper.solution_repository()->GetSolution();
+        solution.clear();
+        filtered_second_stage_model.AssignmentToRoutes(*valid_second_stage_assignment, &solution);
     }
     return solution;
 }

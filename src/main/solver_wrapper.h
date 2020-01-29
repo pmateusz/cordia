@@ -90,7 +90,7 @@ namespace rows {
         virtual void ConfigureModel(operations_research::RoutingModel &model,
                                     const std::shared_ptr<Printer> &printer,
                                     std::shared_ptr<const std::atomic<bool> > cancel_token,
-                                    double cost_normalization_factor) = 0;
+                                    double cost_normalization_factor);
 
         virtual std::string GetDescription(const operations_research::RoutingModel &model, const operations_research::Assignment &solution);
 
@@ -161,8 +161,6 @@ namespace rows {
         const operations_research::RoutingIndexManager &index_manager() const { return index_manager_; }
 
     protected:
-        void OnConfigureModel(const operations_research::RoutingModel &model);
-
         void AddTravelTime(operations_research::RoutingModel &model);
 
         void AddVisitsHandling(operations_research::RoutingModel &model);

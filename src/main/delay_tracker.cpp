@@ -39,7 +39,8 @@ private:
 rows::DelayTracker::DelayTracker(const rows::SolverWrapper &solver,
                                  const rows::History &history,
                                  const operations_research::RoutingDimension *dimension)
-        : dimension_{dimension},
+        : solver_{solver},
+          dimension_{dimension},
           model_{dimension_->model()},
           duration_sample_{solver, history, dimension_} {
     const auto num_indices = duration_sample_.num_indices();
@@ -49,6 +50,7 @@ rows::DelayTracker::DelayTracker(const rows::SolverWrapper &solver,
     delay_.resize(num_indices);
     for (auto index = 0; index < num_indices; ++index) {
         records_[index].index = index;
+        records_[index].next = -1;
 
         int64 duration = 0;
         if (duration_sample_.is_visit(index)) {
@@ -170,6 +172,8 @@ void rows::DelayTracker::PropagateNodeWithSiblings(int64 index, std::size_t scen
     while (!model_->IsEnd(current_index)) {
         const auto &current_record = records_[current_index];
         const auto arrival_time = GetArrivalTime(current_record, scenario);
+
+        CHECK_NE(current_record.next, -1);
 
         if (start_[current_record.next][scenario] < arrival_time) {
             start_[current_record.next][scenario] = arrival_time;

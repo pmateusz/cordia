@@ -1,5 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="routing-server" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-maps=./data/scotland-latest.osrm" WORKING_DIR="file://$PROJECT_DIR$" PASS_PARENT_ENVS_2="true" PROJECT_NAME="rows" TARGET_NAME="rows-routing-server" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="rows" RUN_TARGET_NAME="rows-main">
-    <method />
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
   </configuration>
 </component>

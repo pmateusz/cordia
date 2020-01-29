@@ -31,7 +31,7 @@ void rows::ThirdStepSolver::ConfigureModel(operations_research::RoutingModel &mo
     CHECK_GE(max_dropped_visits_, 0);
     const auto are_visits_optional = max_dropped_visits_ > 0 || optional_orders_;
 
-    OnConfigureModel(model);
+    SolverWrapper::ConfigureModel(model, printer, cancel_token, cost_normalization_factor);
     AddTravelTime(model);
     AddVisitsHandling(model);
     AddSkillHandling(model);

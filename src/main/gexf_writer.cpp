@@ -143,6 +143,7 @@ namespace rows {
             }
         }
 
+        const auto scheduling_day = solver.GetScheduleDate();
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto &carer = solver.Carer(vehicle);
             const auto carer_id = gexf.CarerId(operations_research::RoutingNodeIndex{vehicle});
@@ -187,8 +188,10 @@ namespace rows {
                     gexf.AddNode(break_node_id, (boost::format("break %1% carer %2%") % break_index % carer_index).str());
                     gexf.SetNodeValue(break_node_id, TYPE, BREAK_NODE);
                     gexf.SetNodeValue(break_node_id, ASSIGNED_CARER, carer.sap_number());
-                    gexf.SetNodeValue(break_node_id, START_TIME, solution.StartMin(break_interval));
-                    gexf.SetNodeValue(break_node_id, DURATION, solution.DurationMin(break_interval));
+                    gexf.SetNodeValue(break_node_id, START_TIME,
+                                      boost::posix_time::ptime{scheduling_day,
+                                                               boost::posix_time::seconds(solution.StartMin(break_interval))});
+                    gexf.SetNodeValue(break_node_id, DURATION, boost::posix_time::seconds(solution.DurationMin(break_interval)));
 
                     const auto edge_id = gexf.EdgeId(last_graph_node_id, break_node_id, last_prefix);
                     gexf.AddEdge(edge_id, last_graph_node_id, break_node_id, edge_id);
@@ -435,6 +438,10 @@ namespace rows {
         return (boost::format("v%1%") % visit_index).str();
     }
 
+    std::string GexfWriter::GexfEnvironmentWrapper::ServiceUserId(operations_research::RoutingNodeIndex service_user_id) const {
+        return (boost::format("u%1%") % service_user_id).str();
+    }
+
     std::string GexfWriter::GexfEnvironmentWrapper::BreakId(operations_research::RoutingNodeIndex carer_index,
                                                             operations_research::RoutingNodeIndex break_index) const {
         return (boost::format("c%1%_b%2%") % carer_index % break_index).str();
@@ -447,12 +454,6 @@ namespace rows {
                 % prefix
                 % from_id
                 % to_id).str();
-    }
-
-    std::string GexfWriter::GexfEnvironmentWrapper::ServiceUserId(
-            operations_research::RoutingNodeIndex service_user_id) const {
-        return (boost::format("u%1%")
-                % service_user_id).str();
     }
 
     void GexfWriter::GexfEnvironmentWrapper::SetDescription(std::string description) {

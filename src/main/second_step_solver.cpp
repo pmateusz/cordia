@@ -27,7 +27,7 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
                                             const std::shared_ptr<Printer> &printer,
                                             std::shared_ptr<const std::atomic<bool> > cancel_token,
                                             double cost_normalization_factor) {
-    OnConfigureModel(model);
+    SolverWrapper::ConfigureModel(model, printer, cancel_token, cost_normalization_factor);
 
     operations_research::Solver *const solver = model.solver();
 

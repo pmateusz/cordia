@@ -98,10 +98,17 @@ namespace rows {
 
             static std::string GetAttribute(xmlNodePtr node, const std::string &name);
 
-            static std::unique_ptr<xmlXPathObject, XmlDeleters> EvalXPath(const std::string &expression,
-                                                                          xmlXPathContextPtr context);
+            static std::unique_ptr<xmlXPathObject, XmlDeleters> EvalXPath(const std::string &expression, xmlXPathContextPtr context);
 
             static std::unique_ptr<xmlXPathContext, XmlDeleters> CreateXPathContext(xmlDocPtr document);
+
+            static bool IsCarerId(const std::string &id);
+
+            static bool IsBreakId(const std::string &id);
+
+            static bool IsVisitId(const std::string &id);
+
+            static bool IsUserId(const std::string &id);
         };
 
         const std::vector<Carer> Carers() const;

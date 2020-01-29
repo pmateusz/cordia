@@ -25,7 +25,7 @@ void rows::MultiCarerSolver::ConfigureModel(operations_research::RoutingModel &m
                                             double cost_normalization_factor) {
     static const auto START_FROM_ZERO_TIME = false;
 
-    OnConfigureModel(model);
+    SolverWrapper::ConfigureModel(model, printer, cancel_token, cost_normalization_factor);
 
     solution_collector_ = model.solver()->MakeBestValueSolutionCollector(false);
 

@@ -44,116 +44,62 @@ namespace rows {
     private:
 
         template<typename DataSource>
+        void PrintPathDetails(int vehicle, const DataSource &data) {
+            std::stringstream msg;
+            msg << "Vehicle: " << vehicle << std::endl;
+
+            msg << "Breaks: " << std::endl;
+            for (const auto &interval : dimension_->GetBreakIntervalsOfVehicle(vehicle)) {
+                msg << "[" << data.StartMin(interval) << ", " << data.StartMax(interval) << "] " << data.DurationMin(interval) << std::endl;
+            }
+
+            msg << "Visits: " << std::endl;
+            int64 current_index = model_->Start(vehicle);
+            while (!model_->IsEnd(current_index)) {
+                int64 next_index = data.Value(model_->NextVar(current_index));
+                msg << "[" << data.Min(dimension_->CumulVar(current_index))
+                    << ", " << data.Max(dimension_->CumulVar(current_index)) << "] " << records_.at(current_index).duration
+                    << ", " << model_->GetArcCostForVehicle(current_index, next_index, vehicle) << std::endl;
+
+                current_index = next_index;
+            }
+
+            LOG(INFO) << msg.str();
+        }
+
+        template<typename DataSource>
         void UpdateAllPathsFromSource(const DataSource &data) {
+            std::unordered_set<int64> visited_indices;
             for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
                 const auto path = BuildPathFromSource<decltype(data)>(vehicle, data);
+
+                for (const auto element : path) {
+                    if (element >= 0) {
+                        visited_indices.emplace(element);
+                    }
+                }
+
                 UpdatePathRecords<decltype(data)>(vehicle, path, data);
+            }
+
+            // TODO: loop breaker
+            for (int64 index = 0; index < solver_.index_manager().num_indices(); ++index) {
+                if (visited_indices.find(index) == std::cend(visited_indices)) {
+                    records_.at(index).next = -1;
+                    continue;
+                }
+
+                if (model_->IsEnd(index)) {
+                    CHECK_EQ(records_.at(index).next, -1);
+                    continue;
+                }
+
+                CHECK((records_.at(index).next >= 0 && !model_->IsStart(records_.at(index).next)) || records_.at(index).next == -1);
+                CHECK_NE(records_.at(index).next, records_.at(index).index);
             }
 
             ComputeAllPathsDelay();
         }
-
-//        template<typename DataSource>
-//        std::vector<int64> FastBuildPath(int vehicle, const DataSource &data) {
-//            // this function is heuristic and may return paths which violate start time of visit nodes and breaks
-//
-//            int64 current_index = model_->Start(vehicle);
-//            int64 next_index = data.Value(model_->NextVar(current_index));
-//            if (current_index == next_index) {
-//                return {};
-//            }
-//
-//            const auto &break_intervals = dimension_->GetBreakIntervalsOfVehicle(vehicle);
-//            const auto num_breaks = break_intervals.size();
-//
-//            std::vector<int64> path;
-//            int64 break_pos = 0;
-//            int64 current_time = 0;
-//            while (break_pos < num_breaks && data.StartMax(break_intervals[break_pos]) <= data.Min(dimension_->CumulVar(current_index))) {
-//                current_time = std::max(current_time, data.StartMin(break_intervals[break_pos]) + data.DurationMin(break_intervals[break_pos]));
-//
-//                if (break_pos > 0) {
-//                    path.emplace_back(-break_pos);
-//                }
-//
-//                ++break_pos;
-//            }
-//            CHECK_GT(break_pos, 0);
-//
-//            while (!model_->IsEnd(current_index)) {
-////        CHECK_LE(current_time, dimension_->CumulVar(current_index)->Max()) << duration_sample_.start_max(current_index); // this check sometimes may fail in the fast method
-//                next_index = data.Value(model_->NextVar(current_index));
-//
-//                current_time = std::max(current_time, data.Min(dimension_->CumulVar(current_index)))
-//                               + records_[current_index].duration
-//                               + model_->GetArcCostForVehicle(current_index, next_index, vehicle);
-//                path.emplace_back(current_index);
-//
-//
-//                CHECK_LT(break_pos, num_breaks);
-//
-//                do {
-//                    const auto next_visit_strictly_precedes_break =
-//                            data.Max(dimension_->CumulVar(next_index)) <= data.StartMin(break_intervals[break_pos]);
-//                    if (next_visit_strictly_precedes_break) {
-//                        break;
-//                    }
-//
-//                    const auto break_strictly_precedes_next_visit =
-//                            data.StartMax(break_intervals[break_pos]) <= data.Min(dimension_->CumulVar(next_index));
-//                    if (!break_strictly_precedes_next_visit) {
-//                        const auto time_after_break = std::max(current_time, data.StartMin(break_intervals[break_pos]))
-//                                                      + data.DurationMin(break_intervals[break_pos]);
-//                        const auto time_after_next_visit = std::max(current_time, data.Min(dimension_->CumulVar(next_index)))
-//                                                           + records_[next_index].duration
-//                                                           + model_->GetArcCostForVehicle(current_index, next_index, vehicle);
-//                        const auto break_weakly_precedes_next_visit = (time_after_break <= data.Min(dimension_->CumulVar(next_index))) ||
-//                                                                      (data.StartMax(break_intervals[break_pos]) <= time_after_next_visit);
-//                        const auto next_visit_weakly_precedes_break = (time_after_next_visit <= data.StartMin(break_intervals[break_pos])) ||
-//                                                                      (data.Max(dimension_->CumulVar(next_index)) <=
-//                                                                       time_after_break); // performing a visit does not affect break or visit cannot be performed after break
-//
-//                        if (next_visit_weakly_precedes_break) {
-//                            break;
-//                        }
-//
-//                        if (!break_weakly_precedes_next_visit) {
-//                            // regardless of the waiting time we prefer doing a visit before break if both options are possible
-//                            const auto break_before_next_visit_waiting_time = std::max(0l, data.StartMin(break_intervals[break_pos]) - current_time)
-//                                                                              + std::max(0l,
-//                                                                                         data.Min(dimension_->CumulVar(next_index)) -
-//                                                                                         time_after_break);
-//                            const auto next_visit_before_break_waiting_time =
-//                                    std::max(0l, data.Min(dimension_->CumulVar(next_index)) - current_time) +
-//                                    std::max(0l, time_after_next_visit - data.StartMin(break_intervals[break_pos]));
-//
-////                    // if can do visit without waiting then do the visit
-//                            if (current_time >= data.Min(dimension_->CumulVar(next_index))) {
-//                                break;
-//                            }
-//
-//                            if (next_visit_before_break_waiting_time <= break_before_next_visit_waiting_time) {
-//                                break;
-//                            }
-//                        }
-//                    }
-//
-//                    current_time = std::max(current_time, data.StartMin(break_intervals[break_pos])) + data.DurationMin(break_intervals[break_pos]);
-//                    path.emplace_back(-break_pos);
-//
-//                    ++break_pos;
-//                } while (break_pos < num_breaks);
-//
-//                current_index = next_index;
-//            }
-//
-//            path.emplace_back(current_index);
-//            for (; break_pos < num_breaks; ++break_pos) {
-//                path.emplace_back(-break_pos);
-//            }
-//
-//            return path;
-//        }
 
         struct PartialPath {
             explicit PartialPath(std::size_t size)
@@ -255,6 +201,21 @@ namespace rows {
                     break_preferred = data_.StartMax(interval) < data_.Min(dimension_->CumulVar(current_node))
                                       || time_after_break < data_.Min(dimension_->CumulVar(current_node))
                                       || data_.StartMax(interval) < time_after_visit;
+
+                    if (vehicle_ == 46) {
+                        LOG(INFO) << "Visit [" << data_.Min(dimension_->CumulVar(current_node)) << ", "
+                                  << data_.Max(dimension_->CumulVar(current_node)) << "] vs Break [" << data_.StartMin(interval) << ", "
+                                  << data_.StartMax(interval) << "]";
+                        LOG(INFO) << data_.Max(dimension_->CumulVar(current_node)) << " <  " << data_.StartMin(interval);
+                        LOG(INFO) << time_after_visit << " < " << data_.StartMin(interval);
+                        LOG(INFO) << data_.Max(dimension_->CumulVar(current_node)) << " < " << time_after_break;
+                        LOG(INFO) << "VisitPreferred: " << visit_preferred;
+
+                        LOG(INFO) << data_.StartMax(interval) << " < " << data_.Min(dimension_->CumulVar(current_node));
+                        LOG(INFO) << time_after_break << " < " << data_.Min(dimension_->CumulVar(current_node));
+                        LOG(INFO) << data_.StartMax(interval) << " < " << time_after_visit;
+                        LOG(INFO) << "BreakPreferred: " << break_preferred;
+                    }
 
                     if (visit_preferred && break_preferred) {
                         Fail();
@@ -415,6 +376,17 @@ namespace rows {
                 }
             }
 
+            if (vehicle == 46) {
+                PrintPathDetails<decltype(data)>(vehicle, data);
+                std::stringstream msg;
+
+                msg << partial_paths[result_pos].path[0];
+                for (std::size_t pos = 1; pos < partial_paths[result_pos].path.size(); ++pos) {
+                    msg << ", " << partial_paths[result_pos].path[pos];
+                }
+                LOG(INFO) << msg.str();
+            }
+
             return partial_paths[result_pos].path;
         }
 
@@ -479,7 +451,7 @@ namespace rows {
             CHECK_EQ(records_[current_node].break_min, 0);
             CHECK_EQ(records_[current_node].travel_time, 0);
             CHECK_EQ(records_[current_node].break_duration, 0);
-            CHECK_EQ(records_[current_node].next, 0);
+            CHECK_EQ(records_[current_node].next, -1);
             std::fill(std::begin(start_[current_node]), std::end(start_[current_node]), duration_sample_.start_min(current_node));
             std::fill(std::begin(delay_[current_node]), std::end(delay_[current_node]), 0);
         }
@@ -494,6 +466,7 @@ namespace rows {
 
         int64 GetArrivalTime(const TrackRecord &record, std::size_t scenario) const;
 
+        const SolverWrapper &solver_;
         const operations_research::RoutingDimension *dimension_;
         const operations_research::RoutingModel *model_;
         DurationSample duration_sample_;

@@ -316,10 +316,8 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                 }
 
                 const auto id = std::stoul(GetCheckNotEmpty(properties, attributes.Id));
-                const auto duration = boost::posix_time::duration_from_string(
-                        GetCheckNotEmpty(properties, attributes.Duration));
-                const auto start_time = boost::posix_time::time_from_string(
-                        GetCheckNotEmpty(properties, attributes.StartTime));
+                const auto duration = boost::posix_time::duration_from_string(GetCheckNotEmpty(properties, attributes.Duration));
+                const auto start_time = boost::posix_time::time_from_string(GetCheckNotEmpty(properties, attributes.StartTime));
                 visits.emplace(node_id, rows::ScheduledVisit{rows::ScheduledVisit::VisitType::OK,
                                                              std::move(carer),
                                                              start_time,
@@ -331,11 +329,8 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                                                                      rows::ServiceUser::DEFAULT,
                                                                      rows::Address::DEFAULT,
                                                                      rows::Location(
-                                                                             GetCheckNotEmpty(properties,
-                                                                                              attributes.Latitude),
-                                                                             GetCheckNotEmpty(properties,
-                                                                                              attributes.Longitude)
-                                                                     ),
+                                                                             GetCheckNotEmpty(properties, attributes.Latitude),
+                                                                             GetCheckNotEmpty(properties, attributes.Longitude)),
                                                                      start_time,
                                                                      duration,
                                                                      0,
@@ -346,12 +341,8 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
                 CHECK(!carer_find_it->second.empty());
                 rows::Carer carer = rows::Carer(carer_find_it->second);
 
-                const auto start_time = boost::posix_time::time_from_string(
-                        GetCheckNotEmpty(properties, attributes.StartTime));
-
-                const auto duration = boost::posix_time::duration_from_string(
-                        GetCheckNotEmpty(properties, attributes.Duration));
-
+                const auto start_time = boost::posix_time::time_from_string(GetCheckNotEmpty(properties, attributes.StartTime));
+                const auto duration = boost::posix_time::duration_from_string(GetCheckNotEmpty(properties, attributes.Duration));
                 breaks.emplace(node_id, Break(std::move(carer), start_time, duration));
             } else if (type_property_it->second == "user") {
                 users.emplace(node_id, rows::ServiceUser{std::stol(GetCheckNotEmpty(properties, attributes.Id))});
@@ -364,6 +355,7 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
         }
     }
 
+    std::unordered_map<std::string, std::string> edges;
     auto edges_set = EvalXPath("/ns:gexf/ns:graph/ns:edges/*", xpath_context.get());
     if (edges_set && !xmlXPathNodeSetIsEmpty(edges_set->nodesetval)) {
         const auto edge_set = edges_set->nodesetval;
@@ -375,16 +367,14 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
 
             const auto source = GetAttribute(edge, "source");
             const auto target = GetAttribute(edge, "target");
-            const auto visit_it = visits.find(target);
-            if (visit_it == std::end(visits)) {
-                continue;
-            }
+            edges[source] = target;
 
-            const auto carer_it = carers.find(source);
-            if (carer_it != std::end(carers)) {
-                visit_it->second.carer() = carer_it->second;
-                visit_it->second.calendar_visit()->carer_count(1);
-            } else {
+            if (IsUserId(source) && IsVisitId(target)) {
+                const auto visit_it = visits.find(target);
+                if (visit_it == std::end(visits)) {
+                    continue;
+                }
+
                 const auto user_it = users.find(source);
                 if (user_it != std::end(users)) {
                     visit_it->second.calendar_visit()->service_user() = user_it->second;
@@ -394,19 +384,42 @@ rows::Solution rows::Solution::XmlLoader::Load(const std::string &path) {
     }
 
     std::vector<rows::ScheduledVisit> assigned_visits;
-    for (const auto &visit_pair : visits) {
-        const auto &visit = visit_pair.second;
-
-        if (!visit.carer().is_initialized()) {
+    rows::Carer current_carer;
+    for (const auto &edge : edges) {
+        if (!IsCarerId(edge.first)) {
             continue;
         }
+
+        const auto carer_it = carers.find(edge.first);
+        CHECK(carer_it != std::cend(carers));
+
+        current_carer = carer_it->second;
+        std::string next_id = edge.second;
+        do {
+            if (IsVisitId(next_id)) {
+                auto visit_it = visits.find(next_id);
+                CHECK (visit_it != std::cend(visits));
+
+                visit_it->second.carer() = carer_it->second;
+                visit_it->second.calendar_visit()->carer_count(1);
+                assigned_visits.push_back(visit_it->second);
+            } else {
+                CHECK(IsBreakId(next_id)) << "Unknown node on the path";
+            }
+
+            const auto edge_it = edges.find(next_id);
+            if (edge_it == std::cend(edges)) { break; }
+            next_id = edge_it->second;
+        } while (true);
+    }
+
+    for (const auto &visit : assigned_visits) {
+        CHECK (visit.carer().is_initialized());
 
         if (visit.type() != ScheduledVisit::VisitType::OK || !visit.service_user().is_initialized()) {
             LOG(WARNING) << boost::format("Visit {0} is not fully initialized") % visit;
             continue;
         }
-
-        assigned_visits.push_back(visit);
     }
 
     std::vector<rows::Break> assigned_breaks;
@@ -445,6 +458,30 @@ rows::Solution::XmlLoader::CreateXPathContext(xmlDocPtr document) {
                                 reinterpret_cast<xmlChar const *> ("http://www.gexf.net/1.1draft")), 0)
         << "Failed to register the namespace http://www.gexf.net/1.1draft";
     return xpath_context;
+}
+
+bool rows::Solution::XmlLoader::IsCarerId(const std::string &id) {
+    if (id.empty() || id[0] != 'c') { return false; }
+
+    return id.find("_b") == std::string::npos;
+}
+
+bool rows::Solution::XmlLoader::IsBreakId(const std::string &id) {
+    if (id.empty()) { return false; }
+
+    return id[0] == 'c' && id.find("_b") != std::string::npos;
+}
+
+bool rows::Solution::XmlLoader::IsVisitId(const std::string &id) {
+    if (id.empty()) { return false; }
+
+    return id[0] == 'v';
+}
+
+bool rows::Solution::XmlLoader::IsUserId(const std::string &id) {
+    if (id.empty()) { return false; }
+
+    return id[0] == 'u';
 }
 
 void rows::Solution::XmlLoader::AttributeIndex::Load(xmlXPathContextPtr context) {
