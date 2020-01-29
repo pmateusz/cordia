@@ -114,7 +114,7 @@ void rows::DelayTracker::ComputeAllPathsDelay() {
         }
     }
 
-// // expensive check
+//    // expensive check
 //    for (int64 index = 0; index < duration_sample_.num_indices(); ++index) {
 //        if (!duration_sample_.has_sibling(index)) {
 //            continue;

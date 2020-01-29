@@ -688,14 +688,14 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         }
 
         {
-            std::stringstream path46;
-            path46 << second_stage_model.Start(46);
-            int64 current_index = delay_tracker.Record(second_stage_model.Start(46)).next;
-            while (!second_stage_model.IsEnd(current_index)) {
-                path46 << ", " << current_index;
-                current_index = delay_tracker.Record(current_index).next;
+            std::stringstream delays_node_191;
+            const auto &delays_191 = delay_tracker.Delay(191);
+            const std::size_t num_delays = delays_191.size();
+
+            for (std::size_t pos = 0; pos < num_delays; ++pos) {
+                delays_node_191 << pos + 1 << " " << delays_191[pos] << std::endl;
             }
-            LOG(INFO) << "Path46: " << path46.str();
+            LOG(INFO) << delays_node_191.str();
         }
 
         std::vector<std::vector<int64>> filtered_tours;

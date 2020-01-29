@@ -69,33 +69,9 @@ namespace rows {
 
         template<typename DataSource>
         void UpdateAllPathsFromSource(const DataSource &data) {
-            std::unordered_set<int64> visited_indices;
             for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
                 const auto path = BuildPathFromSource<decltype(data)>(vehicle, data);
-
-                for (const auto element : path) {
-                    if (element >= 0) {
-                        visited_indices.emplace(element);
-                    }
-                }
-
                 UpdatePathRecords<decltype(data)>(vehicle, path, data);
-            }
-
-            // TODO: loop breaker
-            for (int64 index = 0; index < solver_.index_manager().num_indices(); ++index) {
-                if (visited_indices.find(index) == std::cend(visited_indices)) {
-                    records_.at(index).next = -1;
-                    continue;
-                }
-
-                if (model_->IsEnd(index)) {
-                    CHECK_EQ(records_.at(index).next, -1);
-                    continue;
-                }
-
-                CHECK((records_.at(index).next >= 0 && !model_->IsStart(records_.at(index).next)) || records_.at(index).next == -1);
-                CHECK_NE(records_.at(index).next, records_.at(index).index);
             }
 
             ComputeAllPathsDelay();
@@ -113,11 +89,21 @@ namespace rows {
 
             inline std::size_t CurrentPosition() const { return break_next_pos + node_next_pos - 1; }
 
+            int64 TotalNormalizedSlack() const {
+                int64 total_normalized_slack = 0;
+                const std::size_t num_slacks = slack.size();
+                for (std::size_t pos = 2; pos < num_slacks; ++pos) {
+                    total_normalized_slack += pos * slack[pos];
+                }
+                return total_normalized_slack;
+            }
+
             int64 current_time;
             int64 travel_time;
             std::size_t node_next_pos;
             std::size_t break_next_pos;
             std::vector<int64> path;
+            std::vector<int64> slack;
         };
 
         template<typename DataSource>
@@ -169,9 +155,11 @@ namespace rows {
 
                     time_after_visit = std::max(path.current_time + path.travel_time, data_.Min(dimension_->CumulVar(current_node)))
                                        + records_[current_node].duration;
+                    visit_slack_time = data_.Max(dimension_->CumulVar(current_node)) - path.current_time - path.travel_time;
                 } else {
                     time_after_visit = kint64max;
                     next_travel_time = 0;
+                    visit_slack_time = 0;
                 }
 
                 if (has_break) {
@@ -202,20 +190,20 @@ namespace rows {
                                       || time_after_break < data_.Min(dimension_->CumulVar(current_node))
                                       || data_.StartMax(interval) < time_after_visit;
 
-                    if (vehicle_ == 46) {
-                        LOG(INFO) << "Visit [" << data_.Min(dimension_->CumulVar(current_node)) << ", "
-                                  << data_.Max(dimension_->CumulVar(current_node)) << "] vs Break [" << data_.StartMin(interval) << ", "
-                                  << data_.StartMax(interval) << "]";
-                        LOG(INFO) << data_.Max(dimension_->CumulVar(current_node)) << " <  " << data_.StartMin(interval);
-                        LOG(INFO) << time_after_visit << " < " << data_.StartMin(interval);
-                        LOG(INFO) << data_.Max(dimension_->CumulVar(current_node)) << " < " << time_after_break;
-                        LOG(INFO) << "VisitPreferred: " << visit_preferred;
-
-                        LOG(INFO) << data_.StartMax(interval) << " < " << data_.Min(dimension_->CumulVar(current_node));
-                        LOG(INFO) << time_after_break << " < " << data_.Min(dimension_->CumulVar(current_node));
-                        LOG(INFO) << data_.StartMax(interval) << " < " << time_after_visit;
-                        LOG(INFO) << "BreakPreferred: " << break_preferred;
-                    }
+//                    if (vehicle_ == 46) {
+//                        LOG(INFO) << "Visit [" << data_.Min(dimension_->CumulVar(current_node)) << ", "
+//                                  << data_.Max(dimension_->CumulVar(current_node)) << "] vs Break [" << data_.StartMin(interval) << ", "
+//                                  << data_.StartMax(interval) << "]";
+//                        LOG(INFO) << data_.Max(dimension_->CumulVar(current_node)) << " <  " << data_.StartMin(interval);
+//                        LOG(INFO) << time_after_visit << " < " << data_.StartMin(interval);
+//                        LOG(INFO) << data_.Max(dimension_->CumulVar(current_node)) << " < " << time_after_break;
+//                        LOG(INFO) << "VisitPreferred: " << visit_preferred;
+//
+//                        LOG(INFO) << data_.StartMax(interval) << " < " << data_.Min(dimension_->CumulVar(current_node));
+//                        LOG(INFO) << time_after_break << " < " << data_.Min(dimension_->CumulVar(current_node));
+//                        LOG(INFO) << data_.StartMax(interval) << " < " << time_after_visit;
+//                        LOG(INFO) << "BreakPreferred: " << break_preferred;
+//                    }
 
                     if (visit_preferred && break_preferred) {
                         Fail();
@@ -252,10 +240,12 @@ namespace rows {
                 path.current_time = time_after_visit;
                 path.travel_time = next_travel_time;
                 ++path.node_next_pos;
+                path.slack.emplace_back(visit_slack_time);
             }
 
             int64 next_travel_time{};
             int64 time_after_visit{};
+            int64 visit_slack_time{};
             int64 time_after_break{};
             int64 waiting_time_for_break{};
             bool visit_preferred{};
@@ -363,29 +353,36 @@ namespace rows {
                 }
             }
 
+            int64 result_slack = partial_paths[result_pos].TotalNormalizedSlack();
             for (std::size_t candidate_pos = result_pos + 1; candidate_pos < num_paths; ++candidate_pos) {
                 if (!partial_paths[candidate_pos].IsComplete()) {
                     continue;
                 }
 
+                int64 candidate_slack = partial_paths[candidate_pos].TotalNormalizedSlack();
+                if (result_slack < candidate_slack) {
+                    result_pos = candidate_pos;
+                    result_slack = candidate_slack;
+                }
+
                 // TODO: use total waiting time to distinguish between paths
                 // CHECK_NE(partial_paths[candidate_pos].current_time, partial_paths[result_pos].current_time);
-
-                if (partial_paths[candidate_pos].current_time < partial_paths[result_pos].current_time) {
-                    result_pos = candidate_pos;
-                }
             }
 
-            if (vehicle == 46) {
-                PrintPathDetails<decltype(data)>(vehicle, data);
-                std::stringstream msg;
-
-                msg << partial_paths[result_pos].path[0];
-                for (std::size_t pos = 1; pos < partial_paths[result_pos].path.size(); ++pos) {
-                    msg << ", " << partial_paths[result_pos].path[pos];
-                }
-                LOG(INFO) << msg.str();
-            }
+//            if (vehicle == 46) {
+//                if (result_pos == 0 && partial_paths.size() == 3 && partial_paths[1].IsComplete()) {
+//                    result_pos = 1;
+//                }
+//
+//                PrintPathDetails<decltype(data)>(vehicle, data);
+//                std::stringstream msg;
+//
+//                msg << partial_paths[result_pos].path[0];
+//                for (std::size_t pos = 1; pos < partial_paths[result_pos].path.size(); ++pos) {
+//                    msg << ", " << partial_paths[result_pos].path[pos];
+//                }
+//                LOG(INFO) << msg.str();
+//            }
 
             return partial_paths[result_pos].path;
         }
@@ -406,6 +403,18 @@ namespace rows {
         template<typename DataSource>
         void UpdatePathRecords(int vehicle, const std::vector<int64> &path, const DataSource &data) {
             if (path.empty()) {
+                const auto start_node = model_->Start(vehicle);
+                const auto end_node = model_->End(vehicle);
+
+                records_[start_node].break_min = 0;
+                records_[start_node].travel_time = 0;
+                records_[start_node].break_duration = 0;
+                records_[start_node].next = end_node;
+
+                CHECK_EQ(records_[end_node].break_min, 0);
+                CHECK_EQ(records_[end_node].travel_time, 0);
+                CHECK_EQ(records_[end_node].break_duration, 0);
+                CHECK_EQ(records_[end_node].next, -1);
                 return;
             }
 
