@@ -2556,7 +2556,6 @@ def compute_overtime(frame):
 
 
 def compute_riskiness(args):
-    # TODO: load solution
     schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/infinite_expansion_problem.gexf')
 
     # TODO: load history

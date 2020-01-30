@@ -118,12 +118,91 @@ namespace rows {
             ComputeAllPathsDelay(data);
         }
 
+        struct GraphNode {
+            GraphNode(int64 node)
+                    : node{node} {}
+
+            void AddEdge(int64 next) {
+                outgoing_nodes.emplace(next);
+            }
+
+            bool HasEdge(int64 next) const {
+                return outgoing_nodes.find(next) != std::cend(outgoing_nodes);
+            }
+
+            void RemoveEdge(int64 next) {
+                auto next_it = outgoing_nodes.find(next);
+                if (next_it != std::end(outgoing_nodes)) {
+                    outgoing_nodes.erase(next_it);
+                }
+            }
+
+            std::size_t Degree() const { return outgoing_nodes.size(); }
+
+            int64 node;
+            std::unordered_set<int64> outgoing_nodes;
+        };
+
         template<typename DataSource>
         void ComputeAllPathsDelay(DataSource &data_source) {
+            // build dag
+            std::vector<GraphNode> dag;
+
+            const auto num_indices = solver_.index_manager().num_indices();
+            dag.reserve(num_indices);
+            for (int64 index = 0; index < num_indices; ++index) {
+                dag.emplace_back(index);
+            }
+
+            for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
+                int64 current_node = model_->Start(vehicle);
+                while (!model_->IsEnd(current_node)) {
+                    const auto &current_record = records_[current_node];
+                    CHECK_EQ(current_node, current_record.index);
+
+                    const auto next_node = current_record.next;
+                    if (next_node == -1) { break; }
+
+                    dag[current_node].AddEdge(next_node);
+
+                    int64 sibling_node = duration_sample_.sibling(current_node);
+                    if (sibling_node != -1) {
+                        dag[sibling_node].AddEdge(next_node);
+                    }
+                    current_node = next_node;
+                }
+            }
+
+            // check dag construction
+            for (int64 index = 0; index < num_indices; ++index) {
+                const auto &dag_node = dag[index];
+                const auto dag_node_degree = dag_node.Degree();
+                CHECK_LE(dag_node_degree, 2);
+
+                if (dag_node_degree == 0) {
+                    continue;
+                } else if (dag_node_degree == 1) {
+                    const auto outgoing_node = *dag_node.outgoing_nodes.begin();
+                    CHECK(model_->IsEnd(index) || (!duration_sample_.has_sibling(index) && records_[index].next == outgoing_node));
+                } else {
+                    CHECK_EQ(dag_node_degree, 2);
+                    CHECK(duration_sample_.is_visit(index));
+                    CHECK(duration_sample_.has_sibling(index));
+
+                    int64 other_sibling = duration_sample_.sibling(index);
+                    CHECK(dag_node.HasEdge(records_[index].next));
+                    CHECK(dag_node.HasEdge(records_[other_sibling].next));
+                }
+            }
+
+            auto working_dag = dag;
+            std::vector<int64> sorted_dag;
+            sorted_dag.reserve(dag.size());
+
+            std::queue<int64> processing_queue;
+
             const auto num_samples = duration_sample_.size();
             for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
-//                std::map<int64, int64> updates;
-//                std::unordered_set<int64> cycle_breaker;
                 for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
                     PropagateNodeWithBreaks(model_->Start(vehicle), scenario, data_source);
                 }
@@ -152,14 +231,6 @@ namespace rows {
                 while (!processing_queue.empty()) {
                     const auto current_node = processing_queue.front();
                     processing_queue.pop();
-
-//                    ++updates[current_node];
-//                    if (updates[current_node] > 15) {
-//                        for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
-//                            PrintPathNoDetails(vehicle, data_source);
-//                        }
-//                        LOG(FATAL) << "Too many updated";
-//                    }
 
                     PropagateNodeWithSiblingsNoBreaks(current_node, scenario, processing_queue, data_source);
                 }
@@ -505,9 +576,6 @@ namespace rows {
                     record.break_min = last_break_min + last_break_duration - total_break_duration;
                     record.break_duration = total_break_duration;
 
-//                    std::fill(std::begin(start_[current_node]), std::end(start_[current_node]), duration_sample_.start_min(current_node));
-//                    std::fill(std::begin(delay_[current_node]), std::end(delay_[current_node]), 0);
-
                     current_node = next_node;
                     last_break_duration = 0;
                     last_break_min = 0;
@@ -523,8 +591,6 @@ namespace rows {
             CHECK_EQ(records_[current_node].travel_time, 0);
             CHECK_EQ(records_[current_node].break_duration, 0);
             CHECK_EQ(records_[current_node].next, -1);
-//            std::fill(std::begin(start_[current_node]), std::end(start_[current_node]), duration_sample_.start_min(current_node));
-//            std::fill(std::begin(delay_[current_node]), std::end(delay_[current_node]), 0);
         }
 
         void ComputePathDelay(int vehicle);
@@ -571,10 +637,7 @@ namespace rows {
                             siblings_updated.emplace(sibling);
                         }
                     }
-                } else {
-// TODO: improve performance
-                    break;
-                }
+                } else { break; }
 
                 current_index = current_record.next;
             }
