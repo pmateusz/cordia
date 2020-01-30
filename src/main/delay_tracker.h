@@ -68,13 +68,106 @@ namespace rows {
         }
 
         template<typename DataSource>
+        void PrintPathNoDetails(int vehicle, const DataSource &data) {
+            std::stringstream msg;
+            msg << "Vehicle " << vehicle << ": [ ";
+            int64 current_index = model_->Start(vehicle);
+            msg << current_index;
+
+            current_index = data.Value(model_->NextVar(current_index));
+            while (!model_->IsEnd(current_index)) {
+                msg << ", " << current_index;
+
+                int64 sibling_index = duration_sample_.sibling(current_index);
+                if (sibling_index != -1) {
+                    msg << " (" << sibling_index << ")";
+                }
+
+                current_index = data.Value(model_->NextVar(current_index));
+            }
+            msg << "]";
+
+            LOG(INFO) << msg.str();
+        }
+
+        template<typename DataSource>
         void UpdateAllPathsFromSource(const DataSource &data) {
+            for (std::size_t index = 0; index < records_.size(); ++index) {
+                std::fill(std::begin(start_[index]), std::end(start_[index]), duration_sample_.start_min(index));
+                std::fill(std::begin(delay_[index]), std::end(delay_[index]), 0);
+                records_[index].next = -1;
+            }
+
             for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
                 const auto path = BuildPathFromSource<decltype(data)>(vehicle, data);
+
+//                if(!path.empty()) {
+//                    std::stringstream msg;
+//                    msg << "Vehicle " << vehicle << ": [ ";
+//                    msg << path[0];
+//                    for (std::size_t pos = 1; pos < path.size(); ++pos) {
+//                        msg << ", " << path[pos];
+//                    }
+//                    msg << "]";
+//                    LOG(INFO) << msg.str();
+//                }
+
                 UpdatePathRecords<decltype(data)>(vehicle, path, data);
             }
 
-            ComputeAllPathsDelay();
+            ComputeAllPathsDelay(data);
+        }
+
+        template<typename DataSource>
+        void ComputeAllPathsDelay(DataSource &data_source) {
+            const auto num_samples = duration_sample_.size();
+            for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
+//                std::map<int64, int64> updates;
+//                std::unordered_set<int64> cycle_breaker;
+                for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
+                    PropagateNodeWithBreaks(model_->Start(vehicle), scenario, data_source);
+                }
+
+                std::queue<int64> processing_queue;
+                for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
+                    int64 current_node = model_->Start(vehicle);
+                    while (!model_->IsEnd(current_node)) {
+                        int64 sibling_node = duration_sample_.sibling(current_node);
+                        if (sibling_node != -1) {
+                            if (start_[current_node][scenario] != start_[sibling_node][scenario]) {
+                                int64 new_start = std::max(start_[current_node][scenario], start_[sibling_node][scenario]);
+                                if (start_[current_node][scenario] < new_start) {
+                                    start_[current_node][scenario] = new_start;
+                                    processing_queue.emplace(current_node);
+                                } else if (start_[sibling_node][scenario] < new_start) {
+                                    start_[sibling_node][scenario] = new_start;
+                                    processing_queue.emplace(sibling_node);
+                                }
+                            }
+                        }
+                        current_node = records_[current_node].next;
+                    }
+                }
+
+                while (!processing_queue.empty()) {
+                    const auto current_node = processing_queue.front();
+                    processing_queue.pop();
+
+//                    ++updates[current_node];
+//                    if (updates[current_node] > 15) {
+//                        for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
+//                            PrintPathNoDetails(vehicle, data_source);
+//                        }
+//                        LOG(FATAL) << "Too many updated";
+//                    }
+
+                    PropagateNodeWithSiblingsNoBreaks(current_node, scenario, processing_queue, data_source);
+                }
+            }
+
+            for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
+                ComputePathDelay(vehicle);
+            }
         }
 
         struct PartialPath {
@@ -190,21 +283,6 @@ namespace rows {
                                       || time_after_break < data_.Min(dimension_->CumulVar(current_node))
                                       || data_.StartMax(interval) < time_after_visit;
 
-//                    if (vehicle_ == 46) {
-//                        LOG(INFO) << "Visit [" << data_.Min(dimension_->CumulVar(current_node)) << ", "
-//                                  << data_.Max(dimension_->CumulVar(current_node)) << "] vs Break [" << data_.StartMin(interval) << ", "
-//                                  << data_.StartMax(interval) << "]";
-//                        LOG(INFO) << data_.Max(dimension_->CumulVar(current_node)) << " <  " << data_.StartMin(interval);
-//                        LOG(INFO) << time_after_visit << " < " << data_.StartMin(interval);
-//                        LOG(INFO) << data_.Max(dimension_->CumulVar(current_node)) << " < " << time_after_break;
-//                        LOG(INFO) << "VisitPreferred: " << visit_preferred;
-//
-//                        LOG(INFO) << data_.StartMax(interval) << " < " << data_.Min(dimension_->CumulVar(current_node));
-//                        LOG(INFO) << time_after_break << " < " << data_.Min(dimension_->CumulVar(current_node));
-//                        LOG(INFO) << data_.StartMax(interval) << " < " << time_after_visit;
-//                        LOG(INFO) << "BreakPreferred: " << break_preferred;
-//                    }
-
                     if (visit_preferred && break_preferred) {
                         Fail();
                         return;
@@ -273,6 +351,8 @@ namespace rows {
             const std::vector<operations_research::IntervalVar *> &breaks;
             const std::vector<int64> nodes;
         };
+
+        static const int64 MAX_START_TIME = 48 * 60 * 60;
 
         template<typename DataSource>
         std::vector<int64> BuildPathFromSource(int vehicle, const DataSource &data) {
@@ -364,25 +444,7 @@ namespace rows {
                     result_pos = candidate_pos;
                     result_slack = candidate_slack;
                 }
-
-                // TODO: use total waiting time to distinguish between paths
-                // CHECK_NE(partial_paths[candidate_pos].current_time, partial_paths[result_pos].current_time);
             }
-
-//            if (vehicle == 46) {
-//                if (result_pos == 0 && partial_paths.size() == 3 && partial_paths[1].IsComplete()) {
-//                    result_pos = 1;
-//                }
-//
-//                PrintPathDetails<decltype(data)>(vehicle, data);
-//                std::stringstream msg;
-//
-//                msg << partial_paths[result_pos].path[0];
-//                for (std::size_t pos = 1; pos < partial_paths[result_pos].path.size(); ++pos) {
-//                    msg << ", " << partial_paths[result_pos].path[pos];
-//                }
-//                LOG(INFO) << msg.str();
-//            }
 
             return partial_paths[result_pos].path;
         }
@@ -394,7 +456,7 @@ namespace rows {
 
             const auto num_samples = duration_sample_.size();
             for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
-                PropagateNode(model_->Start(vehicle), scenario);
+                PropagateNodeWithBreaks(model_->Start(vehicle), scenario, data);
             }
 
             ComputePathDelay(vehicle);
@@ -443,8 +505,8 @@ namespace rows {
                     record.break_min = last_break_min + last_break_duration - total_break_duration;
                     record.break_duration = total_break_duration;
 
-                    std::fill(std::begin(start_[current_node]), std::end(start_[current_node]), duration_sample_.start_min(current_node));
-                    std::fill(std::begin(delay_[current_node]), std::end(delay_[current_node]), 0);
+//                    std::fill(std::begin(start_[current_node]), std::end(start_[current_node]), duration_sample_.start_min(current_node));
+//                    std::fill(std::begin(delay_[current_node]), std::end(delay_[current_node]), 0);
 
                     current_node = next_node;
                     last_break_duration = 0;
@@ -461,19 +523,67 @@ namespace rows {
             CHECK_EQ(records_[current_node].travel_time, 0);
             CHECK_EQ(records_[current_node].break_duration, 0);
             CHECK_EQ(records_[current_node].next, -1);
-            std::fill(std::begin(start_[current_node]), std::end(start_[current_node]), duration_sample_.start_min(current_node));
-            std::fill(std::begin(delay_[current_node]), std::end(delay_[current_node]), 0);
+//            std::fill(std::begin(start_[current_node]), std::end(start_[current_node]), duration_sample_.start_min(current_node));
+//            std::fill(std::begin(delay_[current_node]), std::end(delay_[current_node]), 0);
         }
 
         void ComputePathDelay(int vehicle);
 
-        void ComputeAllPathsDelay();
+        template<typename DataSource>
+        void PropagateNodeWithBreaks(int64 index, std::size_t scenario, const DataSource &data_source) {
+            auto current_index = index;
+            while (!model_->IsEnd(current_index)) {
+                const auto &current_record = records_[current_index];
+                const auto arrival_time = GetArrivalTimeWithBreak(current_record, scenario);
+                CHECK_LT(arrival_time, MAX_START_TIME);
+                CHECK_LE(start_[current_record.next][scenario], arrival_time);
+                CHECK_NE(current_record.next, -1);
 
-        void PropagateNode(int64 index, std::size_t scenario);
+                start_[current_record.next][scenario] = arrival_time;
+                current_index = current_record.next;
+            }
+        }
 
-        void PropagateNodeWithSiblings(int64 index, std::size_t scenario, std::unordered_set<int64> &siblings_updated);
+        template<typename DataSource>
+        void PropagateNodeWithSiblingsNoBreaks(int64 index,
+                                               std::size_t scenario,
+                                               std::queue<int64> &siblings_updated,
+                                               const DataSource &data_source) {
+            auto current_index = index;
+            while (!model_->IsEnd(current_index)) {
+                const auto &current_record = records_[current_index];
+                const auto arrival_time = GetArrivalTimeNoBreak(current_record, scenario);
+                if (arrival_time >= MAX_START_TIME) {
+                    for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
+                        PrintPathNoDetails<DataSource>(vehicle, data_source);
+                    }
+                    LOG(FATAL) << "Assertion Failed";
+                }
 
-        int64 GetArrivalTime(const TrackRecord &record, std::size_t scenario) const;
+                CHECK_NE(current_record.next, -1);
+
+                if (start_[current_record.next][scenario] < arrival_time) {
+                    start_[current_record.next][scenario] = arrival_time;
+                    if (duration_sample_.has_sibling(current_record.next)) {
+                        const auto sibling = duration_sample_.sibling(current_record.next);
+                        if (start_[sibling][scenario] < arrival_time) {
+                            start_[sibling][scenario] = arrival_time;
+                            siblings_updated.emplace(sibling);
+                        }
+                    }
+                } else {
+// TODO: improve performance
+                    break;
+                }
+
+                current_index = current_record.next;
+            }
+        }
+
+
+        int64 GetArrivalTimeWithBreak(const TrackRecord &record, std::size_t scenario) const;
+
+        int64 GetArrivalTimeNoBreak(const TrackRecord &record, std::size_t scenario) const;
 
         const SolverWrapper &solver_;
         const operations_research::RoutingDimension *dimension_;

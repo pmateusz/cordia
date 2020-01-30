@@ -562,10 +562,10 @@ std::vector<std::vector<int64>>
 rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<int64>> &second_stage_initial_routes,
                                                   rows::SecondStepSolver &second_stage_solver,
                                                   const operations_research::RoutingSearchParameters &search_params) {
-    static const auto LOAD_DEBUG_FILES = true;
+    static const auto LOAD_DEBUG_FILES = false;
     static const auto SOLUTION_EXTENSION = ".bin";
 
-    const std::string SECOND_STAGE_XML_SOLUTION = "/home/pmateusz/dev/cordia/simulations/current_review_simulations/interesting_second_stage_solution.gexf";
+    const std::string SECOND_STAGE_XML_SOLUTION = ""; //"/home/pmateusz/dev/cordia/simulations/current_review_simulations/infinite_expansion_problem.gexf";
 
     const auto scheduling_day = second_stage_solver.GetScheduleDate();
 
@@ -687,17 +687,6 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
             }
         }
 
-        {
-            std::stringstream delays_node_191;
-            const auto &delays_191 = delay_tracker.Delay(191);
-            const std::size_t num_delays = delays_191.size();
-
-            for (std::size_t pos = 0; pos < num_delays; ++pos) {
-                delays_node_191 << pos + 1 << " " << delays_191[pos] << std::endl;
-            }
-            LOG(INFO) << delays_node_191.str();
-        }
-
         std::vector<std::vector<int64>> filtered_tours;
         for (const auto &tour : solution) {
             std::vector<int64> filtered_tour;
@@ -710,6 +699,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         }
 
         filtered_assignment = filtered_second_stage_model.ReadAssignmentFromRoutes(filtered_tours, false);
+        CHECK(filtered_assignment != nullptr);
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2-Patch"));
         auto valid_second_stage_assignment = filtered_second_stage_model.SolveFromAssignmentWithParameters(filtered_assignment,

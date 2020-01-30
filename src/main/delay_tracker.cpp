@@ -98,37 +98,6 @@ void rows::DelayTracker::UpdateAllPaths(operations_research::Assignment const *a
     UpdateAllPathsFromSource<decltype(assignment_data)>(assignment_data);
 }
 
-void rows::DelayTracker::ComputeAllPathsDelay() {
-    const auto num_samples = duration_sample_.size();
-    for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
-        std::unordered_set<int64> siblings_updated;
-        for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
-            PropagateNodeWithSiblings(model_->Start(vehicle), scenario, siblings_updated);
-        }
-
-        while (!siblings_updated.empty()) {
-            const auto current_node = *siblings_updated.begin();
-            siblings_updated.erase(siblings_updated.begin());
-
-            PropagateNodeWithSiblings(current_node, scenario, siblings_updated);
-        }
-    }
-
-//    // expensive check
-//    for (int64 index = 0; index < duration_sample_.num_indices(); ++index) {
-//        if (!duration_sample_.has_sibling(index)) {
-//            continue;
-//        }
-//
-//        const auto sibling = duration_sample_.sibling(index);
-//        CHECK(start_.at(index) == start_.at(sibling));
-//    }
-
-    for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
-        ComputePathDelay(vehicle);
-    }
-}
-
 void rows::DelayTracker::UpdatePath(int vehicle) {
     static const SolverData SOLVER_DATA;
 
@@ -153,49 +122,30 @@ void rows::DelayTracker::ComputePathDelay(int vehicle) {
     }
 }
 
-void rows::DelayTracker::PropagateNode(int64 index, std::size_t scenario) {
-    auto current_index = index;
-    while (!model_->IsEnd(current_index)) {
-        const auto &current_record = records_[current_index];
-        const auto arrival_time = GetArrivalTime(current_record, scenario);
+int64 rows::DelayTracker::GetArrivalTimeWithBreak(const rows::DelayTracker::TrackRecord &record, std::size_t scenario) const {
+    CHECK_NE(record.next, -1);
 
-        if (start_[current_record.next][scenario] < arrival_time) {
-            start_[current_record.next][scenario] = arrival_time;
-        }
-
-        current_index = current_record.next;
-    }
-}
-
-void rows::DelayTracker::PropagateNodeWithSiblings(int64 index, std::size_t scenario, std::unordered_set<int64> &siblings_updated) {
-    auto current_index = index;
-    while (!model_->IsEnd(current_index)) {
-        const auto &current_record = records_[current_index];
-        const auto arrival_time = GetArrivalTime(current_record, scenario);
-
-        CHECK_NE(current_record.next, -1);
-
-        if (start_[current_record.next][scenario] < arrival_time) {
-            start_[current_record.next][scenario] = arrival_time;
-            if (duration_sample_.has_sibling(current_record.next)) {
-                const auto sibling = duration_sample_.sibling(current_record.next);
-                if (start_[sibling][scenario] < arrival_time) {
-                    start_[sibling][scenario] = arrival_time;
-                    siblings_updated.emplace(sibling);
-                }
-            }
-        }
-
-        current_index = current_record.next;
-    }
-}
-
-int64 rows::DelayTracker::GetArrivalTime(const rows::DelayTracker::TrackRecord &record, std::size_t scenario) const {
     auto arrival_time = start_[record.index][scenario] + duration_sample_.duration(record.index, scenario) + record.travel_time;
     if (arrival_time > record.break_min) {
         arrival_time += record.break_duration;
     } else {
-        arrival_time = std::max(arrival_time, record.break_min + record.break_duration);
+        arrival_time = record.break_min + record.break_duration;
     }
+
+    if (arrival_time < start_[record.next][scenario]) {
+        arrival_time = start_[record.next][scenario];
+    }
+
+    return arrival_time;
+}
+
+int64 rows::DelayTracker::GetArrivalTimeNoBreak(const rows::DelayTracker::TrackRecord &record, std::size_t scenario) const {
+    CHECK_NE(record.next, -1);
+
+    auto arrival_time = start_[record.index][scenario] + duration_sample_.duration(record.index, scenario) + record.travel_time;
+    if (arrival_time < start_[record.next][scenario]) {
+        arrival_time = start_[record.next][scenario];
+    }
+
     return arrival_time;
 }
