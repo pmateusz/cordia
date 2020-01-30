@@ -3,13 +3,16 @@
 import collections
 import datetime
 import operator
+import re
 import typing
 
 import rows.model.carer
+import rows.model.datetime
 import rows.model.location
 import rows.model.metadata
 import rows.model.object
 import rows.model.past_visit
+import rows.model.rest
 import rows.model.service_user
 import rows.model.visit
 
@@ -129,10 +132,14 @@ class Schedule(rows.model.object.DataObject):
         duration_id = attributes['duration']
         longitude_id = attributes['longitude']
         latitude_id = attributes['latitude']
+        assigned_carer_id = attributes['assigned_carer']
 
         carers_by_id = {}
         users_by_id = {}
         visits_by_id = {}
+        breaks_by_id = {}
+
+        break_counter = collections.Counter()
         for node in schedule_soup.find_all('node'):
             attributes = node.find('attvalues')
             type_attr = attributes.find('attvalue', attrs={'for': type_id})
@@ -141,14 +148,15 @@ class Schedule(rows.model.object.DataObject):
                 sap_number_attr = attributes.find('attvalue', attrs={'for': sap_number_id})
                 skills_number_attr = attributes.find('attvalue', attrs={'for': skills_id})
                 skills = list(map(int, skills_number_attr['value'].split(';')))
-                carers_by_id[node['id']] = rows.model.carer.Carer(key=id_number_attr['value'],
+                carers_by_id[node['id']] = rows.model.carer.Carer(key=int(id_number_attr['value']),
                                                                   sap_number=sap_number_attr['value'],
                                                                   skills=skills)
             elif type_attr['value'] == 'user':
                 id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
                 longitude_attr = attributes.find('attvalue', attrs={'for': longitude_id})
                 latitude_attr = attributes.find('attvalue', attrs={'for': latitude_id})
-                user = rows.model.service_user.ServiceUser(key=id_number_attr['value'],
+                key = int(id_number_attr['value'])
+                user = rows.model.service_user.ServiceUser(key=key,
                                                            location=rows.model.location.Location(
                                                                latitude=latitude_attr['value'],
                                                                longitude=longitude_attr['value']))
@@ -159,36 +167,95 @@ class Schedule(rows.model.object.DataObject):
                 start_time_attr = attributes.find('attvalue', attrs={'for': start_time_id})
                 duration_attr = attributes.find('attvalue', attrs={'for': duration_id})
                 key = int(id_number_attr['value'])
-                start_time = datetime.datetime.strptime(start_time_attr['value'], '%Y-%b-%d %H:%M:%S')
-                duration = datetime.datetime.strptime(duration_attr['value'], '%H:%M:%S').time()
+                service_user = int(user_attr['value'])
+                start_time = rows.model.datetime.try_parse_datetime(start_time_attr['value'])
+                duration = rows.model.datetime.try_parse_duration(duration_attr['value'])
+                assert start_time is not None and duration is not None
+
                 tasks_number_attr = attributes.find('attvalue', attrs={'for': tasks_id})
                 tasks = list(map(int, tasks_number_attr['value'].split(';')))
                 visits_by_id[node['id']] = rows.model.visit.Visit(key=key,
                                                                   date=start_time.date(),
                                                                   time=start_time.time(),
-                                                                  duration=datetime.timedelta(hours=duration.hour,
-                                                                                              minutes=duration.minute,
-                                                                                              seconds=duration.second),
-                                                                  service_user=int(user_attr['value']),
+                                                                  duration=duration,
+                                                                  service_user=service_user,
                                                                   tasks=tasks)
+            elif type_attr['value'] == 'break':
+                assigned_carer_attr = attributes.find('attvalue', attrs={'for': assigned_carer_id})
+                start_time_attr = attributes.find('attvalue', attrs={'for': start_time_id})
+                duration_attr = attributes.find('attvalue', attrs={'for': duration_id})
 
-        routes = collections.defaultdict(list)
-        for edge in schedule_soup.find_all('edge'):
-            source_id = edge['source']
-            target_id = edge['target']
-            if source_id in carers_by_id and target_id in visits_by_id:
-                routes[carers_by_id[source_id]].append(visits_by_id[target_id])
+                assigned_carer_key = int(assigned_carer_attr['value'])
+                carer_key = None
+                for carer_id in carers_by_id:
+                    if carers_by_id[carer_id].key == assigned_carer_key:
+                        carer_key = carer_id
+                        break
+                assert carer_key is not None
+
+                break_counter[carer_key] += 1
+
+                break_id = '{0}_b{1}'.format(carer_key, break_counter[carer_key])
+                start_time = rows.model.datetime.try_parse_datetime(start_time_attr['value'])
+                duration = rows.model.datetime.try_parse_duration(duration_attr['value'])
+                assert start_time is not None and duration is not None
+
+                breaks_by_id[break_id] = rows.model.rest.Rest(id=break_id, carer=assigned_carer_key, start_time=start_time, duration=duration)
+
+        carer_id_pattern = re.compile('^c\d+$')
+        visit_id_pattern = re.compile('^v\d+$')
+        break_id_pattern = re.compile('^c\d+_b\d+$')
+
+        def is_carer(id: str) -> bool:
+            pattern = carer_id_pattern.match(id)
+            return pattern is not None
+
+        def is_visit(id: str) -> bool:
+            pattern = visit_id_pattern.match(id)
+            return pattern is not None
+
+        def is_break(id: str) -> bool:
+            pattern = break_id_pattern.match(id)
+            return pattern is not None
+
+        edges = {edge['source']: edge['target'] for edge in schedule_soup.find_all('edge')}
+        routes = {}
+        for source_id in edges:
+            if not is_carer(source_id):
+                continue
+
+            carer = carers_by_id[source_id]
+            route = []
+
+            current_id = source_id
+            while current_id in edges:
+                next_id = edges[current_id]
+
+                if is_visit(next_id):
+                    visit = visits_by_id[next_id]
+                    route.append(visit)
+                elif is_break(next_id):
+                    rest = breaks_by_id[next_id]
+                    route.append(rest)
+
+                current_id = next_id
+
+            assert carer not in routes
+            routes[carer] = route
 
         past_visits = []
         for carer in routes:
-            for visit in routes[carer]:
-                past_visits.append(rows.model.past_visit.PastVisit(visit=visit,
-                                                                   date=visit.date,
-                                                                   time=visit.time,
-                                                                   duration=visit.duration,
-                                                                   carer=carer))
+            for work_item in routes[carer]:
+                if isinstance(work_item, rows.model.visit.Visit):
+                    past_visits.append(rows.model.past_visit.PastVisit(visit=work_item,
+                                                                       date=work_item.date,
+                                                                       time=work_item.time,
+                                                                       duration=work_item.duration,
+                                                                       carer=carer))
         past_visits.sort(key=operator.attrgetter('time'))
-        return Schedule(metadata=rows.model.metadata.Metadata(
-            begin=min(past_visits, key=operator.attrgetter('date')).date,
-            end=max(past_visits, key=operator.attrgetter('date')).date),
-            visits=past_visits)
+
+        return Schedule(
+            metadata=rows.model.metadata.Metadata(
+                begin=min(past_visits, key=operator.attrgetter('date')).date, end=max(past_visits, key=operator.attrgetter('date')).date),
+            visits=past_visits,
+            routes=routes)

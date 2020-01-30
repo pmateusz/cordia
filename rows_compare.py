@@ -66,6 +66,7 @@ __COMPARE_BENCHMARK_COMMAND = 'compare-benchmark'
 __COMPARE_BENCHMARK_TABLE_COMMAND = 'compare-benchmark-table'
 __COMPARE_LITERATURE_TABLE_COMMAND = 'compare-literature-table'
 __COMPARE_QUALITY_OPTIMIZER_COMMAND = 'compare-quality-optimizer'
+__COMPUTE_RISKINESS_COMMAND = 'compute-riskiness'
 __TYPE_ARG = 'type'
 __ACTIVITY_TYPE = 'activity'
 __VISITS_TYPE = 'visits'
@@ -190,6 +191,8 @@ def configure_parser():
     subparsers.add_parser(__COMPARE_LITERATURE_TABLE_COMMAND)
 
     subparsers.add_parser(__COMPARE_BENCHMARK_TABLE_COMMAND)
+
+    subparsers.add_parser(__COMPUTE_RISKINESS_COMMAND)
 
     return parser
 
@@ -2214,6 +2217,7 @@ def compare_literature_table(args, settings):
         print(tabulate.tabulate(pandas.DataFrame(data=print_data)[['problem', 'literature_result', 'result', 'delta', 'time']], showindex=False,
                                 tablefmt='latex', headers='keys'))
 
+
 def compare_planner_optimizer_quality(args, settings):
     data_file = getattr(args, __FILE_ARG)
     data_frame = pandas.read_csv(data_file)
@@ -2551,6 +2555,17 @@ def compute_overtime(frame):
     return overtime_series
 
 
+def compute_riskiness(args):
+    # TODO: load solution
+    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/infinite_expansion_problem.gexf')
+
+    # TODO: load history
+    # TODO: compute delay
+    # TODO: compute riskiness
+
+    pass
+
+
 def debug(args, settings):
     pass
 
@@ -2599,6 +2614,8 @@ if __name__ == '__main__':
         compare_benchmark_table(__args, __settings)
     elif __command == __COMPARE_LITERATURE_TABLE_COMMAND:
         compare_literature_table(__args, __settings)
+    elif __command == __COMPUTE_RISKINESS_COMMAND:
+        compute_riskiness(__args)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:
