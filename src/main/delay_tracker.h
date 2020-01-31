@@ -1,6 +1,7 @@
 #ifndef ROWS_DELAY_TRACKER_H
 #define ROWS_DELAY_TRACKER_H
 
+#include <boost/graph/graph_traits.hpp>
 #include <boost/graph/topological_sort.hpp>
 #include <boost/graph/adjacency_list.hpp>
 
@@ -141,101 +142,130 @@ namespace rows {
 
                     int64 sibling_node = duration_sample_.sibling(current_node);
                     if (sibling_node != -1) {
-                        edges.emplace_back(sibling_node, next_node);
+                        if (current_node < sibling_node) {
+                            edges.emplace_back(current_node, sibling_node);
+                            edges.emplace_back(sibling_node, next_node);
+                        }
                     }
+
                     current_node = next_node;
                 }
             }
 
-            Graph dag{std::cbegin(edges), std::cend(edges), static_cast<Graph::vertices_size_type>(solver_.index_manager().num_indices())};
+            const auto num_vertices = static_cast<Graph::vertices_size_type>(solver_.index_manager().num_indices());
+            std::vector<bool> visited_nodes;
+            visited_nodes.resize(num_vertices);
+            Graph dag{std::cbegin(edges), std::cend(edges), num_vertices};
 
-//            typedef boost::graph_traits<Graph>::vertex_descriptor Vertex;
+            for (Vertex vertex = 0; vertex < num_vertices; ++vertex) {
+                std::vector<Vertex> outgoing_vertices;
+                boost::graph_traits<Graph>::out_edge_iterator out_ei, out_ei_end;
+                for (std::tie(out_ei, out_ei_end) = boost::out_edges(vertex, dag); out_ei != out_ei_end; ++out_ei) {
+                    const auto target = boost::target(*out_ei, dag);
+                    visited_nodes[target] = true;
+                    outgoing_vertices.emplace_back(target);
+                }
 
-            // build dag
-//            std::vector<GraphNode> dag;
+                const auto degree = outgoing_vertices.size();
+                if (degree == 0) {
+                    continue;
+                } else if (degree == 1) {
+                    const auto outgoing_node = outgoing_vertices.front();
+                    CHECK(model_->IsEnd(vertex) || (!duration_sample_.has_sibling(vertex) && records_[vertex].next == outgoing_node));
+                } else {
+                    CHECK_EQ(degree, 2);
+                    CHECK(duration_sample_.is_visit(vertex));
+                    CHECK(duration_sample_.has_sibling(vertex));
 
-//            const auto num_indices = solver_.index_manager().num_indices();
-//            dag.reserve(num_indices);
-//            for (int64 index = 0; index < num_indices; ++index) {
-//                dag.emplace_back(index);
-//            }
-//
-//            for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
-//                int64 current_node = model_->Start(vehicle);
-//                while (!model_->IsEnd(current_node)) {
-//                    const auto &current_record = records_[current_node];
-//                    CHECK_EQ(current_node, current_record.index);
-//
-//                    const auto next_node = current_record.next;
-//                    if (next_node == -1) { break; }
-//
-//                    dag[current_node].AddEdge(next_node);
-//
-//                    int64 sibling_node = duration_sample_.sibling(current_node);
-//                    if (sibling_node != -1) {
-//                        dag[sibling_node].AddEdge(next_node);
-//                    }
-//                    current_node = next_node;
-//                }
-//            }
+                    int64 other_sibling = duration_sample_.sibling(vertex);
+                    CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), records_[vertex].next) !=
+                          std::cend(outgoing_vertices));
 
-            // check dag construction
-//            for (int64 index = 0; index < num_indices; ++index) {
-//                const auto &dag_node = dag[index];
-//                const auto dag_node_degree = dag_node.Degree();
-//                CHECK_LE(dag_node_degree, 2);
-//
-//                if (dag_node_degree == 0) {
-//                    continue;
-//                } else if (dag_node_degree == 1) {
-//                    const auto outgoing_node = *dag_node.outgoing_nodes.begin();
-//                    CHECK(model_->IsEnd(index) || (!duration_sample_.has_sibling(index) && records_[index].next == outgoing_node));
-//                } else {
-//                    CHECK_EQ(dag_node_degree, 2);
-//                    CHECK(duration_sample_.is_visit(index));
-//                    CHECK(duration_sample_.has_sibling(index));
-//
-//                    int64 other_sibling = duration_sample_.sibling(index);
-//                    CHECK(dag_node.HasEdge(records_[index].next));
-//                    CHECK(dag_node.HasEdge(records_[other_sibling].next));
-//                }
-//            }
+                    if (vertex < other_sibling) {
+                        CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), other_sibling) !=
+                              std::cend(outgoing_vertices));
+                    } else {
+                        CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), records_[other_sibling].next) !=
+                              std::cend(outgoing_vertices));
+                    }
+                }
+            }
 
+            for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
+                visited_nodes[model_->Start(vehicle)] = true;
+            }
+
+            std::vector<int64> reverse_sorted_vertices;
+            boost::topological_sort(dag, std::back_inserter(reverse_sorted_vertices));
 
             const auto num_samples = duration_sample_.size();
             for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
-                for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
-                    PropagateNodeWithBreaks(model_->Start(vehicle), scenario, data_source);
-                }
+                for (auto it = std::crbegin(reverse_sorted_vertices); it != std::crend(reverse_sorted_vertices); ++it) {
+                    const auto index = *it;
+                    if (model_->IsEnd(index)) { continue; }
+                    if (!visited_nodes[index]) { continue; }
 
-                std::queue<int64> processing_queue;
-                for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
-                    int64 current_node = model_->Start(vehicle);
-                    while (!model_->IsEnd(current_node)) {
-                        int64 sibling_node = duration_sample_.sibling(current_node);
-                        if (sibling_node != -1) {
-                            if (start_[current_node][scenario] != start_[sibling_node][scenario]) {
-                                int64 new_start = std::max(start_[current_node][scenario], start_[sibling_node][scenario]);
-                                if (start_[current_node][scenario] < new_start) {
-                                    start_[current_node][scenario] = new_start;
-                                    processing_queue.emplace(current_node);
-                                } else if (start_[sibling_node][scenario] < new_start) {
-                                    start_[sibling_node][scenario] = new_start;
-                                    processing_queue.emplace(sibling_node);
-                                }
-                            }
-                        }
-                        current_node = records_[current_node].next;
+                    const auto sibling_index = duration_sample_.sibling(index);
+                    if (sibling_index >= 0) {
+                        const auto max_start_time = std::max(start_[index][scenario], start_[sibling_index][scenario]);
+                        start_[index][scenario] = max_start_time;
+                        start_[sibling_index][scenario] = max_start_time;
+                    }
+
+                    const auto &record = records_[index];
+                    auto arrival_time = start_[index][scenario] + duration_sample_.duration(index, scenario) + record.travel_time;
+                    if (arrival_time > record.break_min) {
+                        arrival_time += record.break_duration;
+                    } else {
+                        arrival_time = record.break_min + record.break_duration;
+                    }
+
+                    if (arrival_time > start_[record.next][scenario]) {
+                        start_[record.next][scenario] = arrival_time;
                     }
                 }
 
-                while (!processing_queue.empty()) {
-                    const auto current_node = processing_queue.front();
-                    processing_queue.pop();
-
-                    PropagateNodeWithSiblingsNoBreaks(current_node, scenario, processing_queue, data_source);
+                for (int64 index = 0; index < solver_.index_manager().num_indices(); ++index) {
+                    int64 sibling = duration_sample_.sibling(index);
+                    if (sibling != -1) {
+                        CHECK_EQ(start_[index][scenario], start_[sibling][scenario]);
+                    }
                 }
             }
+
+//            for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
+//                for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
+//                    PropagateNodeWithBreaks(model_->Start(vehicle), scenario, data_source);
+//                }
+//
+//                std::queue<int64> processing_queue;
+//                for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
+//                    int64 current_node = model_->Start(vehicle);
+//                    while (!model_->IsEnd(current_node)) {
+//                        int64 sibling_node = duration_sample_.sibling(current_node);
+//                        if (sibling_node != -1) {
+//                            if (start_[current_node][scenario] != start_[sibling_node][scenario]) {
+//                                int64 new_start = std::max(start_[current_node][scenario], start_[sibling_node][scenario]);
+//                                if (start_[current_node][scenario] < new_start) {
+//                                    start_[current_node][scenario] = new_start;
+//                                    processing_queue.emplace(current_node);
+//                                } else if (start_[sibling_node][scenario] < new_start) {
+//                                    start_[sibling_node][scenario] = new_start;
+//                                    processing_queue.emplace(sibling_node);
+//                                }
+//                            }
+//                        }
+//                        current_node = records_[current_node].next;
+//                    }
+//                }
+//
+//                while (!processing_queue.empty()) {
+//                    const auto current_node = processing_queue.front();
+//                    processing_queue.pop();
+//
+//                    PropagateNodeWithSiblingsNoBreaks(current_node, scenario, processing_queue, data_source);
+//                }
+//            }
 
             for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
                 ComputePathDelay(vehicle);

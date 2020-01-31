@@ -565,7 +565,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
     static const auto LOAD_DEBUG_FILES = false;
     static const auto SOLUTION_EXTENSION = ".bin";
 
-    const std::string SECOND_STAGE_XML_SOLUTION = "/home/pmateusz/dev/cordia/simulations/current_review_simulations/infinite_expansion_problem.gexf";
+    const std::string SECOND_STAGE_XML_SOLUTION = "";// "/home/pmateusz/dev/cordia/simulations/current_review_simulations/infinite_expansion_problem.gexf";
 
     const auto scheduling_day = second_stage_solver.GetScheduleDate();
 
