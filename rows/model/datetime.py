@@ -30,9 +30,12 @@ def try_parse_iso_datetime(text: str) -> typing.Optional[datetime.datetime]:
 
     try:
         return datetime.datetime.strptime(text, '%Y-%m-%dT%H:%M:%S')
-    except ValueError as ex:
-        logging.error("Failed to parse '%s' due to error '%s'", text, ex)
-        return None
+    except ValueError:
+        try:
+            return datetime.datetime.strptime(text, '%Y-%m-%dT%H:%M:%S.%f')
+        except ValueError as ex:
+            logging.error("Failed to parse '%s' due to error '%s'", text, ex)
+            return None
 
 
 def try_parse_iso_time(text: str) -> typing.Optional[datetime.time]:

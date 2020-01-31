@@ -196,7 +196,15 @@ namespace rows {
             }
 
             std::vector<int64> reverse_sorted_vertices;
-            boost::topological_sort(dag, std::back_inserter(reverse_sorted_vertices));
+            try {
+                boost::topological_sort(dag, std::back_inserter(reverse_sorted_vertices));
+            } catch (const boost::bad_graph &ex) {
+                if (model_->solver()->CurrentlyInSolve()) {
+                    model_->solver()->Fail();
+                } else {
+                    LOG(FATAL) << ex.what();
+                }
+            }
 
             const auto num_samples = duration_sample_.size();
             for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {

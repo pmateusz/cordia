@@ -22,6 +22,7 @@ class Schedule(rows.model.object.DataObject):
 
     METADATA = 'metadata'
     VISITS = 'visits'
+    ROUTES = 'routes'
 
     class Route:
 
@@ -55,6 +56,7 @@ class Schedule(rows.model.object.DataObject):
     def __init__(self, **kwargs):
         self.__metadata = kwargs.get(Schedule.METADATA, None)
         self.__visits = kwargs.get(Schedule.VISITS, [])
+        self.__routes = kwargs.get(Schedule.ROUTES, [])
 
     def __hash__(self):
         if self.__visits:
@@ -73,12 +75,7 @@ class Schedule(rows.model.object.DataObject):
         return bundle
 
     def routes(self):
-        routes = collections.defaultdict(list)
-        for visit in self.visits:
-            routes[visit.carer].append(visit)
-        for carer in routes:
-            routes[carer].sort(key=operator.attrgetter('time'))
-        return [Schedule.Route(carer=carer, visits=visits) for carer, visits in routes.items()]
+        return self.__routes
 
     @property
     def metadata(self):
@@ -139,6 +136,12 @@ class Schedule(rows.model.object.DataObject):
         visits_by_id = {}
         breaks_by_id = {}
 
+        def parse_skills(attr_container) -> typing.List[int]:
+            skills_text = [text for text in attr_container['value'].split(';') if text]
+            if skills_text:
+                return list(map(int, skills_text))
+            return list()
+
         break_counter = collections.Counter()
         for node in schedule_soup.find_all('node'):
             attributes = node.find('attvalues')
@@ -147,10 +150,9 @@ class Schedule(rows.model.object.DataObject):
                 id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
                 sap_number_attr = attributes.find('attvalue', attrs={'for': sap_number_id})
                 skills_number_attr = attributes.find('attvalue', attrs={'for': skills_id})
-                skills = list(map(int, skills_number_attr['value'].split(';')))
                 carers_by_id[node['id']] = rows.model.carer.Carer(key=int(id_number_attr['value']),
                                                                   sap_number=sap_number_attr['value'],
-                                                                  skills=skills)
+                                                                  skills=parse_skills(skills_number_attr))
             elif type_attr['value'] == 'user':
                 id_number_attr = attributes.find('attvalue', attrs={'for': id_id})
                 longitude_attr = attributes.find('attvalue', attrs={'for': longitude_id})
@@ -173,13 +175,12 @@ class Schedule(rows.model.object.DataObject):
                 assert start_time is not None and duration is not None
 
                 tasks_number_attr = attributes.find('attvalue', attrs={'for': tasks_id})
-                tasks = list(map(int, tasks_number_attr['value'].split(';')))
                 visits_by_id[node['id']] = rows.model.visit.Visit(key=key,
                                                                   date=start_time.date(),
                                                                   time=start_time.time(),
                                                                   duration=duration,
                                                                   service_user=service_user,
-                                                                  tasks=tasks)
+                                                                  tasks=parse_skills(tasks_number_attr))
             elif type_attr['value'] == 'break':
                 assigned_carer_attr = attributes.find('attvalue', attrs={'for': assigned_carer_id})
                 start_time_attr = attributes.find('attvalue', attrs={'for': start_time_id})
@@ -247,15 +248,18 @@ class Schedule(rows.model.object.DataObject):
         for carer in routes:
             for work_item in routes[carer]:
                 if isinstance(work_item, rows.model.visit.Visit):
+                    check_in = datetime.datetime.combine(work_item.date, work_item.time)
+                    check_out = datetime.datetime.combine(work_item.date, work_item.time) + work_item.duration
                     past_visits.append(rows.model.past_visit.PastVisit(visit=work_item,
                                                                        date=work_item.date,
                                                                        time=work_item.time,
                                                                        duration=work_item.duration,
-                                                                       carer=carer))
+                                                                       carer=carer,
+                                                                       check_in=check_in,
+                                                                       check_out=check_out))
         past_visits.sort(key=operator.attrgetter('time'))
 
-        return Schedule(
-            metadata=rows.model.metadata.Metadata(
-                begin=min(past_visits, key=operator.attrgetter('date')).date, end=max(past_visits, key=operator.attrgetter('date')).date),
-            visits=past_visits,
-            routes=routes)
+        return Schedule(metadata=rows.model.metadata.Metadata(begin=min(past_visits, key=operator.attrgetter('date')).date,
+                                                              end=max(past_visits, key=operator.attrgetter('date')).date),
+                        visits=past_visits,
+                        routes=routes)

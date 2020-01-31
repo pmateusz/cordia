@@ -1,9 +1,9 @@
 import datetime
 
-import model.object
+import rows.model.object
 
 
-class Rest(model.object.DatabaseObject):
+class Rest(rows.model.object.DatabaseObject):
 
     def __init__(self, **kwargs):
         super(Rest, self).__init__(**kwargs)

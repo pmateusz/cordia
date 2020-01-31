@@ -23,6 +23,7 @@ import matplotlib.ticker
 import numpy
 import pandas
 import tabulate
+import networkx
 
 import rows.console
 import rows.load
@@ -33,14 +34,18 @@ import rows.model.json
 import rows.model.location
 import rows.model.metadata
 import rows.model.past_visit
+import rows.model.datetime
 import rows.model.problem
 import rows.model.schedule
 import rows.model.service_user
 import rows.model.visit
+import rows.model.history
+import rows.model.historical_visit
 import rows.plot
 import rows.routing_server
 import rows.settings
 import rows.sql_data_source
+import rows.parser
 
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -2555,14 +2560,43 @@ def compute_overtime(frame):
     return overtime_series
 
 
-def compute_riskiness(args):
-    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/infinite_expansion_problem.gexf')
+class Mapping:
+    def __init__(self, routes):
+        self.__routes = routes
 
-    # TODO: load history
+        current_index = 0
+        self.__index_to_visit = {}
+
+        self.__routes = {}
+        self.__siblings = {}
+
+    def graph(self) -> networkx.DiGraph:
+        edges = []
+        for carer in self.__routes:
+            route = self.__routes[carer]
+
+            prev_node = None
+            for node in route:
+                if prev_node is not None:
+                    edges.append([prev_node, node])
+                prev_node = node
+        return networkx.DiGraph(edges)
+
+
+def compute_riskiness(args):
+    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/cmake-build-debug/second_stage_solution_version8.gexf')
+
+    with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
+        history = rows.model.history.History.load(input_stream)
+
+    mapping = Mapping(schedule.routes())
+    sorted_indices = list(reversed(list(networkx.topological_sort(mapping.graph()))))
+    sample = history.build_sample(schedule)
+
     # TODO: compute delay
     # TODO: compute riskiness
 
-    pass
+    print('here')
 
 
 def debug(args, settings):
