@@ -2,12 +2,10 @@
 #include <utility>
 #include <vector>
 #include <algorithm>
-#include <utility>
 #include <memory>
 #include <thread>
 #include <future>
 #include <iostream>
-#include <regex>
 #include <chrono>
 
 #include <boost/date_time/gregorian/gregorian.hpp>
@@ -27,7 +25,6 @@
 #include "util/validation.h"
 #include "util/input.h"
 #include "event.h"
-#include "solution.h"
 #include "problem.h"
 #include "printer.h"
 #include "history.h"

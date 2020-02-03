@@ -34,6 +34,8 @@ namespace rows {
 
         inline const operations_research::RoutingModel *model() const { return delay_tracker_->model(); }
 
+        inline const DelayTracker &delay_tracker() const { return *delay_tracker_; }
+
         inline const std::vector<int64> &Delay(int64 node) const { return delay_tracker_->Delay(node); }
 
         std::vector<operations_research::IntVar *> completed_paths_;

@@ -7,6 +7,7 @@
 #include "solver_wrapper.h"
 #include "solution_repository.h"
 #include "history.h"
+#include "delay_not_expected_constraint.h"
 
 namespace rows {
 
@@ -25,14 +26,17 @@ namespace rows {
                             std::shared_ptr<const std::atomic<bool> > cancel_token,
                             double cost_normalization_factor) override;
 
-        std::shared_ptr<rows::SolutionRepository> solution_repository();
+        std::shared_ptr<SolutionRepository> solution_repository();
+
+        std::shared_ptr<FailedExpectationRepository> failed_expectation_repository();
 
     private:
         const History &history_;
 
         boost::posix_time::time_duration no_progress_time_limit_;
         operations_research::SolutionCollector *solution_collector_;
-        std::shared_ptr<rows::SolutionRepository> solution_repository_;
+        std::shared_ptr<SolutionRepository> solution_repository_;
+        std::shared_ptr<FailedExpectationRepository> failed_expectation_repository_;
     };
 }
 

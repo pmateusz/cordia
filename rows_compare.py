@@ -2584,7 +2584,7 @@ class Mapping:
 
 
 def compute_riskiness(args):
-    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/cmake-build-debug/second_stage_solution_version8.gexf')
+    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution.gexf')
 
     with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
         history = rows.model.history.History.load(input_stream)

@@ -149,3 +149,60 @@ int64 rows::DelayTracker::GetArrivalTimeNoBreak(const rows::DelayTracker::TrackR
 
     return arrival_time;
 }
+
+rows::DelayTracker::PartialPath const *rows::DelayTracker::SelectBestPath(const PartialPath &left, const PartialPath &right) const {
+    CHECK(left.IsComplete());
+    CHECK(right.IsComplete());
+    CHECK_EQ(left.slack.size(), right.slack.size());
+
+    const auto num_slack = left.slack.size();
+    std::vector<int64> slack_diff;
+    slack_diff.resize(num_slack);
+
+    for (std::size_t pos = 0; pos < num_slack; ++pos) {
+        slack_diff[pos] = std::min(left.slack[pos], 3600l) - std::min(right.slack[pos], 3600l);
+    }
+    auto total_budget = std::accumulate(std::cbegin(slack_diff), std::cend(slack_diff), 0l);
+
+    if (total_budget > 0) {
+        return &left;
+    } else if (total_budget < 0) {
+        return &right;
+    }
+
+    for (std::size_t pos = 0; pos < num_slack; ++pos) {
+        slack_diff[pos] = left.slack[pos] - right.slack[pos];
+    }
+    total_budget = std::accumulate(std::cbegin(slack_diff), std::cend(slack_diff), 0l);
+
+//        int64 candidate_slack = paths[candidate_pos].TotalNormalizedSlack();
+//        if (result_slack < candidate_slack) {
+//            result_pos = candidate_pos;
+//            result_slack = candidate_slack;
+//        }
+
+    if (total_budget > 0) {
+        return &left;
+    } else if (total_budget < 0) {
+        return &right;
+    }
+    return &left;
+}
+
+rows::DelayTracker::PartialPath const *rows::DelayTracker::SelectBestPath(const std::vector<PartialPath> &paths) const {
+    const auto num_paths = paths.size();
+    std::size_t result_pos = 0;
+    for (; result_pos < num_paths && !paths[result_pos].IsComplete(); ++result_pos);
+    if (result_pos == num_paths) { return nullptr; }
+
+    rows::DelayTracker::PartialPath const *result_path = &paths[result_pos];
+    for (std::size_t candidate_pos = result_pos + 1; candidate_pos < num_paths; ++candidate_pos) {
+        if (!paths[candidate_pos].IsComplete()) {
+            continue;
+        }
+
+        result_path = SelectBestPath(*result_path, paths[candidate_pos]);
+    }
+
+    return result_path;
+}

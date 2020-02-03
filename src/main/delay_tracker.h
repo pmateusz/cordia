@@ -45,6 +45,10 @@ namespace rows {
 
         std::vector<int64> BuildPath(int vehicle, operations_research::Assignment const *assignment);
 
+        inline bool has_sibling(int64 index) const { return duration_sample_.has_sibling(index); }
+
+        inline int64 sibling(int64 index) const { return duration_sample_.sibling(index); }
+
     private:
 
         template<typename DataSource>
@@ -160,8 +164,10 @@ namespace rows {
             for (Vertex vertex = 0; vertex < num_vertices; ++vertex) {
                 std::vector<Vertex> outgoing_vertices;
                 boost::graph_traits<Graph>::out_edge_iterator out_ei, out_ei_end;
+
                 for (std::tie(out_ei, out_ei_end) = boost::out_edges(vertex, dag); out_ei != out_ei_end; ++out_ei) {
                     const auto target = boost::target(*out_ei, dag);
+
                     visited_nodes[target] = true;
                     outgoing_vertices.emplace_back(target);
                 }
@@ -204,12 +210,19 @@ namespace rows {
                 } else {
                     LOG(FATAL) << ex.what();
                 }
+            } catch (const std::exception &ex) {
+                if (model_->solver()->CurrentlyInSolve()) {
+                    model_->solver()->Fail();
+                } else {
+                    LOG(FATAL) << ex.what();
+                }
             }
 
             const auto num_samples = duration_sample_.size();
             for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
                 for (auto it = std::crbegin(reverse_sorted_vertices); it != std::crend(reverse_sorted_vertices); ++it) {
                     const auto index = *it;
+
                     if (model_->IsEnd(index)) { continue; }
                     if (!visited_nodes[index]) { continue; }
 
@@ -241,40 +254,6 @@ namespace rows {
                 }
             }
 
-//            for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
-//                for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
-//                    PropagateNodeWithBreaks(model_->Start(vehicle), scenario, data_source);
-//                }
-//
-//                std::queue<int64> processing_queue;
-//                for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
-//                    int64 current_node = model_->Start(vehicle);
-//                    while (!model_->IsEnd(current_node)) {
-//                        int64 sibling_node = duration_sample_.sibling(current_node);
-//                        if (sibling_node != -1) {
-//                            if (start_[current_node][scenario] != start_[sibling_node][scenario]) {
-//                                int64 new_start = std::max(start_[current_node][scenario], start_[sibling_node][scenario]);
-//                                if (start_[current_node][scenario] < new_start) {
-//                                    start_[current_node][scenario] = new_start;
-//                                    processing_queue.emplace(current_node);
-//                                } else if (start_[sibling_node][scenario] < new_start) {
-//                                    start_[sibling_node][scenario] = new_start;
-//                                    processing_queue.emplace(sibling_node);
-//                                }
-//                            }
-//                        }
-//                        current_node = records_[current_node].next;
-//                    }
-//                }
-//
-//                while (!processing_queue.empty()) {
-//                    const auto current_node = processing_queue.front();
-//                    processing_queue.pop();
-//
-//                    PropagateNodeWithSiblingsNoBreaks(current_node, scenario, processing_queue, data_source);
-//                }
-//            }
-
             for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
                 ComputePathDelay(vehicle);
             }
@@ -291,15 +270,6 @@ namespace rows {
             bool IsComplete() const { return path[path.size() - 1] < 0; }
 
             inline std::size_t CurrentPosition() const { return break_next_pos + node_next_pos - 1; }
-
-            int64 TotalNormalizedSlack() const {
-                int64 total_normalized_slack = 0;
-                const std::size_t num_slacks = slack.size();
-                for (std::size_t pos = 2; pos < num_slacks; ++pos) {
-                    total_normalized_slack += pos * slack[pos];
-                }
-                return total_normalized_slack;
-            }
 
             int64 current_time;
             int64 travel_time;
@@ -464,6 +434,10 @@ namespace rows {
 
         static const int64 MAX_START_TIME = 48 * 60 * 60;
 
+        PartialPath const *SelectBestPath(const std::vector<PartialPath> &paths) const;
+
+        PartialPath const *SelectBestPath(const PartialPath &left, const PartialPath &right) const;
+
         template<typename DataSource>
         std::vector<int64> BuildPathFromSource(int vehicle, const DataSource &data) {
             PathBuilder<DataSource> builder{data, records_, dimension_, vehicle};
@@ -500,7 +474,6 @@ namespace rows {
                     }
 
                     if (builder.break_preferred) {
-
                         if (partial_paths[current_path_pos].node_next_pos == builder.nodes.size()) {
                             CHECK_EQ(partial_paths[current_path_pos].travel_time, 0);
                         }
@@ -523,11 +496,8 @@ namespace rows {
                 ++current_path_pos;
             }
 
-            const auto num_paths = partial_paths.size();
-            std::size_t result_pos = 0;
-            for (; result_pos < num_paths && !partial_paths[result_pos].IsComplete(); ++result_pos);
-
-            if (result_pos == num_paths) {
+            const auto path_ptr = SelectBestPath(partial_paths);
+            if (path_ptr == nullptr) {
                 if (model_->solver()->CurrentlyInSolve()) {
                     model_->solver()->Fail();
                 } else {
@@ -542,21 +512,171 @@ namespace rows {
                     LOG(FATAL) << msg.str();
                 }
             }
+            CHECK(path_ptr != nullptr);
 
-            int64 result_slack = partial_paths[result_pos].TotalNormalizedSlack();
-            for (std::size_t candidate_pos = result_pos + 1; candidate_pos < num_paths; ++candidate_pos) {
-                if (!partial_paths[candidate_pos].IsComplete()) {
-                    continue;
-                }
+//            int64 result_slack = partial_paths[result_pos].TotalNormalizedSlack();
+//            for (std::size_t candidate_pos = result_pos + 1; candidate_pos < num_paths; ++candidate_pos) {
+//                if (!partial_paths[candidate_pos].IsComplete()) {
+//                    continue;
+//                }
+//
+//                int64 candidate_slack = partial_paths[candidate_pos].TotalNormalizedSlack();
+//                if (result_slack < candidate_slack) {
+//                    result_pos = candidate_pos;
+//                    result_slack = candidate_slack;
+//                }
+//            }
+//
+//            int64 alternative_paths = 0;
+//            for (std::size_t candidate_pos = result_pos + 1; candidate_pos < num_paths; ++candidate_pos) {
+//                if (partial_paths[candidate_pos].IsComplete()) {
+//                    ++alternative_paths;
+//                }
+//            }
 
-                int64 candidate_slack = partial_paths[candidate_pos].TotalNormalizedSlack();
-                if (result_slack < candidate_slack) {
-                    result_pos = candidate_pos;
-                    result_slack = candidate_slack;
+            int64 alternative_paths = 0;
+            for (std::size_t candidate_pos = 0; candidate_pos < partial_paths.size(); ++candidate_pos) {
+                if (partial_paths[candidate_pos].IsComplete()) {
+                    ++alternative_paths;
                 }
             }
 
-            return partial_paths[result_pos].path;
+            std::size_t path_index = 0;
+            for (path_index = 0; path_index < partial_paths.size() && &partial_paths[path_index] != path_ptr; ++path_index);
+
+// problem 2
+//            if (vehicle == 46 && partial_paths.size() == 3) {
+//                CHECK_EQ(path_index, 2);
+//                return partial_paths[2].path;
+//            }
+// end of problem 2
+
+// problem 3
+//            if (vehicle == 12 && partial_paths.size() == 8) {
+//                CHECK_EQ(path_index, 1);
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 22 && partial_paths.size() == 3) {
+//                CHECK_EQ(path_index, 2);
+//                return partial_paths[2].path;
+//            }
+//
+//            if (vehicle == 23 && partial_paths.size() == 2) {
+//                CHECK_EQ(path_index, 1);
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 24 && partial_paths.size() == 2) {
+//                CHECK_EQ(path_index, 1);
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 26 && partial_paths.size() == 2) {
+//                CHECK_EQ(path_index, 1);
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 32 && partial_paths.size() == 3) {
+//                CHECK_EQ(path_index, 0);
+//                return partial_paths[0].path;
+//            }
+//
+//            if (vehicle == 36 && partial_paths.size() == 4) {
+//                CHECK_EQ(path_index, 1);
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 39 && partial_paths.size() == 6) {
+//                CHECK_EQ(path_index, 0);
+//                return partial_paths[0].path;
+//            }
+//
+//            if (vehicle == 43 && partial_paths.size() == 4) {
+//                CHECK_EQ(path_index, 1);
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 47 && partial_paths.size() == 2) {
+//                CHECK_EQ(path_index, 0);
+//                return partial_paths[0].path;
+//            }
+//
+//            if (vehicle == 48 && partial_paths.size() == 2) {
+//                CHECK_EQ(path_index, 1);
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 49 && partial_paths.size() == 5) {
+//                CHECK_EQ(path_index, 1);
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 50 && partial_paths.size() == 4) {
+//                CHECK_EQ(path_index, 1);
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 57 && partial_paths.size() == 4) {
+//                CHECK_EQ(path_index, 3);
+//                return partial_paths[3].path;
+//            }
+// end of problem 3
+
+// problem 12
+//            if (vehicle == 19 && partial_paths.size() == 2) {
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 24 && partial_paths.size() == 4) {
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 25 && partial_paths.size() == 2) {
+//                return partial_paths[0].path;
+//            }
+//
+//            if (vehicle == 26 && partial_paths.size() == 4) {
+//                return partial_paths[2].path;
+//            }
+//
+//            if (vehicle == 35 && partial_paths.size() == 15) {
+//                return partial_paths[11].path;
+//            }
+//
+//            if (vehicle == 36 && partial_paths.size() == 4) {
+//                return partial_paths[3].path;
+//            }
+//
+//            if (vehicle == 38 && partial_paths.size() == 3) {
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 41 && partial_paths.size() == 2) {
+//                return partial_paths[0].path;
+//            }
+//
+//            if (vehicle == 49 && partial_paths.size() == 5) {
+//                return partial_paths[4].path;
+//            }
+//
+//            if (vehicle == 54 && partial_paths.size() == 3) {
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 57 && partial_paths.size() == 2) {
+//                return partial_paths[1].path;
+//            }
+//
+//            if (vehicle == 70 && partial_paths.size() == 2) {
+//                return partial_paths[0].path;
+//            }
+// end of problem 12
+
+            if (path_ptr != nullptr) {
+                return path_ptr->path;
+            }
+            return partial_paths[0].path;
         }
 
         template<typename DataSource>

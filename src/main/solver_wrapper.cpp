@@ -35,8 +35,6 @@
 // TODO: add information about back to back carers
 // TODO: modify cost function to differentiate between each of employee category
 
-
-
 namespace rows {
 
     const int64 SolverWrapper::MAX_CARERS_SINGLE_VISITS = 2;
@@ -360,7 +358,7 @@ namespace rows {
         }
 
         std::unordered_set<rows::Carer> used_carers;
-        CHECK_EQ(model.vehicles(), solution.Carers().size());
+//        CHECK_EQ(model.vehicles(), solution.Carers().size());
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto carer = Carer(vehicle);
             used_carers.insert(carer);
@@ -409,8 +407,8 @@ namespace rows {
             routes.emplace_back(std::move(route));
         }
 
-        CHECK_EQ(used_carers.size(), solution.Carers().size());
-        CHECK_EQ(routes.size(), solution.Carers().size());
+//        CHECK_EQ(used_carers.size(), solution.Carers().size());
+//        CHECK_EQ(routes.size(), solution.Carers().size());
 
         for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
             const auto carer = Carer(vehicle);

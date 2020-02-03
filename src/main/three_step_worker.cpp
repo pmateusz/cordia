@@ -565,7 +565,12 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
     static const auto LOAD_DEBUG_FILES = false;
     static const auto SOLUTION_EXTENSION = ".bin";
 
-    const std::string SECOND_STAGE_XML_SOLUTION = "";// "/home/pmateusz/dev/cordia/simulations/current_review_simulations/infinite_expansion_problem.gexf";
+    const std::string SECOND_STAGE_XML_SOLUTION = "";
+    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_2017-10-12.gexf";
+    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version19.gexf";
+    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version5.gexf";
+    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version7.gexf";
+    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/infinite_expansion_problem.gexf";
 
     const auto scheduling_day = second_stage_solver.GetScheduleDate();
 
@@ -592,8 +597,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
 //    second_stage_search_params.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
 //    CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(10), second_stage_search_params.mutable_lns_time_limit()));
     second_stage_search_params.mutable_local_search_operators()->set_use_exchange_subtrip(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_relocate_expensive_chain(
-            operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_relocate_expensive_chain(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_light_relocate_pair(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_relocate(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
@@ -663,7 +667,9 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
 
         solution_writer_.Write(second_stage_output,
                                second_stage_solver,
-                               second_stage_model, *second_stage_assignment, boost::none);
+                               second_stage_model,
+                               *second_stage_assignment,
+                               boost::none);
 
         second_stage_model.AssignmentToRoutes(*second_stage_assignment, &solution);
     }
@@ -687,18 +693,27 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
             }
         }
 
-        std::vector<std::vector<int64>> filtered_tours;
-        for (const auto &tour : solution) {
-            std::vector<int64> filtered_tour;
-            for (const auto node : tour) {
-                if (nodes_to_skip.find(node) == std::cend(nodes_to_skip)) {
-                    filtered_tour.emplace_back(node);
+        int iterations = 0;
+        while (filtered_assignment == nullptr && iterations < 10) {
+            std::vector<std::vector<int64>> filtered_tours;
+            for (const auto &tour : solution) {
+                std::vector<int64> filtered_tour;
+                for (const auto node : tour) {
+                    if (nodes_to_skip.find(node) == std::cend(nodes_to_skip)) {
+                        filtered_tour.emplace_back(node);
+                    }
                 }
+                filtered_tours.emplace_back(std::move(filtered_tour));
             }
-            filtered_tours.emplace_back(std::move(filtered_tour));
-        }
 
-        filtered_assignment = filtered_second_stage_model.ReadAssignmentFromRoutes(filtered_tours, false);
+            filtered_assignment = filtered_second_stage_model.ReadAssignmentFromRoutes(filtered_tours, false);
+
+            for (const auto node : filtered_second_stage_wrapper.failed_expectation_repository()->Indices()) {
+                nodes_to_skip.emplace(node);
+            }
+
+            ++iterations;
+        }
         CHECK(filtered_assignment != nullptr);
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2-Patch"));
@@ -730,9 +745,8 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
 
     const auto third_search_params = CreateThirdStageRoutingSearchParameters();
     const auto third_stage_penalty = second_stage_solver.GetDroppedVisitPenalty();
-    std::unique_ptr<rows::SolverWrapper> third_step_solver = CreateThirdStageSolver(third_search_params,
-                                                                                    third_stage_penalty,
-                                                                                    max_dropped_visits_count);
+    std::unique_ptr<rows::SolverWrapper> third_step_solver
+            = CreateThirdStageSolver(third_search_params, third_stage_penalty, max_dropped_visits_count);
 
     third_step_solver->ConfigureModel(third_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 
@@ -823,7 +837,6 @@ rows::FirstStageStrategy rows::GetAlias(rows::FirstStageStrategy strategy) {
     if (strategy == FirstStageStrategy::DEFAULT) {
         return FirstStageStrategy::TEAMS;
     }
-
     return strategy;
 }
 

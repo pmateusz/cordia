@@ -80,6 +80,10 @@ const std::vector<rows::Carer> rows::Solution::Carers() const {
         }
     }
 
+    for (const auto &break_item : breaks_) {
+        carers.insert(break_item.carer());
+    }
+
     std::vector<rows::Carer> sorted_carers{std::begin(carers), std::end(carers)};
     std::sort(std::begin(sorted_carers), std::end(sorted_carers),
               [](const rows::Carer &left, const rows::Carer &right) -> bool {

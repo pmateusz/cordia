@@ -172,7 +172,7 @@ namespace rows {
                 return FINISHED_NAME;
             default:
                 std::string error_msg = "Conversion to std::string not defined for value=" + static_cast<int>(value);
-                throw std::invalid_argument(std::move(error_msg));
+                throw std::invalid_argument(error_msg);
         }
     }
 
