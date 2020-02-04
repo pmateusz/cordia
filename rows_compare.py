@@ -2,11 +2,13 @@
 
 import argparse
 import collections
+import copy
 import datetime
 import functools
 import glob
 import json
 import logging
+import math
 import operator
 import os
 import os.path
@@ -39,6 +41,7 @@ import rows.model.problem
 import rows.model.schedule
 import rows.model.service_user
 import rows.model.visit
+import rows.model.rest
 import rows.model.history
 import rows.model.historical_visit
 import rows.plot
@@ -2560,43 +2563,262 @@ def compute_overtime(frame):
     return overtime_series
 
 
+class Node:
+
+    def __init__(self, index: int,
+                 visit: rows.model.visit.Visit,
+                 visit_start_min: datetime.datetime,
+                 visit_start_max: datetime.datetime,
+                 break_start: typing.Optional[datetime.datetime],
+                 break_duration: datetime.timedelta,
+                 travel_duration: datetime.timedelta):
+        self.__index = index
+        self.__visit = visit
+        self.__visit_start_min = visit_start_min
+        self.__visit_start_max = visit_start_max
+        self.__break_start = break_start
+        self.__break_duration = break_duration
+        self.__travel_duration = travel_duration
+        self.__next = None
+
+    @property
+    def index(self):
+        return self.__index
+
+    @property
+    def service_user(self) -> str:
+        return self.__visit.service_user
+
+    @property
+    def visit_key(self) -> int:
+        return self.__visit.key
+
+    @property
+    def visit_start(self) -> datetime.datetime:
+        return datetime.datetime.combine(self.__visit.date, self.__visit.time)
+
+    @property
+    def visit_start_min(self) -> datetime.datetime:
+        return self.__visit_start_min
+
+    @property
+    def visit_start_max(self) -> datetime.datetime:
+        return self.__visit_start_max
+
+    @property
+    def visit_duration(self) -> datetime.timedelta:
+        return self.__visit.duration
+
+    @property
+    def break_start(self) -> datetime.datetime:
+        return self.__break_start
+
+    @property
+    def break_duration(self) -> datetime.timedelta:
+        return self.__break_duration
+
+    @property
+    def travel_duration(self) -> datetime.timedelta:
+        return self.__travel_duration
+
+    @property
+    def next(self) -> int:
+        return self.__next
+
+    @next.setter
+    def next(self, value):
+        self.__next = value
+
+
 class Mapping:
-    def __init__(self, routes):
-        self.__routes = routes
+    def __init__(self, routes, problem, settings, time_window_span):
+        self.__index_to_node = {}
 
+        user_tag_finder = rows.location_finder.UserLocationFinder(settings)
+        user_tag_finder.reload()
+
+        local_routes = []
         current_index = 0
-        self.__index_to_visit = {}
 
-        self.__routes = {}
+        with rows.plot.create_routing_session() as routing_session:
+            for carer in routes:
+                local_route = []
+                last_location = None
+                break_start = None
+                break_duration = None
+                for item in routes[carer]:
+                    break_start = None
+                    break_duration = datetime.timedelta()
+                    if isinstance(item, rows.model.visit.Visit):
+                        current_location = user_tag_finder.find(item.service_user)
+                        travel_time = datetime.timedelta()
+                        if last_location is not None:
+                            travel_time = datetime.timedelta(seconds=routing_session.distance(last_location, current_location))
+
+                        visit_match = None
+                        for visit_batch in problem.visits:
+                            if visit_batch.service_user != item.service_user:
+                                continue
+
+                            for visit in visit_batch.visits:
+                                if visit.date != item.date or visit.tasks != item.tasks:
+                                    continue
+
+                                visit_total_time = visit.time.hour * 3600 + visit.time.minute * 60
+                                item_total_time = item.time.hour * 3600 + item.time.minute * 60
+                                diff_total_time = abs(visit_total_time - item_total_time)
+                                if diff_total_time <= time_window_span.total_seconds():
+                                    visit_match = visit
+                                    break
+                        assert visit_match is not None
+
+                        node = Node(current_index,
+                                    item,
+                                    datetime.datetime.combine(visit_match.date, visit_match.time) - time_window_span,
+                                    datetime.datetime.combine(visit_match.date, visit_match.time) + time_window_span,
+                                    break_start,
+                                    break_duration,
+                                    travel_time)
+                        self.__index_to_node[current_index] = node
+                        local_route.append(node)
+
+                        current_index += 1
+                        break_start = None
+                        break_duration = datetime.timedelta()
+                        last_location = current_location
+                    if isinstance(item, rows.model.rest.Rest):
+                        if break_start is None:
+                            break_start = item.start_time
+                        else:
+                            break_start = item.start_time - break_duration
+                        break_duration += item.duration
+
+                node_it = iter(local_route)
+                prev_node = next(node_it)
+                for node in node_it:
+                    prev_node.next = node.index
+                    prev_node = node
+                local_routes.append(local_route)
+        self.__routes = local_routes
+
+        service_user_to_index = collections.defaultdict(list)
+        for index in self.__index_to_node:
+            node = self.__index_to_node[index]
+            service_user_to_index[node.service_user].append(index)
+
         self.__siblings = {}
+        for service_user in service_user_to_index:
+            num_indices = len(service_user_to_index[service_user])
+            for left_pos in range(num_indices):
+                left_index = service_user_to_index[service_user][left_pos]
+                for right_pos in range(left_pos + 1, num_indices):
+                    right_index = service_user_to_index[service_user][right_pos]
+                    if self.__index_to_node[left_index].visit_start == self.__index_to_node[right_index].visit_start:
+                        self.__siblings[left_index] = right_index
+                        self.__siblings[right_index] = left_index
+
+    def indices(self):
+        return self.__index_to_node.keys()
+
+    def node(self, index: int) -> Node:
+        return self.__index_to_node[index]
+
+    def sibling(self, index: int) -> typing.Optional[Node]:
+        if index in self.__siblings:
+            sibling_index = self.__siblings[index]
+            return self.__index_to_node[sibling_index]
+        return None
 
     def graph(self) -> networkx.DiGraph:
         edges = []
-        for carer in self.__routes:
-            route = self.__routes[carer]
-
+        for route in self.__routes:
             prev_node = None
             for node in route:
                 if prev_node is not None:
-                    edges.append([prev_node, node])
+                    edges.append([prev_node.index, node.index])
                 prev_node = node
         return networkx.DiGraph(edges)
 
 
-def compute_riskiness(args):
-    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution.gexf')
+def essential_riskiness_index(data: typing.List[float]) -> float:
+    records = copy.copy(data)
+    records.sort()
+
+    num_records = len(records)
+    if records[num_records - 1] <= 0:
+        return 0.0
+
+    total_delay = 0.0
+    position = num_records - 1
+    while position >= 0 and records[position] >= 0:
+        total_delay += records[position]
+        position -= 1
+
+    if position == -1:
+        return float('inf')
+
+    delay_budget = 0
+    while position > 0 and delay_budget + float(position + 1) * records[position] + total_delay > 0:
+        delay_budget += records[position]
+        position -= 1
+
+    delay_balance = delay_budget + float(position + 1) * records[position] + total_delay
+    if delay_balance < 0:
+        riskiness_index = min(0.0, records[position + 1])
+        assert riskiness_index <= 0.0
+
+        remaining_balance = total_delay + delay_budget + float(position + 1) * riskiness_index
+        assert remaining_balance >= 0.0
+
+        riskiness_index -= math.ceil(remaining_balance / float(position + 1))
+        assert riskiness_index * float(position + 1) + delay_budget + total_delay <= 0.0
+
+        return -riskiness_index
+    elif delay_balance > 0:
+        return float('inf')
+    else:
+        return data[position]
+
+
+def compute_riskiness(args, settings):
+    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-14.gexf')
+    problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
 
     with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
         history = rows.model.history.History.load(input_stream)
 
-    mapping = Mapping(schedule.routes())
+    time_windows_span = datetime.timedelta(minutes=90)
+
+    mapping = Mapping(schedule.routes(), problem, settings, time_windows_span)
     sorted_indices = list(reversed(list(networkx.topological_sort(mapping.graph()))))
     sample = history.build_sample(schedule)
 
-    # TODO: compute delay
-    # TODO: compute riskiness
+    start_times = [[mapping.node(index).visit_start_min for _ in range(sample.size)] for index in mapping.indices()]
+    for scenario in range(sample.size):
+        for index in sorted_indices:
+            node = mapping.node(index)
+            if node.next is None:
+                continue
 
-    print('here')
+            visit_key = mapping.node(node.next).visit_key
+            next_arrival = node.visit_start + sample.visit_duration(visit_key, scenario) + node.travel_duration
+            if node.break_start is not None:
+                if next_arrival >= node.break_start:
+                    next_arrival += node.break_duration
+                else:
+                    next_arrival = node.break_start + node.break_duration
+
+            start_times[node.next][scenario] = max(start_times[node.next][scenario], next_arrival)
+
+            sibling_node = mapping.sibling(node.next)
+            if sibling_node:
+                max_time = max(start_times[sibling_node.index][scenario], start_times[node.next][scenario])
+                start_times[node.next][scenario] = max_time
+                start_times[sibling_node.index][scenario] = max_time
+    delay = [[(start_times[index][scenario] - mapping.node(index).visit_start_max).total_seconds() for scenario in range(sample.size)]
+             for index in mapping.indices()]
+
+    riskiness = [essential_riskiness_index(delay[index]) for index in mapping.indices()]
 
 
 def debug(args, settings):
@@ -2648,7 +2870,7 @@ if __name__ == '__main__':
     elif __command == __COMPARE_LITERATURE_TABLE_COMMAND:
         compare_literature_table(__args, __settings)
     elif __command == __COMPUTE_RISKINESS_COMMAND:
-        compute_riskiness(__args)
+        compute_riskiness(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:

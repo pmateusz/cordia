@@ -16,11 +16,15 @@ class Sample:
     def __init__(self, values: dict):
         self.__values = values
 
-    def num_scenarios(self) -> int:
-        return len(self.__values[0])
-
     def visit_duration(self, visit: int, scenario: int) -> datetime.timedelta:
         return self.__values[visit][scenario]
+
+    @property
+    def size(self) -> int:
+        first_key = next(iter(self.__values))
+        if first_key is None:
+            return 0
+        return len(self.__values[first_key])
 
 
 class History:
@@ -37,8 +41,6 @@ class History:
         for service_user in visit_index:
             visit_index[service_user].sort(key=operator.attrgetter('planned_check_in'))
 
-        warnings.warn('Task comparison is switched off')
-
         time_radius = datetime.timedelta(minutes=91)
         matched_visits = {}
         for visit in tqdm.tqdm(schedule.visits, desc='Matching visits'):
@@ -50,8 +52,8 @@ class History:
 
             matches = {}
             for indexed_visit in visit_index[visit.visit.service_user]:
-                # if indexed_visit.tasks != visit.visit.tasks:
-                #     continue
+                if indexed_visit.tasks != visit.visit.tasks:
+                    continue
 
                 if time_before.time() <= indexed_visit.planned_check_in.time() <= time_after.time():
                     if indexed_visit.planned_check_in.date() in matches:
@@ -88,7 +90,7 @@ class History:
                 past_visit_duration.append(visit_duration)
                 current_date_time += step
 
-            samples[visit.key] = past_visit_duration
+            samples[visit.visit.key] = past_visit_duration
 
         return Sample(samples)
 

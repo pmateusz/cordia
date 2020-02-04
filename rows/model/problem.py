@@ -209,7 +209,7 @@ class Problem(rows.model.object.DataObject):
         def from_json(json):
             """Create object from dictionary"""
 
-            service_user = json.get(Problem.LocalVisits.SERVICE_USER)
+            service_user = int(json.get(Problem.LocalVisits.SERVICE_USER))
 
             visits_json = json.get(Problem.LocalVisits.VISITS)
             visits = [Problem.LocalVisit.from_json(visit_json) for visit_json in visits_json] if visits_json else []
