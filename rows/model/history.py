@@ -1,9 +1,8 @@
-import json
-import operator
-import datetime
 import copy
 import collections
-import warnings
+import datetime
+import json
+import operator
 
 import tqdm
 
@@ -31,7 +30,7 @@ class History:
     def __init__(self, visits):
         self.__visits = visits
 
-    def build_sample(self, schedule: rows.model.schedule.Schedule) -> Sample:
+    def build_sample(self, schedule: rows.model.schedule.Schedule, window_time_span: datetime.timedelta) -> Sample:
 
         visit_index = collections.defaultdict(list)
 
@@ -41,14 +40,13 @@ class History:
         for service_user in visit_index:
             visit_index[service_user].sort(key=operator.attrgetter('planned_check_in'))
 
-        time_radius = datetime.timedelta(minutes=91)
         matched_visits = {}
         for visit in tqdm.tqdm(schedule.visits, desc='Matching visits'):
             if visit.visit.service_user not in visit_index:
                 continue
 
-            time_before = visit.check_in - time_radius
-            time_after = visit.check_in + time_radius
+            time_before = visit.check_in - window_time_span
+            time_after = visit.check_in + window_time_span
 
             matches = {}
             for indexed_visit in visit_index[visit.visit.service_user]:

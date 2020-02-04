@@ -2736,6 +2736,15 @@ class Mapping:
             for node in route:
                 if prev_node is not None:
                     edges.append([prev_node.index, node.index])
+
+                    prev_sibling = self.sibling(prev_node.index)
+                    if not prev_sibling:
+                        continue
+
+                    edges.append([prev_sibling.index, node.index])
+
+                    if prev_sibling.index < prev_node.index:
+                        edges.append([prev_sibling.index, prev_node.index])
                 prev_node = node
         return networkx.DiGraph(edges)
 
@@ -2791,7 +2800,7 @@ def compute_riskiness(args, settings):
 
     mapping = Mapping(schedule.routes(), problem, settings, time_windows_span)
     sorted_indices = list(reversed(list(networkx.topological_sort(mapping.graph()))))
-    sample = history.build_sample(schedule)
+    sample = history.build_sample(schedule, time_windows_span)
 
     start_times = [[mapping.node(index).visit_start_min for _ in range(sample.size)] for index in mapping.indices()]
     for scenario in range(sample.size):
@@ -2818,7 +2827,11 @@ def compute_riskiness(args, settings):
     delay = [[(start_times[index][scenario] - mapping.node(index).visit_start_max).total_seconds() for scenario in range(sample.size)]
              for index in mapping.indices()]
 
+    # TODO: make sure start times in C++ and Python are comparable
+
     riskiness = [essential_riskiness_index(delay[index]) for index in mapping.indices()]
+
+    print('here')
 
 
 def debug(args, settings):

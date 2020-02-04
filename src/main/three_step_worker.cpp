@@ -565,7 +565,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
     static const auto LOAD_DEBUG_FILES = false;
     static const auto SOLUTION_EXTENSION = ".bin";
 
-    const std::string SECOND_STAGE_XML_SOLUTION = "";
+    const std::string SECOND_STAGE_XML_SOLUTION = "/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-14.gexf";
     // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_2017-10-12.gexf";
     // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version19.gexf";
     // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version5.gexf";
@@ -689,6 +689,10 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
                 if (delay_tracker.GetMeanDelay(current_index) > 0) {
                     nodes_to_skip.emplace(current_index);
                 }
+
+                const auto &visit = second_stage_solver.NodeToVisit(second_stage_solver.index_manager().IndexToNode(current_index));
+                LOG(INFO) << "Getting Visit Start Times";
+
                 current_index = delay_tracker.Record(current_index).next;
             }
         }
