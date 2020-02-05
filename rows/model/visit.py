@@ -1,5 +1,7 @@
 """Details a requested visit"""
 
+import datetime
+
 import rows.model.datetime
 import rows.model.object
 from rows.model.address import Address
@@ -107,6 +109,9 @@ class Visit(rows.model.object.DatabaseObject):
         """Return a property"""
 
         return self.__time
+
+    def datetime(self):
+        return datetime.datetime.combine(self.__date, self.__time)
 
     @property
     def duration(self):

@@ -2563,7 +2563,9 @@ def compute_overtime(frame):
 
 class Node:
 
-    def __init__(self, index: int,
+    def __init__(self,
+                 index: int,
+                 next: int,
                  visit: rows.model.visit.Visit,
                  visit_start_min: datetime.datetime,
                  visit_start_max: datetime.datetime,
@@ -2571,21 +2573,21 @@ class Node:
                  break_duration: datetime.timedelta,
                  travel_duration: datetime.timedelta):
         self.__index = index
+        self.__next = next
         self.__visit = visit
         self.__visit_start_min = visit_start_min
         self.__visit_start_max = visit_start_max
         self.__break_start = break_start
         self.__break_duration = break_duration
         self.__travel_duration = travel_duration
-        self.__next = None
 
     @property
-    def index(self):
+    def index(self) -> int:
         return self.__index
 
     @property
-    def service_user(self) -> str:
-        return self.__visit.service_user
+    def next(self) -> int:
+        return self.__next
 
     @property
     def visit_key(self) -> int:
@@ -2620,12 +2622,8 @@ class Node:
         return self.__travel_duration
 
     @property
-    def next(self) -> int:
-        return self.__next
-
-    @next.setter
-    def next(self, value):
-        self.__next = value
+    def service_user(self) -> str:
+        return self.__visit.service_user
 
 
 class Mapping:
@@ -2638,54 +2636,66 @@ class Mapping:
         local_routes = {}
         current_index = 0
 
+        def find_visit(item) -> rows.model.visit.Visit:
+            visit_match = None
+            for visit_batch in problem.visits:
+                if visit_batch.service_user != item.service_user:
+                    continue
+
+                for visit in visit_batch.visits:
+                    if visit.date != item.date or visit.tasks != item.tasks:
+                        continue
+
+                    visit_total_time = visit.time.hour * 3600 + visit.time.minute * 60
+                    item_total_time = item.time.hour * 3600 + item.time.minute * 60
+                    diff_total_time = abs(visit_total_time - item_total_time)
+                    if diff_total_time <= time_window_span.total_seconds():
+                        visit_match = visit
+                        break
+            assert visit_match is not None
+            return visit_match
+
+        current_index = 0
         with rows.plot.create_routing_session() as routing_session:
             for carer in routes:
                 local_route = []
-                last_location = None
+                previous_visit = None
+                previous_index = None
+                current_visit = None
                 break_start = None
-                break_duration = None
+                break_duration = datetime.timedelta()
 
-                # account back for the previous node
                 for item in routes[carer]:
-                    break_start = None
-                    break_duration = datetime.timedelta()
                     if isinstance(item, rows.model.visit.Visit):
-                        current_location = user_tag_finder.find(item.service_user)
-                        travel_time = datetime.timedelta()
-                        if last_location is not None:
-                            travel_time = datetime.timedelta(seconds=routing_session.distance(last_location, current_location))
+                        current_visit = item
 
-                        visit_match = None
-                        for visit_batch in problem.visits:
-                            if visit_batch.service_user != item.service_user:
-                                continue
+                        if previous_visit is None:
+                            previous_visit = current_visit
+                            previous_index = current_index
+                            current_index += 1
+                            continue
 
-                            for visit in visit_batch.visits:
-                                if visit.date != item.date or visit.tasks != item.tasks:
-                                    continue
+                        previous_location = user_tag_finder.find(previous_visit.service_user)
+                        current_location = user_tag_finder.find(current_visit.service_user)
+                        travel_time = datetime.timedelta(seconds=routing_session.distance(previous_location, current_location))
 
-                                visit_total_time = visit.time.hour * 3600 + visit.time.minute * 60
-                                item_total_time = item.time.hour * 3600 + item.time.minute * 60
-                                diff_total_time = abs(visit_total_time - item_total_time)
-                                if diff_total_time <= time_window_span.total_seconds():
-                                    visit_match = visit
-                                    break
-                        assert visit_match is not None
-
-                        node = Node(current_index,
-                                    item,
-                                    datetime.datetime.combine(visit_match.date, visit_match.time) - time_window_span,
-                                    datetime.datetime.combine(visit_match.date, visit_match.time) + time_window_span,
+                        previous_visit_match = find_visit(previous_visit)
+                        node = Node(previous_index,
+                                    current_index,
+                                    previous_visit,
+                                    previous_visit_match.datetime - time_window_span,
+                                    previous_visit_match.datetime + time_window_span,
                                     break_start,
                                     break_duration,
                                     travel_time)
-                        self.__index_to_node[current_index] = node
+                        self.__index_to_node[previous_index] = node
                         local_route.append(node)
 
-                        current_index += 1
                         break_start = None
                         break_duration = datetime.timedelta()
-                        last_location = current_location
+                        previous_visit = current_visit
+                        previous_index = current_index
+                        current_index += 1
                     if isinstance(item, rows.model.rest.Rest):
                         if break_start is None:
                             break_start = item.start_time
@@ -2693,11 +2703,18 @@ class Mapping:
                             break_start = item.start_time - break_duration
                         break_duration += item.duration
 
-                node_it = iter(local_route)
-                prev_node = next(node_it)
-                for node in node_it:
-                    prev_node.next = node.index
-                    prev_node = node
+                visit_match = find_visit(previous_visit)
+                node = Node(previous_index,
+                            -1,
+                            previous_visit,
+                            visit_match.datetime - time_window_span,
+                            visit_match.datetime + time_window_span,
+                            break_start,
+                            break_duration,
+                            datetime.timedelta())
+                self.__index_to_node[previous_index] = node
+                local_route.append(node)
+
                 local_routes[carer] = local_route
         self.__routes = local_routes
 
@@ -2792,6 +2809,40 @@ def essential_riskiness_index(data: typing.List[float]) -> float:
         return data[position]
 
 
+# index: 575 next: 190 visit_key: 0       duration: 0    travel_time: 0    break_min: 0     break_duration: 0 - M
+# index: 190 next: 107 visit_key: 8560176 duration: 3600 travel_time: 368  break_min: 0     break_duration: 0 - M
+# index: 107 next: 88  visit_key: 8533569 duration: 964  travel_time: 194  break_min: 0     break_duration: 0 - M
+# index: 88  next: 90  visit_key: 8558283 duration: 1306 travel_time: 0    break_min: 35348 break_duration: 3600  - M
+# index: 90  next: 195 visit_key: 8559309 duration: 1089 travel_time: 345  break_min: 0     break_duration: 0     - M
+# index: 195 next: 169 visit_key: 8534654 duration: 1800 travel_time: 1405 break_min: 0     break_duration: 0     - M
+# index: 169 next: 173 visit_key: 8529170 duration: 1814 travel_time: 0    break_min: 45401 break_duration: 10800 - M
+# index: 173 next: 459 visit_key: 8559456 duration: 1507 travel_time: 345  break_min: 0     break_duration: 0 - M
+# index: 459 next: 49  visit_key: 8530612 duration: 1135 travel_time: 0    break_min: 0     break_duration: 0 - M
+# index: 49  next: 50  visit_key: 8559673 duration: 1194 travel_time: 0    break_min: 0     break_duration: 0 - M
+# index: 50  next: 457 visit_key: 8559677 duration: 1276 travel_time: 0    break_min: 0     break_duration: 0 - M
+# index: 457 next: 171 visit_key: 8530613 duration: 1076 travel_time: 345  break_min: 0     break_duration: 0 -M
+# index: 171 next: 628 visit_key: 8529174 duration: 1468 travel_time: 0    break_min: 0     break_duration: 0 - Wrong!
+# index: 628 next: -1  visit_key: 0       duration: 0    travel_time: 0    break_min: 0     break_duration: 0
+
+# visit_key: 8560176, 'visit_duration': 3600, 'visit_start': 28432, 'break_start': 0,     'break_duration': 0,     'travel_time': 368  - M
+# visit_key: 8533569, 'visit_duration': 964,  'visit_start': 32400, 'break_start': 0,     'break_duration': 0,     'travel_time': 194  - M
+# visit_key: 8558283, 'visit_duration': 1306, 'visit_start': 34042, 'break_start': 35348, 'break_duration': 3600,  'travel_time': 0    - M
+# visit_key: 8559309, 'visit_duration': 1089, 'visit_start': 38948, 'break_start': 0,     'break_duration': 0,     'travel_time': 345  - M
+# visit_key: 8534654, 'visit_duration': 1800, 'visit_start': 40382, 'break_start': 0,     'break_duration': 0,     'travel_time': 1405 - M
+# visit_key: 8529170, 'visit_duration': 1814, 'visit_start': 43587, 'break_start': 45401, 'break_duration': 10800, 'travel_time': 0    - M
+# visit_key: 8559456, 'visit_duration': 1507, 'visit_start': 57562, 'break_start': 0,     'break_duration': 0,     'travel_time': 345  - M
+# visit_key: 8530612, 'visit_duration': 1135, 'visit_start': 59414, 'break_start': 0,     'break_duration': 0,     'travel_time': 0    - M
+# visit_key: 8559673, 'visit_duration': 1194, 'visit_start': 60549, 'break_start': 0,     'break_duration': 0,     'travel_time': 0    - M
+# visit_key: 8559677, 'visit_duration': 1276, 'visit_start': 64800, 'break_start': 0,     'break_duration': 0,     'travel_time': 0    - M
+# visit_key: 8530613, 'visit_duration': 1076, 'visit_start': 75330, 'break_start': 0,     'break_duration': 0,     'travel_time': 345  - M
+# visit_key: 8529174, 'visit_duration': 1468, 'visit_start': 76751, 'break_start': 81000, 'break_duration': 12600, 'travel_time': 0
+# visit_key: 8559309, 'visit_duration': 1089, 'visit_start': 38948, 'break_start': 0,     'break_duration': 0,     'travel_time': 183
+# visit_key: 8529170, 'visit_duration': 1814, 'visit_start': 43587, 'break_start': 0,     'break_duration': 0,     'travel_time': 426
+# visit_key: 8529174, 'visit_duration': 1468, 'visit_start': 76751, 'break_start': 0,     'break_duration': 0,     'travel_time': 297
+# visit_key: 8558283, 'visit_duration': 1306, 'visit_start': 34042, 'break_start': 0,     'break_duration': 0,     'travel_time': 198
+# visit_key: 8530613, 'visit_duration': 1076, 'visit_start': 75330, 'break_start': 0,     'break_duration': 0,     'travel_time': 439
+# visit_key: 8559456, 'visit_duration': 1507, 'visit_start': 57562, 'break_start': 0,     'break_duration': 0,     'travel_time': 597
+
 def compute_riskiness(args, settings):
     schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-14.gexf')
     problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
@@ -2815,7 +2866,6 @@ def compute_riskiness(args, settings):
     # breaks are not addressed properly
 
     selected_nodes = []
-    selected_index = None
     for index in mapping.indices():
         node = mapping.node(index)
 
@@ -2833,28 +2883,7 @@ def compute_riskiness(args, settings):
         visit_duration = int(node.visit_duration.total_seconds())
         travel_time = int(node.travel_duration.total_seconds())
 
-        if node.visit_key == 8533687:
-            selected_nodes.append({'key': key,
-                                   'visit_duration': visit_duration,
-                                   'visit_start': visit_start,
-                                   'break_start': break_start,
-                                   'break_duration': break_duration,
-                                   'travel_time': travel_time})
-        if node.visit_key == 8533606:
-            selected_nodes.append({'key': key,
-                                   'visit_duration': visit_duration,
-                                   'visit_start': visit_start,
-                                   'break_start': break_start,
-                                   'break_duration': break_duration,
-                                   'travel_time': travel_time})
-        if node.visit_key == 8533605:
-            selected_nodes.append({'key': key,
-                                   'visit_duration': visit_duration,
-                                   'visit_start': visit_start,
-                                   'break_start': break_start,
-                                   'break_duration': break_duration,
-                                   'travel_time': travel_time})
-        if node.visit_key == 8529307:
+        if node.visit_key in {8560176, 8533569, 8558283, 8559309, 8534654, 8529170, 8559456, 8530612, 8559673, 8559677, 8530613, 8529174}:
             selected_nodes.append({'key': key,
                                    'visit_duration': visit_duration,
                                    'visit_start': visit_start,
@@ -2862,7 +2891,8 @@ def compute_riskiness(args, settings):
                                    'break_duration': break_duration,
                                    'travel_time': travel_time})
 
-    assert selected_index is not None
+    for node in selected_nodes:
+        print(node)
 
     carer_routes = mapping.routes()
     for carer in carer_routes:
@@ -2909,10 +2939,10 @@ def compute_riskiness(args, settings):
     delay = [[(start_times[index][scenario] - mapping.node(index).visit_start_max).total_seconds() for scenario in range(sample.size)]
              for index in mapping.indices()]
 
-    local_start_times = [int(time_to_delta(start_times[selected_index][scenario].time()).total_seconds()) for scenario in range(sample.size)]
+    # selected_index = 0
+    # local_start_times = [int(time_to_delta(start_times[selected_index][scenario].time()).total_seconds()) for scenario in range(sample.size)]
 
     # TODO: make sure start times in C++ and Python are comparable
-
     riskiness = [essential_riskiness_index(delay[index]) for index in mapping.indices()]
 
     print('here')

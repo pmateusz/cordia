@@ -587,6 +587,16 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
 //    second_stage_model->solver()->set_fail_intercept(&FailureInterceptor);
     second_stage_solver.ConfigureModel(second_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 
+    for (auto index = 0; index < second_stage_solver.index_manager().num_indices(); ++index) {
+        const auto routing_node = second_stage_solver.index_manager().IndexToNode(index);
+        if (routing_node == rows::RealProblemData::DEPOT) { continue; }
+
+        const auto &visit = second_stage_solver.NodeToVisit(routing_node);
+        if (visit.id() == 8533569) {
+            LOG(INFO) << index;
+        }
+    }
+
     std::vector<std::vector<int64>> solution;
     operations_research::Assignment const *second_stage_assignment = nullptr;
     operations_research::Assignment const *filtered_assignment = nullptr;
@@ -689,9 +699,6 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
                 if (delay_tracker.GetMeanDelay(current_index) > 0) {
                     nodes_to_skip.emplace(current_index);
                 }
-
-                const auto &visit = second_stage_solver.NodeToVisit(second_stage_solver.index_manager().IndexToNode(current_index));
-                LOG(INFO) << "Getting Visit Start Times";
 
                 current_index = delay_tracker.Record(current_index).next;
             }

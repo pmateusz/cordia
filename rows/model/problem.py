@@ -154,13 +154,17 @@ class Problem(rows.model.object.DataObject):
             return self.__time
 
         @property
-        def duration(self) -> datetime.timedelta:
+        def datetime(self) -> datetime.datetime:
+            return datetime.datetime.combine(self.__date, self.__time)
+
+        @property
+        def duration(self) -> 'datetime.timedelta':
             """Return a property"""
 
             return self.__duration
 
         @duration.setter
-        def duration(self, value: datetime.timedelta):
+        def duration(self, value: 'datetime.timedelta'):
             """Set a property"""
 
             self.__duration = value

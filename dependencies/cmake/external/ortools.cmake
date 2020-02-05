@@ -11,7 +11,7 @@ if (NOT __ORTOOLS_INCLUDED)
         set(ortools_INSTALL ${CMAKE_BINARY_DIR}/external/ortools-install)
 
         # Expose ortools dependencies
-        include("cmake/External/gflags.cmake")
+        include("cmake/external/gflags.cmake")
 
         # depend on gflags if we're also building it
         if(GFLAGS_EXTERNAL)
@@ -19,7 +19,7 @@ if (NOT __ORTOOLS_INCLUDED)
         endif()
 
         # ortools depends on sparsehash
-        include("cmake/External/sparsehash.cmake")
+        include("cmake/external/sparsehash.cmake")
 
         # depend on gflags if we're also building it
         if(SPARSEHASH_EXTERNAL)

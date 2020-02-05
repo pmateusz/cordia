@@ -121,6 +121,27 @@ namespace rows {
 //                }
 
                 UpdatePathRecords<decltype(data)>(vehicle, path, data);
+
+                if (std::find(std::cbegin(path), std::cend(path), 107) != std::cend(path)) {
+                    for (const auto node : path) {
+                        if (node < 0) { continue; }
+
+                        std::size_t visit_key = 0;
+                        const auto &record = records_[node];
+                        const auto routing_node = solver_.index_manager().IndexToNode(record.index);
+                        if (routing_node != rows::ProblemData::DEPOT) {
+                            visit_key = solver_.NodeToVisit(routing_node).id();
+                        }
+
+                        LOG(INFO) << "index: " << record.index
+                                  << " next: " << record.next
+                                  << " visit_key: " << visit_key
+                                  << " duration: " << record.duration
+                                  << " travel_time: " << record.travel_time
+                                  << " break_min: " << record.break_min
+                                  << " break_duration: " << record.break_duration;
+                    }
+                }
             }
 
             ComputeAllPathsDelay(data);
@@ -229,7 +250,7 @@ namespace rows {
                     const auto node = solver_.index_manager().IndexToNode(index);
                     if (node != ProblemData::DEPOT) {
                         const auto &visit = solver_.NodeToVisit(node);
-                        if (visit.id() == 8533605) {
+                        if (visit.id() == 8533569) {
                             LOG(INFO) << "HERE";
                         }
                     }
@@ -462,17 +483,6 @@ namespace rows {
                 auto node_path = builder.nodes;
                 node_path.emplace_back(-1);
                 return node_path;
-            }
-
-            if (std::find(std::cbegin(builder.nodes), std::cend(builder.nodes), 214) != std::cend(builder.nodes)) {
-//                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(587)).id();
-                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(223)).id();
-                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(216)).id();
-                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(214)).id();
-                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(224)).id();
-//                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(640)).id();
-
-                LOG(INFO) << "HERE";
             }
 
             // deliberately skip the first break node since its end time is encoded as the start time of the first regular node
