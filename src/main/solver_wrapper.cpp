@@ -984,9 +984,15 @@ namespace rows {
         auto total_multiple_carer_visits = 0;
         for (operations_research::RoutingIndexManager::NodeIndex visit_node{1}; visit_node < problem_data_.nodes(); ++visit_node) {
             const auto &visit = problem_data_.NodeToVisit(visit_node);
+
             const auto &visit_time_windows = visit.time_windows();
             const auto visit_start_begin = visit_time_windows.begin() - problem_data_.StartHorizon();
             const auto visit_start_end = visit_time_windows.end() - problem_data_.StartHorizon();
+
+//            if (visit.id() == 8533598) {
+//                LOG(INFO) << problem_data_.StartHorizon() << " " << visit_time_windows.begin() << " " << visit_start_begin.total_seconds();
+//                LOG(INFO) << "HERE";
+//            }
 
             CHECK(!visit_start_begin.is_negative()) << visit.id();
             CHECK(!visit_start_end.is_negative()) << visit.id();

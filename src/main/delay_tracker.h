@@ -226,6 +226,14 @@ namespace rows {
                     if (model_->IsEnd(index)) { continue; }
                     if (!visited_nodes[index]) { continue; }
 
+                    const auto node = solver_.index_manager().IndexToNode(index);
+                    if (node != ProblemData::DEPOT) {
+                        const auto &visit = solver_.NodeToVisit(node);
+                        if (visit.id() == 8533605) {
+                            LOG(INFO) << "HERE";
+                        }
+                    }
+
                     const auto sibling_index = duration_sample_.sibling(index);
                     if (sibling_index >= 0) {
                         const auto max_start_time = std::max(start_[index][scenario], start_[sibling_index][scenario]);
@@ -454,6 +462,17 @@ namespace rows {
                 auto node_path = builder.nodes;
                 node_path.emplace_back(-1);
                 return node_path;
+            }
+
+            if (std::find(std::cbegin(builder.nodes), std::cend(builder.nodes), 214) != std::cend(builder.nodes)) {
+//                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(587)).id();
+                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(223)).id();
+                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(216)).id();
+                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(214)).id();
+                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(224)).id();
+//                LOG(INFO) << solver_.NodeToVisit(solver_.index_manager().IndexToNode(640)).id();
+
+                LOG(INFO) << "HERE";
             }
 
             // deliberately skip the first break node since its end time is encoded as the start time of the first regular node

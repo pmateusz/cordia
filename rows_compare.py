@@ -22,33 +22,33 @@ import matplotlib.cm
 import matplotlib.dates
 import matplotlib.pyplot
 import matplotlib.ticker
+import networkx
 import numpy
 import pandas
 import tabulate
-import networkx
 
 import rows.console
 import rows.load
 import rows.location_finder
 import rows.model.area
 import rows.model.carer
+import rows.model.datetime
+import rows.model.historical_visit
+import rows.model.history
 import rows.model.json
 import rows.model.location
 import rows.model.metadata
 import rows.model.past_visit
-import rows.model.datetime
 import rows.model.problem
+import rows.model.rest
 import rows.model.schedule
 import rows.model.service_user
 import rows.model.visit
-import rows.model.rest
-import rows.model.history
-import rows.model.historical_visit
+import rows.parser
 import rows.plot
 import rows.routing_server
 import rows.settings
 import rows.sql_data_source
-import rows.parser
 
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -318,17 +318,15 @@ def compare_distance(args, settings):
                     idle_time[idle_time < pandas.Timedelta(0)] = pandas.Timedelta(0)
                     overtime = frame['Travel'] + frame['Service'] - frame['Availability']
                     overtime[overtime < pandas.Timedelta(0)] = pandas.Timedelta(0)
-                    store.append({
-                        'Label': label,
-                        'Date': schedule.metadata.begin,
-                        'Availability': frame['Availability'].sum(),
-                        'Travel': frame['Travel'].sum(),
-                        'Service': frame['Service'].sum(),
-                        'Idle': idle_time.sum(),
-                        'Overtime': overtime.sum(),
-                        'Carers': carers,
-                        'Visits': visits
-                    })
+                    store.append({'Label': label,
+                                  'Date': schedule.metadata.begin,
+                                  'Availability': frame['Availability'].sum(),
+                                  'Travel': frame['Travel'].sum(),
+                                  'Service': frame['Service'].sum(),
+                                  'Idle': idle_time.sum(),
+                                  'Overtime': overtime.sum(),
+                                  'Carers': carers,
+                                  'Visits': visits})
 
         data_frame = pandas.DataFrame(store)
         data_frame.sort_values(by=['Date'], inplace=True)
@@ -2637,7 +2635,7 @@ class Mapping:
         user_tag_finder = rows.location_finder.UserLocationFinder(settings)
         user_tag_finder.reload()
 
-        local_routes = []
+        local_routes = {}
         current_index = 0
 
         with rows.plot.create_routing_session() as routing_session:
@@ -2646,6 +2644,8 @@ class Mapping:
                 last_location = None
                 break_start = None
                 break_duration = None
+
+                # account back for the previous node
                 for item in routes[carer]:
                     break_start = None
                     break_duration = datetime.timedelta()
@@ -2698,7 +2698,7 @@ class Mapping:
                 for node in node_it:
                     prev_node.next = node.index
                     prev_node = node
-                local_routes.append(local_route)
+                local_routes[carer] = local_route
         self.__routes = local_routes
 
         service_user_to_index = collections.defaultdict(list)
@@ -2720,6 +2720,9 @@ class Mapping:
     def indices(self):
         return self.__index_to_node.keys()
 
+    def routes(self) -> typing.Dict[rows.model.carer.Carer, typing.List[Node]]:
+        return self.__routes
+
     def node(self, index: int) -> Node:
         return self.__index_to_node[index]
 
@@ -2731,14 +2734,14 @@ class Mapping:
 
     def graph(self) -> networkx.DiGraph:
         edges = []
-        for route in self.__routes:
+        for carer in self.__routes:
             prev_node = None
-            for node in route:
+            for node in self.__routes[carer]:
                 if prev_node is not None:
                     edges.append([prev_node.index, node.index])
 
                     prev_sibling = self.sibling(prev_node.index)
-                    if not prev_sibling:
+                    if prev_sibling is None:
                         continue
 
                     edges.append([prev_sibling.index, node.index])
@@ -2803,29 +2806,110 @@ def compute_riskiness(args, settings):
     sample = history.build_sample(schedule, time_windows_span)
 
     start_times = [[mapping.node(index).visit_start_min for _ in range(sample.size)] for index in mapping.indices()]
+
+    def time_to_delta(time: datetime.time) -> datetime.timedelta:
+        seconds = time.hour * 3600 + time.minute * 60 + time.second
+        return datetime.timedelta(seconds=seconds)
+
+    # travel time is not addressed properly
+    # breaks are not addressed properly
+
+    selected_nodes = []
+    selected_index = None
+    for index in mapping.indices():
+        node = mapping.node(index)
+
+        key = node.visit_key
+
+        break_start = 0
+        if node.break_start is not None:
+            break_start = int(time_to_delta(node.break_start.time()).total_seconds())
+
+        break_duration = 0
+        if node.break_duration is not None:
+            break_duration = int(node.break_duration.total_seconds())
+
+        visit_start = int(time_to_delta(node.visit_start.time()).total_seconds())
+        visit_duration = int(node.visit_duration.total_seconds())
+        travel_time = int(node.travel_duration.total_seconds())
+
+        if node.visit_key == 8533687:
+            selected_nodes.append({'key': key,
+                                   'visit_duration': visit_duration,
+                                   'visit_start': visit_start,
+                                   'break_start': break_start,
+                                   'break_duration': break_duration,
+                                   'travel_time': travel_time})
+        if node.visit_key == 8533606:
+            selected_nodes.append({'key': key,
+                                   'visit_duration': visit_duration,
+                                   'visit_start': visit_start,
+                                   'break_start': break_start,
+                                   'break_duration': break_duration,
+                                   'travel_time': travel_time})
+        if node.visit_key == 8533605:
+            selected_nodes.append({'key': key,
+                                   'visit_duration': visit_duration,
+                                   'visit_start': visit_start,
+                                   'break_start': break_start,
+                                   'break_duration': break_duration,
+                                   'travel_time': travel_time})
+        if node.visit_key == 8529307:
+            selected_nodes.append({'key': key,
+                                   'visit_duration': visit_duration,
+                                   'visit_start': visit_start,
+                                   'break_start': break_start,
+                                   'break_duration': break_duration,
+                                   'travel_time': travel_time})
+
+    assert selected_index is not None
+
+    carer_routes = mapping.routes()
+    for carer in carer_routes:
+        diary = problem.get_diary(carer, schedule.date())
+        assert diary is not None
+
+        nodes = carer_routes[carer]
+        if nodes:
+            visit_node = nodes[0]
+            visit_index = visit_node.index
+            start_min = max(visit_node.visit_start_min, diary.events[0].begin)
+            for position in range(len(start_times[visit_index])):
+                start_times[visit_index][position] = start_min
+
     for scenario in range(sample.size):
         for index in sorted_indices:
             node = mapping.node(index)
             if node.next is None:
                 continue
 
-            visit_key = mapping.node(node.next).visit_key
-            next_arrival = node.visit_start + sample.visit_duration(visit_key, scenario) + node.travel_duration
+            current_sibling_node = mapping.sibling(node.index)
+            if current_sibling_node:
+                max_start_time = max(start_times[node.index][scenario], start_times[current_sibling_node.index][scenario])
+                start_times[node.index][scenario] = max_start_time
+                start_times[current_sibling_node.index][scenario] = max_start_time
+
+            visit_key = mapping.node(node.index).visit_key
+            next_arrival = start_times[node.index][scenario] + sample.visit_duration(visit_key, scenario) + node.travel_duration
             if node.break_start is not None:
                 if next_arrival >= node.break_start:
                     next_arrival += node.break_duration
                 else:
                     next_arrival = node.break_start + node.break_duration
 
-            start_times[node.next][scenario] = max(start_times[node.next][scenario], next_arrival)
+            if next_arrival > start_times[node.next][scenario]:
+                start_times[node.next][scenario] = next_arrival
 
-            sibling_node = mapping.sibling(node.next)
-            if sibling_node:
-                max_time = max(start_times[sibling_node.index][scenario], start_times[node.next][scenario])
-                start_times[node.next][scenario] = max_time
-                start_times[sibling_node.index][scenario] = max_time
+                sibling_node = mapping.sibling(node.next)
+                if sibling_node:
+                    max_time = max(start_times[sibling_node.index][scenario], start_times[node.next][scenario])
+                    start_times[node.next][scenario] = max_time
+                    start_times[sibling_node.index][scenario] = max_time
+
     delay = [[(start_times[index][scenario] - mapping.node(index).visit_start_max).total_seconds() for scenario in range(sample.size)]
              for index in mapping.indices()]
+
+    local_start_times = [int(time_to_delta(start_times[selected_index][scenario].time()).total_seconds()) for scenario in range(sample.size)]
 
     # TODO: make sure start times in C++ and Python are comparable
 
