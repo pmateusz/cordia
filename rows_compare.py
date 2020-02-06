@@ -2752,19 +2752,28 @@ class Mapping:
     def graph(self) -> networkx.DiGraph:
         edges = []
         for carer in self.__routes:
-            prev_node = None
             for node in self.__routes[carer]:
-                if prev_node is not None:
-                    edges.append([prev_node.index, node.index])
+                if node.next != -1:
+                    edges.append([node.index, node.next])
 
-                    prev_sibling = self.sibling(prev_node.index)
-                    if prev_sibling is None:
-                        continue
+                sibling_node = self.sibling(node.index)
+                if sibling_node is not None:
+                    if node.index < sibling_node.index:
+                        edges.append([node.index, sibling_node.index])
 
-                    edges.append([prev_sibling.index, node.index])
+                    edges.append([sibling_node.index, node.next])
 
-                    if prev_sibling.index < prev_node.index:
-                        edges.append([prev_sibling.index, prev_node.index])
+                # if prev_node is not None:
+                #     edges.append([prev_node.index, node.index])
+                #
+                #     prev_sibling = self.sibling(prev_node.index)
+                #     if prev_sibling is None:
+                #         continue
+                #
+                #     edges.append([prev_sibling.index, node.index])
+                #
+                #     if prev_sibling.index < prev_node.index:
+                #         edges.append([prev_sibling.index, prev_node.index])
                 prev_node = node
         return networkx.DiGraph(edges)
 
@@ -2809,40 +2818,6 @@ def essential_riskiness_index(data: typing.List[float]) -> float:
         return data[position]
 
 
-# index: 575 next: 190 visit_key: 0       duration: 0    travel_time: 0    break_min: 0     break_duration: 0 - M
-# index: 190 next: 107 visit_key: 8560176 duration: 3600 travel_time: 368  break_min: 0     break_duration: 0 - M
-# index: 107 next: 88  visit_key: 8533569 duration: 964  travel_time: 194  break_min: 0     break_duration: 0 - M
-# index: 88  next: 90  visit_key: 8558283 duration: 1306 travel_time: 0    break_min: 35348 break_duration: 3600  - M
-# index: 90  next: 195 visit_key: 8559309 duration: 1089 travel_time: 345  break_min: 0     break_duration: 0     - M
-# index: 195 next: 169 visit_key: 8534654 duration: 1800 travel_time: 1405 break_min: 0     break_duration: 0     - M
-# index: 169 next: 173 visit_key: 8529170 duration: 1814 travel_time: 0    break_min: 45401 break_duration: 10800 - M
-# index: 173 next: 459 visit_key: 8559456 duration: 1507 travel_time: 345  break_min: 0     break_duration: 0 - M
-# index: 459 next: 49  visit_key: 8530612 duration: 1135 travel_time: 0    break_min: 0     break_duration: 0 - M
-# index: 49  next: 50  visit_key: 8559673 duration: 1194 travel_time: 0    break_min: 0     break_duration: 0 - M
-# index: 50  next: 457 visit_key: 8559677 duration: 1276 travel_time: 0    break_min: 0     break_duration: 0 - M
-# index: 457 next: 171 visit_key: 8530613 duration: 1076 travel_time: 345  break_min: 0     break_duration: 0 -M
-# index: 171 next: 628 visit_key: 8529174 duration: 1468 travel_time: 0    break_min: 0     break_duration: 0 - Wrong!
-# index: 628 next: -1  visit_key: 0       duration: 0    travel_time: 0    break_min: 0     break_duration: 0
-
-# visit_key: 8560176, 'visit_duration': 3600, 'visit_start': 28432, 'break_start': 0,     'break_duration': 0,     'travel_time': 368  - M
-# visit_key: 8533569, 'visit_duration': 964,  'visit_start': 32400, 'break_start': 0,     'break_duration': 0,     'travel_time': 194  - M
-# visit_key: 8558283, 'visit_duration': 1306, 'visit_start': 34042, 'break_start': 35348, 'break_duration': 3600,  'travel_time': 0    - M
-# visit_key: 8559309, 'visit_duration': 1089, 'visit_start': 38948, 'break_start': 0,     'break_duration': 0,     'travel_time': 345  - M
-# visit_key: 8534654, 'visit_duration': 1800, 'visit_start': 40382, 'break_start': 0,     'break_duration': 0,     'travel_time': 1405 - M
-# visit_key: 8529170, 'visit_duration': 1814, 'visit_start': 43587, 'break_start': 45401, 'break_duration': 10800, 'travel_time': 0    - M
-# visit_key: 8559456, 'visit_duration': 1507, 'visit_start': 57562, 'break_start': 0,     'break_duration': 0,     'travel_time': 345  - M
-# visit_key: 8530612, 'visit_duration': 1135, 'visit_start': 59414, 'break_start': 0,     'break_duration': 0,     'travel_time': 0    - M
-# visit_key: 8559673, 'visit_duration': 1194, 'visit_start': 60549, 'break_start': 0,     'break_duration': 0,     'travel_time': 0    - M
-# visit_key: 8559677, 'visit_duration': 1276, 'visit_start': 64800, 'break_start': 0,     'break_duration': 0,     'travel_time': 0    - M
-# visit_key: 8530613, 'visit_duration': 1076, 'visit_start': 75330, 'break_start': 0,     'break_duration': 0,     'travel_time': 345  - M
-# visit_key: 8529174, 'visit_duration': 1468, 'visit_start': 76751, 'break_start': 81000, 'break_duration': 12600, 'travel_time': 0
-# visit_key: 8559309, 'visit_duration': 1089, 'visit_start': 38948, 'break_start': 0,     'break_duration': 0,     'travel_time': 183
-# visit_key: 8529170, 'visit_duration': 1814, 'visit_start': 43587, 'break_start': 0,     'break_duration': 0,     'travel_time': 426
-# visit_key: 8529174, 'visit_duration': 1468, 'visit_start': 76751, 'break_start': 0,     'break_duration': 0,     'travel_time': 297
-# visit_key: 8558283, 'visit_duration': 1306, 'visit_start': 34042, 'break_start': 0,     'break_duration': 0,     'travel_time': 198
-# visit_key: 8530613, 'visit_duration': 1076, 'visit_start': 75330, 'break_start': 0,     'break_duration': 0,     'travel_time': 439
-# visit_key: 8559456, 'visit_duration': 1507, 'visit_start': 57562, 'break_start': 0,     'break_duration': 0,     'travel_time': 597
-
 def compute_riskiness(args, settings):
     schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-14.gexf')
     problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
@@ -2862,38 +2837,6 @@ def compute_riskiness(args, settings):
         seconds = time.hour * 3600 + time.minute * 60 + time.second
         return datetime.timedelta(seconds=seconds)
 
-    # travel time is not addressed properly
-    # breaks are not addressed properly
-
-    selected_nodes = []
-    for index in mapping.indices():
-        node = mapping.node(index)
-
-        key = node.visit_key
-
-        break_start = 0
-        if node.break_start is not None:
-            break_start = int(time_to_delta(node.break_start.time()).total_seconds())
-
-        break_duration = 0
-        if node.break_duration is not None:
-            break_duration = int(node.break_duration.total_seconds())
-
-        visit_start = int(time_to_delta(node.visit_start.time()).total_seconds())
-        visit_duration = int(node.visit_duration.total_seconds())
-        travel_time = int(node.travel_duration.total_seconds())
-
-        if node.visit_key in {8560176, 8533569, 8558283, 8559309, 8534654, 8529170, 8559456, 8530612, 8559673, 8559677, 8530613, 8529174}:
-            selected_nodes.append({'key': key,
-                                   'visit_duration': visit_duration,
-                                   'visit_start': visit_start,
-                                   'break_start': break_start,
-                                   'break_duration': break_duration,
-                                   'travel_time': travel_time})
-
-    for node in selected_nodes:
-        print(node)
-
     carer_routes = mapping.routes()
     for carer in carer_routes:
         diary = problem.get_diary(carer, schedule.date())
@@ -2903,7 +2846,7 @@ def compute_riskiness(args, settings):
         if nodes:
             visit_node = nodes[0]
             visit_index = visit_node.index
-            start_min = max(visit_node.visit_start_min, diary.events[0].begin)
+            start_min = max(visit_node.visit_start_min, diary.events[0].begin - datetime.timedelta(minutes=15))
             for position in range(len(start_times[visit_index])):
                 start_times[visit_index][position] = start_min
 
@@ -2919,8 +2862,14 @@ def compute_riskiness(args, settings):
                 start_times[node.index][scenario] = max_start_time
                 start_times[current_sibling_node.index][scenario] = max_start_time
 
+            if node.index in {158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170}:
+                print('here')
+
             visit_key = mapping.node(node.index).visit_key
+            start_time_int = int(time_to_delta(start_times[node.index][scenario].time()).total_seconds())
             next_arrival = start_times[node.index][scenario] + sample.visit_duration(visit_key, scenario) + node.travel_duration
+            next_arrival_int = int(time_to_delta(next_arrival.time()).total_seconds())
+
             if node.break_start is not None:
                 if next_arrival >= node.break_start:
                     next_arrival += node.break_duration
@@ -2939,13 +2888,80 @@ def compute_riskiness(args, settings):
     delay = [[(start_times[index][scenario] - mapping.node(index).visit_start_max).total_seconds() for scenario in range(sample.size)]
              for index in mapping.indices()]
 
-    # selected_index = 0
-    # local_start_times = [int(time_to_delta(start_times[selected_index][scenario].time()).total_seconds()) for scenario in range(sample.size)]
+    selected_index = 173
+    local_start_times = [int(time_to_delta(start_times[selected_index][scenario].time()).total_seconds()) for scenario in range(sample.size)]
 
     # TODO: make sure start times in C++ and Python are comparable
     riskiness = [essential_riskiness_index(delay[index]) for index in mapping.indices()]
 
-    print('here')
+    def find_route(index) -> typing.Optional[typing.List[Node]]:
+        routes = mapping.routes()
+        for carer in routes:
+            for node in routes[carer]:
+                if node.index == index:
+                    return routes[carer]
+        return None
+
+    route = find_route(selected_index)
+
+    data = [['key', 'visit_duration', 'travel_duration', 'break_start', 'break_duration']]
+    for node in route:
+        data.append([node.visit_key,
+                     int(node.visit_duration.total_seconds()),
+                     int(node.travel_duration.total_seconds()),
+                     int(time_to_delta(node.break_start.time()).total_seconds()) if node.break_start is not None else 0,
+                     int(node.break_duration.total_seconds())])
+
+    print(tabulate.tabulate(data))
+
+
+# -------  --------------  ---------------  -----------  --------------
+# key      visit_duration  travel_duration  break_start  break_duration
+# 8529169  3421            3                0            0
+# 8530576  1301            0                34836        8100
+# 8722907  648             3                0            0
+# 8529170  1814            426              0            0
+# 8534965  424             438              0            0
+# 8583611  454             0                0            0
+# 8807458  1037            0                48180        9900
+# 8529775  957             0                0            0
+# 8723068  909             0                0            0
+# 8807347  1331            630              0            0
+# 8530597  1042            53               0            0
+# 8538997  1800            170              0            0
+# 8560885  965             0                0            0
+# 8530607  771             0                0            0
+# 8559389  1317            250              0            0
+# 8722668  1265            0                0            0
+# 8559003  541             0                0            0
+# 8722696  1329            3                0            0
+# 8529174  1468            297              0            0
+# 8918836  377             0                81000        12600
+# -------  --------------  ---------------  -----------  --------------
+
+# C++ model:
+# 586, 0,       0,    0,   0,     0
+# 168, 8529169, 3421, 3,   0,     0
+# 301, 8530576, 1301, 0,   34836, 8100
+# 69,  8722907, 648,  3,   0,     0
+# 170, 8529170, 1814, 426, 0,     0
+# 493, 8534965, 424,  438, 0,     0
+# 189, 8583611, 454,  0,   0,     0
+# 151, 8807458, 1037, 0,   48180, 9900
+# 186, 8529775, 957,  0,   0,     0
+# 148, 8723068, 909,  0,   0,     0
+# 152, 8807347, 1331, 630, 0,     0
+# 380, 8530597, 1042, 53,  0,     0
+# 263, 8538997, 1800, 170, 0,     0
+# 470, 8560885, 965,  0,   0,     0
+# 471, 8530607, 771,  0,   0,     0
+# 44,  8559389, 1317, 250, 0,     0
+# 71,  8722668, 1265, 0,   0,     0
+# 34,  8559003, 541,  0,   0,     0
+# 72,  8722696, 1329, 3,   0,     0
+# 172, 8529174, 1468, 297, 0,     0
+# 440, 8918836, 377,  0,   0,     0
+# 639, 0,       0,    0,   0,     0
 
 
 def debug(args, settings):

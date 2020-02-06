@@ -122,25 +122,53 @@ namespace rows {
 
                 UpdatePathRecords<decltype(data)>(vehicle, path, data);
 
-                if (std::find(std::cbegin(path), std::cend(path), 107) != std::cend(path)) {
+//                const auto node = solver_.index_manager().IndexToNode(index);
+//                if (node != ProblemData::DEPOT) {
+//                    const auto &visit = solver_.NodeToVisit(node);
+//                    if (visit.id() == 8533569) {
+//                        LOG(INFO) << "HERE";
+//                    }
+//                }
+
+                bool display_path = false;
+                for (const auto index : path) {
+                    if (index < 0) { continue; }
+
+                    std::size_t visit_key = 0;
+                    const auto routing_node = solver_.index_manager().IndexToNode(index);
+                    if (routing_node != rows::ProblemData::DEPOT) {
+                        visit_key = solver_.NodeToVisit(routing_node).id();
+                    }
+
+                    if (visit_key == 8722668) {
+                        display_path = true;
+                        break;
+                    }
+                }
+
+                if (display_path) {
+
+                    std::stringstream msg;
+                    msg << "key, visit_duration, travel_duration, break_start, break_duration" << std::endl;
                     for (const auto node : path) {
                         if (node < 0) { continue; }
 
-                        std::size_t visit_key = 0;
+                        std::size_t local_visit_key = 0;
                         const auto &record = records_[node];
                         const auto routing_node = solver_.index_manager().IndexToNode(record.index);
                         if (routing_node != rows::ProblemData::DEPOT) {
-                            visit_key = solver_.NodeToVisit(routing_node).id();
+                            local_visit_key = solver_.NodeToVisit(routing_node).id();
                         }
 
-                        LOG(INFO) << "index: " << record.index
-                                  << " next: " << record.next
-                                  << " visit_key: " << visit_key
-                                  << " duration: " << record.duration
-                                  << " travel_time: " << record.travel_time
-                                  << " break_min: " << record.break_min
-                                  << " break_duration: " << record.break_duration;
+                        msg << node << ", "
+                            << local_visit_key << ", "
+                            << record.duration << ", "
+                            << record.travel_time << ", "
+                            << record.break_min << ", "
+                            << record.break_duration << std::endl;
                     }
+
+                    LOG(INFO) << msg.str();
                 }
             }
 
@@ -246,14 +274,6 @@ namespace rows {
 
                     if (model_->IsEnd(index)) { continue; }
                     if (!visited_nodes[index]) { continue; }
-
-                    const auto node = solver_.index_manager().IndexToNode(index);
-                    if (node != ProblemData::DEPOT) {
-                        const auto &visit = solver_.NodeToVisit(node);
-                        if (visit.id() == 8533569) {
-                            LOG(INFO) << "HERE";
-                        }
-                    }
 
                     const auto sibling_index = duration_sample_.sibling(index);
                     if (sibling_index >= 0) {
