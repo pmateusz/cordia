@@ -43,8 +43,16 @@ rows::DelayTracker::DelayTracker(const rows::SolverWrapper &solver,
           dimension_{dimension},
           model_{dimension_->model()},
           duration_sample_{solver, history, dimension_} {
+
     const auto num_indices = duration_sample_.num_indices();
     const auto num_samples = duration_sample_.size();
+
+    std::stringstream msg;
+    for (auto scenario = 0; scenario < duration_sample_.size(); ++scenario) {
+        msg << scenario << " " << duration_sample_.duration(107, scenario) << std::endl;
+    }
+    LOG(INFO) << msg.str();
+
     records_.resize(num_indices);
     start_.resize(num_indices);
     delay_.resize(num_indices);

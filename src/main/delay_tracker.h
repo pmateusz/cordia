@@ -129,50 +129,66 @@ namespace rows {
 //                        LOG(INFO) << "HERE";
 //                    }
 //                }
-
-                bool display_path = false;
-                for (const auto index : path) {
-                    if (index < 0) { continue; }
-
-                    std::size_t visit_key = 0;
-                    const auto routing_node = solver_.index_manager().IndexToNode(index);
-                    if (routing_node != rows::ProblemData::DEPOT) {
-                        visit_key = solver_.NodeToVisit(routing_node).id();
-                    }
-
-                    if (visit_key == 8722668) {
-                        display_path = true;
-                        break;
-                    }
-                }
-
-                if (display_path) {
-
-                    std::stringstream msg;
-                    msg << "key, visit_duration, travel_duration, break_start, break_duration" << std::endl;
-                    for (const auto node : path) {
-                        if (node < 0) { continue; }
-
-                        std::size_t local_visit_key = 0;
-                        const auto &record = records_[node];
-                        const auto routing_node = solver_.index_manager().IndexToNode(record.index);
-                        if (routing_node != rows::ProblemData::DEPOT) {
-                            local_visit_key = solver_.NodeToVisit(routing_node).id();
-                        }
-
-                        msg << node << ", "
-                            << local_visit_key << ", "
-                            << record.duration << ", "
-                            << record.travel_time << ", "
-                            << record.break_min << ", "
-                            << record.break_duration << std::endl;
-                    }
-
-                    LOG(INFO) << msg.str();
-                }
             }
 
             ComputeAllPathsDelay(data);
+
+            {
+                for (auto vehicle = 0; vehicle < solver_.index_manager().num_vehicles(); ++vehicle) {
+                    std::vector<int64> path;
+                    int64 current_node = model_->Start(vehicle);
+                    while (!model_->IsEnd(current_node)) {
+                        path.emplace_back(current_node);
+
+                        current_node = records_[current_node].next;
+                    }
+
+                    bool display_path = false;
+                    for (const auto index : path) {
+                        if (index < 0) { continue; }
+
+                        std::size_t visit_key = 0;
+                        const auto routing_node = solver_.index_manager().IndexToNode(index);
+                        if (routing_node != rows::ProblemData::DEPOT) {
+                            visit_key = solver_.NodeToVisit(routing_node).id();
+                        }
+
+                        if (visit_key == 8558283) {
+                            display_path = true;
+                            break;
+                        }
+                    }
+
+                    if (display_path) {
+
+                        std::stringstream msg;
+                        msg << std::endl;
+                        msg << "-----  -------  -----------  --------------  ---------------  -----------  --------------" << std::endl
+                            << "index  key      visit_start  visit_duration  travel_duration  break_start  break_duration" << std::endl;
+                        for (const auto node : path) {
+                            if (node < 0) { continue; }
+
+                            std::size_t local_visit_key = 0;
+                            const auto &record = records_[node];
+                            const auto routing_node = solver_.index_manager().IndexToNode(record.index);
+                            if (routing_node != rows::ProblemData::DEPOT) {
+                                local_visit_key = solver_.NodeToVisit(routing_node).id();
+                            }
+
+                            msg << std::setw(5) << std::left << node << "  "
+                                << std::setw(7) << std::left << local_visit_key << "  "
+                                << std::setw(11) << std::left << start_[node][0] << "  "
+                                << std::setw(14) << std::left << duration_sample_.duration(node, 0) << "  "
+                                << std::setw(14) << std::left << record.travel_time << "  "
+                                << std::setw(12) << std::left << record.break_min << "  "
+                                << std::setw(14) << std::left << record.break_duration << std::endl;
+                        }
+                        msg << "-----  -------  -----------  --------------  ---------------  -----------  --------------" << std::endl;
+
+                        LOG(INFO) << msg.str();
+                    }
+                }
+            }
         }
 
         template<typename DataSource>
@@ -274,6 +290,10 @@ namespace rows {
 
                     if (model_->IsEnd(index)) { continue; }
                     if (!visited_nodes[index]) { continue; }
+
+//                    if (index == 107 || index == 206) {
+//                        LOG(INFO) << "HERE";
+//                    }
 
                     const auto sibling_index = duration_sample_.sibling(index);
                     if (sibling_index >= 0) {

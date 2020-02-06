@@ -49,6 +49,10 @@ class History:
             time_after = visit.check_in + window_time_span
 
             matches = {}
+
+            if visit.visit.key == 8533569:
+                print('here')
+
             for indexed_visit in visit_index[visit.visit.service_user]:
                 if indexed_visit.tasks != visit.visit.tasks:
                     continue
@@ -66,10 +70,10 @@ class History:
 
         min_date = datetime.date.max
         max_date = datetime.date.min
-        for user in visit_index:
-            for visit in visit_index[user]:
-                min_date = min(min_date, visit.planned_check_in.date())
-                max_date = max(max_date, visit.planned_check_in.date())
+        for visit_key in matched_visits:
+            for date in matched_visits[visit_key]:
+                min_date = min(min_date, date)
+                max_date = max(max_date, date)
         max_date_to_use = min(max_date, schedule.date())
 
         min_date_time = datetime.datetime.combine(min_date, datetime.time())
