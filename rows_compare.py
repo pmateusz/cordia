@@ -2825,20 +2825,25 @@ def compute_riskiness(args, settings):
     with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
         history = rows.model.history.History.load(input_stream)
 
-    time_windows_span = datetime.timedelta(minutes=90)
+    time_windows_span = datetime.timedelta(hours=2)
 
     mapping = Mapping(schedule.routes(), problem, settings, time_windows_span)
     sorted_indices = list(networkx.topological_sort(mapping.graph()))
     sample = history.build_sample(problem, schedule.date(), time_windows_span)
 
     for scenario in range(sample.size):
-        print(scenario, int(sample.visit_duration(8533569, scenario).total_seconds()))
+        print(scenario, int(sample.visit_duration(8533606, scenario).total_seconds()))
 
     start_times = [[mapping.node(index).visit_start_min for _ in range(sample.size)] for index in mapping.indices()]
 
     def time_to_delta(time: datetime.time) -> datetime.timedelta:
         seconds = time.hour * 3600 + time.minute * 60 + time.second
         return datetime.timedelta(seconds=seconds)
+
+    schedule_start = datetime.datetime.combine(schedule.date(), datetime.time())
+
+    def datetime_to_delta(value: datetime.datetime) -> datetime.timedelta:
+        return value - schedule_start
 
     carer_routes = mapping.routes()
     for carer in carer_routes:
@@ -2890,7 +2895,7 @@ def compute_riskiness(args, settings):
     selected_carers = set()
     for carer in mapping.routes():
         for node in mapping.routes()[carer]:
-            if node.visit_key == 8558283:
+            if node.visit_key == 8533606:
                 selected_carers.add(carer)
 
     # TODO: make sure start times in C++ and Python are comparable
@@ -2911,10 +2916,10 @@ def compute_riskiness(args, settings):
         for node in route:
             data.append([node.index,
                          node.visit_key,
-                         int(time_to_delta(start_times[node.index][0].time()).total_seconds()),
+                         int(datetime_to_delta(start_times[node.index][0]).total_seconds()),
                          int(sample.visit_duration(node.visit_key, 0).total_seconds()),
                          int(node.travel_duration.total_seconds()),
-                         int(time_to_delta(node.break_start.time()).total_seconds()) if node.break_start is not None else 0,
+                         int(datetime_to_delta(node.break_start).total_seconds()) if node.break_start is not None else 0,
                          int(node.break_duration.total_seconds())])
 
         print(tabulate.tabulate(data))
@@ -2926,6 +2931,39 @@ def compute_riskiness(args, settings):
 def debug(args, settings):
     pass
 
+# Python
+# -----  -------  -----------  --------------  ---------------  -----------  --------------
+# index  key      visit_start  visit_duration  travel_duration  break_start  break_duration
+# 178    8533687  62100        676             824              0            0
+# 179    8533606  109240       1021            0                0            0
+# 180    8533605  110261       845             824              65524        5400
+# 181    8529307  117330       47              0                79200        14400
+# -----  -------  -----------  --------------  ---------------  -----------  --------------
+#
+# -----  -------  -----------  --------------  ---------------  -----------  --------------
+# index  key      visit_start  visit_duration  travel_duration  break_start  break_duration
+# 383    8533602  39600        1877            0                0            0
+# 384    8584251  93600        1240            0                42041        14400
+# 385    8533606  109240       1021            0                0            0
+# 386    8533605  110261       845             0                79200        14400
+# -----  -------  -----------  --------------  ---------------  -----------  --------------
+
+# C++
+# -----  -------  -----------  --------------  ---------------  -----------  --------------
+# index  key      visit_start  visit_duration  travel_duration  break_start  break_duration
+# 223    8533687  62100        676             824             0             0
+# 216    8533606  63600        1021            0               0             0
+# 214    8533605  64621        845             824             65524         5400
+# 224    8529307  71690        47              0               0             0
+# -----  -------  -----------  --------------  ---------------  -----------  --------------
+#
+# -----  -------  -----------  --------------  ---------------  -----------  --------------
+# index  key      visit_start  visit_duration  travel_duration  break_start  break_duration
+# 211    8533602  39600        1877            0               0             0
+# 213    8584251  41477        1240            0               42041         14400
+# 217    8533606  63600        1021            0               0             0
+# 215    8533605  64621        845             0               0             0
+# -----  -------  -----------  --------------  ---------------  -----------  --------------
 
 if __name__ == '__main__':
     sys.excepthook = handle_exception

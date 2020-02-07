@@ -77,29 +77,19 @@ std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> row
 //        }
 //    }
 
-    if (visit.id() == 8533569) {
-        const auto visits = service_user_it->second.find(boost::gregorian::date(2017, 3, 11));
-        for (const auto &visit : visits->second) {
-            LOG(INFO) << visit.date() << " " << visit.planned_check_in();
-        }
-
-        LOG(INFO) << "VISITS";
-    }
+//    if (visit.id() == 8533569) {
+//        const auto visits = service_user_it->second.find(boost::gregorian::date(2017, 3, 11));
+//        for (const auto &visit : visits->second) {
+//            LOG(INFO) << visit.date() << " " << visit.planned_check_in();
+//        }
+//        LOG(INFO) << "VISITS";
+//    }
 
     for (const auto &date_visit_pair : service_user_it->second) {
-        if (date_visit_pair.first >= visit_date) {
-            continue;
-        }
-
-//        if (visit.id() == 8533569) {
-//            for (const auto &local_visit : date_visit_pair.second) {
-//                LOG(INFO) << local_visit.id();
-//            }
-//            LOG(INFO) << "HERE";
-//        }
+        if (date_visit_pair.first >= visit_date) { continue; }
 
         for (const auto &past_visit : date_visit_pair.second) {
-            if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
+            if (visit.id() == 8533606 && past_visit.date() == boost::gregorian::date(2017, 2, 25)) {
                 LOG(INFO) << visit.datetime();
                 LOG(INFO) << past_visit.planned_check_in();
             }
@@ -119,15 +109,15 @@ std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> row
                 const auto current_visit_duration = find_it->second;
                 const auto total_seconds = (current_visit_duration.total_seconds() + past_visit_duration.total_seconds()) / 2;
 
-                if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
-                    LOG(INFO) << boost::posix_time::seconds(total_seconds);
-                }
+//                if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
+//                    LOG(INFO) << boost::posix_time::seconds(total_seconds);
+//                }
 
                 sample[past_visit.date()] = boost::posix_time::seconds(total_seconds);
             } else {
-                if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
-                    LOG(INFO) << past_visit.real_duration();
-                }
+//                if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
+//                    LOG(INFO) << past_visit.real_duration();
+//                }
 
                 sample.emplace(past_visit.date(), past_visit.real_duration());
             }

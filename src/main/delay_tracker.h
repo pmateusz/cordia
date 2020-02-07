@@ -153,14 +153,13 @@ namespace rows {
                             visit_key = solver_.NodeToVisit(routing_node).id();
                         }
 
-                        if (visit_key == 8558283) {
+                        if (visit_key == 8584251) {
                             display_path = true;
                             break;
                         }
                     }
 
                     if (display_path) {
-
                         std::stringstream msg;
                         msg << std::endl;
                         msg << "-----  -------  -----------  --------------  ---------------  -----------  --------------" << std::endl
@@ -184,7 +183,6 @@ namespace rows {
                                 << std::setw(14) << std::left << record.break_duration << std::endl;
                         }
                         msg << "-----  -------  -----------  --------------  ---------------  -----------  --------------" << std::endl;
-
                         LOG(INFO) << msg.str();
                     }
                 }
