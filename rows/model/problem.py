@@ -218,6 +218,9 @@ class Problem(rows.model.object.DataObject):
             visits_json = json.get(Problem.LocalVisits.VISITS)
             visits = [Problem.LocalVisit.from_json(visit_json) for visit_json in visits_json] if visits_json else []
 
+            for visit in visits:
+                visit.service_user = service_user
+
             return Problem.LocalVisits(service_user=service_user, visits=visits)
 
     def __init__(self, **kwargs):

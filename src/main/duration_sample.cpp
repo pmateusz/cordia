@@ -26,17 +26,7 @@ rows::DurationSample::DurationSample(const rows::SolverWrapper &solver,
         auto sample = history.get_duration_sample(visit);
         visit_samples.emplace(visit_indices[0], std::move(sample));
     }
-
-//    std::map<boost::gregorian::date, int64> date_count;
-//    for (const auto &visit_sample_pair: visit_samples) {
-//        for (const auto &date_duration_pair : visit_sample_pair.second) {
-//            ++date_count[date_duration_pair.first];
-//        }
-//    }
-//
-//    for (const auto &date_count_pair : date_count) {
-//        LOG(INFO) << date_count_pair.first << " - " << date_count_pair.second;
-//    }
+    
 
     // build index of dates
     std::unordered_set<boost::gregorian::date> unique_dates;

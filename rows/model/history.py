@@ -8,7 +8,7 @@ import tqdm
 
 import rows.model.datetime
 import rows.model.historical_visit
-import rows.model.schedule
+import rows.model.problem
 
 
 class Sample:
@@ -30,10 +30,14 @@ class History:
     def __init__(self, visits):
         self.__visits = visits
 
-    def build_sample(self, schedule: rows.model.schedule.Schedule, window_time_span: datetime.timedelta) -> Sample:
+    def build_sample(self, problem: rows.model.problem.Problem, date: datetime.date, window_time_span: datetime.timedelta) -> Sample:
+        problem_visits = []
+        for visit_batch in problem.visits:
+            for visit in visit_batch.visits:
+                if visit.date == date:
+                    problem_visits.append(visit)
 
         visit_index = collections.defaultdict(list)
-
         for visit in self.__visits:
             visit_index[visit.service_user].append(visit)
 
@@ -41,20 +45,16 @@ class History:
             visit_index[service_user].sort(key=operator.attrgetter('planned_check_in'))
 
         matched_visits = {}
-        for visit in tqdm.tqdm(schedule.visits, desc='Matching visits'):
-            if visit.visit.service_user not in visit_index:
+        for visit in tqdm.tqdm(problem_visits, desc='Matching visits'):
+            if visit.service_user not in visit_index:
                 continue
 
-            time_before = visit.check_in - window_time_span
-            time_after = visit.check_in + window_time_span
+            time_before = visit.datetime - window_time_span
+            time_after = visit.datetime + window_time_span
 
             matches = {}
-
-            if visit.visit.key == 8533569:
-                print('here')
-
-            for indexed_visit in visit_index[visit.visit.service_user]:
-                if indexed_visit.tasks != visit.visit.tasks:
+            for indexed_visit in visit_index[visit.service_user]:
+                if indexed_visit.tasks != visit.tasks:
                     continue
 
                 if time_before.time() <= indexed_visit.planned_check_in.time() <= time_after.time():
@@ -65,34 +65,26 @@ class History:
                         matches[indexed_visit.planned_check_in.date()] = local_copy
                     else:
                         matches[indexed_visit.planned_check_in.date()] = indexed_visit
+            matched_visits[visit.key] = matches
 
-            matched_visits[visit.visit.key] = matches
-
-        min_date = datetime.date.max
-        max_date = datetime.date.min
+        dates = set()
         for visit_key in matched_visits:
-            for date in matched_visits[visit_key]:
-                min_date = min(min_date, date)
-                max_date = max(max_date, date)
-        max_date_to_use = min(max_date, schedule.date())
-
-        min_date_time = datetime.datetime.combine(min_date, datetime.time())
-        max_date_time = datetime.datetime.combine(max_date_to_use, datetime.time())
-        step = datetime.timedelta(days=1)
+            for visit_date in matched_visits[visit_key]:
+                if visit_date < date:
+                    dates.add(visit_date)
+        dates_sorted = list(dates)
+        dates_sorted.sort()
 
         samples = {}
-        for visit in schedule.visits:
+        for visit in problem_visits:
             past_visit_duration = []
-
-            current_date_time = min_date_time
-            while current_date_time < max_date_time:
+            for current_date in dates_sorted:
                 visit_duration = visit.duration
-                if current_date_time.date() in matched_visits[visit.visit.key]:
-                    visit_duration = matched_visits[visit.visit.key][current_date_time.date()].real_duration
-                past_visit_duration.append(visit_duration)
-                current_date_time += step
 
-            samples[visit.visit.key] = past_visit_duration
+                if current_date in matched_visits[visit.key]:
+                    visit_duration = matched_visits[visit.key][current_date].real_duration
+                past_visit_duration.append(visit_duration)
+            samples[visit.key] = past_visit_duration
 
         return Sample(samples)
 

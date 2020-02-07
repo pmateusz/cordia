@@ -2829,7 +2829,7 @@ def compute_riskiness(args, settings):
 
     mapping = Mapping(schedule.routes(), problem, settings, time_windows_span)
     sorted_indices = list(networkx.topological_sort(mapping.graph()))
-    sample = history.build_sample(schedule, time_windows_span)
+    sample = history.build_sample(problem, schedule.date(), time_windows_span)
 
     for scenario in range(sample.size):
         print(scenario, int(sample.visit_duration(8533569, scenario).total_seconds()))
@@ -2858,9 +2858,6 @@ def compute_riskiness(args, settings):
             node = mapping.node(index)
             if node.next is None:
                 continue
-
-            if index == 67 or index == 183:
-                print('here')
 
             current_sibling_node = mapping.sibling(node.index)
             if current_sibling_node:
@@ -2924,56 +2921,6 @@ def compute_riskiness(args, settings):
 
     for carer in selected_carers:
         print_route(carer)
-
-    print('here')
-
-# -------  --------------  ---------------  -----------  --------------
-# key      visit_duration  travel_duration  break_start  break_duration
-# 8529169  3421            3                0            0
-# 8530576  1301            0                34836        8100
-# 8722907  648             3                0            0
-# 8529170  1814            426              0            0
-# 8534965  424             438              0            0
-# 8583611  454             0                0            0
-# 8807458  1037            0                48180        9900
-# 8529775  957             0                0            0
-# 8723068  909             0                0            0
-# 8807347  1331            630              0            0
-# 8530597  1042            53               0            0
-# 8538997  1800            170              0            0
-# 8560885  965             0                0            0
-# 8530607  771             0                0            0
-# 8559389  1317            250              0            0
-# 8722668  1265            0                0            0
-# 8559003  541             0                0            0
-# 8722696  1329            3                0            0
-# 8529174  1468            297              0            0
-# 8918836  377             0                81000        12600
-# -------  --------------  ---------------  -----------  --------------
-
-# C++ model:
-# 586, 0,       0,    0,   0,     0
-# 168, 8529169, 3421, 3,   0,     0
-# 301, 8530576, 1301, 0,   34836, 8100
-# 69,  8722907, 648,  3,   0,     0
-# 170, 8529170, 1814, 426, 0,     0
-# 493, 8534965, 424,  438, 0,     0
-# 189, 8583611, 454,  0,   0,     0
-# 151, 8807458, 1037, 0,   48180, 9900
-# 186, 8529775, 957,  0,   0,     0
-# 148, 8723068, 909,  0,   0,     0
-# 152, 8807347, 1331, 630, 0,     0
-# 380, 8530597, 1042, 53,  0,     0
-# 263, 8538997, 1800, 170, 0,     0
-# 470, 8560885, 965,  0,   0,     0
-# 471, 8530607, 771,  0,   0,     0
-# 44,  8559389, 1317, 250, 0,     0
-# 71,  8722668, 1265, 0,   0,     0
-# 34,  8559003, 541,  0,   0,     0
-# 72,  8722696, 1329, 3,   0,     0
-# 172, 8529174, 1468, 297, 0,     0
-# 440, 8918836, 377,  0,   0,     0
-# 639, 0,       0,    0,   0,     0
 
 
 def debug(args, settings):

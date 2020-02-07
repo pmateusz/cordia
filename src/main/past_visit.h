@@ -20,6 +20,8 @@ namespace rows {
                   boost::posix_time::ptime real_check_out,
                   boost::posix_time::time_duration real_duration);
 
+        inline long id() const { return visit_; }
+
         inline long service_user() const { return service_user_; }
 
         inline boost::gregorian::date date() const { return planned_check_in_.date(); }

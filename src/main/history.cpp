@@ -7,9 +7,15 @@ rows::History::History()
         : History(std::vector<PastVisit>{}) {}
 
 rows::History::History(const std::vector<PastVisit> &past_visits) {
+    bool visit_added = false;
+
     for (const auto &visit : past_visits) {
         const auto service_user = visit.service_user();
         const auto date = visit.date();
+
+        if (visit.service_user() == 9087917 && date == boost::gregorian::date(2017, 3, 11)) {
+            visit_added = true;
+        }
 
         auto service_user_it = index_.find(service_user);
         if (service_user_it == std::end(index_)) {
@@ -24,7 +30,15 @@ rows::History::History(const std::vector<PastVisit> &past_visits) {
                 date_it->second.emplace_back(visit);
             }
         }
+
+        if (visit_added) {
+            const auto service_user_it = index_.find(9087917);
+            const auto visit_it = service_user_it->second.find(boost::gregorian::date(2017, 3, 11));
+            CHECK(visit_it != std::cend(service_user_it->second));
+        }
     }
+
+    LOG(INFO) << "HERE";
 }
 
 bool rows::History::empty() const {
@@ -43,12 +57,53 @@ std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> row
     }
 
     const auto visit_date = visit.datetime().date();
+//    for (const auto &date_visit_pair : service_user_it->second) {
+//        if (date_visit_pair.first >= visit_date) {
+//            continue;
+//        }
+//
+//        if (visit.id() == 8533569) {
+//            for (const auto &local_visit : date_visit_pair.second) {
+//                std::stringstream msg;
+//
+//                msg << std::endl;
+//                msg << "visit = " << local_visit.id() << std::endl;
+//                msg << "service_user = " << local_visit.service_user() << std::endl;
+//                msg << "planned_check_in = " << local_visit.planned_check_in() << std::endl;
+//                msg << "real_duration = " << local_visit.real_duration() << " " << local_visit.real_duration().total_seconds() << std::endl;
+//
+//                LOG(INFO) << msg.str();
+//            }
+//        }
+//    }
+
+    if (visit.id() == 8533569) {
+        const auto visits = service_user_it->second.find(boost::gregorian::date(2017, 3, 11));
+        for (const auto &visit : visits->second) {
+            LOG(INFO) << visit.date() << " " << visit.planned_check_in();
+        }
+
+        LOG(INFO) << "VISITS";
+    }
+
     for (const auto &date_visit_pair : service_user_it->second) {
         if (date_visit_pair.first >= visit_date) {
             continue;
         }
 
+//        if (visit.id() == 8533569) {
+//            for (const auto &local_visit : date_visit_pair.second) {
+//                LOG(INFO) << local_visit.id();
+//            }
+//            LOG(INFO) << "HERE";
+//        }
+
         for (const auto &past_visit : date_visit_pair.second) {
+            if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
+                LOG(INFO) << visit.datetime();
+                LOG(INFO) << past_visit.planned_check_in();
+            }
+
             auto start_time_diff = abs(past_visit.planned_check_in().time_of_day().total_seconds() - visit.datetime().time_of_day().total_seconds());
             if (start_time_diff > MAX_START_TIME_DIFF.total_seconds()) {
                 continue;
@@ -58,7 +113,24 @@ std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> row
                 continue;
             }
 
-            sample.emplace(past_visit.date(), past_visit.real_duration());
+            auto find_it = sample.find(past_visit.date());
+            if (find_it != std::cend(sample)) {
+                const auto past_visit_duration = past_visit.real_duration();
+                const auto current_visit_duration = find_it->second;
+                const auto total_seconds = (current_visit_duration.total_seconds() + past_visit_duration.total_seconds()) / 2;
+
+                if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
+                    LOG(INFO) << boost::posix_time::seconds(total_seconds);
+                }
+
+                sample[past_visit.date()] = boost::posix_time::seconds(total_seconds);
+            } else {
+                if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
+                    LOG(INFO) << past_visit.real_duration();
+                }
+
+                sample.emplace(past_visit.date(), past_visit.real_duration());
+            }
             break;
         }
     }
