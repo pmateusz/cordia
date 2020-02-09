@@ -27,7 +27,13 @@ namespace rows {
 
         inline TrackRecord &Record(int64 node) { return records_[node]; }
 
+        inline const std::vector<int64> &Start(int64 node) const { return start_[node]; }
+
         inline const std::vector<int64> &Delay(int64 node) const { return delay_[node]; }
+
+        inline const int64 StartMin(int64 node) const { return duration_sample_.start_min(node); }
+
+        inline const int64 StartMax(int64 node) const { return duration_sample_.start_max(node); }
 
         int64 GetMeanDelay(int64 node) const;
 
@@ -153,7 +159,7 @@ namespace rows {
                             visit_key = solver_.NodeToVisit(routing_node).id();
                         }
 
-                        if (visit_key == 8584251) {
+                        if (visit_key == 8539350) {
                             display_path = true;
                             break;
                         }
@@ -288,10 +294,6 @@ namespace rows {
 
                     if (model_->IsEnd(index)) { continue; }
                     if (!visited_nodes[index]) { continue; }
-
-//                    if (index == 107 || index == 206) {
-//                        LOG(INFO) << "HERE";
-//                    }
 
                     const auto sibling_index = duration_sample_.sibling(index);
                     if (sibling_index >= 0) {

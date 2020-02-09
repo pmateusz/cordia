@@ -55,17 +55,11 @@ rows::DelayTracker::DelayTracker(const rows::SolverWrapper &solver,
         }
 
         const auto &visit = solver.NodeToVisit(node);
-        if (visit.id() == 8533606) {
+        if (visit.id() == 8696335) {
             selected_index = index;
             break;
         }
     }
-
-    std::stringstream msg;
-    for (auto scenario = 0; scenario < duration_sample_.size(); ++scenario) {
-        msg << scenario << " " << duration_sample_.duration(selected_index, scenario) << std::endl;
-    }
-    LOG(INFO) << msg.str();
 
     records_.resize(num_indices);
     start_.resize(num_indices);

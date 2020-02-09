@@ -558,6 +558,61 @@ std::vector<std::vector<int64>> rows::ThreeStepSchedulingWorker::SolveFirstStage
     return second_step_routes;
 }
 
+int64 GetEssentialRiskiness(std::vector<int64> delays) {
+    std::sort(std::begin(delays), std::end(delays));
+
+    // if last element is negative then index is zero
+    const auto num_delays = delays.size();
+    int64 delay_pos = num_delays - 1;
+    if (delays.at(delay_pos) <= 0) {
+        return 0;
+    }
+
+//    if (delays.at(0) >= 0) {
+//        return kint64max;
+//    }
+
+    // compute total delay
+    int64 total_delay = 0;
+    for (; delay_pos >= 0 && delays.at(delay_pos) >= 0; --delay_pos) {
+        total_delay += delays.at(delay_pos);
+    }
+    CHECK_GT(total_delay, 0);
+//    CHECK_GT(delay_pos, 0);
+
+//    if (delays.at(0) >= 0) {
+    if (delay_pos == -1) {
+        return total_delay;
+        return kint64max;
+    }
+
+    // find minimum traffic index that compensates the total delay
+    int64 delay_budget = 0;
+    for (; delay_pos > 0 && delay_budget + (delay_pos + 1) * delays.at(delay_pos) + total_delay > 0; --delay_pos) {
+        delay_budget += delays.at(delay_pos);
+    }
+
+    int64 delay_balance = delay_budget + (delay_pos + 1) * delays.at(delay_pos) + total_delay;
+    if (delay_balance < 0) {
+        int64 riskiness_index = std::min(0l, delays.at(delay_pos + 1));
+        CHECK_LE(riskiness_index, 0);
+
+        int64 remaining_balance = total_delay + delay_budget + (delay_pos + 1) * riskiness_index;
+        CHECK_GE(remaining_balance, 0);
+
+        riskiness_index -= std::ceil(static_cast<double>(remaining_balance) / static_cast<double>(delay_pos + 1));
+        CHECK_LE(riskiness_index * (delay_pos + 1) + delay_budget + total_delay, 0);
+
+        return -riskiness_index;
+    } else if (delay_balance > 0) {
+        CHECK_EQ(delay_pos, 0);
+        return delay_balance;
+        return kint64max;
+    }
+
+    return delays.at(delay_pos);
+}
+
 std::vector<std::vector<int64>>
 rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<int64>> &second_stage_initial_routes,
                                                   rows::SecondStepSolver &second_stage_solver,
@@ -592,7 +647,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         if (routing_node == rows::RealProblemData::DEPOT) { continue; }
 
         const auto &visit = second_stage_solver.NodeToVisit(routing_node);
-        if (visit.id() == 8533569) {
+        if (visit.id() == 8696335) {
             LOG(INFO) << index;
         }
     }
@@ -691,6 +746,12 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         CHECK(solution_assignment != nullptr);
         DelayTracker delay_tracker{second_stage_solver, *history_, &second_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
         delay_tracker.UpdateAllPaths(solution_assignment);
+
+
+        auto start_min_536 = delay_tracker.StartMin(536);
+        auto start_max_536 = delay_tracker.StartMax(536);
+        auto start_536 = delay_tracker.Start(536);
+        auto delay_536 = delay_tracker.Delay(536);
 
         std::unordered_set<int64> nodes_to_skip;
         for (int vehicle = 0; vehicle < second_stage_solver.index_manager().num_vehicles(); ++vehicle) {

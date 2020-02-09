@@ -2680,6 +2680,7 @@ class Mapping:
                         travel_time = datetime.timedelta(seconds=routing_session.distance(previous_location, current_location))
 
                         previous_visit_match = find_visit(previous_visit)
+
                         node = Node(previous_index,
                                     current_index,
                                     previous_visit,
@@ -2723,7 +2724,7 @@ class Mapping:
             node = self.__index_to_node[index]
             service_user_to_index[node.service_user].append(index)
 
-        self.__siblings = {}
+        self.__siblings = {}  # node.index == 383 or node.index == 517
         for service_user in service_user_to_index:
             num_indices = len(service_user_to_index[service_user])
             for left_pos in range(num_indices):
@@ -2782,6 +2783,9 @@ def essential_riskiness_index(data: typing.List[float]) -> float:
     records = copy.copy(data)
     records.sort()
 
+    for record in records:
+        print(record)
+
     num_records = len(records)
     if records[num_records - 1] <= 0:
         return 0.0
@@ -2825,14 +2829,15 @@ def compute_riskiness(args, settings):
     with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
         history = rows.model.history.History.load(input_stream)
 
-    time_windows_span = datetime.timedelta(hours=2)
-
-    mapping = Mapping(schedule.routes(), problem, settings, time_windows_span)
+    mapping_time_windows_span = datetime.timedelta(minutes=90)
+    mapping = Mapping(schedule.routes(), problem, settings, mapping_time_windows_span)
     sorted_indices = list(networkx.topological_sort(mapping.graph()))
-    sample = history.build_sample(problem, schedule.date(), time_windows_span)
+
+    history_time_windows_span = datetime.timedelta(hours=2)
+    sample = history.build_sample(problem, schedule.date(), history_time_windows_span)
 
     for scenario in range(sample.size):
-        print(scenario, int(sample.visit_duration(8533606, scenario).total_seconds()))
+        print(scenario, int(sample.visit_duration(8696335, scenario).total_seconds()))
 
     start_times = [[mapping.node(index).visit_start_min for _ in range(sample.size)] for index in mapping.indices()]
 
@@ -2851,17 +2856,22 @@ def compute_riskiness(args, settings):
         assert diary is not None
 
         nodes = carer_routes[carer]
-        if nodes:
-            visit_node = nodes[0]
-            visit_index = visit_node.index
-            start_min = max(visit_node.visit_start_min, diary.events[0].begin - datetime.timedelta(minutes=30))
-            for position in range(len(start_times[visit_index])):
-                start_times[visit_index][position] = start_min
+        nodes_it = iter(nodes)
+
+        first_visit_node = next(nodes_it)
+        start_min = max(first_visit_node.visit_start_min, diary.events[0].begin - datetime.timedelta(minutes=30))
+        for position in range(len(start_times[first_visit_node.index])):
+            start_times[first_visit_node.index][position] = start_min
+
+        for node in nodes_it:
+            start_min = max(node.visit_start_min, diary.events[0].begin - datetime.timedelta(minutes=30))
+            for position in range(len(start_times[node.index])):
+                start_times[node.index][position] = start_min
 
     for scenario in range(sample.size):
         for index in sorted_indices:
             node = mapping.node(index)
-            if node.next is None:
+            if node.next is None or node.next == -1:
                 continue
 
             current_sibling_node = mapping.sibling(node.index)
@@ -2872,8 +2882,15 @@ def compute_riskiness(args, settings):
 
             visit_key = mapping.node(node.index).visit_key
             start_time_int = int(time_to_delta(start_times[node.index][scenario].time()).total_seconds())
+
+            break_done = False
+            if node.break_duration is not None \
+                    and node.break_start is not None \
+                    and node.break_start + node.break_duration <= start_times[node.index][scenario]:
+                break_done = True
+
             next_arrival = start_times[node.index][scenario] + sample.visit_duration(visit_key, scenario) + node.travel_duration
-            if node.break_start is not None:
+            if not break_done and node.break_start is not None:
                 if next_arrival >= node.break_start:
                     next_arrival += node.break_duration
                 else:
@@ -2892,13 +2909,26 @@ def compute_riskiness(args, settings):
     delay = [[(start_times[index][scenario] - mapping.node(index).visit_start_max).total_seconds() for scenario in range(sample.size)]
              for index in mapping.indices()]
 
+    print(datetime_to_delta(mapping.node(485).visit_start_min).total_seconds())
+    print(datetime_to_delta(mapping.node(485).visit_start_max).total_seconds())
+
+    print('Start times')
+    for scenario in range(sample.size):
+        print(scenario, int(datetime_to_delta(start_times[485][scenario]).total_seconds()))
+
+    print('Delays')
+    for scenario in range(sample.size):
+        print(scenario, delay[485][scenario])
+
     selected_carers = set()
     for carer in mapping.routes():
         for node in mapping.routes()[carer]:
-            if node.visit_key == 8533606:
+            if node.visit_key == 8539350:
                 selected_carers.add(carer)
 
     # TODO: make sure start times in C++ and Python are comparable
+    essential_riskiness_index(delay[485])
+
     riskiness = [essential_riskiness_index(delay[index]) for index in mapping.indices()]
 
     def find_route(index) -> typing.Optional[typing.List[Node]]:
@@ -2911,7 +2941,6 @@ def compute_riskiness(args, settings):
 
     def print_route(carer):
         route = mapping.routes()[carer]
-
         data = [['index', 'key', 'visit_start', 'visit_duration', 'travel_duration', 'break_start', 'break_duration']]
         for node in route:
             data.append([node.index,
@@ -2921,7 +2950,6 @@ def compute_riskiness(args, settings):
                          int(node.travel_duration.total_seconds()),
                          int(datetime_to_delta(node.break_start).total_seconds()) if node.break_start is not None else 0,
                          int(node.break_duration.total_seconds())])
-
         print(tabulate.tabulate(data))
 
     for carer in selected_carers:
@@ -2930,6 +2958,7 @@ def compute_riskiness(args, settings):
 
 def debug(args, settings):
     pass
+
 
 # Python
 # -----  -------  -----------  --------------  ---------------  -----------  --------------
@@ -2964,6 +2993,7 @@ def debug(args, settings):
 # 217    8533606  63600        1021            0               0             0
 # 215    8533605  64621        845             0               0             0
 # -----  -------  -----------  --------------  ---------------  -----------  --------------
+
 
 if __name__ == '__main__':
     sys.excepthook = handle_exception
