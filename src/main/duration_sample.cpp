@@ -8,7 +8,7 @@ rows::DurationSample::DurationSample(const rows::SolverWrapper &solver,
 
     // build indexed sample of historical visit durations
     // build mapping of sibling indices
-    std::unordered_map<int64, std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> > visit_samples;
+    std::unordered_map <int64, std::map<boost::gregorian::date, boost::posix_time::time_duration>> visit_samples;
     for (const auto &visit : solver.problem().visits()) {
         const auto visit_indices = index_manager.NodesToIndices(solver.GetNodes(visit));
         CHECK_EQ(visit_indices.size(), visit.carer_count());
@@ -24,12 +24,23 @@ rows::DurationSample::DurationSample(const rows::SolverWrapper &solver,
         }
 
         auto sample = history.get_duration_sample(visit);
+
+//        if (visit.id() == 8559516) {
+//            std::stringstream msg;
+//
+//            for (const auto &key_value_pair : sample) {
+//                msg << key_value_pair.first << ": " << key_value_pair.second << std::endl;
+//            }
+//
+//            LOG(INFO) << msg.str();
+//        }
+
         visit_samples.emplace(visit_indices[0], std::move(sample));
     }
-    
+
 
     // build index of dates
-    std::unordered_set<boost::gregorian::date> unique_dates;
+    std::unordered_set <boost::gregorian::date> unique_dates;
     for (const auto &visit_sample_pair: visit_samples) {
         for (const auto &date_duration_pair : visit_sample_pair.second) {
             unique_dates.emplace(date_duration_pair.first);
@@ -57,7 +68,7 @@ rows::DurationSample::DurationSample(const rows::SolverWrapper &solver,
         const auto &default_visit = solver.NodeToVisit(index_manager.IndexToNode(visit_index_sample_pair.first));
         const auto default_duration = default_visit.duration().total_seconds();
 
-        std::vector<int64> duration;
+        std::vector <int64> duration;
         duration.resize(num_dates_, default_duration);
 
         for (const auto &date_duration_pair : visit_index_sample_pair.second) {

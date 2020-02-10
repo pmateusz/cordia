@@ -1,8 +1,9 @@
-import copy
 import collections
 import datetime
 import json
+import math
 import operator
+import typing
 
 import tqdm
 
@@ -24,6 +25,13 @@ class Sample:
         if first_key is None:
             return 0
         return len(self.__values[first_key])
+
+
+def average_duration(values: typing.List[datetime.timedelta]) -> datetime.timedelta:
+    total_duration = datetime.timedelta()
+    for value in values:
+        total_duration += value
+    return datetime.timedelta(seconds=math.ceil(total_duration.total_seconds() / float(len(values))))
 
 
 class History:
@@ -52,19 +60,13 @@ class History:
             time_before = visit.datetime - window_time_span
             time_after = visit.datetime + window_time_span
 
-            matches = {}
+            matches = collections.defaultdict(list)
             for indexed_visit in visit_index[visit.service_user]:
                 if indexed_visit.tasks != visit.tasks:
                     continue
 
                 if time_before.time() <= indexed_visit.planned_check_in.time() <= time_after.time():
-                    if indexed_visit.planned_check_in.date() in matches:
-                        local_copy = copy.copy(matches[indexed_visit.planned_check_in.date()])
-                        local_copy.real_duration \
-                            = datetime.timedelta(seconds=(local_copy.real_duration + indexed_visit.real_duration).total_seconds() // 2)
-                        matches[indexed_visit.planned_check_in.date()] = local_copy
-                    else:
-                        matches[indexed_visit.planned_check_in.date()] = indexed_visit
+                    matches[indexed_visit.planned_check_in.date()].append(indexed_visit.real_duration)
             matched_visits[visit.key] = matches
 
         dates = set()
@@ -78,12 +80,14 @@ class History:
         samples = {}
         for visit in problem_visits:
             past_visit_duration = []
+
             for current_date in dates_sorted:
                 visit_duration = visit.duration
 
                 if current_date in matched_visits[visit.key]:
-                    visit_duration = matched_visits[visit.key][current_date].real_duration
+                    visit_duration = average_duration(matched_visits[visit.key][current_date])
                 past_visit_duration.append(visit_duration)
+
             samples[visit.key] = past_visit_duration
 
         return Sample(samples)

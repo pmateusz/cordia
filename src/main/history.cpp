@@ -7,15 +7,18 @@ rows::History::History()
         : History(std::vector<PastVisit>{}) {}
 
 rows::History::History(const std::vector<PastVisit> &past_visits) {
-    bool visit_added = false;
+//    bool visit_added = false;
 
     for (const auto &visit : past_visits) {
+//        visit_added = false;
+
         const auto service_user = visit.service_user();
         const auto date = visit.date();
 
-        if (visit.service_user() == 9087917 && date == boost::gregorian::date(2017, 3, 11)) {
-            visit_added = true;
-        }
+//        if (visit.service_user() == 9097099 && date == boost::gregorian::date(2017, 2, 20)) {
+//            visit_added = true;
+//            LOG(INFO) << visit.planned_check_in() << " " << visit.real_duration();
+//        }
 
         auto service_user_it = index_.find(service_user);
         if (service_user_it == std::end(index_)) {
@@ -30,30 +33,42 @@ rows::History::History(const std::vector<PastVisit> &past_visits) {
                 date_it->second.emplace_back(visit);
             }
         }
-
-        if (visit_added) {
-            const auto service_user_it = index_.find(9087917);
-            const auto visit_it = service_user_it->second.find(boost::gregorian::date(2017, 3, 11));
-            CHECK(visit_it != std::cend(service_user_it->second));
-        }
+//
+//        if (visit_added) {
+//            const auto service_user_it = index_.find(9097099);
+//            const auto visit_it = service_user_it->second.find(boost::gregorian::date(2017, 2, 20));
+//            LOG(INFO) << visit_it->second.size();
+//        }
     }
 
-    LOG(INFO) << "HERE";
+//    LOG(INFO) << "HERE";
 }
 
 bool rows::History::empty() const {
     return index_.empty();
 }
 
-std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> rows::History::get_duration_sample(
-        const rows::CalendarVisit &visit) const {
+boost::posix_time::time_duration ComputeAverageDuration(const std::vector<boost::posix_time::time_duration> &durations) {
+    boost::posix_time::time_duration total_duration;
+
+    auto count = 0;
+    for (const auto &duration : durations) {
+        total_duration += duration;
+        ++count;
+    }
+
+    const auto total_seconds = std::ceil(total_duration.total_seconds() / static_cast<double>(count));
+    return boost::posix_time::seconds(total_seconds);
+}
+
+std::map<boost::gregorian::date, boost::posix_time::time_duration> rows::History::get_duration_sample(const rows::CalendarVisit &visit) const {
     static const boost::posix_time::hours MAX_START_TIME_DIFF = boost::posix_time::hours(2);
 
-    std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> sample;
+    std::map<boost::gregorian::date, std::vector<boost::posix_time::time_duration>> sample_matrix;
 
     const auto service_user_it = index_.find(visit.service_user().id());
     if (service_user_it == std::end(index_)) {
-        return sample;
+        return {};
     }
 
     const auto visit_date = visit.datetime().date();
@@ -89,10 +104,10 @@ std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> row
         if (date_visit_pair.first >= visit_date) { continue; }
 
         for (const auto &past_visit : date_visit_pair.second) {
-            if (visit.id() == 8533606 && past_visit.date() == boost::gregorian::date(2017, 2, 25)) {
-                LOG(INFO) << visit.datetime();
-                LOG(INFO) << past_visit.planned_check_in();
-            }
+//            if (visit.id() == 8559516 && past_visit.date() == boost::gregorian::date(2017, 2, 20)) {
+//                LOG(INFO) << visit.datetime();
+//                LOG(INFO) << past_visit.planned_check_in();
+//            }
 
             auto start_time_diff = abs(past_visit.planned_check_in().time_of_day().total_seconds() - visit.datetime().time_of_day().total_seconds());
             if (start_time_diff > MAX_START_TIME_DIFF.total_seconds()) {
@@ -103,27 +118,24 @@ std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> row
                 continue;
             }
 
-            auto find_it = sample.find(past_visit.date());
-            if (find_it != std::cend(sample)) {
-                const auto past_visit_duration = past_visit.real_duration();
-                const auto current_visit_duration = find_it->second;
-                const auto total_seconds = (current_visit_duration.total_seconds() + past_visit_duration.total_seconds()) / 2;
+            sample_matrix[past_visit.date()].emplace_back(past_visit.real_duration());
 
-//                if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
-//                    LOG(INFO) << boost::posix_time::seconds(total_seconds);
-//                }
+//            auto find_it = sample_matrix.find(past_visit.date());
+//            if (find_it != std::cend(sample_matrix)) {
 
-                sample[past_visit.date()] = boost::posix_time::seconds(total_seconds);
-            } else {
-//                if (visit.id() == 8533569 && past_visit.date() == boost::gregorian::date(2017, 3, 11)) {
+//            } else {
+//                if (visit.id() == 8559516 && past_visit.date() == boost::gregorian::date(2017, 2, 20)) {
 //                    LOG(INFO) << past_visit.real_duration();
 //                }
-
-                sample.emplace(past_visit.date(), past_visit.real_duration());
-            }
-            break;
+//
+//                sample_matrix[past_visit.date()].emplace_back(past_visit.real_duration());
+//            }
         }
     }
 
+    std::map<boost::gregorian::date, boost::posix_time::time_duration> sample;
+    for (const auto &key_value_pair : sample_matrix) {
+        sample[key_value_pair.first] = ComputeAverageDuration(key_value_pair.second);
+    }
     return sample;
 }

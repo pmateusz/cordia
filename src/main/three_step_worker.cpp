@@ -620,7 +620,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
     static const auto LOAD_DEBUG_FILES = false;
     static const auto SOLUTION_EXTENSION = ".bin";
 
-    const std::string SECOND_STAGE_XML_SOLUTION = "/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-14.gexf";
+    const std::string SECOND_STAGE_XML_SOLUTION = "/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-01.gexf";
     // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_2017-10-12.gexf";
     // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version19.gexf";
     // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version5.gexf";
@@ -646,10 +646,10 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         const auto routing_node = second_stage_solver.index_manager().IndexToNode(index);
         if (routing_node == rows::RealProblemData::DEPOT) { continue; }
 
-        const auto &visit = second_stage_solver.NodeToVisit(routing_node);
-        if (visit.id() == 8584885) {
-            LOG(INFO) << index;
-        }
+//        const auto &visit = second_stage_solver.NodeToVisit(routing_node);
+//        if (visit.id() == 8559516) {
+//            LOG(INFO) << index;
+//        }
     }
 
     std::vector<std::vector<int64>> solution;
@@ -747,10 +747,13 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         DelayTracker delay_tracker{second_stage_solver, *history_, &second_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
         delay_tracker.UpdateAllPaths(solution_assignment);
 
-        auto start_min_536 = delay_tracker.StartMin(536);
-        auto start_max_536 = delay_tracker.StartMax(536);
-        auto start_536 = delay_tracker.Start(536);
-        auto delay_536 = delay_tracker.Delay(536);
+        delay_tracker.PrintStartTimes(8448417);
+
+//        auto start_min_536 = delay_tracker.StartMin(512);
+//        auto start_max_536 = delay_tracker.StartMax(512);
+//        auto start_536 = delay_tracker.Start(512);
+//        auto delay_536 = delay_tracker.Delay(512);
+//        auto duration_536 = delay_tracker.Duration(512);
 
         std::unordered_set<int64> nodes_to_skip;
         for (int vehicle = 0; vehicle < second_stage_solver.index_manager().num_vehicles(); ++vehicle) {

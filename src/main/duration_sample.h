@@ -24,6 +24,8 @@ namespace rows {
 
         inline int64 duration(int64 index, std::size_t scenario) const { return duration_sample_.at(index).at(scenario); }
 
+        inline const std::vector<int64> &duration(int64 index) const { return duration_sample_.at(index); }
+
         inline bool is_visit(int64 index) const { return visit_indices_.find(index) != std::cend(visit_indices_); }
 
         inline bool has_sibling(int64 index) const { return sibling_index_.find(index) != std::cend(sibling_index_); }

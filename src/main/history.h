@@ -21,7 +21,7 @@ namespace rows {
 
         bool empty() const;
 
-        std::unordered_map<boost::gregorian::date, boost::posix_time::time_duration> get_duration_sample(const CalendarVisit &visit) const;
+        std::map<boost::gregorian::date, boost::posix_time::time_duration> get_duration_sample(const CalendarVisit &visit) const;
 
     private:
         std::unordered_map<long, std::unordered_map<boost::gregorian::date, std::vector<PastVisit> > > index_;

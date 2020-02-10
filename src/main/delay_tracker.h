@@ -31,6 +31,10 @@ namespace rows {
 
         inline const std::vector<int64> &Delay(int64 node) const { return delay_[node]; }
 
+        inline const std::vector<int64> &Duration(int64 node) const {
+            return duration_sample_.duration(node);
+        }
+
         inline const int64 StartMin(int64 node) const { return duration_sample_.start_min(node); }
 
         inline const int64 StartMax(int64 node) const { return duration_sample_.start_max(node); }
@@ -54,6 +58,8 @@ namespace rows {
         inline bool has_sibling(int64 index) const { return duration_sample_.has_sibling(index); }
 
         inline int64 sibling(int64 index) const { return duration_sample_.sibling(index); }
+
+        void PrintStartTimes(int visit_key);
 
     private:
 
@@ -138,7 +144,6 @@ namespace rows {
             }
 
             ComputeAllPathsDelay(data);
-
             {
                 for (auto vehicle = 0; vehicle < solver_.index_manager().num_vehicles(); ++vehicle) {
                     std::vector<int64> path;
@@ -159,7 +164,7 @@ namespace rows {
                             visit_key = solver_.NodeToVisit(routing_node).id();
                         }
 
-                        if (visit_key == 8587479) {
+                        if (visit_key == 8448417) {
                             display_path = true;
                             break;
                         }
@@ -312,22 +317,26 @@ namespace rows {
                             start_[sibling_index][scenario] = max_start_time;
 
                             const auto &sibling_record = records_[sibling_index];
-                            auto sibling_arrival_time = start_[sibling_index][scenario]
-                                                        + duration_sample_.duration(sibling_index, scenario)
-                                                        + sibling_record.travel_time;
-                            if (sibling_arrival_time > sibling_record.break_min) {
-                                sibling_arrival_time += sibling_record.break_duration;
-                            } else {
-                                sibling_arrival_time = sibling_record.break_min + sibling_record.break_duration;
-                            }
+                            if (sibling_record.next >= 0) {
+                                auto sibling_arrival_time = start_[sibling_record.index][scenario]
+                                                            + duration_sample_.duration(sibling_index, scenario)
+                                                            + sibling_record.travel_time;
+                                if (sibling_arrival_time > sibling_record.break_min) {
+                                    sibling_arrival_time += sibling_record.break_duration;
+                                } else {
+                                    sibling_arrival_time = sibling_record.break_min + sibling_record.break_duration;
+                                }
 
-                            if (sibling_arrival_time > start_[sibling_record.next][scenario]) {
-                                start_[sibling_record.next][scenario] = sibling_arrival_time;
+                                if (sibling_arrival_time > start_[sibling_record.next][scenario]) {
+                                    start_[sibling_record.next][scenario] = sibling_arrival_time;
+                                }
                             }
                         }
                     }
 
                     const auto &record = records_[index];
+                    CHECK_NE(record.next, -1);
+
                     auto arrival_time = start_[index][scenario] + duration_sample_.duration(index, scenario) + record.travel_time;
                     if (arrival_time > record.break_min) {
                         arrival_time += record.break_duration;

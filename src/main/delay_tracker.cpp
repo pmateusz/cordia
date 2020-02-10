@@ -222,3 +222,31 @@ rows::DelayTracker::PartialPath const *rows::DelayTracker::SelectBestPath(const 
 
     return result_path;
 }
+
+void rows::DelayTracker::PrintStartTimes(int visit_key) {
+    int64 selected_index = -1;
+
+    for (auto index = 0; index < solver_.index_manager().num_indices(); ++index) {
+        const auto node = solver_.index_manager().IndexToNode(index);
+        if (node == ProblemData::DEPOT) {
+            continue;
+        }
+
+        const auto &visit = solver_.NodeToVisit(node);
+        if (visit.id() == visit_key) {
+            selected_index = index;
+            break;
+        }
+    }
+
+    CHECK_NE(selected_index, -1);
+
+    std::stringstream msg;
+
+    msg << std::endl << "Start Times - Visit " << visit_key << ":" << std::endl;
+    for (auto scenario = 0; scenario < duration_sample_.size(); ++scenario) {
+        msg << std::setw(4) << std::left << scenario << start_.at(selected_index).at(scenario) << std::endl;
+    }
+
+    LOG(INFO) << msg.str();
+}

@@ -2783,8 +2783,8 @@ def essential_riskiness_index(data: typing.List[float]) -> float:
     records = copy.copy(data)
     records.sort()
 
-    for record in records:
-        print(record)
+    # for record in records:
+    #     print(record)
 
     num_records = len(records)
     if records[num_records - 1] <= 0:
@@ -2823,7 +2823,7 @@ def essential_riskiness_index(data: typing.List[float]) -> float:
 
 
 def compute_riskiness(args, settings):
-    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-14.gexf')
+    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-01.gexf')
     problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
 
     with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
@@ -2837,6 +2837,24 @@ def compute_riskiness(args, settings):
     sample = history.build_sample(problem, schedule.date(), history_time_windows_span)
 
     start_times = [[mapping.node(index).visit_start_min for _ in range(sample.size)] for index in mapping.indices()]
+
+    def compute_next_arrival(local_node: Node, local_scenario: int) -> datetime.datetime:
+        break_done = False
+        if local_node.break_duration is not None \
+                and local_node.break_start is not None \
+                and local_node.break_start + local_node.break_duration <= start_times[local_node.index][local_scenario]:
+            break_done = True
+
+        local_visit_key = mapping.node(local_node.index).visit_key
+        local_next_arrival = start_times[local_node.index][local_scenario] \
+                             + sample.visit_duration(local_visit_key, local_scenario) \
+                             + local_node.travel_duration
+        if not break_done and local_node.break_start is not None:
+            if local_next_arrival >= local_node.break_start:
+                local_next_arrival += local_node.break_duration
+            else:
+                local_next_arrival = local_node.break_start + local_node.break_duration
+        return local_next_arrival
 
     def time_to_delta(time: datetime.time) -> datetime.timedelta:
         seconds = time.hour * 3600 + time.minute * 60 + time.second
@@ -2868,66 +2886,66 @@ def compute_riskiness(args, settings):
     for scenario in range(sample.size):
         for index in sorted_indices:
             node = mapping.node(index)
-            if node.next is None or node.next == -1:
-                continue
 
             current_sibling_node = mapping.sibling(node.index)
             if current_sibling_node:
                 max_start_time = max(start_times[node.index][scenario], start_times[current_sibling_node.index][scenario])
                 start_times[node.index][scenario] = max_start_time
-                start_times[current_sibling_node.index][scenario] = max_start_time
 
-            visit_key = mapping.node(node.index).visit_key
-            start_time_int = int(time_to_delta(start_times[node.index][scenario].time()).total_seconds())
+                if max_start_time > start_times[current_sibling_node.index][scenario]:
+                    start_times[current_sibling_node.index][scenario] = max_start_time
 
-            break_done = False
-            if node.break_duration is not None \
-                    and node.break_start is not None \
-                    and node.break_start + node.break_duration <= start_times[node.index][scenario]:
-                break_done = True
+                    if current_sibling_node.next is not None and current_sibling_node.next != -1:
+                        start_times[current_sibling_node.next][scenario] = compute_next_arrival(current_sibling_node, scenario)
 
-            next_arrival = start_times[node.index][scenario] + sample.visit_duration(visit_key, scenario) + node.travel_duration
-            if not break_done and node.break_start is not None:
-                if next_arrival >= node.break_start:
-                    next_arrival += node.break_duration
-                else:
-                    next_arrival = node.break_start + node.break_duration
+            if node.next is None or node.next == -1:
+                continue
 
-            next_arrival_int = int(time_to_delta(next_arrival.time()).total_seconds())
+            next_arrival = compute_next_arrival(node, scenario)
             if next_arrival > start_times[node.next][scenario]:
                 start_times[node.next][scenario] = next_arrival
-
-                sibling_node = mapping.sibling(node.next)
-                if sibling_node:
-                    max_time = max(start_times[sibling_node.index][scenario], start_times[node.next][scenario])
-                    start_times[node.next][scenario] = max_time
-                    start_times[sibling_node.index][scenario] = max_time
 
     delay = [[(start_times[index][scenario] - mapping.node(index).visit_start_max).total_seconds() for scenario in range(sample.size)]
              for index in mapping.indices()]
 
-    # for scenario in range(sample.size):
-    #     print(scenario, int(sample.visit_duration(8696335, scenario).total_seconds()))
+    # selected_index = [mapping.node(index) for index in mapping.indices() if mapping.node(index).visit_key == 8559516][0].index
 
-    # print(datetime_to_delta(mapping.node(485).visit_start_min).total_seconds())
-    # print(datetime_to_delta(mapping.node(485).visit_start_max).total_seconds())
-
+    # print(datetime_to_delta(mapping.node(selected_index).visit_start_min).total_seconds())
+    # print(datetime_to_delta(mapping.node(selected_index).visit_start_max).total_seconds())
+    #
     # print('Start times')
     # for scenario in range(sample.size):
-    #     print(scenario, int(datetime_to_delta(start_times[485][scenario]).total_seconds()))
+    #     print(scenario, int(datetime_to_delta(start_times[selected_index][scenario]).total_seconds()))
+    #
+    # print('Duration')
+    # for scenario in range(sample.size):
+    #     print(scenario, int(sample.visit_duration(8559516, scenario).total_seconds()))
     #
     # print('Delays')
     # for scenario in range(sample.size):
-    #     print(scenario, delay[485][scenario])
+    #     print(scenario, delay[selected_index][scenario])
 
     selected_carers = set()
     for carer in mapping.routes():
         for node in mapping.routes()[carer]:
-            if node.visit_key == 8587479:
+            if node.visit_key == 8448417:
                 selected_carers.add(carer)
+
+    def print_start_times(visit_key: int):
+        print('Start Times - Visit {0}:'.format(visit_key))
+
+        selected_index = None
+        for index in mapping.indices():
+            if mapping.node(index).visit_key == visit_key:
+                selected_index = index
+
+        for scenario in range(sample.size):
+            print('{0:<4}{1}'.format(scenario, int(datetime_to_delta(start_times[selected_index][scenario]).total_seconds())))
 
     # TODO: make sure start times in C++ and Python are comparable
     # essential_riskiness_index(delay[485])
+
+    print_start_times(8448417)
 
     riskiness = [essential_riskiness_index(delay[index]) for index in mapping.indices()]
 
@@ -2955,44 +2973,11 @@ def compute_riskiness(args, settings):
     for carer in selected_carers:
         print_route(carer)
 
+    print('here')
+
 
 def debug(args, settings):
     pass
-
-
-# Python
-# -----  -------  -----------  --------------  ---------------  -----------  --------------
-# index  key      visit_start  visit_duration  travel_duration  break_start  break_duration
-# 178    8533687  62100        676             824              0            0
-# 179    8533606  109240       1021            0                0            0
-# 180    8533605  110261       845             824              65524        5400
-# 181    8529307  117330       47              0                79200        14400
-# -----  -------  -----------  --------------  ---------------  -----------  --------------
-#
-# -----  -------  -----------  --------------  ---------------  -----------  --------------
-# index  key      visit_start  visit_duration  travel_duration  break_start  break_duration
-# 383    8533602  39600        1877            0                0            0
-# 384    8584251  93600        1240            0                42041        14400
-# 385    8533606  109240       1021            0                0            0
-# 386    8533605  110261       845             0                79200        14400
-# -----  -------  -----------  --------------  ---------------  -----------  --------------
-
-# C++
-# -----  -------  -----------  --------------  ---------------  -----------  --------------
-# index  key      visit_start  visit_duration  travel_duration  break_start  break_duration
-# 223    8533687  62100        676             824             0             0
-# 216    8533606  63600        1021            0               0             0
-# 214    8533605  64621        845             824             65524         5400
-# 224    8529307  71690        47              0               0             0
-# -----  -------  -----------  --------------  ---------------  -----------  --------------
-#
-# -----  -------  -----------  --------------  ---------------  -----------  --------------
-# index  key      visit_start  visit_duration  travel_duration  break_start  break_duration
-# 211    8533602  39600        1877            0               0             0
-# 213    8584251  41477        1240            0               42041         14400
-# 217    8533606  63600        1021            0               0             0
-# 215    8533605  64621        845             0               0             0
-# -----  -------  -----------  --------------  ---------------  -----------  --------------
 
 
 if __name__ == '__main__':
