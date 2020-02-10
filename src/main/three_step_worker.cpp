@@ -647,7 +647,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         if (routing_node == rows::RealProblemData::DEPOT) { continue; }
 
         const auto &visit = second_stage_solver.NodeToVisit(routing_node);
-        if (visit.id() == 8696335) {
+        if (visit.id() == 8584885) {
             LOG(INFO) << index;
         }
     }
@@ -746,7 +746,6 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         CHECK(solution_assignment != nullptr);
         DelayTracker delay_tracker{second_stage_solver, *history_, &second_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
         delay_tracker.UpdateAllPaths(solution_assignment);
-
 
         auto start_min_536 = delay_tracker.StartMin(536);
         auto start_max_536 = delay_tracker.StartMax(536);

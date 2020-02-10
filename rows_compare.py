@@ -2836,9 +2836,6 @@ def compute_riskiness(args, settings):
     history_time_windows_span = datetime.timedelta(hours=2)
     sample = history.build_sample(problem, schedule.date(), history_time_windows_span)
 
-    for scenario in range(sample.size):
-        print(scenario, int(sample.visit_duration(8696335, scenario).total_seconds()))
-
     start_times = [[mapping.node(index).visit_start_min for _ in range(sample.size)] for index in mapping.indices()]
 
     def time_to_delta(time: datetime.time) -> datetime.timedelta:
@@ -2909,25 +2906,28 @@ def compute_riskiness(args, settings):
     delay = [[(start_times[index][scenario] - mapping.node(index).visit_start_max).total_seconds() for scenario in range(sample.size)]
              for index in mapping.indices()]
 
-    print(datetime_to_delta(mapping.node(485).visit_start_min).total_seconds())
-    print(datetime_to_delta(mapping.node(485).visit_start_max).total_seconds())
+    # for scenario in range(sample.size):
+    #     print(scenario, int(sample.visit_duration(8696335, scenario).total_seconds()))
 
-    print('Start times')
-    for scenario in range(sample.size):
-        print(scenario, int(datetime_to_delta(start_times[485][scenario]).total_seconds()))
+    # print(datetime_to_delta(mapping.node(485).visit_start_min).total_seconds())
+    # print(datetime_to_delta(mapping.node(485).visit_start_max).total_seconds())
 
-    print('Delays')
-    for scenario in range(sample.size):
-        print(scenario, delay[485][scenario])
+    # print('Start times')
+    # for scenario in range(sample.size):
+    #     print(scenario, int(datetime_to_delta(start_times[485][scenario]).total_seconds()))
+    #
+    # print('Delays')
+    # for scenario in range(sample.size):
+    #     print(scenario, delay[485][scenario])
 
     selected_carers = set()
     for carer in mapping.routes():
         for node in mapping.routes()[carer]:
-            if node.visit_key == 8539350:
+            if node.visit_key == 8587479:
                 selected_carers.add(carer)
 
     # TODO: make sure start times in C++ and Python are comparable
-    essential_riskiness_index(delay[485])
+    # essential_riskiness_index(delay[485])
 
     riskiness = [essential_riskiness_index(delay[index]) for index in mapping.indices()]
 

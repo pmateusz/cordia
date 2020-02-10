@@ -159,7 +159,7 @@ namespace rows {
                             visit_key = solver_.NodeToVisit(routing_node).id();
                         }
 
-                        if (visit_key == 8539350) {
+                        if (visit_key == 8587479) {
                             display_path = true;
                             break;
                         }
@@ -211,14 +211,19 @@ namespace rows {
                     const auto next_node = current_record.next;
                     if (next_node == -1) { break; }
 
-                    edges.emplace_back(current_node, next_node);
+//                    if (current_node == 420) {
+//                        LOG(INFO) << "HERE";
+//                    }
+
+                    edges.emplace_back(next_node, current_node);
 
                     int64 sibling_node = duration_sample_.sibling(current_node);
                     if (sibling_node != -1) {
                         if (current_node < sibling_node) {
-                            edges.emplace_back(current_node, sibling_node);
-                            edges.emplace_back(sibling_node, next_node);
+                            edges.emplace_back(sibling_node, current_node);
                         }
+
+                        edges.emplace_back(next_node, sibling_node);
                     }
 
                     current_node = next_node;
@@ -241,29 +246,32 @@ namespace rows {
                     outgoing_vertices.emplace_back(target);
                 }
 
-                const auto degree = outgoing_vertices.size();
-                if (degree == 0) {
-                    continue;
-                } else if (degree == 1) {
-                    const auto outgoing_node = outgoing_vertices.front();
-                    CHECK(model_->IsEnd(vertex) || (!duration_sample_.has_sibling(vertex) && records_[vertex].next == outgoing_node));
-                } else {
-                    CHECK_EQ(degree, 2);
-                    CHECK(duration_sample_.is_visit(vertex));
-                    CHECK(duration_sample_.has_sibling(vertex));
-
-                    int64 other_sibling = duration_sample_.sibling(vertex);
-                    CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), records_[vertex].next) !=
-                          std::cend(outgoing_vertices));
-
-                    if (vertex < other_sibling) {
-                        CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), other_sibling) !=
-                              std::cend(outgoing_vertices));
-                    } else {
-                        CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), records_[other_sibling].next) !=
-                              std::cend(outgoing_vertices));
-                    }
-                }
+//                const auto degree = outgoing_vertices.size();
+//                if (degree == 0) {
+//                    // vertex not visited
+//                    continue;
+//                } else if (degree == 1) {
+//                    // vertex has a single predecessor
+//                    const auto outgoing_node = outgoing_vertices.front();
+//                    CHECK(model_->IsEnd(vertex) || (!duration_sample_.has_sibling(vertex) && records_[vertex].next == outgoing_node));
+//                } else {
+//                    // vertex has two predecessors which are sibling nodes to themselves
+//                    CHECK_EQ(degree, 2);
+//                    CHECK(duration_sample_.is_visit(vertex));
+//                    CHECK(duration_sample_.has_sibling(vertex));
+//
+//                    int64 other_sibling = duration_sample_.sibling(vertex);
+//                    CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), records_[vertex].next) !=
+//                          std::cend(outgoing_vertices));
+//
+//                    if (vertex < other_sibling) {
+//                        CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), other_sibling) !=
+//                              std::cend(outgoing_vertices));
+//                    } else {
+//                        CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), records_[other_sibling].next) !=
+//                              std::cend(outgoing_vertices));
+//                    }
+//                }
             }
 
             for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
@@ -289,7 +297,7 @@ namespace rows {
 
             const auto num_samples = duration_sample_.size();
             for (std::size_t scenario = 0; scenario < num_samples; ++scenario) {
-                for (auto it = std::crbegin(reverse_sorted_vertices); it != std::crend(reverse_sorted_vertices); ++it) {
+                for (auto it = std::cbegin(reverse_sorted_vertices); it != std::cend(reverse_sorted_vertices); ++it) {
                     const auto index = *it;
 
                     if (model_->IsEnd(index)) { continue; }
@@ -299,7 +307,24 @@ namespace rows {
                     if (sibling_index >= 0) {
                         const auto max_start_time = std::max(start_[index][scenario], start_[sibling_index][scenario]);
                         start_[index][scenario] = max_start_time;
-                        start_[sibling_index][scenario] = max_start_time;
+
+                        if (sibling_index >= 0 && max_start_time > start_[sibling_index][scenario]) {
+                            start_[sibling_index][scenario] = max_start_time;
+
+                            const auto &sibling_record = records_[sibling_index];
+                            auto sibling_arrival_time = start_[sibling_index][scenario]
+                                                        + duration_sample_.duration(sibling_index, scenario)
+                                                        + sibling_record.travel_time;
+                            if (sibling_arrival_time > sibling_record.break_min) {
+                                sibling_arrival_time += sibling_record.break_duration;
+                            } else {
+                                sibling_arrival_time = sibling_record.break_min + sibling_record.break_duration;
+                            }
+
+                            if (sibling_arrival_time > start_[sibling_record.next][scenario]) {
+                                start_[sibling_record.next][scenario] = sibling_arrival_time;
+                            }
+                        }
                     }
 
                     const auto &record = records_[index];
