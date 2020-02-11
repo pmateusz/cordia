@@ -19,6 +19,8 @@ void rows::DelayRiskinessConstraint::PostNodeConstraints(int64 node) {
 }
 
 int64 rows::DelayRiskinessConstraint::GetEssentialRiskiness(int64 index) const {
+    static const int64 MAX_RISKINESS = kint64max - 5;
+
     std::vector<int64> delays = Delay(index);
     std::sort(std::begin(delays), std::end(delays));
 
@@ -29,9 +31,9 @@ int64 rows::DelayRiskinessConstraint::GetEssentialRiskiness(int64 index) const {
         return 0;
     }
 
-//    if (delays.at(0) >= 0) {
-//        return kint64max;
-//    }
+    if (delays.at(0) >= 0) {
+        return MAX_RISKINESS;
+    }
 
     // compute total delay
     int64 total_delay = 0;
@@ -43,14 +45,13 @@ int64 rows::DelayRiskinessConstraint::GetEssentialRiskiness(int64 index) const {
 
 //    if (delays.at(0) >= 0) {
     if (delay_pos == -1) {
-        return total_delay;
-        return kint64max;
+        return MAX_RISKINESS;
     }
 
     // return when not possible to increase the riskiness index
-    if ((delay_pos + 1) * riskiness_index_->Min() >= total_delay) {
-        return riskiness_index_->Min();
-    }
+//    if ((delay_pos + 1) * riskiness_index_->Min() >= total_delay) {
+//        return riskiness_index_->Min();
+//    }
 
     // find minimum traffic index that compensates the total delay
     int64 delay_budget = 0;
@@ -72,8 +73,7 @@ int64 rows::DelayRiskinessConstraint::GetEssentialRiskiness(int64 index) const {
         return -riskiness_index;
     } else if (delay_balance > 0) {
         CHECK_EQ(delay_pos, 0);
-        return delay_balance;
-        return kint64max;
+        return MAX_RISKINESS;
     }
 
     return delays.at(delay_pos);

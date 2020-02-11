@@ -27,21 +27,23 @@ namespace rows {
 
         inline TrackRecord &Record(int64 node) { return records_[node]; }
 
-        inline const std::vector<int64> &Start(int64 node) const { return start_[node]; }
-
-        inline const std::vector<int64> &Delay(int64 node) const { return delay_[node]; }
-
-        inline const std::vector<int64> &Duration(int64 node) const {
-            return duration_sample_.duration(node);
-        }
+        inline bool IsVisited(int64 node) const { return visited_[node]; }
 
         inline const int64 StartMin(int64 node) const { return duration_sample_.start_min(node); }
 
         inline const int64 StartMax(int64 node) const { return duration_sample_.start_max(node); }
 
+        inline const std::vector<int64> &Start(int64 node) const { return start_[node]; }
+
+        inline const std::vector<int64> &Delay(int64 node) const { return delay_[node]; }
+
+        inline const std::vector<int64> &Duration(int64 node) const { return duration_sample_.duration(node); }
+
         int64 GetMeanDelay(int64 node) const;
 
         int64 GetDelayProbability(int64 node) const;
+
+        int64 GetEssentialRiskiness(int64 node) const;
 
         inline const operations_research::RoutingModel *model() const { return model_; }
 
@@ -59,9 +61,16 @@ namespace rows {
 
         inline int64 sibling(int64 index) const { return duration_sample_.sibling(index); }
 
-        void PrintStartTimes(int visit_key);
+        void PrintStartTimes(int visit_key) const;
+
+        void PrintDelays(int visit_key) const;
+
+        void PrintPath(int visit_key) const;
+
+        int64 GetVisitIndexFromKey(int64 visit_key) const;
 
     private:
+        std::vector<int64> FindPath(int visit_key) const;
 
         template<typename DataSource>
         void PrintPathDetails(int vehicle, const DataSource &data) {
@@ -117,87 +126,14 @@ namespace rows {
                 std::fill(std::begin(delay_[index]), std::end(delay_[index]), 0);
                 records_[index].next = -1;
             }
+            std::fill(std::begin(visited_), std::end(visited_), false);
 
             for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
                 const auto path = BuildPathFromSource<decltype(data)>(vehicle, data);
-
-//                if(!path.empty()) {
-//                    std::stringstream msg;
-//                    msg << "Vehicle " << vehicle << ": [ ";
-//                    msg << path[0];
-//                    for (std::size_t pos = 1; pos < path.size(); ++pos) {
-//                        msg << ", " << path[pos];
-//                    }
-//                    msg << "]";
-//                    LOG(INFO) << msg.str();
-//                }
-
                 UpdatePathRecords<decltype(data)>(vehicle, path, data);
-
-//                const auto node = solver_.index_manager().IndexToNode(index);
-//                if (node != ProblemData::DEPOT) {
-//                    const auto &visit = solver_.NodeToVisit(node);
-//                    if (visit.id() == 8533569) {
-//                        LOG(INFO) << "HERE";
-//                    }
-//                }
             }
 
             ComputeAllPathsDelay(data);
-            {
-                for (auto vehicle = 0; vehicle < solver_.index_manager().num_vehicles(); ++vehicle) {
-                    std::vector<int64> path;
-                    int64 current_node = model_->Start(vehicle);
-                    while (!model_->IsEnd(current_node)) {
-                        path.emplace_back(current_node);
-
-                        current_node = records_[current_node].next;
-                    }
-
-                    bool display_path = false;
-                    for (const auto index : path) {
-                        if (index < 0) { continue; }
-
-                        std::size_t visit_key = 0;
-                        const auto routing_node = solver_.index_manager().IndexToNode(index);
-                        if (routing_node != rows::ProblemData::DEPOT) {
-                            visit_key = solver_.NodeToVisit(routing_node).id();
-                        }
-
-                        if (visit_key == 8448417) {
-                            display_path = true;
-                            break;
-                        }
-                    }
-
-                    if (display_path) {
-                        std::stringstream msg;
-                        msg << std::endl;
-                        msg << "-----  -------  -----------  --------------  ---------------  -----------  --------------" << std::endl
-                            << "index  key      visit_start  visit_duration  travel_duration  break_start  break_duration" << std::endl;
-                        for (const auto node : path) {
-                            if (node < 0) { continue; }
-
-                            std::size_t local_visit_key = 0;
-                            const auto &record = records_[node];
-                            const auto routing_node = solver_.index_manager().IndexToNode(record.index);
-                            if (routing_node != rows::ProblemData::DEPOT) {
-                                local_visit_key = solver_.NodeToVisit(routing_node).id();
-                            }
-
-                            msg << std::setw(5) << std::left << node << "  "
-                                << std::setw(7) << std::left << local_visit_key << "  "
-                                << std::setw(11) << std::left << start_[node][0] << "  "
-                                << std::setw(14) << std::left << duration_sample_.duration(node, 0) << "  "
-                                << std::setw(14) << std::left << record.travel_time << "  "
-                                << std::setw(12) << std::left << record.break_min << "  "
-                                << std::setw(14) << std::left << record.break_duration << std::endl;
-                        }
-                        msg << "-----  -------  -----------  --------------  ---------------  -----------  --------------" << std::endl;
-                        LOG(INFO) << msg.str();
-                    }
-                }
-            }
         }
 
         template<typename DataSource>
@@ -215,10 +151,6 @@ namespace rows {
 
                     const auto next_node = current_record.next;
                     if (next_node == -1) { break; }
-
-//                    if (current_node == 420) {
-//                        LOG(INFO) << "HERE";
-//                    }
 
                     edges.emplace_back(next_node, current_node);
 
@@ -826,6 +758,8 @@ namespace rows {
                 const auto element = path[path_pos];
 
                 if (element >= 0) {
+                    visited_.at(element) = true;
+
                     if (current_node == -1) {
                         current_node = element;
                         continue;
@@ -916,6 +850,7 @@ namespace rows {
         DurationSample duration_sample_;
 
         std::vector<TrackRecord> records_;
+        std::vector<bool> visited_;
         std::vector<std::vector<int64>> start_;
         std::vector<std::vector<int64>> delay_;
     };

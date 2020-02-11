@@ -2736,7 +2736,7 @@ class Mapping:
                         self.__siblings[right_index] = left_index
 
     def indices(self):
-        return self.__index_to_node.keys()
+        return list(self.__index_to_node.keys())
 
     def routes(self) -> typing.Dict[rows.model.carer.Carer, typing.List[Node]]:
         return self.__routes
@@ -2779,51 +2779,8 @@ class Mapping:
         return networkx.DiGraph(edges)
 
 
-def essential_riskiness_index(data: typing.List[float]) -> float:
-    records = copy.copy(data)
-    records.sort()
-
-    # for record in records:
-    #     print(record)
-
-    num_records = len(records)
-    if records[num_records - 1] <= 0:
-        return 0.0
-
-    total_delay = 0.0
-    position = num_records - 1
-    while position >= 0 and records[position] >= 0:
-        total_delay += records[position]
-        position -= 1
-
-    if position == -1:
-        return float('inf')
-
-    delay_budget = 0
-    while position > 0 and delay_budget + float(position + 1) * records[position] + total_delay > 0:
-        delay_budget += records[position]
-        position -= 1
-
-    delay_balance = delay_budget + float(position + 1) * records[position] + total_delay
-    if delay_balance < 0:
-        riskiness_index = min(0.0, records[position + 1])
-        assert riskiness_index <= 0.0
-
-        remaining_balance = total_delay + delay_budget + float(position + 1) * riskiness_index
-        assert remaining_balance >= 0.0
-
-        riskiness_index -= math.ceil(remaining_balance / float(position + 1))
-        assert riskiness_index * float(position + 1) + delay_budget + total_delay <= 0.0
-
-        return -riskiness_index
-    elif delay_balance > 0:
-        return float('inf')
-    else:
-        return data[position]
-
-
 def compute_riskiness(args, settings):
-    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-01.gexf')
+    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/solution.gexf')
     problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
 
     with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
@@ -2925,29 +2882,79 @@ def compute_riskiness(args, settings):
     # for scenario in range(sample.size):
     #     print(scenario, delay[selected_index][scenario])
 
-    selected_carers = set()
-    for carer in mapping.routes():
-        for node in mapping.routes()[carer]:
-            if node.visit_key == 8448417:
-                selected_carers.add(carer)
+    def find_carer(visit_key: int) -> typing.Optional[rows.model.carer.Carer]:
+        for carer in mapping.routes():
+            for node in mapping.routes()[carer]:
+                if node.visit_key == visit_key:
+                    return carer
+        return None
+
+    def find_index(visit_key: int) -> typing.Optional[int]:
+        for index in mapping.indices():
+            if mapping.node(index).visit_key == visit_key:
+                return index
+        return None
 
     def print_start_times(visit_key: int):
         print('Start Times - Visit {0}:'.format(visit_key))
 
-        selected_index = None
-        for index in mapping.indices():
-            if mapping.node(index).visit_key == visit_key:
-                selected_index = index
+        selected_index = find_index(visit_key)
+        for scenario_number in range(sample.size):
+            print('{0:<4}{1}'.format(scenario_number, int(datetime_to_delta(start_times[selected_index][scenario_number]).total_seconds())))
 
-        for scenario in range(sample.size):
-            print('{0:<4}{1}'.format(scenario, int(datetime_to_delta(start_times[selected_index][scenario]).total_seconds())))
+    def print_delays(visit_key: int):
+        print('Delays - Visit {0}:'.format(visit_key))
 
-    # TODO: make sure start times in C++ and Python are comparable
-    # essential_riskiness_index(delay[485])
+        selected_index = find_index(visit_key)
+        for scenario_number in range(sample.size):
+            print('{0:<4}{1}'.format(scenario_number, int(delay[selected_index][scenario_number])))
 
-    print_start_times(8448417)
+    def essential_riskiness_index(visit_key: int) -> float:
+        visit_index = find_index(visit_key)
+        records = copy.copy(delay[visit_index])
+        records.sort()
 
-    riskiness = [essential_riskiness_index(delay[index]) for index in mapping.indices()]
+        num_records = len(records)
+        if records[num_records - 1] <= 0:
+            return 0.0
+
+        total_delay = 0.0
+        position = num_records - 1
+        while position >= 0 and records[position] >= 0:
+            total_delay += records[position]
+            position -= 1
+
+        if position == -1:
+            return float('inf')
+
+        delay_budget = 0
+        while position > 0 and delay_budget + float(position + 1) * records[position] + total_delay > 0:
+            delay_budget += records[position]
+            position -= 1
+
+        delay_balance = delay_budget + float(position + 1) * records[position] + total_delay
+        if delay_balance < 0:
+            riskiness_index = min(0.0, records[position + 1])
+            assert riskiness_index <= 0.0
+
+            remaining_balance = total_delay + delay_budget + float(position + 1) * riskiness_index
+            assert remaining_balance >= 0.0
+
+            riskiness_index -= math.ceil(remaining_balance / float(position + 1))
+            assert riskiness_index * float(position + 1) + delay_budget + total_delay <= 0.0
+
+            return -riskiness_index
+        elif delay_balance > 0:
+            return float('inf')
+        else:
+            return records[position]
+
+    selected_carers = {find_carer(8582722)}
+    essential_riskiness_index(8582722)
+    print_start_times(8582722)
+    print_delays(8582722)
+
+    riskiness = [essential_riskiness_index(mapping.node(index).visit_key) for index in mapping.indices()]
 
     def find_route(index) -> typing.Optional[typing.List[Node]]:
         routes = mapping.routes()
@@ -2972,8 +2979,6 @@ def compute_riskiness(args, settings):
 
     for carer in selected_carers:
         print_route(carer)
-
-    print('here')
 
 
 def debug(args, settings):

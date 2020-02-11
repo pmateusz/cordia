@@ -620,12 +620,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
     static const auto LOAD_DEBUG_FILES = false;
     static const auto SOLUTION_EXTENSION = ".bin";
 
-    const std::string SECOND_STAGE_XML_SOLUTION = "/home/pmateusz/dev/cordia/simulations/current_review_simulations/2017-10-01.gexf";
-    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_2017-10-12.gexf";
-    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version19.gexf";
-    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version5.gexf";
-    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/second_stage_solution_version7.gexf";
-    // "/home/pmateusz/dev/cordia/simulations/current_review_simulations/infinite_expansion_problem.gexf";
+    const std::string SECOND_STAGE_XML_SOLUTION = "";
 
     const auto scheduling_day = second_stage_solver.GetScheduleDate();
 
@@ -747,14 +742,6 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         DelayTracker delay_tracker{second_stage_solver, *history_, &second_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
         delay_tracker.UpdateAllPaths(solution_assignment);
 
-        delay_tracker.PrintStartTimes(8448417);
-
-//        auto start_min_536 = delay_tracker.StartMin(512);
-//        auto start_max_536 = delay_tracker.StartMax(512);
-//        auto start_536 = delay_tracker.Start(512);
-//        auto delay_536 = delay_tracker.Delay(512);
-//        auto duration_536 = delay_tracker.Duration(512);
-
         std::unordered_set<int64> nodes_to_skip;
         for (int vehicle = 0; vehicle < second_stage_solver.index_manager().num_vehicles(); ++vehicle) {
             int64 current_index = delay_tracker.Record(second_stage_model.Start(vehicle)).next;
@@ -767,8 +754,13 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
             }
         }
 
+        DelayTracker local_tracker{filtered_second_stage_wrapper,
+                                   *history_,
+                                   &filtered_second_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
+
+        operations_research::Assignment *restored_assignment = nullptr;
         int iterations = 0;
-        while (filtered_assignment == nullptr && iterations < 10) {
+        while (restored_assignment == nullptr && iterations < 10) {
             std::vector<std::vector<int64>> filtered_tours;
             for (const auto &tour : solution) {
                 std::vector<int64> filtered_tour;
@@ -781,9 +773,28 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
             }
 
             filtered_assignment = filtered_second_stage_model.ReadAssignmentFromRoutes(filtered_tours, false);
+            for (const auto index : filtered_second_stage_wrapper.failed_expectation_repository()->Indices()) {
+                nodes_to_skip.emplace(index);
+            }
 
-            for (const auto node : filtered_second_stage_wrapper.failed_expectation_repository()->Indices()) {
-                nodes_to_skip.emplace(node);
+            if (filtered_assignment != nullptr) {
+                bool extra_nodes_removed = false;
+                restored_assignment = filtered_second_stage_model.RestoreAssignment(*filtered_assignment);
+                local_tracker.UpdateAllPaths(restored_assignment);
+
+                for (auto index = 0; index < filtered_second_stage_wrapper.index_manager().num_indices(); ++index) {
+                    if (!local_tracker.IsVisited(index)) { continue; }
+
+                    const auto mean_delay = local_tracker.GetMeanDelay(index);
+                    if (mean_delay > 0) {
+                        nodes_to_skip.emplace(index);
+                        extra_nodes_removed = true;
+                    }
+                }
+
+                if (extra_nodes_removed) {
+                    restored_assignment = nullptr;
+                }
             }
 
             ++iterations;
@@ -791,8 +802,8 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         CHECK(filtered_assignment != nullptr);
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2-Patch"));
-        auto valid_second_stage_assignment = filtered_second_stage_model.SolveFromAssignmentWithParameters(filtered_assignment,
-                                                                                                           second_stage_search_params);
+        auto valid_second_stage_assignment
+                = filtered_second_stage_model.SolveFromAssignmentWithParameters(restored_assignment, second_stage_search_params);
         if (valid_second_stage_assignment == nullptr) {
             throw util::ApplicationError("No second stage patched solution found.", util::ErrorCode::ERROR);
         }
@@ -826,11 +837,15 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
 
 //    third_stage_model->solver()->set_fail_intercept(FailureInterceptor);
     const auto third_stage_preassignment = third_stage_model.ReadAssignmentFromRoutes(second_stage_routes, true);
-    DCHECK(third_stage_preassignment);
+    // TODO: implant delay tracker and check
+
+    DCHECK(third_stage_preassignment != nullptr);
 
     printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
     operations_research::Assignment const *third_stage_assignment
             = third_stage_model.SolveFromAssignmentWithParameters(third_stage_preassignment, third_search_params);
+    // TODO: implant delay tracker and check
+
     printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
 
     if (third_stage_assignment == nullptr) {

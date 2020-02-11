@@ -47,23 +47,10 @@ rows::DelayTracker::DelayTracker(const rows::SolverWrapper &solver,
     const auto num_indices = duration_sample_.num_indices();
     const auto num_samples = duration_sample_.size();
 
-    auto selected_index = 0;
-    for (auto index = 0; index < solver.index_manager().num_indices(); ++index) {
-        const auto node = solver.index_manager().IndexToNode(index);
-        if (node == ProblemData::DEPOT) {
-            continue;
-        }
-
-        const auto &visit = solver.NodeToVisit(node);
-        if (visit.id() == 8696335) {
-            selected_index = index;
-            break;
-        }
-    }
-
     records_.resize(num_indices);
     start_.resize(num_indices);
     delay_.resize(num_indices);
+    visited_.resize(num_indices);
     for (auto index = 0; index < num_indices; ++index) {
         records_[index].index = index;
         records_[index].next = -1;
@@ -95,6 +82,64 @@ int64 rows::DelayTracker::GetDelayProbability(int64 node) const {
     }
     const double probability = static_cast<double>(delayed_arrival_count) * 100.0 / static_cast<double>(num_scenarios);
     return std::ceil(probability);
+}
+
+int64 rows::DelayTracker::GetEssentialRiskiness(int64 node) const {
+    static const int64 MAX_RISKINESS = kint64max - 5;
+
+    std::vector<int64> delays = Delay(node);
+    std::sort(std::begin(delays), std::end(delays));
+
+    // if last element is negative then index is zero
+    const auto num_delays = delays.size();
+    int64 delay_pos = num_delays - 1;
+    if (delays.at(delay_pos) <= 0) {
+        return 0;
+    }
+
+    if (delays.at(0) >= 0) {
+        return MAX_RISKINESS;
+    }
+
+    // compute total delay
+    int64 total_delay = 0;
+    for (; delay_pos >= 0 && delays.at(delay_pos) >= 0; --delay_pos) {
+        total_delay += delays.at(delay_pos);
+    }
+    CHECK_GT(total_delay, 0);
+//    CHECK_GT(delay_pos, 0);
+
+//    if (delays.at(0) >= 0) {
+    if (delay_pos == -1) {
+//        return total_delay;
+        return MAX_RISKINESS;
+    }
+
+    // find minimum traffic index that compensates the total delay
+    int64 delay_budget = 0;
+    for (; delay_pos > 0 && delay_budget + (delay_pos + 1) * delays.at(delay_pos) + total_delay > 0; --delay_pos) {
+        delay_budget += delays.at(delay_pos);
+    }
+
+    int64 delay_balance = delay_budget + (delay_pos + 1) * delays.at(delay_pos) + total_delay;
+    if (delay_balance < 0) {
+        int64 riskiness_index = std::min(0l, delays.at(delay_pos + 1));
+        CHECK_LE(riskiness_index, 0);
+
+        int64 remaining_balance = total_delay + delay_budget + (delay_pos + 1) * riskiness_index;
+        CHECK_GE(remaining_balance, 0);
+
+        riskiness_index -= std::ceil(static_cast<double>(remaining_balance) / static_cast<double>(delay_pos + 1));
+        CHECK_LE(riskiness_index * (delay_pos + 1) + delay_budget + total_delay, 0);
+
+        return -riskiness_index;
+    } else if (delay_balance > 0) {
+        CHECK_EQ(delay_pos, 0);
+//        return delay_balance;
+        return MAX_RISKINESS;
+    }
+
+    return delays.at(delay_pos);
 }
 
 std::vector<int64> rows::DelayTracker::BuildPath(int vehicle, operations_research::Assignment const *assignment) {
@@ -223,9 +268,79 @@ rows::DelayTracker::PartialPath const *rows::DelayTracker::SelectBestPath(const 
     return result_path;
 }
 
-void rows::DelayTracker::PrintStartTimes(int visit_key) {
-    int64 selected_index = -1;
+void rows::DelayTracker::PrintPath(int visit_key) const {
+    const auto path = FindPath(visit_key);
 
+    std::stringstream msg;
+    msg << std::endl;
+    msg << "-----  -------  -----------  --------------  ---------------  -----------  --------------" << std::endl
+        << "index  key      visit_start  visit_duration  travel_duration  break_start  break_duration" << std::endl;
+    for (const auto node : path) {
+        if (node < 0) { continue; }
+
+        std::size_t local_visit_key = 0;
+        const auto &record = records_[node];
+        const auto routing_node = solver_.index_manager().IndexToNode(record.index);
+        if (routing_node != rows::ProblemData::DEPOT) {
+            local_visit_key = solver_.NodeToVisit(routing_node).id();
+        }
+
+        msg << std::setw(5) << std::left << node << "  "
+            << std::setw(7) << std::left << local_visit_key << "  "
+            << std::setw(11) << std::left << start_[node][0] << "  "
+            << std::setw(14) << std::left << duration_sample_.duration(node, 0) << "  "
+            << std::setw(14) << std::left << record.travel_time << "  "
+            << std::setw(12) << std::left << record.break_min << "  "
+            << std::setw(14) << std::left << record.break_duration << std::endl;
+    }
+    msg << "-----  -------  -----------  --------------  ---------------  -----------  --------------" << std::endl;
+    LOG(INFO) << msg.str();
+}
+
+std::vector<int64> rows::DelayTracker::FindPath(int visit_key) const {
+    const auto selected_index = GetVisitIndexFromKey(visit_key);
+
+    for (auto vehicle = 0; vehicle < solver_.index_manager().num_vehicles(); ++vehicle) {
+        std::vector<int64> path;
+        int64 current_node = model_->Start(vehicle);
+        while (!model_->IsEnd(current_node)) {
+            path.emplace_back(current_node);
+            current_node = records_[current_node].next;
+        }
+
+        for (const auto index : path) {
+            if (index < 0) { continue; }
+            if (index == selected_index) { return path; }
+        }
+    }
+    return {};
+}
+
+void rows::DelayTracker::PrintStartTimes(int visit_key) const {
+    const auto selected_index = GetVisitIndexFromKey(visit_key);
+
+    std::stringstream msg;
+    msg << std::endl << "Start Times - Visit " << visit_key << ":" << std::endl;
+    for (auto scenario = 0; scenario < duration_sample_.size(); ++scenario) {
+        msg << std::setw(4) << std::left << scenario << start_.at(selected_index).at(scenario) << std::endl;
+    }
+
+    LOG(INFO) << msg.str();
+}
+
+void rows::DelayTracker::PrintDelays(int visit_key) const {
+    const auto selected_index = GetVisitIndexFromKey(visit_key);
+
+    std::stringstream msg;
+    msg << std::endl << "Delays - Visit " << visit_key << ":" << std::endl;
+    for (auto scenario = 0; scenario < duration_sample_.size(); ++scenario) {
+        msg << std::setw(4) << std::left << scenario << delay_.at(selected_index).at(scenario) << std::endl;
+    }
+
+    LOG(INFO) << msg.str();
+}
+
+int64 rows::DelayTracker::GetVisitIndexFromKey(int64 visit_key) const {
     for (auto index = 0; index < solver_.index_manager().num_indices(); ++index) {
         const auto node = solver_.index_manager().IndexToNode(index);
         if (node == ProblemData::DEPOT) {
@@ -234,19 +349,10 @@ void rows::DelayTracker::PrintStartTimes(int visit_key) {
 
         const auto &visit = solver_.NodeToVisit(node);
         if (visit.id() == visit_key) {
-            selected_index = index;
-            break;
+            return index;
         }
     }
 
-    CHECK_NE(selected_index, -1);
-
-    std::stringstream msg;
-
-    msg << std::endl << "Start Times - Visit " << visit_key << ":" << std::endl;
-    for (auto scenario = 0; scenario < duration_sample_.size(); ++scenario) {
-        msg << std::setw(4) << std::left << scenario << start_.at(selected_index).at(scenario) << std::endl;
-    }
-
-    LOG(INFO) << msg.str();
+    LOG(FATAL) << "Failed to find visit with key: " << visit_key;
+    return -1;
 }
