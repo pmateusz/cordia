@@ -699,7 +699,7 @@ namespace rows {
         return boost::posix_time::seconds(solver_.GetEndVisitWindow(visit.datetime().time_of_day()));
     }
 
-    ValidationSession::ValidationSession(const Route &route, SolverWrapper &solver)
+    ValidationSession::ValidationSession(const Route &route, const SolverWrapper &solver)
             : route_(route),
               solver_(solver),
               total_available_time_(),
@@ -972,7 +972,7 @@ namespace rows {
     RouteValidatorBase::ValidationResult SolutionValidator::ValidateFast(int vehicle,
                                                                          const operations_research::Assignment &solution,
                                                                          const operations_research::RoutingModel &model,
-                                                                         SolverWrapper &solver) const {
+                                                                         const SolverWrapper &solver) const {
         static const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> NO_OVERRIDE_ARRIVAL;
 
         using boost::posix_time::seconds;
@@ -1140,7 +1140,7 @@ namespace rows {
     RouteValidatorBase::ValidationResult SolutionValidator::ValidateFull(int vehicle,
                                                                          const operations_research::Assignment &solution,
                                                                          const operations_research::RoutingModel &model,
-                                                                         rows::SolverWrapper &solver) const {
+                                                                         const rows::SolverWrapper &solver) const {
         static const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> NO_OVERRIDE_ARRIVAL;
 
         using boost::posix_time::seconds;
@@ -1227,8 +1227,7 @@ namespace rows {
             }
 
             if (last_visit_node != RealProblemData::DEPOT) {
-                const auto travel_time = boost::posix_time::seconds(
-                        solver.Distance(last_visit_node, current_visit_node));
+                const auto travel_time = boost::posix_time::seconds(solver.Distance(last_visit_node, current_visit_node));
                 const auto max_departure_to_arrive_on_time = max_arrival - travel_time;
 //                const auto max_departure = std::min(last_max_visit_complete, max_departure_to_arrive_on_time);
                 CHECK_LE(last_min_visit_complete, max_departure_to_arrive_on_time);
@@ -1393,7 +1392,7 @@ namespace rows {
 
     RouteValidatorBase::ValidationResult SolutionValidator::ValidateFull(const operations_research::Assignment &solution,
                                                                          const operations_research::RoutingModel &model,
-                                                                         rows::SolverWrapper &solver) const {
+                                                                         const rows::SolverWrapper &solver) const {
         std::unordered_map<ServiceUser, std::unordered_set<int> > user_visited_vehicles;
         std::unordered_map<ServiceUser, bool> has_multiple_carer_visits;
 

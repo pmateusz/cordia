@@ -117,6 +117,10 @@ namespace rows {
 
         void SolveThirdStage(const std::vector<std::vector<int64> > &second_stage_routes, rows::SolverWrapper &second_stage_solver);
 
+        void WriteSolution(const operations_research::Assignment * assignment,
+                           const operations_research::RoutingModel &model,
+                           const SolverWrapper &solver) const;
+
         operations_research::RoutingSearchParameters CreateThirdStageRoutingSearchParameters();
 
         std::vector<CarerTeam> GetCarerTeams(const rows::Problem &problem);

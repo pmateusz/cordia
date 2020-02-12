@@ -646,8 +646,7 @@ namespace rows {
         return problem_data_.problem();
     }
 
-    std::string SolverWrapper::GetDescription(const operations_research::RoutingModel &model,
-                                              const operations_research::Assignment &solution) {
+    std::string SolverWrapper::GetDescription(const operations_research::RoutingModel &model, const operations_research::Assignment &solution) const {
         static const SolutionValidator route_validator{};
 
         SolverWrapper::Statistics stats;
@@ -866,7 +865,7 @@ namespace rows {
                 % CarerUtility.TotalMean).str();
     }
 
-    int64 SolverWrapper::Distance(operations_research::RoutingNodeIndex from, operations_research::RoutingNodeIndex to) {
+    int64 SolverWrapper::Distance(operations_research::RoutingNodeIndex from, operations_research::RoutingNodeIndex to) const {
         return problem_data_.Distance(from, to);
     }
 

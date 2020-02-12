@@ -92,9 +92,9 @@ namespace rows {
                                     std::shared_ptr<const std::atomic<bool> > cancel_token,
                                     double cost_normalization_factor);
 
-        virtual std::string GetDescription(const operations_research::RoutingModel &model, const operations_research::Assignment &solution);
+        virtual std::string GetDescription(const operations_research::RoutingModel &model, const operations_research::Assignment &solution) const;
 
-        int64 Distance(operations_research::RoutingNodeIndex from, operations_research::RoutingNodeIndex to);
+        int64 Distance(operations_research::RoutingNodeIndex from, operations_research::RoutingNodeIndex to) const;
 
         int64 ServiceTime(operations_research::RoutingNodeIndex node);
 

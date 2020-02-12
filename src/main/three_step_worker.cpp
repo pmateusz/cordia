@@ -821,6 +821,42 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
     return solution;
 }
 
+void rows::ThreeStepSchedulingWorker::WriteSolution(const operations_research::Assignment *assignment,
+                                                    const operations_research::RoutingModel &model,
+                                                    const SolverWrapper &solver) const {
+    operations_research::Assignment *assignment_copy = model.solver()->MakeAssignment(assignment);
+    const auto is_third_solution_correct = model.solver()->CheckAssignment(assignment_copy);
+    DCHECK(is_third_solution_correct);
+
+    std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > > activities;
+    for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
+        const auto validation_result = solution_validator_.ValidateFull(vehicle, *assignment, model, solver);
+        CHECK(validation_result.error() == nullptr);
+
+        activities[vehicle] = validation_result.activities();
+    }
+
+    solution_writer_.Write(output_file_, solver, model, *assignment, boost::make_optional(activities));
+}
+
+int64 GetEssentialRiskiness(int64 num_indices, rows::DelayTracker &tracker, const operations_research::Assignment *assignment) {
+    if (num_indices <= 0) { return 0; }
+
+    tracker.UpdateAllPaths(assignment);
+    std::vector<int64> element_riskiness;
+    for (auto index = 0; index < num_indices; ++index) {
+        int64 local_riskiness = 0;
+
+        if (tracker.IsVisited(index)) {
+            local_riskiness = tracker.GetEssentialRiskiness(index);
+        }
+
+        element_riskiness.push_back(local_riskiness);
+    }
+
+    return *std::max_element(std::cbegin(element_riskiness), std::cend(element_riskiness));
+}
+
 void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vector<int64>> &second_stage_routes,
                                                       rows::SolverWrapper &second_stage_solver) {
     operations_research::RoutingModel third_stage_model{second_stage_solver.index_manager()};
@@ -834,40 +870,30 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
             = CreateThirdStageSolver(third_search_params, third_stage_penalty, max_dropped_visits_count);
 
     third_step_solver->ConfigureModel(third_stage_model, printer_, CancelToken(), cost_normalization_factor_);
-
 //    third_stage_model->solver()->set_fail_intercept(FailureInterceptor);
-    const auto third_stage_preassignment = third_stage_model.ReadAssignmentFromRoutes(second_stage_routes, true);
-    // TODO: implant delay tracker and check
+    operations_research::Assignment *third_stage_pre_assignment = third_stage_model.ReadAssignmentFromRoutes(second_stage_routes, true);
+    DCHECK(third_stage_pre_assignment != nullptr);
 
-    DCHECK(third_stage_preassignment != nullptr);
+    DelayTracker local_tracker{*third_step_solver,
+                               *history_,
+                               &third_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
+
+    const auto max_pre_riskiness = GetEssentialRiskiness(third_step_solver->index_manager().num_indices(), local_tracker, third_stage_pre_assignment);
+    WriteSolution(third_stage_pre_assignment, third_stage_model, *third_step_solver);
 
     printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
-    operations_research::Assignment const *third_stage_assignment
-            = third_stage_model.SolveFromAssignmentWithParameters(third_stage_preassignment, third_search_params);
-    // TODO: implant delay tracker and check
-
-    printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
-
+    const operations_research::Assignment *third_stage_assignment
+            = third_stage_model.SolveFromAssignmentWithParameters(third_stage_pre_assignment, third_search_params);
     if (third_stage_assignment == nullptr) {
         throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
     }
 
-    operations_research::Assignment third_validation_copy{third_stage_assignment};
-    const auto is_third_solution_correct = third_stage_assignment->solver()->CheckAssignment(&third_validation_copy);
-    DCHECK(is_third_solution_correct);
+    const auto max_post_riskiness = GetEssentialRiskiness(third_step_solver->index_manager().num_indices(), local_tracker, third_stage_assignment);
+    printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
 
-    std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > > activities;
-    for (int vehicle = 0; vehicle < third_stage_model.vehicles(); ++vehicle) {
-        const auto validation_result = solution_validator_.ValidateFull(vehicle,
-                                                                        *third_stage_assignment,
-                                                                        third_stage_model,
-                                                                        *third_step_solver);
-        CHECK(validation_result.error() == nullptr);
-
-        activities[vehicle] = validation_result.activities();
+    if (max_pre_riskiness > max_post_riskiness) {
+        WriteSolution(third_stage_assignment, third_stage_model, *third_step_solver);
     }
-
-    solution_writer_.Write(output_file_, *third_step_solver, third_stage_model, *third_stage_assignment, boost::make_optional(activities));
 }
 
 std::vector<rows::RouteValidatorBase::Metrics> rows::ThreeStepSchedulingWorker::GetVehicleMetrics(const std::vector<std::vector<int64>> &routes,

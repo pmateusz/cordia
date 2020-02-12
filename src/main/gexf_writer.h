@@ -66,7 +66,7 @@ namespace rows {
         static const GephiAttributeMeta DROPPED;
 
         void Write(const boost::filesystem::path &file_path,
-                   SolverWrapper &solver,
+                   const SolverWrapper &solver,
                    const operations_research::RoutingModel &model,
                    const operations_research::Assignment &solution,
                    const boost::optional<

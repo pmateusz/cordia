@@ -2950,9 +2950,6 @@ def compute_riskiness(args, settings):
             return records[position]
 
     selected_carers = {find_carer(8582722)}
-    essential_riskiness_index(8582722)
-    print_start_times(8582722)
-    print_delays(8582722)
 
     riskiness = [essential_riskiness_index(mapping.node(index).visit_key) for index in mapping.indices()]
 

@@ -252,7 +252,7 @@ namespace rows {
 
     class ValidationSession {
     public:
-        ValidationSession(const Route &route, SolverWrapper &solver);
+        ValidationSession(const Route &route, const SolverWrapper &solver);
 
         void Initialize(
                 const std::unordered_map<rows::CalendarVisit, boost::posix_time::time_duration> &earliest_arrival_times);
@@ -338,7 +338,7 @@ namespace rows {
         operations_research::RoutingNodeIndex GetNode(const ScheduledVisit &visit) const;
 
         const Route &route_;
-        SolverWrapper &solver_;
+        const SolverWrapper &solver_;
 
         boost::gregorian::date date_;
         boost::posix_time::time_duration total_available_time_;
@@ -367,17 +367,17 @@ namespace rows {
         RouteValidatorBase::ValidationResult ValidateFast(int vehicle,
                                                           const operations_research::Assignment &solution,
                                                           const operations_research::RoutingModel &model,
-                                                          rows::SolverWrapper &solver) const;
+                                                          const rows::SolverWrapper &solver) const;
 
         RouteValidatorBase::ValidationResult ValidateFull(int vehicle,
                                                           const operations_research::Assignment &solution,
                                                           const operations_research::RoutingModel &model,
-                                                          rows::SolverWrapper &solver) const;
+                                                          const rows::SolverWrapper &solver) const;
 
 
         RouteValidatorBase::ValidationResult ValidateFull(const operations_research::Assignment &solution,
                                                           const operations_research::RoutingModel &model,
-                                                          rows::SolverWrapper &solver) const;
+                                                          const rows::SolverWrapper &solver) const;
 
         bool is_schedule_valid(std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > &activities,
                                const std::vector<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > &breaks,

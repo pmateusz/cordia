@@ -38,12 +38,11 @@ namespace rows {
     const GexfWriter::GephiAttributeMeta GexfWriter::SKILLS{"20", "skills", "string", ""};
 
     void GexfWriter::Write(const boost::filesystem::path &file_path,
-                           SolverWrapper &solver,
+                           const SolverWrapper &solver,
                            const operations_research::RoutingModel &model,
                            const operations_research::Assignment &solution,
                            const boost::optional<
-                                   std::map<int,
-                                           std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >
+                                   std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >
                                    > > &activities) const {
 
         operations_research::RoutingDimension const *time_dim = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
