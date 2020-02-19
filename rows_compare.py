@@ -6,6 +6,7 @@ import copy
 import datetime
 import functools
 import glob
+import itertools
 import json
 import logging
 import math
@@ -663,7 +664,7 @@ def parse_time_delta(text):
 
 
 class TraceLog:
-    __STAGE_PATTERN = re.compile('^\w+(?P<number>\d+)$')
+    __STAGE_PATTERN = re.compile('^\w+(?P<number>\d+)(:?\-Patch)?$')
     __PENALTY_PATTERN = re.compile('^MissedVisitPenalty:\s+(?P<penalty>\d+)$')
     __CARER_USED_PATTERN = re.compile('^CarerUsedPenalty:\s+(?P<penalty>\d+)$')
 
@@ -742,6 +743,7 @@ class TraceLog:
         self.__start = time_point
         self.__events = []
         self.__current_stage = None
+        self.__current_strategy = None
         self.__problem = TraceLog.ProblemMessage()
 
     @staticmethod
@@ -761,6 +763,7 @@ class TraceLog:
                 self.__current_stage = self.__parse_stage_number(body)
             elif body['type'] == 'finished':
                 self.__current_stage = None
+                self.__current_strategy = None
             elif body['type'] == 'unknown':
                 if 'comment' in body:
                     if 'MissedVisitPenalty' in body['comment']:
@@ -789,10 +792,10 @@ class TraceLog:
             computation_time = time_point - self.__start
         else:
             computation_time = time_point + datetime.timedelta(hours=24) - self.__start
-        self.__events.append([computation_time, self.__current_stage, time_point, body_to_use])
+        self.__events.append([computation_time, self.__current_stage, self.__current_strategy, time_point, body_to_use])
 
     def has_stages(self):
-        for relative_time, stage, absolute_time, event in self.__events:
+        for relative_time, stage, strategy, absolute_time, event in self.__events:
             if isinstance(event, TraceLog.ProblemMessage) or isinstance(event, TraceLog.ProgressMessage):
                 continue
             if 'type' in event and event['type'] == 'started':
@@ -807,9 +810,17 @@ class TraceLog:
         _, best_cost_time = self.__best_cost_and_time()
         return best_cost_time
 
+    def last_cost(self):
+        last_cost, _ = self.__last_cost_and_time()
+        return last_cost
+
+    def last_cost_time(self):
+        _, last_cost_time = self.__last_cost_and_time()
+        return last_cost_time
+
     def computation_time(self):
         computation_time = datetime.timedelta.max
-        for relative_time, stage, absolute_time, event in self.__events:
+        for relative_time, stage, strategy, absolute_time, event in self.__events:
             computation_time = relative_time
         return computation_time
 
@@ -817,16 +828,43 @@ class TraceLog:
         best_cost = float('inf')
         best_time = datetime.timedelta.max
 
-        for relative_time, stage, absolute_time, event in self.__events:
-            if stage != 2 and stage != 3:
-                continue
-            if not isinstance(event, TraceLog.ProgressMessage):
-                continue
+        for relative_time, stage, strategy, absolute_time, event in self.__filtered_events():
             if best_cost > event.cost:
                 best_cost = event.cost
                 best_time = relative_time
 
         return best_cost, best_time
+
+    def __last_cost_and_time(self):
+        last_cost = float('inf')
+        last_time = datetime.timedelta.max
+
+        for relative_time, stage, strategy, absolute_time, event in self.__filtered_events():
+            last_cost = event.cost
+            last_time = relative_time
+
+        return last_cost, last_time
+
+    def __filtered_events(self):
+        for relative_time, stage, strategy, absolute_time, event in self.__events:
+            if stage != 2 and stage != 3:
+                continue
+
+            if strategy == 'DELAY_RISKINESS_REDUCTION':
+                continue
+
+            if not isinstance(event, TraceLog.ProgressMessage):
+                continue
+
+            yield relative_time, stage, strategy, absolute_time, event
+
+    @property
+    def strategy(self):
+        return self.__current_strategy
+
+    @strategy.setter
+    def strategy(self, value):
+        self.__current_strategy = value
 
     @property
     def visits(self):
@@ -864,6 +902,8 @@ class TraceLog:
 def read_traces(trace_file) -> typing.List[TraceLog]:
     log_line_pattern = re.compile('^\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?]\s+(?P<body>.*)$')
     other_line_pattern = re.compile('^.*?\[\w+\s+(?P<time>\d+:\d+:\d+\.\d+).*?\]\s+(?P<body>.*)$')
+    strategy_line_pattern = re.compile('^Solving the (?P<stage_name>\w+) stage using (?P<strategy_name>\w+) strategy$')
+    loaded_visits_pattern = re.compile('^Loaded past visits in \d+ seconds$')
 
     trace_logs = []
     has_preambule = False
@@ -887,6 +927,7 @@ def read_traces(trace_file) -> typing.List[TraceLog]:
                             if 'type' in body:
                                 if body['type'] == 'finished':
                                     has_preambule = False
+                                    current_log.strategy = None
                                 elif body['type'] == 'started':
                                     has_preambule = True
                                     current_log = TraceLog(time)
@@ -901,9 +942,18 @@ def read_traces(trace_file) -> typing.List[TraceLog]:
                     else:
                         current_log.append(time, body)
                 except json.decoder.JSONDecodeError:
+                    strategy_match = strategy_line_pattern.match(match.group('body'))
+                    if strategy_match:
+                        current_log.strategy = strategy_match.group('strategy_name')
+                        continue
+
+                    loaded_visits_match = loaded_visits_pattern.match(match.group('body'))
+                    if loaded_visits_match:
+                        continue
+
                     warnings.warn('Failed to parse line: ' + line)
             elif 'GUIDED_LOCAL_SEARCH specified without sane timeout: solve may run forever.' in line:
-                pass
+                continue
             else:
                 warnings.warn('Failed to match line: ' + line)
     return trace_logs
@@ -2724,7 +2774,7 @@ class Mapping:
             node = self.__index_to_node[index]
             service_user_to_index[node.service_user].append(index)
 
-        self.__siblings = {}  # node.index == 383 or node.index == 517
+        self.__siblings = {}
         for service_user in service_user_to_index:
             num_indices = len(service_user_to_index[service_user])
             for left_pos in range(num_indices):
@@ -2763,19 +2813,6 @@ class Mapping:
                         edges.append([node.index, sibling_node.index])
                     if node.next != -1:
                         edges.append([sibling_node.index, node.next])
-
-                # if prev_node is not None:
-                #     edges.append([prev_node.index, node.index])
-                #
-                #     prev_sibling = self.sibling(prev_node.index)
-                #     if prev_sibling is None:
-                #         continue
-                #
-                #     edges.append([prev_sibling.index, node.index])
-                #
-                #     if prev_sibling.index < prev_node.index:
-                #         edges.append([prev_sibling.index, prev_node.index])
-                prev_node = node
         return networkx.DiGraph(edges)
 
 
@@ -3006,15 +3043,26 @@ class EssentialRiskinessEvaluator:
 
 
 def compare_delay(args, settings):
-    problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
-    with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
-        history = rows.model.history.History.load(input_stream)
+    compare_delay_visits_path = 'compare_delay_visits.hdf'
+    compare_instances_path = 'compare_instances.hdf'
 
-    root_problem_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations/cp_schedules'
-    cost_opt_solutions = [os.path.join(root_problem_dir, 'past', 'c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day))
+    def load_data():
+        root_problem_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations/cp_schedules'
+        problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
+        with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
+            history = rows.model.history.History.load(input_stream)
+
+        cost_schedules \
+            = [rows.load.load_schedule(os.path.join(root_problem_dir, 'past', 'c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
+               for day in range(1, 15)]
+        cost_traces = read_traces(os.path.join(root_problem_dir, 'past', 'c350past_distv90b90e30m1m1m5.err.log'))
+
+        risk_schedules = [rows.load.load_schedule(os.path.join(root_problem_dir, 'riskiness', '2017-10-{0:02d}.gexf'.format(day)))
                           for day in range(1, 15)]
-    riskiness_opt_solutions = [os.path.join(root_problem_dir, 'riskiness', '2017-10-{0:02d}.gexf'.format(day))
-                               for day in range(1, 15)]
+        risk_traces = list(itertools.chain(*(read_traces(local_trace)
+                                             for local_trace in [os.path.join(root_problem_dir, 'riskiness', '2017-10-{0:02d}.err.log'.format(day))
+                                                                 for day in range(1, 15)])))
+        return problem, history, cost_schedules, cost_traces, risk_schedules, risk_traces
 
     def get_visit_duration(visit_key: int) -> datetime.timedelta:
         visit = history.get_visit(visit_key)
@@ -3028,24 +3076,64 @@ def compare_delay(args, settings):
         delays = delay_evaluator.get_delays(start_times)
         return {mapping.node(index).visit_key: delays[index] for index in range(len(delays))}
 
-    # TODO: average delay for each day
-    # TODO: detailed delay for one problem instance
+    problem = None
+    if os.path.exists(compare_delay_visits_path):
+        visits_frame = pandas.read_hdf(compare_delay_visits_path)
+    else:
+        problem, history, cost_schedules, cost_traces, risk_schedules, risk_traces = load_data()
 
-    for cost_schedule_path, riskiness_schedule_path in zip(cost_opt_solutions, riskiness_opt_solutions):
-        cost_schedule = rows.load.load_schedule(cost_schedule_path)
-        risk_schedule = rows.load.load_schedule(riskiness_schedule_path)
+        visit_data_set = []
+        for index in range(len(cost_schedules)):
+            cost_schedule = cost_schedules[index]
+            risk_schedule = risk_schedules[index]
 
-        schedule_date = cost_schedule.date()
-        assert schedule_date == risk_schedule.date()
+            schedule_date = cost_schedule.date()
+            assert schedule_date == risk_schedule.date()
 
-        cost_visit_delays = get_visit_delays(cost_schedule)
-        risk_visit_delays = get_visit_delays(risk_schedule)
+            cost_visit_delays = get_visit_delays(cost_schedule)
+            risk_visit_delays = get_visit_delays(risk_schedule)
 
-        print('here')
-        # riskiness_mapping = create_mapping(settings, problem, riskiness_schedule)
-        # riskiness_delay_evaluator = StartTimeEvaluator(riskiness_mapping, problem, riskiness_schedule)
+            visit_keys = set(cost_visit_delays.keys())
+            for visit_key in risk_visit_delays:
+                visit_keys.add(visit_key)
 
-    print('here')
+            for visit_key in visit_keys:
+                record = collections.OrderedDict(visit_key=visit_key, date=schedule_date)
+
+                if visit_key in cost_visit_delays:
+                    record['cost_delay'] = cost_visit_delays[visit_key]
+
+                if visit_key in risk_visit_delays:
+                    record['risk_delay'] = risk_visit_delays[visit_key]
+                visit_data_set.append(record)
+
+        visits_frame = pandas.DataFrame(data=visit_data_set)
+        visits_frame.to_hdf(compare_delay_visits_path, key='a')
+
+    if os.path.exists(compare_instances_path):
+        instances_frame = pandas.read_hdf(compare_instances_path)
+    else:
+        if problem is None:
+            problem, history, cost_schedules, cost_traces, risk_schedules, risk_traces = load_data()
+
+        instances_data_set = []
+        for index in range(len(cost_schedules)):
+            cost_schedule = cost_schedules[index]
+            cost_trace = cost_traces[index]
+            risk_schedule = risk_schedules[index]
+            risk_trace = risk_traces[index]
+
+            schedule_date = cost_schedule.date()
+            local_visits_delay_frame = (visits_frame[visits_frame['date'] == schedule_date])[['risk_delay', 'cost_delay']]
+            instances_data_set.append(collections.OrderedDict(date=schedule_date,
+                                                              cost_cost=cost_trace.best_cost(),
+                                                              cost_num_visits=len(cost_schedule.visits),
+                                                              cost_mean_delay=local_visits_delay_frame.mean().loc['cost_delay'],
+                                                              risk_cost=risk_trace.last_cost(),
+                                                              risk_num_visits=len(risk_schedule.visits),
+                                                              risk_mean_delay=local_visits_delay_frame.mean().loc['risk_delay']))
+        instances_frame = pandas.DataFrame(data=instances_data_set)
+        instances_frame.to_hdf(compare_instances_path, key='a')
 
 
 def compute_riskiness(args, settings):
