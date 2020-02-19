@@ -37,6 +37,11 @@ def average_duration(values: typing.List[datetime.timedelta]) -> datetime.timede
 class History:
     def __init__(self, visits):
         self.__visits = visits
+        self.__visit_index = dict()
+
+        for visit in visits:
+            assert visit.visit not in self.__visit_index
+            self.__visit_index[visit.visit] = visit
 
     def build_sample(self, problem: rows.model.problem.Problem, date: datetime.date, window_time_span: datetime.timedelta) -> Sample:
         problem_visits = []
@@ -91,6 +96,11 @@ class History:
             samples[visit.key] = past_visit_duration
 
         return Sample(samples)
+
+    def get_visit(self, visit_key: int) -> typing.Optional[rows.model.historical_visit.HistoricalVisit]:
+        if visit_key not in self.__visit_index:
+            return None
+        return self.__visit_index[visit_key]
 
     @staticmethod
     def load(input_stream) -> 'History':

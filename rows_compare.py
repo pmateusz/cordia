@@ -75,6 +75,7 @@ __COMPARE_BENCHMARK_TABLE_COMMAND = 'compare-benchmark-table'
 __COMPARE_LITERATURE_TABLE_COMMAND = 'compare-literature-table'
 __COMPARE_QUALITY_OPTIMIZER_COMMAND = 'compare-quality-optimizer'
 __COMPUTE_RISKINESS_COMMAND = 'compute-riskiness'
+__COMPARE_DELAY_COMMAND = 'compare-delay'
 __TYPE_ARG = 'type'
 __ACTIVITY_TYPE = 'activity'
 __VISITS_TYPE = 'visits'
@@ -197,10 +198,9 @@ def configure_parser():
     compare_benchmark_parser.add_argument(__FILE_ARG)
 
     subparsers.add_parser(__COMPARE_LITERATURE_TABLE_COMMAND)
-
     subparsers.add_parser(__COMPARE_BENCHMARK_TABLE_COMMAND)
-
     subparsers.add_parser(__COMPUTE_RISKINESS_COMMAND)
+    subparsers.add_parser(__COMPARE_DELAY_COMMAND)
 
     return parser
 
@@ -2779,33 +2779,59 @@ class Mapping:
         return networkx.DiGraph(edges)
 
 
-def compute_riskiness(args, settings):
-    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/solution.gexf')
-    problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
-
-    with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
-        history = rows.model.history.History.load(input_stream)
-
+def create_mapping(settings, problem, schedule) -> Mapping:
     mapping_time_windows_span = datetime.timedelta(minutes=90)
-    mapping = Mapping(schedule.routes(), problem, settings, mapping_time_windows_span)
-    sorted_indices = list(networkx.topological_sort(mapping.graph()))
+    return Mapping(schedule.routes(), problem, settings, mapping_time_windows_span)
 
-    history_time_windows_span = datetime.timedelta(hours=2)
-    sample = history.build_sample(problem, schedule.date(), history_time_windows_span)
 
-    start_times = [[mapping.node(index).visit_start_min for _ in range(sample.size)] for index in mapping.indices()]
+class StartTimeEvaluator:
 
-    def compute_next_arrival(local_node: Node, local_scenario: int) -> datetime.datetime:
+    def __init__(self, mapping: Mapping, problem: rows.model.problem.Problem, schedule: rows.model.schedule.Schedule):
+        self.__mapping = mapping
+        self.__problem = problem
+        self.__schedule = schedule
+
+        self.__sorted_indices = list(networkx.topological_sort(self.__mapping.graph()))
+        self.__initial_start_times = self.__get_initial_start_times()
+
+    def get_start_times(self, duration_callback) -> typing.List[datetime.datetime]:
+        start_times = copy.copy(self.__initial_start_times)
+
+        for index in self.__sorted_indices:
+            node = self.__mapping.node(index)
+
+            current_sibling_node = self.__mapping.sibling(node.index)
+            if current_sibling_node:
+                max_start_time = max(start_times[node.index], start_times[current_sibling_node.index])
+                start_times[node.index] = max_start_time
+
+                if max_start_time > start_times[current_sibling_node.index]:
+                    start_times[current_sibling_node.index] = max_start_time
+
+                    if current_sibling_node.next is not None and current_sibling_node.next != -1:
+                        start_times[current_sibling_node.next] = self.__get_next_arrival(current_sibling_node, start_times, duration_callback)
+
+            if node.next is None or node.next == -1:
+                continue
+
+            next_arrival = self.__get_next_arrival(node, start_times, duration_callback)
+            if next_arrival > start_times[node.next]:
+                start_times[node.next] = next_arrival
+
+        return start_times
+
+    def get_delays(self, start_times: typing.List[datetime.datetime]) -> typing.List[datetime.timedelta]:
+        return [start_times[index] - self.__mapping.node(index).visit_start_max for index in self.__mapping.indices()]
+
+    def __get_next_arrival(self, local_node: Node, start_times, duration_callback) -> datetime.datetime:
         break_done = False
         if local_node.break_duration is not None \
                 and local_node.break_start is not None \
-                and local_node.break_start + local_node.break_duration <= start_times[local_node.index][local_scenario]:
+                and local_node.break_start + local_node.break_duration <= start_times[local_node.index]:
             break_done = True
 
-        local_visit_key = mapping.node(local_node.index).visit_key
-        local_next_arrival = start_times[local_node.index][local_scenario] \
-                             + sample.visit_duration(local_visit_key, local_scenario) \
-                             + local_node.travel_duration
+        local_visit_key = self.__mapping.node(local_node.index).visit_key
+        local_next_arrival = start_times[local_node.index] + duration_callback(local_visit_key) + local_node.travel_duration
         if not break_done and local_node.break_start is not None:
             if local_next_arrival >= local_node.break_start:
                 local_next_arrival += local_node.break_duration
@@ -2813,105 +2839,64 @@ def compute_riskiness(args, settings):
                 local_next_arrival = local_node.break_start + local_node.break_duration
         return local_next_arrival
 
-    def time_to_delta(time: datetime.time) -> datetime.timedelta:
-        seconds = time.hour * 3600 + time.minute * 60 + time.second
-        return datetime.timedelta(seconds=seconds)
+    def __get_initial_start_times(self) -> typing.List[datetime.datetime]:
+        start_times = [self.__mapping.node(index).visit_start_min for index in self.__mapping.indices()]
 
-    schedule_start = datetime.datetime.combine(schedule.date(), datetime.time())
+        carer_routes = self.__mapping.routes()
+        for carer in carer_routes:
+            diary = self.__problem.get_diary(carer, self.__schedule.date())
+            assert diary is not None
 
-    def datetime_to_delta(value: datetime.datetime) -> datetime.timedelta:
-        return value - schedule_start
+            nodes = carer_routes[carer]
+            nodes_it = iter(nodes)
 
-    carer_routes = mapping.routes()
-    for carer in carer_routes:
-        diary = problem.get_diary(carer, schedule.date())
-        assert diary is not None
+            first_visit_node = next(nodes_it)
+            start_min = max(first_visit_node.visit_start_min, diary.events[0].begin - datetime.timedelta(minutes=30))
+            start_times[first_visit_node.index] = start_min
 
-        nodes = carer_routes[carer]
-        nodes_it = iter(nodes)
+            for node in nodes_it:
+                start_min = max(node.visit_start_min, diary.events[0].begin - datetime.timedelta(minutes=30))
+                start_times[node.index] = start_min
 
-        first_visit_node = next(nodes_it)
-        start_min = max(first_visit_node.visit_start_min, diary.events[0].begin - datetime.timedelta(minutes=30))
-        for position in range(len(start_times[first_visit_node.index])):
-            start_times[first_visit_node.index][position] = start_min
+        return start_times
 
-        for node in nodes_it:
-            start_min = max(node.visit_start_min, diary.events[0].begin - datetime.timedelta(minutes=30))
-            for position in range(len(start_times[node.index])):
-                start_times[node.index][position] = start_min
 
-    for scenario in range(sample.size):
-        for index in sorted_indices:
-            node = mapping.node(index)
+class EssentialRiskinessEvaluator:
+    def __init__(self, settings, history, problem, schedule):
+        self.__settings = settings
+        self.__history = history
+        self.__problem = problem
+        self.__schedule = schedule
+        self.__schedule_start = datetime.datetime.combine(self.__schedule.date(), datetime.time())
 
-            current_sibling_node = mapping.sibling(node.index)
-            if current_sibling_node:
-                max_start_time = max(start_times[node.index][scenario], start_times[current_sibling_node.index][scenario])
-                start_times[node.index][scenario] = max_start_time
+        self.__mapping = None
+        self.__sample = None
+        self.__start_times = None
+        self.__delay = None
 
-                if max_start_time > start_times[current_sibling_node.index][scenario]:
-                    start_times[current_sibling_node.index][scenario] = max_start_time
+    def run(self):
+        self.__mapping = create_mapping(self.__settings, self.__problem, self.__schedule)
 
-                    if current_sibling_node.next is not None and current_sibling_node.next != -1:
-                        start_times[current_sibling_node.next][scenario] = compute_next_arrival(current_sibling_node, scenario)
+        history_time_windows_span = datetime.timedelta(hours=2)
+        self.__sample = self.__history.build_sample(self.__problem, self.__schedule.date(), history_time_windows_span)
+        self.__start_times = [[datetime.datetime.max for _ in range(self.__sample.size)] for _ in self.__mapping.indices()]
+        self.__delay = [[datetime.timedelta.max for _ in range(self.__sample.size)] for _ in self.__mapping.indices()]
 
-            if node.next is None or node.next == -1:
-                continue
+        start_time_evaluator = StartTimeEvaluator(self.__mapping, self.__problem, self.__schedule)
+        for scenario in range(self.__sample.size):
 
-            next_arrival = compute_next_arrival(node, scenario)
-            if next_arrival > start_times[node.next][scenario]:
-                start_times[node.next][scenario] = next_arrival
+            def get_visit_duration(visit_key: int) -> datetime.timedelta:
+                return self.__sample.visit_duration(visit_key, scenario)
 
-    delay = [[(start_times[index][scenario] - mapping.node(index).visit_start_max).total_seconds() for scenario in range(sample.size)]
-             for index in mapping.indices()]
+            scenario_start_times = start_time_evaluator.get_start_times(get_visit_duration)
+            delay = start_time_evaluator.get_delays(scenario_start_times)
+            for index in range(len(scenario_start_times)):
+                self.__start_times[index][scenario] = scenario_start_times[index]
+                self.__delay[index][scenario] = delay[index]
 
-    # selected_index = [mapping.node(index) for index in mapping.indices() if mapping.node(index).visit_key == 8559516][0].index
-
-    # print(datetime_to_delta(mapping.node(selected_index).visit_start_min).total_seconds())
-    # print(datetime_to_delta(mapping.node(selected_index).visit_start_max).total_seconds())
-    #
-    # print('Start times')
-    # for scenario in range(sample.size):
-    #     print(scenario, int(datetime_to_delta(start_times[selected_index][scenario]).total_seconds()))
-    #
-    # print('Duration')
-    # for scenario in range(sample.size):
-    #     print(scenario, int(sample.visit_duration(8559516, scenario).total_seconds()))
-    #
-    # print('Delays')
-    # for scenario in range(sample.size):
-    #     print(scenario, delay[selected_index][scenario])
-
-    def find_carer(visit_key: int) -> typing.Optional[rows.model.carer.Carer]:
-        for carer in mapping.routes():
-            for node in mapping.routes()[carer]:
-                if node.visit_key == visit_key:
-                    return carer
-        return None
-
-    def find_index(visit_key: int) -> typing.Optional[int]:
-        for index in mapping.indices():
-            if mapping.node(index).visit_key == visit_key:
-                return index
-        return None
-
-    def print_start_times(visit_key: int):
-        print('Start Times - Visit {0}:'.format(visit_key))
-
-        selected_index = find_index(visit_key)
-        for scenario_number in range(sample.size):
-            print('{0:<4}{1}'.format(scenario_number, int(datetime_to_delta(start_times[selected_index][scenario_number]).total_seconds())))
-
-    def print_delays(visit_key: int):
-        print('Delays - Visit {0}:'.format(visit_key))
-
-        selected_index = find_index(visit_key)
-        for scenario_number in range(sample.size):
-            print('{0:<4}{1}'.format(scenario_number, int(delay[selected_index][scenario_number])))
-
-    def essential_riskiness_index(visit_key: int) -> float:
-        visit_index = find_index(visit_key)
-        records = copy.copy(delay[visit_index])
+    def calculate_index(self, visit_key: int) -> float:
+        visit_index = self.__find_index(visit_key)
+        records = [local_delay.total_seconds() for local_delay in self.__delay[visit_index]]
         records.sort()
 
         num_records = len(records)
@@ -2949,33 +2934,136 @@ def compute_riskiness(args, settings):
         else:
             return records[position]
 
-    selected_carers = {find_carer(8582722)}
+    def find_carer(self, visit_key: int) -> typing.Optional[rows.model.carer.Carer]:
+        for carer in self.__mapping.routes():
+            for node in self.__mapping.routes()[carer]:
+                if node.visit_key == visit_key:
+                    return carer
+        return None
 
-    riskiness = [essential_riskiness_index(mapping.node(index).visit_key) for index in mapping.indices()]
-
-    def find_route(index) -> typing.Optional[typing.List[Node]]:
-        routes = mapping.routes()
+    def find_route(self, index: int) -> typing.Optional[typing.List[Node]]:
+        routes = self.__mapping.routes()
         for carer in routes:
             for node in routes[carer]:
                 if node.index == index:
                     return routes[carer]
         return None
 
-    def print_route(carer):
-        route = mapping.routes()[carer]
+    def print_route(self, carer):
+        route = self.__mapping.routes()[carer]
         data = [['index', 'key', 'visit_start', 'visit_duration', 'travel_duration', 'break_start', 'break_duration']]
         for node in route:
             data.append([node.index,
                          node.visit_key,
-                         int(datetime_to_delta(start_times[node.index][0]).total_seconds()),
-                         int(sample.visit_duration(node.visit_key, 0).total_seconds()),
+                         int(self.__datetime_to_delta(self.__start_times[node.index][0]).total_seconds()),
+                         int(self.__sample.visit_duration(node.visit_key, 0).total_seconds()),
                          int(node.travel_duration.total_seconds()),
-                         int(datetime_to_delta(node.break_start).total_seconds()) if node.break_start is not None else 0,
+                         int(self.__datetime_to_delta(node.break_start).total_seconds()) if node.break_start is not None else 0,
                          int(node.break_duration.total_seconds())])
         print(tabulate.tabulate(data))
 
+    def print_start_times(self, visit_key: int):
+        print('Start Times - Visit {0}:'.format(visit_key))
+
+        selected_index = self.__find_index(visit_key)
+        for scenario_number in range(self.__sample.size):
+            print('{0:<4}{1}'.format(scenario_number,
+                                     int(self.__datetime_to_delta(self.__start_times[selected_index][scenario_number]).total_seconds())))
+
+    def print_delays(self, visit_key: int):
+        print('Delays - Visit {0}:'.format(visit_key))
+
+        selected_index = self.__find_index(visit_key)
+        for scenario_number in range(self.__sample.size):
+            print('{0:<4}{1}'.format(scenario_number, int(self.__delay[selected_index][scenario_number])))
+
+    def visit_keys(self) -> typing.List[int]:
+        visit_keys = [self.__mapping.node(index).visit_key for index in self.__mapping.indices()]
+        visit_keys.sort()
+        return visit_keys
+
+    def __find_index(self, visit_key: int) -> typing.Optional[int]:
+        for index in self.__mapping.indices():
+            if self.__mapping.node(index).visit_key == visit_key:
+                return index
+        return None
+
+    def __datetime_to_delta(self, value: datetime.datetime) -> datetime.timedelta:
+        return value - self.__schedule_start
+
+    @property
+    def start_times(self):
+        return self.__start_times
+
+    @property
+    def delay(self):
+        return self.__delay
+
+    @staticmethod
+    def time_to_delta(time: datetime.time) -> datetime.timedelta:
+        seconds = time.hour * 3600 + time.minute * 60 + time.second
+        return datetime.timedelta(seconds=seconds)
+
+
+def compare_delay(args, settings):
+    problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
+    with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
+        history = rows.model.history.History.load(input_stream)
+
+    root_problem_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations/cp_schedules'
+    cost_opt_solutions = [os.path.join(root_problem_dir, 'past', 'c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day))
+                          for day in range(1, 15)]
+    riskiness_opt_solutions = [os.path.join(root_problem_dir, 'riskiness', '2017-10-{0:02d}.gexf'.format(day))
+                               for day in range(1, 15)]
+
+    def get_visit_duration(visit_key: int) -> datetime.timedelta:
+        visit = history.get_visit(visit_key)
+        assert visit is not None
+        return visit.real_duration
+
+    def get_visit_delays(schedule: rows.model.schedule.Schedule) -> typing.Dict[int, datetime.timedelta]:
+        mapping = create_mapping(settings, problem, schedule)
+        delay_evaluator = StartTimeEvaluator(mapping, problem, schedule)
+        start_times = delay_evaluator.get_start_times(get_visit_duration)
+        delays = delay_evaluator.get_delays(start_times)
+        return {mapping.node(index).visit_key: delays[index] for index in range(len(delays))}
+
+    # TODO: average delay for each day
+    # TODO: detailed delay for one problem instance
+
+    for cost_schedule_path, riskiness_schedule_path in zip(cost_opt_solutions, riskiness_opt_solutions):
+        cost_schedule = rows.load.load_schedule(cost_schedule_path)
+        risk_schedule = rows.load.load_schedule(riskiness_schedule_path)
+
+        schedule_date = cost_schedule.date()
+        assert schedule_date == risk_schedule.date()
+
+        cost_visit_delays = get_visit_delays(cost_schedule)
+        risk_visit_delays = get_visit_delays(risk_schedule)
+
+        print('here')
+        # riskiness_mapping = create_mapping(settings, problem, riskiness_schedule)
+        # riskiness_delay_evaluator = StartTimeEvaluator(riskiness_mapping, problem, riskiness_schedule)
+
+    print('here')
+
+
+def compute_riskiness(args, settings):
+    # load optimised schedules
+    # load riskiness schedules
+
+    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/cp_schedules/riskiness/2017-10-01.gexf')
+    problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
+
+    with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
+        history = rows.model.history.History.load(input_stream)
+
+    riskiness_evaluator = EssentialRiskinessEvaluator(settings, history, problem, schedule)
+    riskiness_evaluator.run()
+
+    selected_carers = {riskiness_evaluator.find_carer(8582722)}
     for carer in selected_carers:
-        print_route(carer)
+        riskiness_evaluator.print_route(carer)
 
 
 def debug(args, settings):
@@ -3028,6 +3116,8 @@ if __name__ == '__main__':
         compare_literature_table(__args, __settings)
     elif __command == __COMPUTE_RISKINESS_COMMAND:
         compute_riskiness(__args, __settings)
+    elif __command == __COMPARE_DELAY_COMMAND:
+        compare_delay(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:
