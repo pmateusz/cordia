@@ -5,8 +5,7 @@
 #include "util/pretty_print.h"
 #include "delay_tracker.h"
 
-// TODO: remove the map of activities from the API
-// TODO: update loading of gexf solutions in Python
+
 
 namespace rows {
 
@@ -40,10 +39,7 @@ namespace rows {
     void GexfWriter::Write(const boost::filesystem::path &file_path,
                            const SolverWrapper &solver,
                            const operations_research::RoutingModel &model,
-                           const operations_research::Assignment &solution,
-                           const boost::optional<
-                                   std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> >
-                                   > > &activities) const {
+                           const operations_research::Assignment &solution) const {
 
         operations_research::RoutingDimension const *time_dim = model.GetMutableDimension(rows::SolverWrapper::TIME_DIMENSION);
 
@@ -223,81 +219,6 @@ namespace rows {
                     previous_visit_index = visit_index;
                 }
             }
-
-//            int64 start_visit_index = model.Start(vehicle);
-//
-//            DCHECK(!model.IsEnd(solution.Value(model.NextVar(start_visit_index))));
-//            do {
-//                const auto start_visit_node = solver.index_manager().IndexToNode(start_visit_index);
-//                if (start_visit_node != RealProblemData::DEPOT) {
-//                    std::string start_visit_id = gexf.VisitId(start_visit_node);
-//
-//                    const auto &calendar_visit = solver.NodeToVisit(start_visit_node);
-//                    route.emplace_back(ScheduledVisit::VisitType::UNKNOWN, carer, calendar_visit);
-//
-//                    const auto carer_visit_edge_id = gexf.EdgeId(carer_id, start_visit_id, "c_");
-//                    gexf.AddEdge(carer_visit_edge_id,
-//                                 carer_id,
-//                                 start_visit_id,
-//                                 (boost::format("NodeToCarer %1% does visit %2%")
-//                                  % vehicle
-//                                  % start_visit_node).str());
-//
-//                    if (!model.IsEnd(start_visit_index)) {
-//                        gexf.SetNodeValue(start_visit_id, ASSIGNED_CARER, carer.sap_number());
-//                    }
-//
-//                    const auto &service_user = solver.User(solver.NodeToVisit(start_visit_node).service_user());
-////                    gexf.SetNodeValue(start_visit_id,
-////                                      SATISFACTION,
-////                                      std::to_string(service_user.Preference(carer)));
-//
-//                    if (model.IsEnd(start_visit_index)) {
-//                        break;
-//                    }
-//
-//                    const auto end_visit_index = solution.Value(model.NextVar(start_visit_index));
-//                    const auto end_visit_node = solver.index_manager().IndexToNode(end_visit_index);
-//                    if (end_visit_node != RealProblemData::DEPOT) {
-//                        std::string end_visit_id = gexf.VisitId(end_visit_node);
-//
-//                        const auto visit_visit_edge_id = gexf.EdgeId(start_visit_id, end_visit_id, "r_");
-//                        gexf.AddEdge(visit_visit_edge_id,
-//                                     start_visit_id,
-//                                     end_visit_id,
-//                                     (boost::format("Visit %1% after %2%")
-//                                      % start_visit_node
-//                                      % end_visit_node).str());
-//
-//                        const auto travel_time = solver.Distance(start_visit_node, end_visit_node);
-//                        DCHECK_GE(travel_time, 0);
-//                        gexf.SetEdgeValue(visit_visit_edge_id,
-//                                          TRAVEL_TIME,
-//                                          boost::posix_time::seconds(travel_time));
-//                    }
-//                }
-//
-//                start_visit_index = solution.Value(model.NextVar(start_visit_index));
-//            } while (!model.IsEnd(start_visit_index));
-
-//            if (activities) {
-//                const auto carer_node = operations_research::RoutingNodeIndex{vehicle};
-//                operations_research::RoutingNodeIndex break_node{1};
-//                for (const auto &local_activity : activities->at(vehicle)) {
-//                    if (local_activity->activity_type() != rows::RouteValidatorBase::ActivityType::Break) {
-//                        continue;
-//                    }
-//
-//                    const auto break_id = gexf.BreakId(carer_node, break_node);
-//                    gexf.AddNode(break_id, (boost::format("break %1% carer %2%") % break_node % carer_node).str());
-//                    gexf.SetNodeValue(break_id, TYPE, BREAK_NODE);
-//                    gexf.SetNodeValue(break_id, ASSIGNED_CARER, carer.sap_number());
-//                    gexf.SetNodeValue(break_id, START_TIME, local_activity->period().begin());
-//                    gexf.SetNodeValue(break_id, DURATION, local_activity->duration());
-//
-//                    ++break_node;
-//                }
-//            }
 
             if (route.empty()) {
                 continue;

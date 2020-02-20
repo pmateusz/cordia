@@ -173,42 +173,13 @@ namespace rows {
             Graph dag{std::cbegin(edges), std::cend(edges), num_vertices};
 
             for (Vertex vertex = 0; vertex < num_vertices; ++vertex) {
-                std::vector<Vertex> outgoing_vertices;
                 boost::graph_traits<Graph>::out_edge_iterator out_ei, out_ei_end;
 
                 for (std::tie(out_ei, out_ei_end) = boost::out_edges(vertex, dag); out_ei != out_ei_end; ++out_ei) {
                     const auto target = boost::target(*out_ei, dag);
 
                     visited_nodes[target] = true;
-                    outgoing_vertices.emplace_back(target);
                 }
-
-//                const auto degree = outgoing_vertices.size();
-//                if (degree == 0) {
-//                    // vertex not visited
-//                    continue;
-//                } else if (degree == 1) {
-//                    // vertex has a single predecessor
-//                    const auto outgoing_node = outgoing_vertices.front();
-//                    CHECK(model_->IsEnd(vertex) || (!duration_sample_.has_sibling(vertex) && records_[vertex].next == outgoing_node));
-//                } else {
-//                    // vertex has two predecessors which are sibling nodes to themselves
-//                    CHECK_EQ(degree, 2);
-//                    CHECK(duration_sample_.is_visit(vertex));
-//                    CHECK(duration_sample_.has_sibling(vertex));
-//
-//                    int64 other_sibling = duration_sample_.sibling(vertex);
-//                    CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), records_[vertex].next) !=
-//                          std::cend(outgoing_vertices));
-//
-//                    if (vertex < other_sibling) {
-//                        CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), other_sibling) !=
-//                              std::cend(outgoing_vertices));
-//                    } else {
-//                        CHECK(std::find(std::cbegin(outgoing_vertices), std::cend(outgoing_vertices), records_[other_sibling].next) !=
-//                              std::cend(outgoing_vertices));
-//                    }
-//                }
             }
 
             for (int vehicle = 0; vehicle < model_->vehicles(); ++vehicle) {
@@ -333,8 +304,10 @@ namespace rows {
             PathBuilder(const DataSource &data,
                         const std::vector<TrackRecord> &records,
                         const operations_research::RoutingDimension *dimension,
+                        const SolverWrapper &solver,
                         int vehicle)
                     : data_{data},
+                      solver_{solver},
                       records_{records},
                       dimension_{dimension},
                       vehicle_{vehicle},
@@ -344,7 +317,6 @@ namespace rows {
             void Process(const PartialPath &path) {
                 const auto has_visit = path.node_next_pos < nodes.size();
                 const auto has_break = path.break_next_pos < breaks.size();
-                completed = has_visit || has_break;
 
                 if (has_visit) {
                     const auto current_node = nodes[path.node_next_pos];
@@ -356,7 +328,10 @@ namespace rows {
 
                     if (path.node_next_pos + 1 < nodes.size()) {
                         const auto next_node = nodes[path.node_next_pos + 1];
-                        next_travel_time = dimension_->model()->GetArcCostForVehicle(current_node, next_node, vehicle_);
+
+                        // do not use dimension for cost because it may include the cost of using the vehicle
+                        const auto &index_manager = solver_.index_manager();
+                        next_travel_time = solver_.Distance(index_manager.IndexToNode(current_node), index_manager.IndexToNode(next_node));
                     } else {
                         next_travel_time = 0;
                     }
@@ -444,7 +419,6 @@ namespace rows {
             bool visit_preferred{};
             bool break_preferred{};
             bool failed{};
-            bool completed{};
 
         private:
             void Fail() {
@@ -458,6 +432,7 @@ namespace rows {
             }
 
             const DataSource &data_;
+            const SolverWrapper &solver_;
             const std::vector<TrackRecord> &records_;
             const operations_research::RoutingDimension *dimension_;
             const int vehicle_;
@@ -475,7 +450,7 @@ namespace rows {
 
         template<typename DataSource>
         std::vector<int64> BuildPathFromSource(int vehicle, const DataSource &data) {
-            PathBuilder<DataSource> builder{data, records_, dimension_, vehicle};
+            PathBuilder<DataSource> builder{data, records_, dimension_, solver_, vehicle};
 
             const auto num_breaks = builder.breaks.size();
             const auto num_nodes = builder.nodes.size();
@@ -548,36 +523,6 @@ namespace rows {
                 }
             }
             CHECK(path_ptr != nullptr);
-
-//            int64 result_slack = partial_paths[result_pos].TotalNormalizedSlack();
-//            for (std::size_t candidate_pos = result_pos + 1; candidate_pos < num_paths; ++candidate_pos) {
-//                if (!partial_paths[candidate_pos].IsComplete()) {
-//                    continue;
-//                }
-//
-//                int64 candidate_slack = partial_paths[candidate_pos].TotalNormalizedSlack();
-//                if (result_slack < candidate_slack) {
-//                    result_pos = candidate_pos;
-//                    result_slack = candidate_slack;
-//                }
-//            }
-//
-//            int64 alternative_paths = 0;
-//            for (std::size_t candidate_pos = result_pos + 1; candidate_pos < num_paths; ++candidate_pos) {
-//                if (partial_paths[candidate_pos].IsComplete()) {
-//                    ++alternative_paths;
-//                }
-//            }
-
-            int64 alternative_paths = 0;
-            for (std::size_t candidate_pos = 0; candidate_pos < partial_paths.size(); ++candidate_pos) {
-                if (partial_paths[candidate_pos].IsComplete()) {
-                    ++alternative_paths;
-                }
-            }
-
-            std::size_t path_index = 0;
-            for (path_index = 0; path_index < partial_paths.size() && &partial_paths[path_index] != path_ptr; ++path_index);
 
 // problem 2
 //            if (vehicle == 46 && partial_paths.size() == 3) {

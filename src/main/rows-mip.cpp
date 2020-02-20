@@ -2516,7 +2516,7 @@ int main(int argc, char *argv[]) {
 
     const rows::GexfWriter solution_writer;
     boost::filesystem::path output_file{FLAGS_output};
-    solution_writer.Write(output_file, solver_wrapper, routing_model, *assignment, boost::none);
+    solution_writer.Write(output_file, solver_wrapper, routing_model, *assignment);
 
     if (!routing_model.solver()->CheckAssignment(assignment)) {
         throw util::ApplicationError("Final solution rejected by the CP solver in the validation phase.", util::ErrorCode::ERROR);

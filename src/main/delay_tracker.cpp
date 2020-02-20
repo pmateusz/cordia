@@ -223,8 +223,8 @@ rows::DelayTracker::PartialPath const *rows::DelayTracker::SelectBestPath(const 
     for (std::size_t pos = 0; pos < num_slack; ++pos) {
         slack_diff[pos] = std::min(left.slack[pos], 3600l) - std::min(right.slack[pos], 3600l);
     }
-    auto total_budget = std::accumulate(std::cbegin(slack_diff), std::cend(slack_diff), 0l);
 
+    auto total_budget = std::accumulate(std::cbegin(slack_diff), std::cend(slack_diff), 0l);
     if (total_budget > 0) {
         return &left;
     } else if (total_budget < 0) {
@@ -235,12 +235,6 @@ rows::DelayTracker::PartialPath const *rows::DelayTracker::SelectBestPath(const 
         slack_diff[pos] = left.slack[pos] - right.slack[pos];
     }
     total_budget = std::accumulate(std::cbegin(slack_diff), std::cend(slack_diff), 0l);
-
-//        int64 candidate_slack = paths[candidate_pos].TotalNormalizedSlack();
-//        if (result_slack < candidate_slack) {
-//            result_pos = candidate_pos;
-//            result_slack = candidate_slack;
-//        }
 
     if (total_budget > 0) {
         return &left;

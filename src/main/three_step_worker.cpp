@@ -728,8 +728,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         solution_writer_.Write(second_stage_output,
                                second_stage_solver,
                                second_stage_model,
-                               *second_stage_assignment,
-                               boost::none);
+                               *second_stage_assignment);
 
         second_stage_model.AssignmentToRoutes(*second_stage_assignment, &solution);
     }
@@ -828,15 +827,12 @@ void rows::ThreeStepSchedulingWorker::WriteSolution(const operations_research::A
     const auto is_third_solution_correct = model.solver()->CheckAssignment(assignment_copy);
     DCHECK(is_third_solution_correct);
 
-    std::map<int, std::list<std::shared_ptr<RouteValidatorBase::FixedDurationActivity> > > activities;
     for (int vehicle = 0; vehicle < model.vehicles(); ++vehicle) {
         const auto validation_result = solution_validator_.ValidateFull(vehicle, *assignment, model, solver);
         CHECK(validation_result.error() == nullptr);
-
-        activities[vehicle] = validation_result.activities();
     }
 
-    solution_writer_.Write(output_file_, solver, model, *assignment, boost::make_optional(activities));
+    solution_writer_.Write(output_file_, solver, model, *assignment);
 }
 
 int64 GetEssentialRiskiness(int64 num_indices, rows::DelayTracker &tracker, const operations_research::Assignment *assignment) {
