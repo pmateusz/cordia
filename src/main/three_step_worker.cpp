@@ -874,24 +874,37 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
     operations_research::Assignment *third_stage_pre_assignment = third_stage_model.ReadAssignmentFromRoutes(second_stage_routes, true);
     DCHECK(third_stage_pre_assignment != nullptr);
 
-    DelayTracker local_tracker{*third_step_solver,
-                               *history_,
-                               &third_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
+    if (third_stage_strategy_ == ThirdStageStrategy::DELAY_RISKINESS_REDUCTION) {
+        DelayTracker local_tracker{*third_step_solver,
+                                   *history_,
+                                   &third_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
 
-    const auto max_pre_riskiness = GetEssentialRiskiness(third_step_solver->index_manager().num_indices(), local_tracker, third_stage_pre_assignment);
-    WriteSolution(third_stage_pre_assignment, third_stage_model, *third_step_solver);
+        const auto max_pre_riskiness = GetEssentialRiskiness(third_step_solver->index_manager().num_indices(), local_tracker,
+                                                             third_stage_pre_assignment);
+        WriteSolution(third_stage_pre_assignment, third_stage_model, *third_step_solver);
 
-    printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
-    const operations_research::Assignment *third_stage_assignment
-            = third_stage_model.SolveFromAssignmentWithParameters(third_stage_pre_assignment, third_search_params);
-    if (third_stage_assignment == nullptr) {
-        throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
-    }
+        printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
+        const operations_research::Assignment *third_stage_assignment
+                = third_stage_model.SolveFromAssignmentWithParameters(third_stage_pre_assignment, third_search_params);
+        if (third_stage_assignment == nullptr) {
+            throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
+        }
 
-    const auto max_post_riskiness = GetEssentialRiskiness(third_step_solver->index_manager().num_indices(), local_tracker, third_stage_assignment);
-    printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
+        const auto max_post_riskiness = GetEssentialRiskiness(third_step_solver->index_manager().num_indices(), local_tracker,
+                                                              third_stage_assignment);
+        printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
 
-    if (max_pre_riskiness > max_post_riskiness) {
+        if (max_pre_riskiness > max_post_riskiness) {
+            WriteSolution(third_stage_assignment, third_stage_model, *third_step_solver);
+        }
+    } else {
+        printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
+        const operations_research::Assignment *third_stage_assignment
+                = third_stage_model.SolveFromAssignmentWithParameters(third_stage_pre_assignment, third_search_params);
+        if (third_stage_assignment == nullptr) {
+            throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
+        }
+        printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
         WriteSolution(third_stage_assignment, third_stage_model, *third_step_solver);
     }
 }
