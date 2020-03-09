@@ -1504,7 +1504,7 @@ def remove_violated_visits(rough_schedule: rows.model.schedule.Schedule,
 
     dropped_visits = 0
     allowed_visits = []
-    for route in rough_schedule.routes():
+    for route in rough_schedule.routes:
         carer_diary = problem.get_diary(route.carer, metadata.date)
         if not carer_diary:
             continue
@@ -1518,10 +1518,10 @@ def remove_violated_visits(rough_schedule: rows.model.schedule.Schedule,
             allowed_visits.append(visit)
 
     # schedule does not have visits which exceed time windows
-    first_improved_schedule = rows.model.schedule.Schedule(carers=rough_schedule.carers(), visits=allowed_visits)
+    first_improved_schedule = rows.model.schedule.Schedule(carers=rough_schedule.carers, visits=allowed_visits)
 
     allowed_visits = []
-    for route in first_improved_schedule.routes():
+    for route in first_improved_schedule.routes:
         edges = route.edges()
 
         if not edges:
@@ -1539,17 +1539,20 @@ def remove_violated_visits(rough_schedule: rows.model.schedule.Schedule,
             allowed_visits.append(first_visit)
 
         for prev_visit, next_visit in edges:
-            current_time += duration_estimator(prev_visit.visit)
+            visit_duration = duration_estimator(prev_visit.visit)
+            if visit_duration is None:
+                visit_duration = prev_visit.duration
+
+            current_time += visit_duration
             current_time += distance_estimator(prev_visit, next_visit)
-            current_time = max(current_time, datetime.datetime.combine(metadata.date, next_visit.time) + min_delay)
+            current_time = max(current_time, datetime.datetime.combine(metadata.date, next_visit.time) - max_delay)
             if current_time <= max_shift_end:
                 allowed_visits.append(next_visit)
             else:
                 dropped_visits += 1
 
     # schedule does not contain visits which exceed overtime of the carer
-    second_improved_schedule = rows.model.schedule.Schedule(carers=rough_schedule.carers(), visits=allowed_visits)
-    return second_improved_schedule
+    return rows.model.schedule.Schedule(carers=rough_schedule.carers, visits=allowed_visits)
 
 
 class ScheduleCost:
@@ -1577,10 +1580,13 @@ class ScheduleCost:
     def carers_used(self) -> int:
         return self.__carers_used
 
-    def total_cost(self):
-        return self.__travel_time.total_seconds() \
-               + self.CARER_COST.total_seconds() * self.__carers_used \
-               + self.__missed_visit_penalty * self.__visits_missed
+    def total_cost(self, include_vehicle_cost: bool) -> datetime.timedelta:
+        cost = self.__travel_time.total_seconds() + self.__missed_visit_penalty * self.__visits_missed
+
+        if include_vehicle_cost:
+            cost += self.CARER_COST.total_seconds() * self.__carers_used
+
+        return cost
 
 
 def get_schedule_cost(schedule: rows.model.schedule.Schedule,
@@ -1589,10 +1595,9 @@ def get_schedule_cost(schedule: rows.model.schedule.Schedule,
                       distance_estimator: rows.plot.DistanceEstimator) -> ScheduleCost:
     carer_used_ids = set()
     visit_made_ids = set()
-
     travel_time = datetime.timedelta()
 
-    for route in schedule.routes():
+    for route in schedule.routes:
         if not route.visits:
             continue
 
@@ -1603,8 +1608,7 @@ def get_schedule_cost(schedule: rows.model.schedule.Schedule,
         for source, destination in route.edges():
             travel_time += distance_estimator(source, destination)
 
-    schedule_date = schedule.date()
-    available_visit_ids = {visit.key for visit_group in problem.visits for visit in visit_group.visits if visit.date == schedule_date}
+    available_visit_ids = {visit.key for visit in problem.requested_visits(schedule.date)}
     return ScheduleCost(travel_time, len(carer_used_ids), len(available_visit_ids.difference(visit_made_ids)), metadata.missed_visit_penalty)
 
 
@@ -1612,68 +1616,74 @@ def compare_schedule_cost(args, settings):
     ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'HumanSolutionPath', 'SolverSolutionPath'])
 
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
-    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5.err.log')
+    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_distv90b90e30m1m1m5.err.log')
     problem_data = [ProblemConfig(os.path.join(simulation_dir, 'problems/C350_past.json'),
                                   os.path.join(simulation_dir, 'planner_schedules/C350_planners_201710{0:02d}.json'.format(day)),
-                                  os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
+                                  os.path.join(simulation_dir, 'solutions/c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
                     for day in range(1, 15, 1)]
 
     solver_traces = read_traces(solver_log_file)
     assert len(solver_traces) == len(problem_data)
 
     results = []
-    printable_results = []
 
-    def get_cost_label(cost_components: ScheduleCost) -> str:
-        return '{0:,.0f}'.format(cost_components.total_cost())
-
+    include_vehicle_cost = False
     with rows.plot.create_routing_session() as routing_session:
         distance_estimator = rows.plot.DistanceEstimator(settings, routing_session)
 
-        for solver_trace, problem_data in zip(solver_traces, problem_data):
+        def normalize_cost(value) -> float:
+            if isinstance(value, datetime.timedelta):
+                value_to_use = value.total_seconds()
+            elif isinstance(value, float) or isinstance(value, int):
+                value_to_use = value
+            else:
+                return float('inf')
+            return round(value_to_use / 3600, 2)
+
+        for solver_trace, problem_data in list(zip(solver_traces, problem_data)):
             problem = rows.load.load_problem(os.path.join(simulation_dir, problem_data.ProblemPath))
+
             human_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.HumanSolutionPath))
             solver_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.SolverSolutionPath))
 
-            assert solver_trace.date == human_schedule.date()
-            assert solver_trace.date == solver_schedule.date()
+            assert solver_trace.date == human_schedule.date
+            assert solver_trace.date == solver_schedule.date
+
+            available_carers = problem.available_carers(human_schedule.date)
+            requested_visits = problem.requested_visits(human_schedule.date)
+
+            one_carer_visits = [visit for visit in requested_visits if visit.carer_count == 1]
+            two_carer_visits = [visit for visit in requested_visits if visit.carer_count == 2]
 
             duration_estimator = rows.plot.DurationEstimator.create_expected_visit_duration(solver_schedule)
             human_schedule_to_use = remove_violated_visits(human_schedule, solver_trace, problem, duration_estimator, distance_estimator)
             solver_schedule_to_use = remove_violated_visits(solver_schedule, solver_trace, problem, duration_estimator, distance_estimator)
             human_cost = get_schedule_cost(human_schedule_to_use, solver_trace, problem, distance_estimator)
             solver_cost = get_schedule_cost(solver_schedule_to_use, solver_trace, problem, distance_estimator)
-            results.append({'date': solver_trace.date,
-                            'missed_visit_penalty': solver_trace.missed_visit_penalty,
-                            'carer_used_penalty': solver_trace.carer_used_penalty,
-                            'planner_travel_time': human_cost.travel_time,
-                            'planner_carers_used': human_cost.carers_used,
-                            'planner_missed_visits': human_cost.visits_missed,
-                            'planner_total_cost': human_cost.total_cost(),
-                            'solver_carers_used': solver_cost.carers_used,
-                            'solver_travel_time': solver_cost.travel_time,
-                            'solver_missed_visits': solver_cost.visits_missed,
-                            'solver_total_cost': solver_cost.total_cost()})
-
-            printable_results.append(collections.OrderedDict(day=solver_trace.date.day,
-                                                             visit_penalty='{0:,.0f}'.format(solver_trace.missed_visit_penalty),
-                                                             carer_penalty='{0:,.0f}'.format(solver_trace.carer_used_penalty),
-                                                             planner_travel_time=get_time_delta_label(human_cost.travel_time),
-                                                             planner_carers_used=human_cost.carers_used,
-                                                             planner_missed_visits=human_cost.visits_missed,
-                                                             planner_total_cost=get_cost_label(human_cost),
-                                                             solver_travel_time=get_time_delta_label(solver_cost.travel_time),
-                                                             solver_carers_used=solver_cost.carers_used,
-                                                             solver_missed_visits=solver_cost.visits_missed,
-                                                             solver_total_cost=get_cost_label(solver_cost)))
+            results.append(collections.OrderedDict(date=solver_trace.date,
+                                                   day=solver_trace.date.day,
+                                                   carers=len(available_carers),
+                                                   one_carer_visits=len(one_carer_visits),
+                                                   two_carer_visits=len(two_carer_visits),
+                                                   missed_visit_penalty=normalize_cost(solver_trace.missed_visit_penalty),
+                                                   carer_used_penalty=normalize_cost(solver_trace.carer_used_penalty),
+                                                   planner_missed_visits=human_cost.visits_missed,
+                                                   solver_missed_visits=solver_cost.visits_missed,
+                                                   planner_travel_time=normalize_cost(human_cost.travel_time),
+                                                   solver_travel_time=normalize_cost(solver_cost.travel_time),
+                                                   planner_carers_used=human_cost.carers_used,
+                                                   solver_carers_used=solver_cost.carers_used,
+                                                   planner_total_cost=normalize_cost(human_cost.total_cost(include_vehicle_cost)),
+                                                   solver_total_cost=normalize_cost(solver_cost.total_cost(include_vehicle_cost)),
+                                                   solver_time=int(math.ceil(solver_trace.best_cost_time().total_seconds()))))
 
     data_frame = pandas.DataFrame(data=results)
     print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
 
-    printable_data_frame = pandas.DataFrame(data=printable_results)
-    print(tabulate.tabulate(printable_data_frame, tablefmt='latex', headers='keys', showindex=False))
-    print(tabulate.tabulate(printable_data_frame[['day', 'planner_travel_time', 'planner_carers_used', 'planner_missed_visits', 'planner_total_cost',
-                                                  'solver_travel_time', 'solver_carers_used', 'solver_missed_visits', 'solver_total_cost']],
+    print(tabulate.tabulate(data_frame[['day', 'carers', 'one_carer_visits', 'two_carer_visits', 'missed_visit_penalty',
+                                        'planner_total_cost', 'solver_total_cost',
+                                        'planner_missed_visits', 'solver_missed_visits',
+                                        'planner_travel_time', 'solver_travel_time', 'solver_time']],
                             tablefmt='latex', headers='keys', showindex=False))
 
 
@@ -2149,63 +2159,138 @@ def compare_benchmark_table(args, settings):
         tablefmt='latex', headers='keys', showindex=False))
 
 
+@functools.total_ordering
+class ProblemMetadata:
+    WINDOW_LABELS = ['', 'F', 'S', 'M', 'L', 'A']
+
+    def __init__(self, case: int, visits: int, windows: int):
+        assert visits == 20 or visits == 50 or visits == 80
+        assert 0 <= windows < len(ProblemMetadata.WINDOW_LABELS)
+
+        self.__case = case
+        self.__visits = visits
+        self.__windows = windows
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, ProblemMetadata):
+            return self.case == other.case and self.visits == other.visits and self.__windows == other.windows
+
+        return False
+
+    def __neq__(self, other) -> bool:
+        return not (self == other)
+
+    def __lt__(self, other) -> bool:
+        assert isinstance(other, ProblemMetadata)
+
+        if self.windows != other.windows:
+            return self.windows < other.windows
+
+        if self.visits != other.visits:
+            return self.visits < other.visits
+
+        if self.case != other.case:
+            return self.case < other.case
+
+        return False
+
+    @property
+    def label(self) -> str:
+        return '{0:>2}{1}'.format(self.instance_number, self.windows_label)
+
+    @property
+    def windows(self) -> int:
+        return self.__windows
+
+    @property
+    def windows_label(self) -> str:
+        return ProblemMetadata.WINDOW_LABELS[self.__windows]
+
+    @property
+    def visits(self) -> int:
+        return self.__visits
+
+    @property
+    def case(self) -> int:
+        return self.__case
+
+    @property
+    def instance_number(self) -> int:
+        if self.__visits == 20:
+            return self.__case
+
+        if self.__visits == 50:
+            return 5 + self.__case
+
+        return 8 + self.__case
+
+
 def compare_literature_table(args, settings):
-    InstanceConfig = collections.namedtuple('InstanceConfig', ['name', 'literature_result', 'is_optimal'])
+    LIU2019 = 'liu2019'
+    AFIFI2016 = 'afifi2016'
+    DECERLE2018 = 'decerle2018'
+    GAYRAUD2015 = 'gayraud2015'
+    PARRAGH2018 = 'parragh2018'
+    BREDSTROM2008 = 'bredstrom2008combined'
+    BREDSTROM2007 = 'bredstrom2007branchandprice'
+
+    InstanceConfig = collections.namedtuple('InstanceConfig', ['name', 'nickname', 'result', 'who', 'is_optimal'])
+
     instance_data = [
-        InstanceConfig(name='case_1_20_4_2_1', literature_result=5.13, is_optimal=True),
-        InstanceConfig(name='case_2_20_4_2_1', literature_result=4.98, is_optimal=True),
-        InstanceConfig(name='case_3_20_4_2_1', literature_result=5.19, is_optimal=True),
-        InstanceConfig(name='case_4_20_4_2_1', literature_result=7.21, is_optimal=True),
-        InstanceConfig(name='case_5_20_4_2_1', literature_result=5.37, is_optimal=True),
-        InstanceConfig(name='case_1_50_10_5_1', literature_result=14.45, is_optimal=True),
-        InstanceConfig(name='case_2_50_10_5_1', literature_result=13.02, is_optimal=True),
-        InstanceConfig(name='case_3_50_10_5_1', literature_result=float('inf'), is_optimal=False),
-        InstanceConfig(name='case_1_80_16_8_1', literature_result=float('inf'), is_optimal=False),
-        InstanceConfig(name='case_2_80_16_8_1', literature_result=float('inf'), is_optimal=False),
+        InstanceConfig(name='case_1_20_4_2_1', nickname='1N', result=5.13, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_2_20_4_2_1', nickname='2N', result=4.98, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_3_20_4_2_1', nickname='3N', result=5.19, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_4_20_4_2_1', nickname='4N', result=7.21, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_5_20_4_2_1', nickname='5N', result=5.37, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_1_50_10_5_1', nickname='6N', result=14.45, who=DECERLE2018, is_optimal=True),
+        InstanceConfig(name='case_2_50_10_5_1', nickname='7N', result=13.02, who=DECERLE2018, is_optimal=True),
+        InstanceConfig(name='case_3_50_10_5_1', nickname='8N', result=34.94, who=PARRAGH2018, is_optimal=True),
+        InstanceConfig(name='case_1_80_16_8_1', nickname='9N', result=43.48, who=PARRAGH2018, is_optimal=True),
+        InstanceConfig(name='case_2_80_16_8_1', nickname='10N', result=12.08, who=PARRAGH2018, is_optimal=True),
 
-        InstanceConfig(name='case_1_20_4_2_2', literature_result=3.55, is_optimal=True),
-        InstanceConfig(name='case_2_20_4_2_2', literature_result=4.27, is_optimal=True),
-        InstanceConfig(name='case_3_20_4_2_2', literature_result=3.63, is_optimal=True),
-        InstanceConfig(name='case_4_20_4_2_2', literature_result=6.14, is_optimal=True),
-        InstanceConfig(name='case_5_20_4_2_2', literature_result=3.93, is_optimal=True),
-        InstanceConfig(name='case_1_50_10_5_2', literature_result=8.14, is_optimal=True),
-        InstanceConfig(name='case_2_50_10_5_2', literature_result=8.39, is_optimal=True),
-        InstanceConfig(name='case_3_50_10_5_2', literature_result=9.54, is_optimal=True),
-        InstanceConfig(name='case_1_80_16_8_2', literature_result=11.93, is_optimal=False),
-        InstanceConfig(name='case_2_80_16_8_2', literature_result=8.60, is_optimal=False),
+        InstanceConfig(name='case_1_20_4_2_2', nickname='1S', result=3.55, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_2_20_4_2_2', nickname='2S', result=4.27, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_3_20_4_2_2', nickname='3S', result=3.63, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_4_20_4_2_2', nickname='4S', result=6.14, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_5_20_4_2_2', nickname='5S', result=3.93, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_1_50_10_5_2', nickname='6S', result=8.14, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_2_50_10_5_2', nickname='7S', result=8.39, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_3_50_10_5_2', nickname='8S', result=9.54, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_1_80_16_8_2', nickname='9S', result=11.93, who=AFIFI2016, is_optimal=False),
+        InstanceConfig(name='case_2_80_16_8_2', nickname='10S', result=8.54, who=LIU2019, is_optimal=False),
 
-        InstanceConfig(name='case_1_20_4_2_3', literature_result=3.55, is_optimal=True),
-        InstanceConfig(name='case_2_20_4_2_3', literature_result=3.58, is_optimal=True),
-        InstanceConfig(name='case_3_20_4_2_3', literature_result=3.33, is_optimal=True),
-        InstanceConfig(name='case_4_20_4_2_3', literature_result=5.67, is_optimal=True),
-        InstanceConfig(name='case_5_20_4_2_3', literature_result=3.53, is_optimal=True),
-        InstanceConfig(name='case_1_50_10_5_3', literature_result=7.7, is_optimal=False),
-        InstanceConfig(name='case_2_50_10_5_3', literature_result=7.48, is_optimal=False),
-        InstanceConfig(name='case_3_50_10_5_3', literature_result=8.54, is_optimal=True),
-        InstanceConfig(name='case_1_80_16_8_3', literature_result=10.92, is_optimal=False),
-        InstanceConfig(name='case_2_80_16_8_3', literature_result=7.62, is_optimal=False),
+        InstanceConfig(name='case_1_20_4_2_3', nickname='1M', result=3.55, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_2_20_4_2_3', nickname='2M', result=3.58, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_3_20_4_2_3', nickname='3M', result=3.33, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_4_20_4_2_3', nickname='4M', result=5.67, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_5_20_4_2_3', nickname='5M', result=3.53, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_1_50_10_5_3', nickname='6M', result=7.7, who=AFIFI2016, is_optimal=False),
+        InstanceConfig(name='case_2_50_10_5_3', nickname='7M', result=7.48, who=AFIFI2016, is_optimal=False),
+        InstanceConfig(name='case_3_50_10_5_3', nickname='8M', result=8.54, who=BREDSTROM2008, is_optimal=True),
+        InstanceConfig(name='case_1_80_16_8_3', nickname='9M', result=10.92, who=AFIFI2016, is_optimal=False),
+        InstanceConfig(name='case_2_80_16_8_3', nickname='10M', result=7.62, who=AFIFI2016, is_optimal=False),
 
-        InstanceConfig(name='case_1_20_4_2_4', literature_result=3.39, is_optimal=True),
-        InstanceConfig(name='case_2_20_4_2_4', literature_result=3.42, is_optimal=True),
-        InstanceConfig(name='case_3_20_4_2_4', literature_result=3.29, is_optimal=True),
-        InstanceConfig(name='case_4_20_4_2_4', literature_result=5.13, is_optimal=True),
-        InstanceConfig(name='case_5_20_4_2_4', literature_result=3.34, is_optimal=True),
-        InstanceConfig(name='case_1_50_10_5_4', literature_result=7.14, is_optimal=True),
-        InstanceConfig(name='case_2_50_10_5_4', literature_result=6.88, is_optimal=False),
-        InstanceConfig(name='case_3_50_10_5_4', literature_result=8, is_optimal=False),
-        InstanceConfig(name='case_1_80_16_8_4', literature_result=10.49, is_optimal=False),
-        InstanceConfig(name='case_2_80_16_8_4', literature_result=7.75, is_optimal=False),
+        InstanceConfig(name='case_1_20_4_2_4', nickname='1L', result=3.39, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_2_20_4_2_4', nickname='2L', result=3.42, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_3_20_4_2_4', nickname='3L', result=3.29, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_4_20_4_2_4', nickname='4L', result=5.13, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_5_20_4_2_4', nickname='5L', result=3.34, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_1_50_10_5_4', nickname='6L', result=7.14, who=BREDSTROM2007, is_optimal=True),
+        InstanceConfig(name='case_2_50_10_5_4', nickname='7L', result=6.88, who=BREDSTROM2007, is_optimal=False),
+        InstanceConfig(name='case_3_50_10_5_4', nickname='8L', result=8, who=AFIFI2016, is_optimal=False),
+        InstanceConfig(name='case_1_80_16_8_4', nickname='9L', result=10.43, who=LIU2019, is_optimal=False),
+        InstanceConfig(name='case_2_80_16_8_4', nickname='10L', result=7.36, who=LIU2019, is_optimal=False),
 
-        InstanceConfig(name='case_1_20_4_2_5', literature_result=3.12, is_optimal=False),
-        InstanceConfig(name='case_2_20_4_2_5', literature_result=2.97, is_optimal=False),
-        InstanceConfig(name='case_3_20_4_2_5', literature_result=2.85, is_optimal=False),
-        InstanceConfig(name='case_4_20_4_2_5', literature_result=4.29, is_optimal=False),
-        InstanceConfig(name='case_5_20_4_2_5', literature_result=2.92, is_optimal=False),
-        InstanceConfig(name='case_1_50_10_5_5', literature_result=6.48, is_optimal=False),
-        InstanceConfig(name='case_2_50_10_5_5', literature_result=5.92, is_optimal=False),
-        InstanceConfig(name='case_3_50_10_5_5', literature_result=6.74, is_optimal=False),
-        InstanceConfig(name='case_1_80_16_8_5', literature_result=9.18, is_optimal=False),
-        InstanceConfig(name='case_2_80_16_8_5', literature_result=7.15, is_optimal=False)
+        InstanceConfig(name='case_1_20_4_2_5', nickname='1H', result=2.95, who=PARRAGH2018, is_optimal=False),
+        InstanceConfig(name='case_2_20_4_2_5', nickname='2H', result=2.88, who=PARRAGH2018, is_optimal=False),
+        InstanceConfig(name='case_3_20_4_2_5', nickname='3H', result=2.74, who=PARRAGH2018, is_optimal=False),
+        InstanceConfig(name='case_4_20_4_2_5', nickname='4H', result=4.29, who=GAYRAUD2015, is_optimal=False),
+        InstanceConfig(name='case_5_20_4_2_5', nickname='5H', result=2.81, who=PARRAGH2018, is_optimal=False),
+        InstanceConfig(name='case_1_50_10_5_5', nickname='6H', result=6.48, who=DECERLE2018, is_optimal=False),
+        InstanceConfig(name='case_2_50_10_5_5', nickname='7H', result=5.71, who=PARRAGH2018, is_optimal=False),
+        InstanceConfig(name='case_3_50_10_5_5', nickname='8H', result=6.52, who=PARRAGH2018, is_optimal=False),
+        InstanceConfig(name='case_1_80_16_8_5', nickname='9H', result=8.51, who=PARRAGH2018, is_optimal=False),
+        InstanceConfig(name='case_2_80_16_8_5', nickname='10H', result=6.31, who=PARRAGH2018, is_optimal=False)
     ]
     instance_dirs = ['/home/pmateusz/dev/cordia/simulations/current_review_simulations/hc/solutions/case20',
                      '/home/pmateusz/dev/cordia/simulations/current_review_simulations/hc/solutions/case50',
@@ -2238,40 +2323,46 @@ def compare_literature_table(args, settings):
                 case = int(name_match.group('case'))
                 visits = int(name_match.group('visits'))
                 carers = int(name_match.group('carers'))
+                synchronized_visits = int(name_match.group('synchronized_visits'))
+                windows_configuration = int(name_match.group('windows'))
+
+                problem_meta = ProblemMetadata(case, visits, windows_configuration)
 
                 if last_visits and last_visits != visits:
                     instance_counter = 1
 
-                synchronized_visits = int(name_match.group('synchronized_visits'))
-                windows_configuration = int(name_match.group('windows'))
-
                 normalized_result = float('inf')
                 if first_solver_logs.best_cost() < 100:
                     normalized_result = round(first_solver_logs.best_cost(), 2)
-                delta = round((instance.literature_result - normalized_result) / instance.literature_result * 100, 2)
+                delta = round((instance.result - normalized_result) / min(instance.result, normalized_result) * 100, 2)
 
-                printable_literature_result = str(instance.literature_result)
+                printable_literature_result = str(instance.result)
                 if instance.is_optimal:
                     printable_literature_result += '*'
+                printable_literature_result += 'cite{{{0}}}'.format(instance.who)
 
                 print_data.append(collections.OrderedDict(
-                    problem='{0:2} {1:2}/{2} {3}'.format(instance_counter, visits - 2 * synchronized_visits, synchronized_visits,
-                                                         ['', '-', 'S', 'M', 'L', 'H'][windows_configuration]),
+                    metadata=problem_meta,
+                    problem=problem_meta.label,
                     case=instance_counter,
-                    visits=visits,
-                    synchronized_visits=synchronized_visits,
+                    v1=visits - 2 * synchronized_visits,
+                    v2=synchronized_visits,
                     carers=carers,
-                    time_windows=['', '-', 'S', 'M', 'L', 'H'][windows_configuration],
+                    time_windows=problem_meta.windows_label,
                     literature_result=printable_literature_result,
                     result=normalized_result,
                     delta=delta,
-                    time=round(first_solver_logs.best_cost_time().total_seconds(), 2)
+                    time=round(first_solver_logs.best_cost_time().total_seconds(), 2) if normalized_result != float('inf') else float('inf')
                 ))
                 last_visits = visits
                 instance_counter += 1
 
-        print(tabulate.tabulate(pandas.DataFrame(data=print_data)[['problem', 'literature_result', 'result', 'delta', 'time']], showindex=False,
-                                tablefmt='latex', headers='keys'))
+        print_data.sort(key=lambda dict_obj: dict_obj['metadata'])
+
+        print(tabulate.tabulate(
+            pandas.DataFrame(data=print_data)[['problem', 'carers', 'v1', 'v2', 'literature_result', 'result', 'time', 'delta']],
+            showindex=False,
+            tablefmt='latex', headers='keys'))
 
 
 def compare_planner_optimizer_quality(args, settings):
@@ -2881,7 +2972,7 @@ class StartTimeEvaluator:
 
         carer_routes = self.__mapping.routes()
         for carer in carer_routes:
-            diary = self.__problem.get_diary(carer, self.__schedule.date())
+            diary = self.__problem.get_diary(carer, self.__schedule.date)
             assert diary is not None
 
             nodes = carer_routes[carer]

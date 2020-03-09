@@ -258,6 +258,22 @@ class Problem(rows.model.object.DataObject):
                     return diary
         return None
 
+    def available_carers(self, date: datetime.date) -> typing.List[rows.model.carer.Carer]:
+        filtered_carers = []
+        for carer_shift in self.__carers:
+            for diary in carer_shift.diaries:
+                if diary.date == date:
+                    filtered_carers.append(carer_shift.carer)
+        return filtered_carers
+
+    def requested_visits(self, date: datetime.date) -> typing.List['Problem.LocalVisit']:
+        filtered_visits = []
+        for visit_batch in self.__visits:
+            for visit in visit_batch.visits:
+                if visit.date == date:
+                    filtered_visits.append(visit)
+        return filtered_visits
+
     @staticmethod
     def from_json(json_obj):
         """Deserialize object from dictionary"""

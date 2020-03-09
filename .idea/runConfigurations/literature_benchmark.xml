@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="literature benchmark" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="--problem=$PROJECT_DIR$/simulations/current_review_simulations/hc/case80/case_1_80_16_8_2.dat" PASS_PARENT_ENVS_2="true" PROJECT_NAME="rows" TARGET_NAME="rows-benchmark" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="rows" RUN_TARGET_NAME="rows-benchmark">
+  <configuration default="false" name="literature benchmark" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="--problem=$PROJECT_DIR$/simulations/current_review_simulations/hc/case80/case_2_80_16_8_1.dat" PASS_PARENT_ENVS_2="true" PROJECT_NAME="rows" TARGET_NAME="rows-benchmark" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="rows" RUN_TARGET_NAME="rows-benchmark">
     <method v="2">
       <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
     </method>

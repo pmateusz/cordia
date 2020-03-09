@@ -19,7 +19,7 @@ rows::SingleStepSchedulingWorker::~SingleStepSchedulingWorker() {
 
 bool rows::SingleStepSchedulingWorker::Init(const rows::ProblemData &problem_data,
                                             boost::optional<rows::Solution> past_solution,
-                                            const operations_research::RoutingSearchParameters& search_parameters,
+                                            const operations_research::RoutingSearchParameters &search_parameters,
                                             std::string output_file) {
     try {
         solver_ = std::make_unique<rows::SingleStepSolver>(problem_data, search_parameters);
@@ -66,7 +66,22 @@ bool rows::SingleStepSchedulingWorker::Init(const rows::ProblemData &problem_dat
                                             double cost_normalization_factor) {
     try {
         auto search_params = operations_research::DefaultRoutingSearchParameters();
-        search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy::PARALLEL_CHEAPEST_INSERTION);
+        search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_ALL_UNPERFORMED);
+        search_params.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_exchange_subtrip(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_relocate_expensive_chain(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_light_relocate_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_relocate(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_exchange_pair(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+        search_params.set_use_full_propagation(true);
+
+        LOG(INFO) << opt_time_limit;
+
         solver_ = std::make_unique<rows::SingleStepSolver>(problem_data,
                                                            search_params,
                                                            visit_time_window,

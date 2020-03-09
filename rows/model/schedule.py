@@ -27,18 +27,18 @@ class Schedule(rows.model.object.DataObject):
     class Route:
 
         CARER = 'carer'
-        VISITS = 'visits'
+        NODES = 'nodes'
 
         def __init__(self, **kwargs):
             self.__carer = kwargs.get(self.CARER, None)
-            self.__visits = kwargs.get(self.VISITS, None)
+            self.__nodes = kwargs.get(self.NODES, None)
 
         def edges(self):
-            if not self.__visits:
+            if not self.__nodes:
                 return []
 
             result = []
-            visit_it = iter(self.__visits)
+            visit_it = iter(self.visits)
             prev_visit = next(visit_it)
             for current_visit in visit_it:
                 result.append((prev_visit, current_visit))
@@ -46,17 +46,25 @@ class Schedule(rows.model.object.DataObject):
             return result
 
         @property
-        def carer(self):
+        def carer(self) -> rows.model.carer.Carer:
             return self.__carer
 
         @property
-        def visits(self):
-            return self.__visits
+        def visits(self) -> typing.List[rows.model.past_visit.PastVisit]:
+            return [node for node in self.__nodes if isinstance(node, rows.model.past_visit.PastVisit)]
 
     def __init__(self, **kwargs):
         self.__metadata = kwargs.get(Schedule.METADATA, None)
         self.__visits = kwargs.get(Schedule.VISITS, [])
         self.__routes = kwargs.get(Schedule.ROUTES, [])
+
+        if not self.__routes:
+            past_visits_by_carer = collections.defaultdict(list)
+            for past_visit in self.__visits:
+                past_visits_by_carer[past_visit.carer].append(past_visit)
+            for carer in past_visits_by_carer:
+                past_visits_by_carer[carer].sort(key=operator.attrgetter('check_in'))
+            self.__routes = [Schedule.Route(carer=carer, nodes=past_visits_by_carer[carer]) for carer in past_visits_by_carer]
 
     def __hash__(self):
         if self.__visits:
@@ -74,14 +82,15 @@ class Schedule(rows.model.object.DataObject):
 
         return bundle
 
-    def routes(self):
-        return self.__routes
-
     @property
-    def metadata(self):
+    def metadata(self) -> rows.model.metadata.Metadata:
         """Get a property"""
 
         return self.__metadata
+
+    @property
+    def routes(self) -> typing.List[Route]:
+        return self.__routes
 
     @property
     def visits(self) -> typing.List[rows.model.past_visit.PastVisit]:
@@ -89,12 +98,14 @@ class Schedule(rows.model.object.DataObject):
 
         return self.__visits
 
-    def carers(self):
+    @property
+    def carers(self) -> typing.List[rows.model.carer.Carer]:
         unique_carers = set()
         for visit in self.visits:
             unique_carers.add(visit.carer)
         return list(unique_carers)
 
+    @property
     def date(self) -> datetime.date:
         dates = {visit.date for visit in self.__visits}
 
@@ -107,11 +118,14 @@ class Schedule(rows.model.object.DataObject):
         metadata = None
         if Schedule.METADATA in schedule_json:
             metadata = rows.model.metadata.Metadata.from_json(schedule_json[Schedule.METADATA])
-        visits = None
+
+        past_visits = []
         if Schedule.VISITS in schedule_json:
-            visits = [rows.model.past_visit.PastVisit.from_json(raw_visit)
-                      for raw_visit in schedule_json[Schedule.VISITS]]
-        return Schedule(metadata=metadata, visits=visits)
+            past_visits = [rows.model.past_visit.PastVisit.from_json(raw_visit)
+                           for raw_visit in schedule_json[Schedule.VISITS]]
+        past_visits.sort(key=operator.attrgetter('time'))
+
+        return Schedule(metadata=metadata, visits=past_visits)
 
     @staticmethod
     def from_gexf(schedule_soup):
@@ -220,13 +234,13 @@ class Schedule(rows.model.object.DataObject):
             return pattern is not None
 
         edges = {edge['source']: edge['target'] for edge in schedule_soup.find_all('edge')}
-        routes = {}
+        raw_routes = {}
         for source_id in edges:
             if not is_carer(source_id):
                 continue
 
             carer = carers_by_id[source_id]
-            route = []
+            visits_and_breaks = []
 
             current_id = source_id
             while current_id in edges:
@@ -234,31 +248,38 @@ class Schedule(rows.model.object.DataObject):
 
                 if is_visit(next_id):
                     visit = visits_by_id[next_id]
-                    route.append(visit)
+                    visits_and_breaks.append(visit)
                 elif is_break(next_id):
                     rest = breaks_by_id[next_id]
-                    route.append(rest)
+                    visits_and_breaks.append(rest)
 
                 current_id = next_id
 
-            assert carer not in routes
-            routes[carer] = route
+            assert carer not in raw_routes
+            raw_routes[carer] = visits_and_breaks
 
         past_visits = []
-        for carer in routes:
-            for work_item in routes[carer]:
+        routes = []
+        for carer in raw_routes:
+            carer_route = []
+            for work_item in raw_routes[carer]:
                 if isinstance(work_item, rows.model.visit.Visit):
                     check_in = datetime.datetime.combine(work_item.date, work_item.time)
                     check_out = datetime.datetime.combine(work_item.date, work_item.time) + work_item.duration
-                    past_visits.append(rows.model.past_visit.PastVisit(visit=work_item,
-                                                                       date=work_item.date,
-                                                                       time=work_item.time,
-                                                                       duration=work_item.duration,
-                                                                       carer=carer,
-                                                                       check_in=check_in,
-                                                                       check_out=check_out))
-        past_visits.sort(key=operator.attrgetter('time'))
+                    past_visit = rows.model.past_visit.PastVisit(visit=work_item,
+                                                                 date=work_item.date,
+                                                                 time=work_item.time,
+                                                                 duration=work_item.duration,
+                                                                 carer=carer,
+                                                                 check_in=check_in,
+                                                                 check_out=check_out)
+                    past_visits.append(past_visit)
+                    carer_route.append(past_visit)
+                elif isinstance(work_item, rows.model.rest.Rest):
+                    carer_route.append(work_item)
+            routes.append(Schedule.Route(carer=carer, nodes=carer_route))
 
+        past_visits.sort(key=operator.attrgetter('time'))
         return Schedule(metadata=rows.model.metadata.Metadata(begin=min(past_visits, key=operator.attrgetter('date')).date,
                                                               end=max(past_visits, key=operator.attrgetter('date')).date),
                         visits=past_visits,
