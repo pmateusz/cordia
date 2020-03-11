@@ -1616,10 +1616,10 @@ def compare_schedule_cost(args, settings):
     ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'HumanSolutionPath', 'SolverSolutionPath'])
 
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
-    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_distv90b90e30m1m1m5.err.log')
+    solver_log_file = os.path.join(simulation_dir, 'solutions/c350past_redv90b90e30m1m1m5.err.log')
     problem_data = [ProblemConfig(os.path.join(simulation_dir, 'problems/C350_past.json'),
                                   os.path.join(simulation_dir, 'planner_schedules/C350_planners_201710{0:02d}.json'.format(day)),
-                                  os.path.join(simulation_dir, 'solutions/c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
+                                  os.path.join(simulation_dir, 'solutions/c350past_redv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
                     for day in range(1, 15, 1)]
 
     solver_traces = read_traces(solver_log_file)
@@ -1664,7 +1664,7 @@ def compare_schedule_cost(args, settings):
                                                    day=solver_trace.date.day,
                                                    carers=len(available_carers),
                                                    one_carer_visits=len(one_carer_visits),
-                                                   two_carer_visits=len(two_carer_visits),
+                                                   two_carer_visits=2 * len(two_carer_visits),
                                                    missed_visit_penalty=normalize_cost(solver_trace.missed_visit_penalty),
                                                    carer_used_penalty=normalize_cost(solver_trace.carer_used_penalty),
                                                    planner_missed_visits=human_cost.visits_missed,
