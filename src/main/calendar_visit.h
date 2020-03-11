@@ -11,6 +11,7 @@
 
 #include <glog/logging.h>
 
+#include "util/json.h"
 #include "util/hash.h"
 #include "location.h"
 #include "address.h"
@@ -103,6 +104,8 @@ namespace rows {
         int carer_count_;
         std::vector<int> tasks_;
     };
+
+    void from_json(const nlohmann::json &json, CalendarVisit &visit);
 }
 
 namespace std {
@@ -152,7 +155,7 @@ namespace rows {
 
         const auto datetime = datetime_loader.Load(document);
         const auto duration_it = document.find("duration");
-        if (duration_it == std::end(document)) { throw OnKeyNotFound("duration"); }
+        if (duration_it == std::end(document)) { throw this->OnKeyNotFound("duration"); }
         boost::posix_time::time_duration duration
                 = boost::posix_time::seconds(std::stol(duration_it.value().template get<std::string>()));
 

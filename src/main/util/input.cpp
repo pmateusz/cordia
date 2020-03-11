@@ -185,6 +185,25 @@ boost::posix_time::time_duration util::GetTimeDurationOrDefault(const std::strin
     return boost::posix_time::duration_from_string(text);
 }
 
+rows::HumanPlannerSchedule util::LoadHumanPlannerSchedule(const std::string &schedule_path) {
+    std::ifstream stream;
+    stream.open(schedule_path);
+    if (!stream.is_open()) {
+        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % schedule_path).str(),
+                                     util::ErrorCode::ERROR);
+    }
+
+    nlohmann::json json;
+    try {
+        stream >> json;
+        return json.get<rows::HumanPlannerSchedule>();
+    } catch (...) {
+        throw util::ApplicationError((boost::format("Failed to open the file: %1%") % schedule_path).str(),
+                                     boost::current_exception_diagnostic_information(),
+                                     util::ErrorCode::ERROR);
+    }
+}
+
 void util::string::Strip(std::string &text) {
     static const std::regex NON_PRINTABLE_CHARACTER_PATTERN{"[\\W]"};
     text = std::regex_replace(text, NON_PRINTABLE_CHARACTER_PATTERN, "");

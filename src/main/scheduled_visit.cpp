@@ -1,8 +1,12 @@
 #include <glog/logging.h>
 
 #include <boost/date_time.hpp>
-#include <util/aplication_error.h>
+#include <boost/format.hpp>
 
+#include <nlohmann/json.hpp>
+
+#include "util/json.h"
+#include "util/aplication_error.h"
 #include "scheduled_visit.h"
 
 namespace rows {
@@ -214,5 +218,54 @@ namespace rows {
                         util::ErrorCode::ERROR);
         }
         return out;
+    }
+
+    void from_json(const nlohmann::json &json, ScheduledVisit &visit) {
+        const auto is_cancelled = json.at("cancelled").get<bool>();
+
+        ScheduledVisit::VisitType visit_type{rows::ScheduledVisit::VisitType::UNKNOWN};
+        if (is_cancelled) {
+            visit_type = rows::ScheduledVisit::VisitType::CANCELLED;
+        }
+
+
+        boost::optional<Carer> carer;
+        const auto carer_it = json.find("carer");
+        if (carer_it != std::end(json)) {
+            carer = carer_it->get<Carer>();
+        }
+
+        boost::optional<boost::posix_time::ptime> check_in;
+        const auto check_in_it = json.find("check_in");
+        if (check_in_it != std::end(json)) {
+            if (!check_in_it->is_null()) {
+                check_in = check_in_it->get<boost::posix_time::ptime>();
+            }
+        }
+
+        boost::optional<boost::posix_time::ptime> check_out;
+        const auto check_out_it = json.find("check_out");
+        if (check_out_it != std::end(json)) {
+            if (!check_out_it->is_null()) {
+                check_out = check_out_it->get<boost::posix_time::ptime>();
+            }
+        }
+
+        boost::posix_time::time_duration duration;
+        const auto duration_it = json.find("duration");
+        if (duration_it != std::end(json)) {
+            duration = duration_it->get<boost::posix_time::time_duration>();
+        }
+
+        boost::optional<CalendarVisit> calendar_visit;
+        const auto visit_it = json.find("visit");
+        if (visit_it != std::end(json)) {
+            if (!visit_it->is_null()) {
+                calendar_visit = visit_it->get<CalendarVisit>();
+            }
+        }
+
+        ScheduledVisit output_visit{visit_type, carer, calendar_visit->datetime(), duration, check_in, check_out, calendar_visit};
+        visit = std::move(output_visit);
     }
 }

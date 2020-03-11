@@ -5,6 +5,7 @@
 
 #include <glog/logging.h>
 #include <boost/optional.hpp>
+#include <nlohmann/json.hpp>
 
 #include "calendar_visit.h"
 #include "carer.h"
@@ -95,6 +96,8 @@ namespace rows {
     };
 
     std::ostream &operator<<(std::ostream &out, const ScheduledVisit::VisitType &visit_type);
+
+    void from_json(const nlohmann::json &json, ScheduledVisit &visit);
 }
 
 namespace rows {

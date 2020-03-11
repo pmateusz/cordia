@@ -11,7 +11,7 @@
 #include <osrm/util/alias.hpp>
 #include <osrm/coordinate.hpp>
 
-#include "json.h"
+#include "util/json.h"
 
 
 namespace rows {
@@ -76,11 +76,11 @@ namespace rows {
     template<typename JsonType>
     Location Location::JsonLoader::Load(JsonType document) const {
         const auto latitude_it = document.find("latitude");
-        if (latitude_it == std::end(document)) { throw OnKeyNotFound("latitude"); }
+        if (latitude_it == std::end(document)) { throw this->OnKeyNotFound("latitude"); }
         const auto latitude = latitude_it.value().template get<std::string>();
 
         const auto longitude_it = document.find("longitude");
-        if (longitude_it == std::end(document)) { throw OnKeyNotFound("longitude"); }
+        if (longitude_it == std::end(document)) { throw this->OnKeyNotFound("longitude"); }
         const auto longitude = longitude_it.value().template get<std::string>();
         return {latitude, longitude};
     }

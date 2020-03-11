@@ -8,6 +8,7 @@
 #include "problem.h"
 #include "printer.h"
 #include "solution.h"
+#include "human_planner_schedule.h"
 
 #include <osrm/engine/engine_config.hpp>
 #include <osrm/coordinate.hpp>
@@ -41,6 +42,8 @@ namespace util {
     rows::Solution LoadSolution(const std::string &solution_path,
                                 const rows::Problem &problem,
                                 const boost::posix_time::time_duration &visit_time_window);
+
+    rows::HumanPlannerSchedule LoadHumanPlannerSchedule(const std::string &schedule_path);
 
     std::shared_ptr<rows::Printer> CreatePrinter(const std::string &format);
 

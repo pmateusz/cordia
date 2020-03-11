@@ -2,6 +2,7 @@
 #define ROWS_CARER_H
 
 #include <string>
+#include <nlohmann/json.hpp>
 
 #include <boost/functional/hash.hpp>
 
@@ -52,6 +53,8 @@ namespace rows {
         Transport transport_;
         std::vector<int> skills_;
     };
+
+    void from_json(const nlohmann::json &json, Carer &carer);
 }
 
 namespace std {

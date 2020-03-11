@@ -100,4 +100,12 @@ namespace rows {
         throw util::ApplicationError((boost::format("Unknown value of Transport: %1%. Use either 'foot' or 'car'.")
                                       % value).str(), util::ErrorCode::ERROR);
     }
+
+    void from_json(const nlohmann::json &json, Carer &carer) {
+        const auto sap_number = json.at("sap_number").get<std::string>();
+        const auto transport = ParseTransport(json.at("mobility").get<std::string>());
+
+        Carer json_carer{sap_number, transport, {}};
+        carer = std::move(json_carer);
+    }
 }

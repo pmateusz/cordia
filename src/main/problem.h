@@ -12,6 +12,7 @@
 
 #include <glog/logging.h>
 #include <boost/optional.hpp>
+#include <boost/format.hpp>
 #include <boost/date_time.hpp>
 #include <nlohmann/json.hpp>
 
@@ -21,7 +22,7 @@
 #include "service_user.h"
 #include "diary.h"
 #include "location.h"
-#include "json.h"
+#include "util/json.h"
 #include "data_time.h"
 #include "util/aplication_error.h"
 

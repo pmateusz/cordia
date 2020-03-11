@@ -1,10 +1,12 @@
 #include "calendar_visit.h"
 
-#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/optional.hpp>
 #include <boost/format.hpp>
+#include <boost/date_time.hpp>
 
 #include <glog/logging.h>
+
+#include "util/json.h"
 
 namespace rows {
 
@@ -153,5 +155,25 @@ namespace rows {
 
     void CalendarVisit::duration(const boost::posix_time::ptime::time_duration_type &duration) {
         duration_ = duration;
+    }
+
+    void from_json(const nlohmann::json &json, CalendarVisit &visit) {
+        const auto key = json.at("key").get<std::size_t>();
+        const auto service_user = json.at("service_user").get<std::string>();
+        const auto carer_count = json.at("carer_count").get<int>();
+        const auto duration = json.at("duration").get<boost::posix_time::time_duration>();
+        const auto date = json.at("date").get<boost::gregorian::date>();
+        const auto time_of_day = json.at("time").get<boost::posix_time::time_duration>();
+        std::vector<int> tasks;
+
+        CalendarVisit output_visit{key,
+                                   rows::ServiceUser(std::stol(service_user)),
+                                   Address{},
+                                   boost::posix_time::ptime{date, time_of_day},
+                                   duration,
+                                   carer_count,
+                                   tasks};
+
+        visit = output_visit;
     }
 }

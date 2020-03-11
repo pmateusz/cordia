@@ -988,11 +988,6 @@ namespace rows {
             const auto visit_start_begin = visit_time_windows.begin() - problem_data_.StartHorizon();
             const auto visit_start_end = visit_time_windows.end() - problem_data_.StartHorizon();
 
-//            if (visit.id() == 8533598) {
-//                LOG(INFO) << problem_data_.StartHorizon() << " " << visit_time_windows.begin() << " " << visit_start_begin.total_seconds();
-//                LOG(INFO) << "HERE";
-//            }
-
             CHECK(!visit_start_begin.is_negative()) << visit.id();
             CHECK(!visit_start_end.is_negative()) << visit.id();
             CHECK_LE(visit_start_begin, visit_start_end);

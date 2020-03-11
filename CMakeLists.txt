@@ -141,6 +141,11 @@ target_link_libraries(rows-mip-solver rows ${LIBRARY_DEP})
 set_property(TARGET rows-mip-solver PROPERTY CXX_STANDARD 14)
 add_dependencies(rows-mip-solver rows)
 
+add_executable(rows-estimate "${CMAKE_SOURCE_DIR}/src/main/rows-estimate.cpp")
+target_include_directories(rows-estimate PUBLIC ${HEADERS} ${HEADER_DEP})
+target_link_libraries(rows-estimate rows ${LIBRARY_DEP})
+set_property(TARGET rows-estimate PROPERTY CXX_STANDARD 14)
+
 add_executable(rows-fast "${CMAKE_SOURCE_DIR}/src/main/rows-fast.cpp")
 target_include_directories(rows-fast PUBLIC ${HEADERS} ${HEADER_DEP})
 target_link_libraries(rows-fast rows ${LIBRARY_DEP} ${GUROBI_LIBRARY})

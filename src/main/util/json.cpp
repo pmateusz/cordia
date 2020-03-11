@@ -1,5 +1,13 @@
 #include "json.h"
 
+#include <boost/format.hpp>
+#include <glog/logging.h>
+
+std::domain_error rows::JsonLoader::OnKeyNotFound(std::string key) const {
+    return std::domain_error((boost::format("Key '%1%' not found") % key).str());
+}
+
+
 void boost::posix_time::to_json(nlohmann::json &json, const boost::posix_time::ptime &value) {
     json = boost::posix_time::to_simple_string(value);
 }
@@ -35,4 +43,9 @@ void boost::posix_time::to_json(nlohmann::json &json, const boost::posix_time::t
 
 void boost::posix_time::from_json(const nlohmann::json &json, boost::posix_time::time_period &value) {
     value = {json.at("begin").get<boost::posix_time::ptime>(), json.at("end").get<boost::posix_time::ptime>()};
+}
+
+void boost::gregorian::from_json(const nlohmann::json &json, boost::gregorian::date &value) {
+    const auto raw_date = json.get<std::string>();
+    value = boost::gregorian::from_string(raw_date);
 }
