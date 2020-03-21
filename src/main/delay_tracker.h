@@ -311,8 +311,12 @@ namespace rows {
                       records_{records},
                       dimension_{dimension},
                       vehicle_{vehicle},
-                      breaks{dimension_->GetBreakIntervalsOfVehicle(vehicle_)},
-                      nodes{GetNodePath<DataSource>(vehicle_, dimension_->model(), data_)} {}
+                      breaks{},
+                      nodes{GetNodePath<DataSource>(vehicle_, dimension_->model(), data_)} {
+                if (dimension_->HasBreakConstraints()) {
+                    breaks = dimension_->GetBreakIntervalsOfVehicle(vehicle_);
+                }
+            }
 
             void Process(const PartialPath &path) {
                 const auto has_visit = path.node_next_pos < nodes.size();
@@ -438,7 +442,7 @@ namespace rows {
             const int vehicle_;
 
         public:
-            const std::vector<operations_research::IntervalVar *> &breaks;
+            std::vector<operations_research::IntervalVar *> breaks;
             const std::vector<int64> nodes;
         };
 
@@ -454,8 +458,8 @@ namespace rows {
 
             const auto num_breaks = builder.breaks.size();
             const auto num_nodes = builder.nodes.size();
-            CHECK_GE(num_breaks, 2);
 
+            CHECK_GE(num_breaks, 2);
             if (num_nodes == 2) {
                 return {};
             }

@@ -23,6 +23,7 @@
 #include "multi_carer_solver.h"
 #include "gexf_writer.h"
 #include "second_step_solver_no_expected_delay.h"
+#include "metaheuristic_solver.h"
 
 namespace rows {
 
@@ -105,9 +106,9 @@ namespace rows {
 
     private:
 
-        std::unique_ptr<rows::SolverWrapper> CreateThirdStageSolver(const operations_research::RoutingSearchParameters &search_params,
-                                                                    int64 last_dropped_visit_penalty,
-                                                                    std::size_t max_dropped_visits_count);
+        std::unique_ptr<rows::MetaheuristicSolver> CreateThirdStageSolver(const operations_research::RoutingSearchParameters &search_params,
+                                                                          int64 last_dropped_visit_penalty,
+                                                                          int64 max_dropped_visits_threshold);
 
         std::vector<std::vector<int64>> SolveFirstStage(const rows::SolverWrapper &second_step_wrapper);
 
@@ -117,7 +118,7 @@ namespace rows {
 
         void SolveThirdStage(const std::vector<std::vector<int64> > &second_stage_routes, rows::SolverWrapper &second_stage_solver);
 
-        void WriteSolution(const operations_research::Assignment * assignment,
+        void WriteSolution(const operations_research::Assignment *assignment,
                            const operations_research::RoutingModel &model,
                            const SolverWrapper &solver) const;
 

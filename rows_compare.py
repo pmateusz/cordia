@@ -802,12 +802,12 @@ class TraceLog:
                 return True
         return False
 
-    def best_cost(self):
-        best_cost, _ = self.__best_cost_and_time()
+    def best_cost(self, stage: int):
+        best_cost, _ = self.__best_cost_and_time(stage)
         return best_cost
 
-    def best_cost_time(self):
-        _, best_cost_time = self.__best_cost_and_time()
+    def best_cost_time(self, stage: int):
+        _, best_cost_time = self.__best_cost_and_time(stage)
         return best_cost_time
 
     def last_cost(self):
@@ -824,11 +824,14 @@ class TraceLog:
             computation_time = relative_time
         return computation_time
 
-    def __best_cost_and_time(self):
+    def __best_cost_and_time(self, stage: int):
         best_cost = float('inf')
         best_time = datetime.timedelta.max
 
-        for relative_time, stage, strategy, absolute_time, event in self.__filtered_events():
+        for relative_time, event_stage, strategy, absolute_time, event in self.__filtered_events():
+            if event_stage > stage:
+                continue
+
             if best_cost > event.cost:
                 best_cost = event.cost
                 best_time = relative_time
@@ -1522,9 +1525,7 @@ def remove_violated_visits(rough_schedule: rows.model.schedule.Schedule,
 
     allowed_visits = []
     for route in first_improved_schedule.routes:
-        edges = route.edges()
-
-        if not edges:
+        if not route.visits:
             continue
 
         diary = problem.get_diary(route.carer, metadata.date)
@@ -1533,23 +1534,41 @@ def remove_violated_visits(rough_schedule: rows.model.schedule.Schedule,
         # shift adjustment is added twice because it is allowed to extend the time before and after the working hours
         max_shift_end = max(event.end for event in diary.events) + metadata.shift_adjustment + metadata.shift_adjustment
 
-        first_visit = edges[0][0]
+        first_visit = route.visits[0]
         current_time = datetime.datetime.combine(metadata.date, first_visit.time)
         if current_time <= max_shift_end:
             allowed_visits.append(first_visit)
 
-        for prev_visit, next_visit in edges:
+        visits_made = []
+        total_slack = datetime.timedelta()
+        for prev_visit, next_visit in route.edges():
             visit_duration = duration_estimator(prev_visit.visit)
             if visit_duration is None:
                 visit_duration = prev_visit.duration
 
             current_time += visit_duration
             current_time += distance_estimator(prev_visit, next_visit)
-            current_time = max(current_time, datetime.datetime.combine(metadata.date, next_visit.time) - max_delay)
+            start_time = max(current_time, datetime.datetime.combine(metadata.date, next_visit.time) - max_delay)
+            total_slack += start_time - current_time
+            current_time = start_time
             if current_time <= max_shift_end:
-                allowed_visits.append(next_visit)
+                visits_made.append(next_visit)
             else:
                 dropped_visits += 1
+
+        if current_time <= max_shift_end:
+            total_slack += max_shift_end - current_time
+
+        total_break_duration = datetime.timedelta()
+        for carer_break in diary.breaks:
+            total_break_duration += carer_break.duration
+
+        if total_slack + datetime.timedelta(hours=2) < total_break_duration:
+            # route is not respecting contractual breaks
+            visits_made.pop()
+
+        for visit in visits_made:
+            allowed_visits.append(visit)
 
     # schedule does not contain visits which exceed overtime of the carer
     return rows.model.schedule.Schedule(carers=rough_schedule.carers, visits=allowed_visits)
@@ -1613,13 +1632,15 @@ def get_schedule_cost(schedule: rows.model.schedule.Schedule,
 
 
 def compare_schedule_cost(args, settings):
-    ProblemConfig = collections.namedtuple('ProblemConfig', ['ProblemPath', 'HumanSolutionPath', 'SolverSolutionPath'])
+    ProblemConfig = collections.namedtuple('ProblemConfig',
+                                           ['ProblemPath', 'HumanSolutionPath', 'SolverSecondSolutionPath', 'SolverThirdSolutionPath'])
 
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
-    solver_log_file = os.path.join(simulation_dir, 'solutions/c350past_redv90b90e30m1m1m5.err.log')
+    solver_log_file = os.path.join(simulation_dir, 'solutions/c350past_distv90b90e30m1m1m5.err.log')
     problem_data = [ProblemConfig(os.path.join(simulation_dir, 'problems/C350_past.json'),
                                   os.path.join(simulation_dir, 'planner_schedules/C350_planners_201710{0:02d}.json'.format(day)),
-                                  os.path.join(simulation_dir, 'solutions/c350past_redv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
+                                  os.path.join(simulation_dir, 'solutions/second_stage_c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)),
+                                  os.path.join(simulation_dir, 'solutions/c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
                     for day in range(1, 15, 1)]
 
     solver_traces = read_traces(solver_log_file)
@@ -1644,10 +1665,11 @@ def compare_schedule_cost(args, settings):
             problem = rows.load.load_problem(os.path.join(simulation_dir, problem_data.ProblemPath))
 
             human_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.HumanSolutionPath))
-            solver_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.SolverSolutionPath))
+            solver_second_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.SolverSecondSolutionPath))
+            solver_third_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.SolverThirdSolutionPath))
 
-            assert solver_trace.date == human_schedule.date
-            assert solver_trace.date == solver_schedule.date
+            assert solver_second_schedule.date == human_schedule.date
+            assert solver_third_schedule.date == human_schedule.date
 
             available_carers = problem.available_carers(human_schedule.date)
             requested_visits = problem.requested_visits(human_schedule.date)
@@ -1655,11 +1677,16 @@ def compare_schedule_cost(args, settings):
             one_carer_visits = [visit for visit in requested_visits if visit.carer_count == 1]
             two_carer_visits = [visit for visit in requested_visits if visit.carer_count == 2]
 
-            duration_estimator = rows.plot.DurationEstimator.create_expected_visit_duration(solver_schedule)
+            duration_estimator = rows.plot.DurationEstimator.create_expected_visit_duration(solver_third_schedule)
             human_schedule_to_use = remove_violated_visits(human_schedule, solver_trace, problem, duration_estimator, distance_estimator)
-            solver_schedule_to_use = remove_violated_visits(solver_schedule, solver_trace, problem, duration_estimator, distance_estimator)
+            solver_second_schedule_to_use = remove_violated_visits(solver_second_schedule, solver_trace, problem, duration_estimator,
+                                                                   distance_estimator)
+            solver_third_schedule_to_use = remove_violated_visits(solver_third_schedule, solver_trace, problem, duration_estimator,
+                                                                  distance_estimator)
             human_cost = get_schedule_cost(human_schedule_to_use, solver_trace, problem, distance_estimator)
-            solver_cost = get_schedule_cost(solver_schedule_to_use, solver_trace, problem, distance_estimator)
+            solver_second_cost = get_schedule_cost(solver_second_schedule_to_use, solver_trace, problem, distance_estimator)
+            solver_third_cost = get_schedule_cost(solver_third_schedule_to_use, solver_trace, problem, distance_estimator)
+
             results.append(collections.OrderedDict(date=solver_trace.date,
                                                    day=solver_trace.date.day,
                                                    carers=len(available_carers),
@@ -1668,22 +1695,28 @@ def compare_schedule_cost(args, settings):
                                                    missed_visit_penalty=normalize_cost(solver_trace.missed_visit_penalty),
                                                    carer_used_penalty=normalize_cost(solver_trace.carer_used_penalty),
                                                    planner_missed_visits=human_cost.visits_missed,
-                                                   solver_missed_visits=solver_cost.visits_missed,
+                                                   solver_second_missed_visits=solver_second_cost.visits_missed,
+                                                   solver_third_missed_visits=solver_third_cost.visits_missed,
                                                    planner_travel_time=normalize_cost(human_cost.travel_time),
-                                                   solver_travel_time=normalize_cost(solver_cost.travel_time),
+                                                   solver_second_travel_time=normalize_cost(solver_second_cost.travel_time),
+                                                   solver_third_travel_time=normalize_cost(solver_third_cost.travel_time),
                                                    planner_carers_used=human_cost.carers_used,
-                                                   solver_carers_used=solver_cost.carers_used,
+                                                   solver_second_carers_used=solver_second_cost.carers_used,
+                                                   solver_third_carers_used=solver_third_cost.carers_used,
                                                    planner_total_cost=normalize_cost(human_cost.total_cost(include_vehicle_cost)),
-                                                   solver_total_cost=normalize_cost(solver_cost.total_cost(include_vehicle_cost)),
-                                                   solver_time=int(math.ceil(solver_trace.best_cost_time().total_seconds()))))
+                                                   solver_second_total_cost=normalize_cost(solver_second_cost.total_cost(include_vehicle_cost)),
+                                                   solver_third_total_cost=normalize_cost(solver_third_cost.total_cost(include_vehicle_cost)),
+                                                   solver_second_time=int(math.ceil(solver_trace.best_cost_time(2).total_seconds())),
+                                                   solver_third_time=int(math.ceil(solver_trace.best_cost_time(3).total_seconds()))))
 
     data_frame = pandas.DataFrame(data=results)
     print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
 
     print(tabulate.tabulate(data_frame[['day', 'carers', 'one_carer_visits', 'two_carer_visits', 'missed_visit_penalty',
-                                        'planner_total_cost', 'solver_total_cost',
-                                        'planner_missed_visits', 'solver_missed_visits',
-                                        'planner_travel_time', 'solver_travel_time', 'solver_time']],
+                                        'planner_total_cost', 'solver_second_total_cost', 'solver_third_total_cost',
+                                        'planner_missed_visits', 'solver_second_missed_visits', 'solver_third_missed_visits',
+                                        'planner_travel_time', 'solver_second_travel_time', 'solver_third_travel_time', 'solver_second_time',
+                                        'solver_third_time']],
                             tablefmt='latex', headers='keys', showindex=False))
 
 
@@ -2309,6 +2342,7 @@ def compare_literature_table(args, settings):
                 instance_log_path = os.path.join(instance_dir, instance.name + '.dat.err.log')
                 if not os.path.exists(instance_log_path):
                     continue
+
                 solver_logs = read_traces(instance_log_path)
                 if not solver_logs:
                     continue
@@ -2332,9 +2366,9 @@ def compare_literature_table(args, settings):
                     instance_counter = 1
 
                 normalized_result = float('inf')
-                if first_solver_logs.best_cost() < 100:
-                    normalized_result = round(first_solver_logs.best_cost(), 2)
-                delta = round((instance.result - normalized_result) / min(instance.result, normalized_result) * 100, 2)
+                if first_solver_logs.best_cost(3) < 100:
+                    normalized_result = round(first_solver_logs.best_cost(3), 2)
+                delta = round((instance.result - normalized_result) / instance.result * 100, 2)
 
                 printable_literature_result = str(instance.result)
                 if instance.is_optimal:
@@ -2352,7 +2386,7 @@ def compare_literature_table(args, settings):
                     literature_result=printable_literature_result,
                     result=normalized_result,
                     delta=delta,
-                    time=round(first_solver_logs.best_cost_time().total_seconds(), 2) if normalized_result != float('inf') else float('inf')
+                    time=round(first_solver_logs.best_cost_time(3).total_seconds(), 2) if normalized_result != float('inf') else float('inf')
                 ))
                 last_visits = visits
                 instance_counter += 1

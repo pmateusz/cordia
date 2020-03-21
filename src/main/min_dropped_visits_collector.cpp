@@ -1,4 +1,7 @@
 #include "util/routing.h"
+
+#include <glog/logging.h>
+
 #include "min_dropped_visits_collector.h"
 
 rows::MinDroppedVisitsSolutionCollector::MinDroppedVisitsSolutionCollector(

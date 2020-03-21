@@ -7,13 +7,14 @@
 
 #include "util/input.h"
 #include "three_step_worker.h"
-#include "third_step_solver.h"
+#include "metaheuristic_solver.h"
 #include "multi_carer_solver.h"
 #include "third_step_reduction_solver.h"
 #include "delay_riskiness_reduction_solver.h"
 #include "delay_probability_reduction_solver.h"
 #include "delay_tracker.h"
 #include "second_step_solver_no_expected_delay.h"
+#include "declined_visit_evaluator.h"
 
 void FailureInterceptor() {
     LOG(INFO) << "Failure";
@@ -116,9 +117,9 @@ void rows::ThreeStepSchedulingWorker::Run() {
 
     auto second_stage_search_params = operations_research::DefaultRoutingSearchParameters();
     second_stage_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_PARALLEL_CHEAPEST_INSERTION);
-//    second_stage_search_params.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-//    second_stage_search_params.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-//    CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(10), second_stage_search_params.mutable_lns_time_limit()));
+    second_stage_search_params.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+    CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(30), second_stage_search_params.mutable_lns_time_limit()));
     second_stage_search_params.mutable_local_search_operators()->set_use_exchange_subtrip(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_relocate_expensive_chain(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_light_relocate_pair(operations_research::OptionalBoolean::BOOL_TRUE);
@@ -128,8 +129,17 @@ void rows::ThreeStepSchedulingWorker::Run() {
     second_stage_search_params.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_path_lns(
+            operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_expensive_chain_lns(
+            operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_expensive_chain_lns(
+            operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_path_lns(
+            operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.set_use_full_propagation(true);
 //    second_stage_search_params.set_use_cp_sat(operations_research::OptionalBoolean::BOOL_TRUE);
+
 
     rows::SecondStepSolver second_stage_wrapper{*problem_data_,
                                                 second_stage_search_params,
@@ -275,22 +285,21 @@ bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> pr
     return true;
 }
 
-std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThirdStageSolver(
+std::unique_ptr<rows::MetaheuristicSolver> rows::ThreeStepSchedulingWorker::CreateThirdStageSolver(
         const operations_research::RoutingSearchParameters &search_params,
         int64 last_dropped_visit_penalty,
-        std::size_t max_dropped_visits_count) {
+        int64 max_dropped_visit_threshold) {
     CHECK_NE(third_stage_strategy_, ThirdStageStrategy::NONE);
 
     if (third_stage_strategy_ == ThirdStageStrategy::DEFAULT || third_stage_strategy_ == ThirdStageStrategy::DISTANCE) {
-        return std::make_unique<rows::ThirdStepSolver>(*problem_data_,
-                                                       search_params,
-                                                       visit_time_window_,
-                                                       break_time_window_,
-                                                       begin_end_shift_time_extension_,
-                                                       post_opt_time_limit_,
-                                                       last_dropped_visit_penalty,
-                                                       max_dropped_visits_count,
-                                                       false);
+        return std::make_unique<rows::MetaheuristicSolver>(*problem_data_,
+                                                           search_params,
+                                                           visit_time_window_,
+                                                           break_time_window_,
+                                                           begin_end_shift_time_extension_,
+                                                           post_opt_time_limit_,
+                                                           last_dropped_visit_penalty,
+                                                           max_dropped_visit_threshold);
     } else if (third_stage_strategy_ == ThirdStageStrategy::VEHICLE_REDUCTION) {
         return std::make_unique<rows::ThirdStepReductionSolver>(*problem_data_,
                                                                 search_params,
@@ -299,7 +308,7 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                                 begin_end_shift_time_extension_,
                                                                 post_opt_time_limit_,
                                                                 last_dropped_visit_penalty,
-                                                                max_dropped_visits_count);
+                                                                max_dropped_visit_threshold);
     } else if (third_stage_strategy_ == ThirdStageStrategy::DELAY_RISKINESS_REDUCTION) {
         return std::make_unique<rows::DelayRiskinessReductionSolver>(*problem_data_,
                                                                      *history_,
@@ -309,7 +318,7 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                                      begin_end_shift_time_extension_,
                                                                      post_opt_time_limit_,
                                                                      last_dropped_visit_penalty,
-                                                                     max_dropped_visits_count);
+                                                                     max_dropped_visit_threshold);
     } else {
         CHECK_EQ(third_stage_strategy_, ThirdStageStrategy::DELAY_PROBABILITY_REDUCTION);
         return std::make_unique<rows::DelayProbabilityReductionSolver>(*problem_data_,
@@ -320,7 +329,7 @@ std::unique_ptr<rows::SolverWrapper> rows::ThreeStepSchedulingWorker::CreateThir
                                                                        begin_end_shift_time_extension_,
                                                                        post_opt_time_limit_,
                                                                        last_dropped_visit_penalty,
-                                                                       max_dropped_visits_count);
+                                                                       max_dropped_visit_threshold);
     }
 }
 
@@ -345,18 +354,24 @@ operations_research::RoutingSearchParameters rows::ThreeStepSchedulingWorker::Cr
     parameters.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
     parameters.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
 //    parameters.mutable_local_search_operators()->set_use_tsp_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-//    parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-//    parameters.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+
 
 // we are fishing for optimal solutions in scenarios in which all orders are performed
     parameters.mutable_local_search_operators()->set_use_cross_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
     parameters.mutable_local_search_operators()->set_use_relocate_neighbors(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_local_cheapest_insertion_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_local_cheapest_insertion_expensive_chain_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_global_cheapest_insertion_expensive_chain_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+//    parameters.mutable_local_search_operators()->set_use_global_cheapest_insertion_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+
     parameters.set_local_search_metaheuristic(operations_research::LocalSearchMetaheuristic_Value_GUIDED_LOCAL_SEARCH);
     parameters.set_guided_local_search_lambda_coefficient(1.0);
 
 // not worth as we don't usually deal with unperformed visits
-//  parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
-//  parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
+    parameters.mutable_local_search_operators()->set_use_relocate_and_make_active(operations_research::OptionalBoolean::BOOL_TRUE);
 
     if (time_limit_) {
         CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(time_limit_->total_seconds()), parameters.mutable_time_limit()));
@@ -651,27 +666,10 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
     operations_research::Assignment const *second_stage_assignment = nullptr;
     operations_research::Assignment const *filtered_assignment = nullptr;
 
-    auto second_stage_search_params = operations_research::DefaultRoutingSearchParameters();
-    second_stage_search_params.set_first_solution_strategy(operations_research::FirstSolutionStrategy_Value_PARALLEL_CHEAPEST_INSERTION);
-//    second_stage_search_params.mutable_local_search_operators()->set_use_full_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-//    second_stage_search_params.mutable_local_search_operators()->set_use_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-//    CHECK_OK(util_time::EncodeGoogleApiProto(absl::Seconds(10), second_stage_search_params.mutable_lns_time_limit()));
-    second_stage_search_params.mutable_local_search_operators()->set_use_exchange_subtrip(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_relocate_expensive_chain(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_light_relocate_pair(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_relocate(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_exchange(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_exchange_pair(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.set_use_full_propagation(true);
-//    second_stage_search_params.set_use_cp_sat(operations_research::OptionalBoolean::BOOL_TRUE);
-
     operations_research::RoutingModel filtered_second_stage_model{second_stage_solver.index_manager()};
     rows::SecondStepSolverNoExpectedDelay filtered_second_stage_wrapper{*problem_data_,
                                                                         *history_,
-                                                                        second_stage_search_params,
+                                                                        search_params,
                                                                         visit_time_window_,
                                                                         break_time_window_,
                                                                         begin_end_shift_time_extension_,
@@ -802,7 +800,7 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2-Patch"));
         auto valid_second_stage_assignment
-                = filtered_second_stage_model.SolveFromAssignmentWithParameters(restored_assignment, second_stage_search_params);
+                = filtered_second_stage_model.SolveFromAssignmentWithParameters(restored_assignment, search_params);
         if (valid_second_stage_assignment == nullptr) {
             throw util::ApplicationError("No second stage patched solution found.", util::ErrorCode::ERROR);
         }
@@ -855,15 +853,19 @@ int64 GetEssentialRiskiness(int64 num_indices, rows::DelayTracker &tracker, cons
 
 void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vector<int64>> &second_stage_routes,
                                                       rows::SolverWrapper &second_stage_solver) {
+    DeclinedVisitEvaluator declined_evalutor{second_stage_solver.problem_data(), second_stage_solver.index_manager()};
+
     operations_research::RoutingModel third_stage_model{second_stage_solver.index_manager()};
+
+    const auto max_dropped_visit_threshold = declined_evalutor.GetThreshold(second_stage_routes);
 
     const auto max_dropped_visits_count = third_stage_model.nodes()
                                           - util::GetVisitedNodes(second_stage_routes, third_stage_model.GetDepot()).size() - 1;
 
     const auto third_search_params = CreateThirdStageRoutingSearchParameters();
     const auto third_stage_penalty = second_stage_solver.GetDroppedVisitPenalty();
-    std::unique_ptr<rows::SolverWrapper> third_step_solver
-            = CreateThirdStageSolver(third_search_params, third_stage_penalty, max_dropped_visits_count);
+    std::unique_ptr<MetaheuristicSolver> third_step_solver
+            = CreateThirdStageSolver(third_search_params, third_stage_penalty, max_dropped_visit_threshold);
 
     third_step_solver->ConfigureModel(third_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 //    third_stage_model->solver()->set_fail_intercept(FailureInterceptor);
@@ -895,11 +897,12 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
         }
     } else {
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
-        const operations_research::Assignment *third_stage_assignment
-                = third_stage_model.SolveFromAssignmentWithParameters(third_stage_pre_assignment, third_search_params);
+        const operations_research::Assignment *third_stage_assignment = third_stage_model.SolveFromAssignmentWithParameters(
+                third_stage_pre_assignment, third_search_params);
         if (third_stage_assignment == nullptr) {
             throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
         }
+
         printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
         WriteSolution(third_stage_assignment, third_stage_model, *third_step_solver);
     }

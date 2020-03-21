@@ -19,9 +19,7 @@ rows::SecondStepSolver::SecondStepSolver(const ProblemData &problem_data,
                         std::move(visit_time_window),
                         std::move(break_time_window),
                         std::move(begin_end_work_day_adjustment)),
-          no_progress_time_limit_(std::move(no_progress_time_limit)),
-          solution_collector_{nullptr},
-          solution_repository_{std::make_shared<rows::SolutionRepository>()} {}
+          no_progress_time_limit_(std::move(no_progress_time_limit)){}
 
 void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &model,
                                             const std::shared_ptr<Printer> &printer,
@@ -49,10 +47,8 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
 
     model.CloseModelWithParameters(parameters_);
 
-    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
-    model.AddSearchMonitor(solver->RevAlloc(new SolutionLogMonitor(&index_manager_, &model, solution_repository_)));
-    solution_collector_ = solver->RevAlloc(new MinDroppedVisitsSolutionCollector(&model, true));
-    model.AddSearchMonitor(solution_collector_);
+    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, index_manager_, problem_data_, printer, cost_normalization_factor)));
+    model.AddSearchMonitor(solver->RevAlloc(new MinDroppedVisitsSolutionCollector(&model, true)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
         model.AddSearchMonitor(solver->RevAlloc(new StalledSearchLimit(
@@ -63,8 +59,4 @@ void rows::SecondStepSolver::ConfigureModel(operations_research::RoutingModel &m
     }
 
     model.AddSearchMonitor(solver->RevAlloc(new CancelSearchLimit(cancel_token, solver)));
-}
-
-std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolver::solution_repository() {
-    return solution_repository_;
 }

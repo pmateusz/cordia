@@ -1,8 +1,7 @@
 """Details scheduled events for a certain day"""
 
-import rows.model.object
 import rows.model.datetime
-
+import rows.model.object
 from rows.model.event import AbsoluteEvent
 
 
@@ -61,6 +60,18 @@ class Diary(rows.model.object.DataObject):
                         Diary.SHIFT_TYPE: shift_type,
                         Diary.DATE: date,
                         Diary.EVENTS: events})
+
+    @property
+    def breaks(self):
+        breaks = []
+
+        events_it = iter(self.events)
+        event = next(events_it, None)
+        for next_event in events_it:
+            breaks.append(rows.model.event.AbsoluteEvent(begin=event.end, end=next_event.begin))
+            event = next_event
+
+        return breaks
 
     @property
     def schedule_pattern_key(self):

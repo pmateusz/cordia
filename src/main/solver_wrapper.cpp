@@ -29,6 +29,7 @@
 #include "solution.h"
 #include "solver_wrapper.h"
 #include "progress_printer_monitor.h"
+#include "declined_visit_evaluator.h"
 
 // TODO: add support for mobile workers
 // TODO: add information about partner
@@ -163,7 +164,7 @@ namespace rows {
             std::string label) const {
         const auto start_time = event.begin() - StartHorizon();
         CHECK(!start_time.is_negative());
-        CHECK_GT(event.duration().total_seconds(), 0);
+        CHECK_GE(event.duration().total_seconds(), 0);
 
         return solver->MakeFixedInterval(start_time.total_seconds(),
                                          event.duration().total_seconds(),
@@ -174,7 +175,7 @@ namespace rows {
                                                   const rows::Event &event,
                                                   std::string label,
                                                   std::vector<operations_research::IntervalVar *> &intervals) const {
-        if (event.duration().total_seconds() > 0) {
+        if (event.duration().total_seconds() >= 0) {
             intervals.push_back(CreateFixedInterval(solver, event, label));
             return true;
         }
@@ -1121,12 +1122,21 @@ namespace rows {
         }
     }
 
-    void SolverWrapper::LimitDroppedVisits(operations_research::RoutingModel &model, int max_dropped_visits) {
-        std::vector<operations_research::IntVar *> all_visits;
+    void SolverWrapper::LimitDroppedVisits(operations_research::RoutingModel &model, int64 max_dropped_visits_threshold) {
+        DeclinedVisitEvaluator evaluator{problem_data_, index_manager_};
+
+//        std::vector<operations_research::IntVar *> all_visits;
+//        for (operations_research::RoutingIndexManager::NodeIndex visit_node{1}; visit_node < problem_data_.nodes(); ++visit_node) {
+//            all_visits.push_back(model.VehicleVar(index_manager_.NodeToIndex(visit_node)));
+//        }
+//        model.solver()->AddConstraint(model.solver()->MakeAtMost(all_visits, -1, max_dropped_visits));
+
+        std::vector<operations_research::IntVar *> weighted_sum;
         for (operations_research::RoutingIndexManager::NodeIndex visit_node{1}; visit_node < problem_data_.nodes(); ++visit_node) {
-            all_visits.push_back(model.VehicleVar(index_manager_.NodeToIndex(visit_node)));
+            const auto index = index_manager_.NodeToIndex(visit_node);
+            weighted_sum.push_back(model.solver()->MakeProd(model.ActiveVar(index), evaluator.Weight(index))->Var());
         }
-        model.solver()->AddConstraint(model.solver()->MakeAtMost(all_visits, -1, max_dropped_visits));
+        model.solver()->AddConstraint(model.solver()->MakeGreaterOrEqual(model.solver()->MakeSum(weighted_sum), max_dropped_visits_threshold));
     }
 
     const std::vector<operations_research::RoutingNodeIndex> &SolverWrapper::GetNodes(const ScheduledVisit &visit) const {

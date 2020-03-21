@@ -1,13 +1,13 @@
 #ifndef ROWS_THIRD_STEP_SOLVER_WITH_REDUCTION_H
 #define ROWS_THIRD_STEP_SOLVER_WITH_REDUCTION_H
 
-#include "solver_wrapper.h"
+#include "metaheuristic_solver.h"
 
 #include <ortools/constraint_solver/constraint_solveri.h>
 
 namespace rows {
 
-    class ThirdStepReductionSolver : public SolverWrapper {
+    class ThirdStepReductionSolver : public MetaheuristicSolver {
     public:
         ThirdStepReductionSolver(const ProblemData &problem_data,
                                  const operations_research::RoutingSearchParameters &search_parameters,
@@ -18,15 +18,8 @@ namespace rows {
                                  int64 dropped_visit_penalty,
                                  int64 max_dropped_visits);
 
-        void ConfigureModel(operations_research::RoutingModel &model,
-                            const std::shared_ptr<Printer> &printer,
-                            std::shared_ptr<const std::atomic<bool> > cancel_token,
-                            double cost_normalization_factor) override;
-
-    private:
-        boost::posix_time::time_duration no_progress_time_limit_;
-        int64 dropped_visit_penalty_;
-        int64 max_dropped_visits_;
+    protected:
+        void BeforeCloseModel(operations_research::RoutingModel &model, const std::shared_ptr<Printer> &printer) override;
     };
 }
 

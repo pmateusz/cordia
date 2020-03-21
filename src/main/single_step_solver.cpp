@@ -67,7 +67,8 @@ namespace rows {
                                                                       - start_time_model_closing).count();
 
         auto solver_ptr = model.solver();
-        model.AddSearchMonitor(solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
+        model.AddSearchMonitor(
+                solver_ptr->RevAlloc(new ProgressPrinterMonitor(model, index_manager_, problem_data_, printer, cost_normalization_factor)));
         model.AddSearchMonitor(solver_ptr->RevAlloc(new MinDroppedVisitsSolutionCollector(&model, true)));
         model.AddSearchMonitor(solver_ptr->RevAlloc(new CancelSearchLimit(cancel_token, solver_ptr)));
 

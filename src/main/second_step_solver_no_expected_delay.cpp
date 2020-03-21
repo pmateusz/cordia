@@ -60,7 +60,7 @@ void rows::SecondStepSolverNoExpectedDelay::ConfigureModel(operations_research::
 
     model.CloseModelWithParameters(parameters_);
 
-    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
+    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, index_manager_, problem_data_, printer, cost_normalization_factor)));
     model.AddSearchMonitor(solver->RevAlloc(new SolutionLogMonitor(&index_manager_, &model, solution_repository_)));
     solution_collector_ = solver->RevAlloc(new MinDroppedVisitsSolutionCollector(&model, true));
     model.AddSearchMonitor(solution_collector_);

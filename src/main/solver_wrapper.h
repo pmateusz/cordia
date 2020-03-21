@@ -158,6 +158,8 @@ namespace rows {
 
         bool out_office_hours_breaks_enabled() const;
 
+        const ProblemData &problem_data() const { return problem_data_; }
+
         const operations_research::RoutingIndexManager &index_manager() const { return index_manager_; }
 
     protected:
@@ -171,7 +173,7 @@ namespace rows {
 
         void AddDroppedVisitsHandling(operations_research::RoutingModel &model, int64 penalty);
 
-        void LimitDroppedVisits(operations_research::RoutingModel &model, int max_dropped_visits);
+        void LimitDroppedVisits(operations_research::RoutingModel &model, int64 max_dropped_visits_threshold);
 
         void AddSkillHandling(operations_research::RoutingModel &model);
 

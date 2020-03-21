@@ -1,14 +1,14 @@
 #ifndef ROWS_DELAY_RISKINESS_REDUCTION_SOLVER_H
 #define ROWS_DELAY_RISKINESS_REDUCTION_SOLVER_H
 
-#include "solver_wrapper.h"
+#include "metaheuristic_solver.h"
 #include "history.h"
 
 #include <ortools/constraint_solver/constraint_solveri.h>
 
 namespace rows {
 
-    class DelayRiskinessReductionSolver : public SolverWrapper {
+    class DelayRiskinessReductionSolver : public MetaheuristicSolver {
     public:
         DelayRiskinessReductionSolver(const ProblemData &problem_data,
                                       const History &history,
@@ -20,17 +20,15 @@ namespace rows {
                                       int64 dropped_visit_penalty,
                                       int64 max_dropped_visits);
 
-        void ConfigureModel(operations_research::RoutingModel &model,
-                            const std::shared_ptr<Printer> &printer,
-                            std::shared_ptr<const std::atomic<bool> > cancel_token,
-                            double cost_normalization_factor) override;
+    protected:
+        void BeforeCloseModel(operations_research::RoutingModel &model, const std::shared_ptr<Printer> &printer) override;
+
+        void AfterCloseModel(operations_research::RoutingModel &model, const std::shared_ptr<Printer> &printer) override;
 
     private:
         const History &history_;
 
-        boost::posix_time::time_duration no_progress_time_limit_;
-        int64 dropped_visit_penalty_;
-        int64 max_dropped_visits_;
+        operations_research::IntVar *riskiness_index_;
     };
 }
 

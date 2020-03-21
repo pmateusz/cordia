@@ -120,7 +120,7 @@ const rows::CalendarVisit &rows::RealProblemData::NodeToVisit(const operations_r
 }
 
 int64 rows::RealProblemData::GetDroppedVisitPenalty() const {
-    const auto distances = location_container_->LargestDistances(3);
+    const auto distances = location_container_->LargestDistances(5);
     return std::accumulate(std::cbegin(distances), std::cend(distances), static_cast<int64>(1));
 }
 

@@ -15,22 +15,18 @@ rows::ThirdStepFulfillSolver::ThirdStepFulfillSolver(const ProblemData &problem_
                                                      int64 dropped_visit_penalty,
                                                      int64 max_dropped_visits,
                                                      std::vector<RouteValidatorBase::Metrics> vehicle_metrics)
-        : SolverWrapper(problem_data,
-                        search_parameters,
-                        std::move(visit_time_window),
-                        std::move(break_time_window),
-                        std::move(begin_end_work_day_adjustment)),
-          no_progress_time_limit_{std::move(no_progress_time_limit)},
-          dropped_visit_penalty_{dropped_visit_penalty},
-          max_dropped_visits_{max_dropped_visits},
+        : MetaheuristicSolver(problem_data,
+                              search_parameters,
+                              std::move(visit_time_window),
+                              std::move(break_time_window),
+                              std::move(begin_end_work_day_adjustment),
+                              std::move(no_progress_time_limit),
+                              dropped_visit_penalty,
+                              max_dropped_visits),
           vehicle_metrics_{std::move(vehicle_metrics)} {}
 
-void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingModel &model,
-                                                  const std::shared_ptr<Printer> &printer,
-                                                  std::shared_ptr<const std::atomic<bool> > cancel_token,
-                                                  double cost_normalization_factor) {
-    SolverWrapper::ConfigureModel(model, printer, cancel_token, cost_normalization_factor);
-    AddTravelTime(model);
+void rows::ThirdStepFulfillSolver::BeforeCloseModel(operations_research::RoutingModel &model, const std::shared_ptr<Printer> &printer) {
+    MetaheuristicSolver::BeforeCloseModel(model, printer);
 
     const auto FIXED_COST = 5 * 3600;
     for (decltype(vehicle_metrics_.size()) vehicle_number = 0; vehicle_number < vehicle_metrics_.size(); ++vehicle_number) {
@@ -47,40 +43,4 @@ void rows::ThirdStepFulfillSolver::ConfigureModel(operations_research::RoutingMo
         // when comparing with mip the cost of a vehicle should be set to zero
         // model.SetFixedCostOfVehicle(0, vehicle_number);
     }
-
-    // visit that needs multiple carers is referenced by multiple nodes
-    // all such nodes must be either performed or unperformed
-    AddVisitsHandling(model);
-    AddSkillHandling(model);
-    AddContinuityOfCare(model);
-    AddCarerHandling(model);
-
-    const auto schedule_day = GetScheduleDate();
-    printer->operator<<(ProblemDefinition(model.vehicles(),
-                                          model.nodes() - 1,
-                                          "unknown area",
-                                          schedule_day,
-                                          visit_time_window_,
-                                          break_time_window_,
-                                          GetAdjustment()));
-
-    CHECK_GE(max_dropped_visits_, 0);
-    if (max_dropped_visits_ > 0) {
-        AddDroppedVisitsHandling(model);
-    }
-    LimitDroppedVisits(model, max_dropped_visits_);
-
-
-    model.CloseModelWithParameters(parameters_);
-    model.AddSearchMonitor(model.solver()->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
-
-    if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {
-        model.AddSearchMonitor(model.solver()->RevAlloc(new StalledSearchLimit(
-                no_progress_time_limit_.total_milliseconds(),
-                &model,
-                model.solver()
-        )));
-    }
-
-    model.AddSearchMonitor(model.solver()->RevAlloc(new CancelSearchLimit(cancel_token, model.solver())));
 }

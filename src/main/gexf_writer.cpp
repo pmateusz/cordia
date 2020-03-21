@@ -45,7 +45,7 @@ namespace rows {
 
         History history;
         DelayTracker delay_tracker{solver, history, time_dim};
-        delay_tracker.UpdateAllPaths(&solution);
+
 
         static const auto VISIT_NODE = "visit";
         static const auto CARER_NODE = "carer";

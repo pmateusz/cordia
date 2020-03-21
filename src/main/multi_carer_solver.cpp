@@ -150,7 +150,7 @@ void rows::MultiCarerSolver::ConfigureModel(operations_research::RoutingModel &m
 
 
     model.AddSearchMonitor(solution_collector_);
-    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, printer, cost_normalization_factor)));
+    model.AddSearchMonitor(solver->RevAlloc(new ProgressPrinterMonitor(model, index_manager_, problem_data_, printer, cost_normalization_factor)));
     model.AddSearchMonitor(solver->RevAlloc(new CancelSearchLimit(cancel_token, solver)));
 
     if (!no_progress_time_limit_.is_special() && no_progress_time_limit_.total_seconds() > 0) {

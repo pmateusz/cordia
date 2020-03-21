@@ -24,12 +24,8 @@ namespace rows {
                             std::shared_ptr<const std::atomic<bool> > cancel_token,
                             double cost_normalization_factor) override;
 
-        std::shared_ptr<rows::SolutionRepository> solution_repository();
-
     private:
         boost::posix_time::time_duration no_progress_time_limit_;
-        operations_research::SolutionCollector *solution_collector_;
-        std::shared_ptr<rows::SolutionRepository> solution_repository_;
     };
 }
 
