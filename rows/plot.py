@@ -166,8 +166,8 @@ def get_schedule_data_frame(schedule: rows.model.schedule.Schedule,
                             duration_estimator: typing.Callable[[rows.model.visit.Visit], datetime.timedelta],
                             distance_estimator: typing.Callable[[rows.model.visit.Visit, rows.model.visit.Visit], datetime.timedelta]):
     data_set = []
-    for route in schedule.routes():
-        carer_diary = problem.get_diary(route.carer, schedule.date())
+    for route in schedule.routes:
+        carer_diary = problem.get_diary(route.carer, schedule.date)
 
         if carer_diary is None:
             logging.warning('Working hours not available for carer %s', route.carer.sap_number)

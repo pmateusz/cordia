@@ -252,6 +252,8 @@ class Schedule(rows.model.object.DataObject):
                 elif is_break(next_id):
                     rest = breaks_by_id[next_id]
                     visits_and_breaks.append(rest)
+                else:
+                    assert False
 
                 current_id = next_id
 

@@ -129,14 +129,10 @@ void rows::ThreeStepSchedulingWorker::Run() {
     second_stage_search_params.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_path_lns(
-            operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_expensive_chain_lns(
-            operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_expensive_chain_lns(
-            operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_path_lns(
-            operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_expensive_chain_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_expensive_chain_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.set_use_full_propagation(true);
 //    second_stage_search_params.set_use_cp_sat(operations_research::OptionalBoolean::BOOL_TRUE);
 

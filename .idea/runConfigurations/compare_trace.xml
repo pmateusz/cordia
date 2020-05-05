@@ -12,7 +12,7 @@
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/rows_compare.py" />
-    <option name="PARAMETERS" value="compare-trace ./problems/C350_past.json ./cp_schedules/past/c350past_1levelv90b90e30m1m20m1.err.log --cost_function=&quot;Direct&quot; --arrows=True --output stage1_trace_350" />
+    <option name="PARAMETERS" value="compare-trace $PROJECT_DIR$/simulations/current_review_simulations/problems/C350_past.json $PROJECT_DIR$/simulations/current_review_simulations/solutions/c350past_distv90b90e30m1m1m5.err.log --cost_function=&quot;Multistage Dist&quot; --output distance_trace_350" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

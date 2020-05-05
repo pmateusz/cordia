@@ -978,7 +978,7 @@ def traces_to_data_frame(trace_logs):
             current_visits = None
             current_stage_started = None
             current_stage_name = None
-            for rel_time, stage, abs_time, event in trace.events:
+            for rel_time, stage, strategy, abs_time, event in trace.events:
                 if isinstance(event, TraceLog.ProblemMessage):
                     current_carers = event.carers
                     current_visits = event.visits
@@ -1007,7 +1007,7 @@ def traces_to_data_frame(trace_logs):
         for trace in trace_logs:
             current_carers = None
             current_visits = None
-            for rel_time, stage, abs_time, event in trace.events:
+            for rel_time, stage, strategy, abs_time, event in trace.events:
                 if isinstance(event, TraceLog.ProblemMessage):
                     current_carers = event.carers
                     current_visits = event.visits
@@ -1024,19 +1024,68 @@ def parse_pandas_duration(value):
     return datetime.timedelta(hours=int(raw_hours), minutes=int(raw_minutes), seconds=int(raw_seconds))
 
 
-def format_timedelta(x, pos=None):
-    if x < 0:
-        return None
+class DateTimeFormatter:
 
-    x_to_use = x
-    if isinstance(x, numpy.int64):
-        x_to_use = x.item()
+    def __init__(self, format):
+        self.__format = format
 
-    delta = datetime.timedelta(seconds=x_to_use)
-    time_point = datetime.datetime(2017, 1, 1) + delta
-    # if time_point.hour == 0:
-    #     return time_point.strftime('%M:%S')
-    return time_point.strftime('%M:%S')
+    def __call__(self, x, pos=None):
+        if x < 0:
+            return None
+
+        x_to_use = x
+        if isinstance(x, numpy.int64):
+            x_to_use = x.item()
+
+        delta = datetime.timedelta(seconds=x_to_use)
+        time_point = datetime.datetime(2017, 1, 1) + delta
+        return time_point.strftime(self.__format)
+
+
+class AxisSettings:
+
+    def __init__(self, minutes_per_step, format_pattern, units_label, right_xlimit, xticks):
+        self.__minutes_per_step = minutes_per_step
+        self.__format_pattern = format_pattern
+        self.__formatter = matplotlib.ticker.FuncFormatter(DateTimeFormatter(self.__format_pattern))
+        self.__units_label = units_label
+        self.__right_xlimit = right_xlimit
+        self.__xticks = xticks
+
+    @property
+    def formatter(self):
+        return self.__formatter
+
+    @property
+    def units_label(self):
+        return self.__units_label
+
+    @property
+    def right_xlimit(self):
+        return self.__right_xlimit
+
+    @property
+    def xticks(self):
+        return self.__xticks
+
+    @staticmethod
+    def infer(max_relative_time):
+        if datetime.timedelta(minutes=30) < max_relative_time < datetime.timedelta(hours=1):
+            minutes_step = 10
+            format = '%H:%M'
+            units = '[hh:mm]'
+        elif datetime.timedelta(hours=1) <= max_relative_time:
+            minutes_step = 60
+            format = '%H:%M'
+            units = '[hh:mm]'
+        else:
+            assert max_relative_time <= datetime.timedelta(minutes=30)
+            minutes_step = 1
+            format = '%M:%S'
+            units = '[mm:ss]'
+        right_xlimit = (max_relative_time + datetime.timedelta(minutes=1)).total_seconds() // 60 * 60
+        xticks = numpy.arange(0, max_relative_time.total_seconds() + minutes_step * 60, minutes_step * 60)
+        return AxisSettings(minutes_step, format, units, right_xlimit, xticks)
 
 
 def format_timedelta_pandas(x, pos=None):
@@ -1128,8 +1177,6 @@ def compare_trace(args, settings):
     trace_file_stem, trace_file_ext = os.path.splitext(trace_file_base_name)
     output_file_stem = getattr(args, __OUTPUT, trace_file_stem)
 
-    add_arrows = getattr(args, __ARROWS, False)
-
     trace_logs = read_traces(trace_file)
     data_frame = traces_to_data_frame(trace_logs)
 
@@ -1146,8 +1193,12 @@ def compare_trace(args, settings):
     max_relative_time = datetime.timedelta()
     try:
         if current_date:
+            current_color = color_map.colors[next(color_number_it)]
             total_problem_visits, total_multiple_carer_visits = get_problem_stats(problem, current_date)
             current_date_frame = data_frame[data_frame['date'] == current_date]
+            max_relative_time = max(current_date_frame['relative_time'].max(), max_relative_time)
+            ax_settings = AxisSettings.infer(max_relative_time)
+
             stages = current_date_frame['stage'].unique()
             if len(stages) > 1:
                 handles = []
@@ -1158,14 +1209,18 @@ def compare_trace(args, settings):
                     draw_avline(ax2, time_delta.total_seconds())
                     total_stage_visits = current_stage_data_frame['visits'].iloc[0]
                     carers = current_stage_data_frame['carers'].iloc[0]
-                    handle = scatter_cost(ax1, current_date_frame)
-                    scatter_dropped_visits(ax2, current_stage_data_frame)
-                    handles.append([handle, total_stage_visits, carers, cost_function])
-                add_trace_legend(ax1, handles)
+                    handle = scatter_cost(ax1, current_date_frame, current_color)
+                    scatter_dropped_visits(ax2, current_stage_data_frame, current_color)
+                    handles.append([handle,
+                                    total_multiple_carer_visits,
+                                    total_stage_visits,
+                                    carers,
+                                    cost_function,
+                                    current_date])
 
                 ax2.set_xlim(left=0)
                 ax2.set_ylim(bottom=-10)
-                ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+                ax2.xaxis.set_major_formatter(ax_settings.formatter)
             else:
                 total_visits = current_date_frame['visits'].iloc[0]
                 if total_visits != (total_problem_visits + total_multiple_carer_visits):
@@ -1176,28 +1231,21 @@ def compare_trace(args, settings):
                 handle = ax1.scatter(
                     [time_delta.total_seconds() for time_delta in current_date_frame['relative_time']],
                     current_date_frame['cost'], s=1)
-                add_trace_legend(ax1,
-                                 [[handle, total_multiple_carer_visits, total_problem_visits, carers, cost_function]])
-                scatter_dropped_visits(ax2, current_date_frame)
+                add_trace_legend(ax1, [[handle, total_multiple_carer_visits, total_problem_visits, carers, cost_function]])
+                scatter_dropped_visits(ax2, current_date_frame, current_color)
 
             ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
-            ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-
-            # logging.warning('Extending the x axis of the plot by 2 minutes')
-            x_left, x_right = ax1.get_xlim()
-            updated_x_right = x_right + 2 * 60
+            ax1.xaxis.set_major_formatter(ax_settings.formatter)
 
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
             ax1.set_ylabel('Cost Function [s]')
-            # ax1.set_xlim(left=0, right=updated_x_right)
 
             ax2_y_bottom, ax2_y_top = ax2.get_ylim()
             ax2.set_ylim(bottom=-10, top=ax2_y_top * __Y_AXIS_EXTENSION)
-            # ax2.set_xlim(left=0, right=updated_x_right)
-            ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+            ax2.xaxis.set_major_formatter(ax_settings.formatter)
             ax2.set_ylabel('Declined Visits')
-            ax2.set_xlabel('Computation Time [mm:ss]')
+            ax2.set_xlabel('Computation Time ' + ax_settings.units_label)
             rows.plot.save_figure(output_file_stem + '_' + current_date.isoformat())
         else:
             handles = []
@@ -1212,12 +1260,8 @@ def compare_trace(args, settings):
                     stage_linestyles = [None, 'dotted', 'dashed']
                     for stage, linestyle in zip(stages, stage_linestyles):
                         time_delta = current_date_frame[current_date_frame['stage'] == stage]['stage_started'].iloc[0]
-                        draw_avline(ax1, time_delta.total_seconds(),
-                                    color=current_color,
-                                    linestyle=linestyle)
-                        draw_avline(ax2, time_delta.total_seconds(),
-                                    color=current_color,
-                                    linestyle=linestyle)
+                        draw_avline(ax1, time_delta.total_seconds(), color=current_color, linestyle=linestyle)
+                        draw_avline(ax2, time_delta.total_seconds(), color=current_color, linestyle=linestyle)
 
                     total_carers = current_date_frame['carers'].max()
                     multi_carers = current_date_frame['carers'].min()
@@ -1245,49 +1289,36 @@ def compare_trace(args, settings):
                                          .format(total_visits, (total_problem_visits + total_multiple_carer_visits)))
                     carers = current_date_frame['carers'].iloc[0]
                     handle = scatter_cost(ax1, current_date_frame, current_color)
-                    handles.append(
-                        [handle,
-                         total_multiple_carer_visits,
-                         total_problem_visits,
-                         carers,
-                         cost_function,
-                         current_date])
+                    handles.append([handle,
+                                    total_multiple_carer_visits,
+                                    total_problem_visits,
+                                    carers,
+                                    cost_function,
+                                    current_date])
                     scatter_dropped_visits(ax2, current_date_frame, current_color)
 
-            minutes_step = 1
-            if max_relative_time > datetime.timedelta(minutes=15):
-                minutes_step = 5
-            x_ticks = numpy.arange(0, max_relative_time.total_seconds() + minutes_step * 60, minutes_step * 60)
-
+            ax_settings = AxisSettings.infer(max_relative_time)
             ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
-            ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+            ax1.xaxis.set_major_formatter(ax_settings.formatter)
 
-            # logging.warning('Extending the x axis of the plot by 2 minutes')
-            x_left, x_right = ax1.get_xlim()
-            # updated_x_right = x_right + 2 * 60
-
-            if add_arrows:
-                ax1.arrow(950, 200000, 40, -110000, head_width=10, head_length=20000, fc='k', ec='k')
-                ax2.arrow(950, 60, 40, -40, head_width=10, head_length=10, fc='k', ec='k')
-
-            right_x_limit = (max_relative_time + datetime.timedelta(minutes=1)).total_seconds() // 60 * 60
+            # if add_arrows:
+            #     ax1.arrow(950, 200000, 40, -110000, head_width=10, head_length=20000, fc='k', ec='k')
+            #     ax2.arrow(950, 60, 40, -40, head_width=10, head_length=10, fc='k', ec='k')
 
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
-            ax1.set_xlim(left=0, right=right_x_limit)
+            ax1.set_xlim(left=0, right=ax_settings.right_xlimit)
             ax1.set_ylabel('Cost Function [s]')
-            # legend = add_trace_legend(ax2, handles, bbox_to_anchor=(0.5, -1.7), ncol=2)
 
             ax2_y_bottom, ax2_y_top = ax2.get_ylim()
             ax2.set_ylim(bottom=-10, top=ax2_y_top * __Y_AXIS_EXTENSION)
-            ax2.set_xlim(left=0, right=right_x_limit)
+            ax2.set_xlim(left=0, right=ax_settings.right_xlimit)
             ax2.set_ylabel('Declined Visits')
-            ax2.set_xlabel('Computation Time [mm:ss]')
+            ax2.set_xlabel('Computation Time ' + ax_settings.units_label)
 
-            ax2.set_xticks(x_ticks)
-            ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+            ax2.set_xticks(ax_settings.xticks)
+            ax2.xaxis.set_major_formatter(ax_settings.formatter)
             matplotlib.pyplot.tight_layout()
-            # figure.subplots_adjust(bottom=0.4)
             rows.plot.save_figure(output_file_stem)
     finally:
         matplotlib.pyplot.cla()
@@ -1351,7 +1382,10 @@ def contrast_trace(args, settings):
     if current_date not in candidate_frame['date'].unique():
         raise ValueError('Date {0} is not present in the candidate data set'.format(current_date))
 
-    x_ticks_positions = range(0, 16 * 60 + 1, 120)
+    max_relative_time = datetime.timedelta()
+    max_relative_time = max(base_frame[base_frame['date'] == current_date]['relative_time'].max(), max_relative_time)
+    max_relative_time = max(candidate_frame[candidate_frame['date'] == current_date]['relative_time'].max(), max_relative_time)
+    ax_settings = AxisSettings.infer(max_relative_time)
 
     color_map = matplotlib.cm.get_cmap('Set1')
     matplotlib.pyplot.set_cmap(color_map)
@@ -1387,7 +1421,7 @@ def contrast_trace(args, settings):
         ax1.set_ylim(bottom=0.0)
         ax1.set_ylabel('Cost Function [s]')
         ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
-        ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+        ax1.xaxis.set_major_formatter(ax_settings.formatter)
         legend1 = ax1.legend([base_handle, candidate_handle], labels)
         for handle in legend1.legendHandles:
             handle._sizes = [25]
@@ -1395,10 +1429,10 @@ def contrast_trace(args, settings):
         ax2.set_xlim(left=0.0)
         ax2.set_ylim(bottom=0.0)
         ax2.set_ylabel('Declined Visits')
-        ax2.set_xlabel('Computation Time [mm:ss]')
-        ax1.set_xticks(x_ticks_positions)
-        ax2.set_xticks(x_ticks_positions)
-        ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+        ax2.set_xlabel('Computation Time ' + ax_settings.units_label)
+        ax1.set_xticks(ax_settings.xticks)
+        ax2.set_xticks(ax_settings.xticks)
+        ax2.xaxis.set_major_formatter(ax_settings.formatter)
         legend2 = ax2.legend([base_handle, candidate_handle], labels)
         for handle in legend2.legendHandles:
             handle._sizes = [25]
@@ -1422,7 +1456,7 @@ def contrast_trace(args, settings):
         ax1.set_ylim(bottom=0, top=6 * 10 ** 4)
         ax1.set_ylabel('Cost Function [s]')
         ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
-        ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+        ax1.xaxis.set_major_formatter(ax_settings.formatter)
 
         ax1.set_xlim(left=0, right=12)
         ax2.set_xlim(left=0, right=12)
@@ -1431,12 +1465,12 @@ def contrast_trace(args, settings):
         # matplotlib.pyplot.locator_params(axis='x', nbins=6)
         ax2.set_ylim(bottom=-10.0, top=120)
         ax2.set_ylabel('Declined Visits')
-        ax2.set_xlabel('Computation Time [mm:ss]')
+        ax2.set_xlabel('Computation Time ' + ax_settings.units_label)
         ax2.set_xticks(x_ticks_positions)
-        ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
+        ax2.xaxis.set_major_formatter(ax_settings.formatter)
 
         matplotlib.pyplot.tight_layout()
-        rows.plot.save_figure(output_file_stem + '_first_stage_' + current_date.isoformat())
+        # rows.plot.save_figure(output_file_stem + '_first_stage_' + current_date.isoformat())
     finally:
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
@@ -1541,20 +1575,32 @@ def remove_violated_visits(rough_schedule: rows.model.schedule.Schedule,
 
         visits_made = []
         total_slack = datetime.timedelta()
-        for prev_visit, next_visit in route.edges():
-            visit_duration = duration_estimator(prev_visit.visit)
+        if len(route.visits) == 1:
+            visit = route.visits[0]
+            visit_duration = duration_estimator(visit.visit)
             if visit_duration is None:
-                visit_duration = prev_visit.duration
+                visit_duration = visit.duration
 
             current_time += visit_duration
-            current_time += distance_estimator(prev_visit, next_visit)
-            start_time = max(current_time, datetime.datetime.combine(metadata.date, next_visit.time) - max_delay)
-            total_slack += start_time - current_time
-            current_time = start_time
             if current_time <= max_shift_end:
-                visits_made.append(next_visit)
+                visits_made.append(visit)
             else:
                 dropped_visits += 1
+        else:
+            for prev_visit, next_visit in route.edges():
+                visit_duration = duration_estimator(prev_visit.visit)
+                if visit_duration is None:
+                    visit_duration = prev_visit.duration
+
+                current_time += visit_duration
+                current_time += distance_estimator(prev_visit, next_visit)
+                start_time = max(current_time, datetime.datetime.combine(metadata.date, next_visit.time) - max_delay)
+                total_slack += start_time - current_time
+                current_time = start_time
+                if current_time <= max_shift_end:
+                    visits_made.append(next_visit)
+                else:
+                    dropped_visits += 1
 
         if current_time <= max_shift_end:
             total_slack += max_shift_end - current_time
@@ -1775,7 +1821,7 @@ def get_visits(problem: rows.model.problem.Problem, date: datetime.date):
 
 def get_teams(problem: rows.model.problem.Problem, schedule: rows.model.schedule.Schedule):
     multiple_carer_visit_keys = set()
-    for visit in get_visits(problem, schedule.date()):
+    for visit in get_visits(problem, schedule.date):
         if visit.carer_count > 1:
             multiple_carer_visit_keys.add(visit.key)
 
@@ -1805,6 +1851,14 @@ def compare_schedule_quality(args, settings):
         # number of different carers assigned throughout the day
         human_carer_frequency = get_carer_client_frequency(human_schedule)
         solver_carer_frequency = get_carer_client_frequency(solver_schedule)
+
+        def median_carer_frequency(client_counters):
+            total_counters = []
+            for client in client_counters:
+                # total_counters += len(client_counters[client])
+                total_counters.append(len(client_counters[client]))
+            # return total_counters / len(client_counters)
+            return numpy.median(total_counters)
 
         human_schedule_squared = []
         solver_schedule_squared = []
@@ -1848,28 +1902,35 @@ def compare_schedule_quality(args, settings):
         human_schedule_frame = rows.plot.get_schedule_data_frame(human_schedule, problem, duration_estimator, distance_estimator)
         solver_schedule_frame = rows.plot.get_schedule_data_frame(solver_schedule, problem, duration_estimator, distance_estimator)
 
+        human_visits = human_schedule_frame['Visits'].median()
+        solver_visits = solver_schedule_frame['Visits'].median()
+
         human_total_overtime = compute_overtime(human_schedule_frame).sum()
         solver_total_overtime = compute_overtime(solver_schedule_frame).sum()
 
-        return {'problem': str(human_schedule.date()),
+        return {'problem': str(human_schedule.date),
                 'visits': len(visits),
                 'clients': len(clients),
                 'human_overtime': human_total_overtime,
                 'solver_overtime': solver_total_overtime,
+                'human_visits_median': human_visits,
+                'solver_visits_median': solver_visits,
                 'human_visit_span_dominates': human_span_dominates,
                 'solver_visit_span_dominates': solver_span_dominates,
                 'visit_span_indifferent': span_no_diff,
                 'human_matching_dominates': human_matching_dominates,
                 'solver_matching_dominates': solver_matching_dominates,
+                'human_carer_frequency': median_carer_frequency(human_carer_frequency),
+                'solver_carer_frequency': median_carer_frequency(solver_carer_frequency),
                 'matching_indifferent': matching_no_diff,
                 'human_teams': len(human_teams),
                 'solver_teams': len(solver_teams)}
 
     simulation_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations'
-    solver_log_file = os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5.err.log')
+    solver_log_file = os.path.join(simulation_dir, 'solutions/c350past_distv90b90e30m1m1m5.err.log')
     problem_data = [ProblemConfig(os.path.join(simulation_dir, 'problems/C350_past.json'),
                                   os.path.join(simulation_dir, 'planner_schedules/C350_planners_201710{0:02d}.json'.format(day)),
-                                  os.path.join(simulation_dir, 'cp_schedules/past/c350past_redv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
+                                  os.path.join(simulation_dir, 'solutions/c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
                     for day in range(1, 15, 1)]
 
     solver_traces = read_traces(solver_log_file)
@@ -1884,8 +1945,8 @@ def compare_schedule_quality(args, settings):
             human_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.HumanSolutionPath))
             solver_schedule = rows.load.load_schedule(os.path.join(simulation_dir, problem_data.SolverSolutionPath))
 
-            assert solver_trace.date == human_schedule.date()
-            assert solver_trace.date == solver_schedule.date()
+            assert solver_trace.date == human_schedule.date
+            assert solver_trace.date == solver_schedule.date
 
             duration_estimator = rows.plot.DurationEstimator.create_expected_visit_duration(solver_schedule)
             human_schedule_to_use = remove_violated_visits(human_schedule, solver_trace, problem, duration_estimator, distance_estimator)
@@ -1899,7 +1960,6 @@ def compare_schedule_quality(args, settings):
     data_frame['solver_visit_span_dominates_rel'] = data_frame['solver_visit_span_dominates'] / data_frame['clients']
     data_frame['solver_visit_span_dominates_rel_label'] = data_frame['solver_visit_span_dominates_rel'].apply(lambda v: '{0:.2f}'.format(v * 100.0))
     data_frame['visit_span_indifferent_rel'] = data_frame['visit_span_indifferent'] / data_frame['clients']
-
     data_frame['human_matching_dominates_rel'] = data_frame['human_matching_dominates'] / data_frame['clients']
     data_frame['human_matching_dominates_rel_label'] = data_frame['human_matching_dominates_rel'].apply(lambda v: '{0:.2f}'.format(v * 100.0))
     data_frame['solver_matching_dominates_rel'] = data_frame['solver_matching_dominates'] / data_frame['clients']
@@ -1910,8 +1970,8 @@ def compare_schedule_quality(args, settings):
     data_frame['solver_overtime_label'] = data_frame['solver_overtime'].apply(get_time_delta_label)
 
     print(tabulate.tabulate(data_frame, tablefmt='psql', headers='keys'))
-    print(tabulate.tabulate(data_frame[['day', 'human_overtime_label', 'solver_overtime_label',
-                                        'human_visit_span_dominates_rel_label', 'solver_visit_span_dominates_rel_label',
+    print(tabulate.tabulate(data_frame[['day', 'human_visits_median', 'solver_visits_median', 'human_overtime_label', 'solver_overtime_label',
+                                        'human_carer_frequency', 'solver_carer_frequency',
                                         'human_matching_dominates_rel_label', 'solver_matching_dominates_rel_label',
                                         'human_teams', 'solver_teams']], tablefmt='latex', showindex=False, headers='keys'))
 
