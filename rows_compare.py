@@ -2893,6 +2893,10 @@ class Mapping:
                     if visit.date != item.date or visit.tasks != item.tasks:
                         continue
 
+                    if item.key == visit.key:
+                        # exact match
+                        return visit
+
                     visit_total_time = visit.time.hour * 3600 + visit.time.minute * 60
                     item_total_time = item.time.hour * 3600 + item.time.minute * 60
                     diff_total_time = abs(visit_total_time - item_total_time)
@@ -2908,6 +2912,7 @@ class Mapping:
                 local_route = []
                 previous_visit = None
                 previous_index = None
+
                 current_visit = None
                 break_start = None
                 break_duration = datetime.timedelta()
@@ -2917,8 +2922,30 @@ class Mapping:
                         current_visit = item.visit
 
                         if previous_visit is None:
+                            if break_start is None:
+                                diary = problem.get_diary(route.carer, current_visit.date)
+                                break_start = diary.events[0].begin - datetime.timedelta(minutes=30)
+
+                            node = Node(current_index,
+                                        current_index + 1,
+                                        rows.model.visit.Visit(date=current_visit.date,
+                                                               time=break_start,
+                                                               duration=datetime.timedelta(),
+                                                               service_user=current_visit.service_user),
+                                        break_start,
+                                        break_start,
+                                        break_start,
+                                        break_duration,
+                                        datetime.timedelta())
+                            self.__index_to_node[current_index] = node
+                            local_route.append(node)
+
+                            current_index += 1
                             previous_visit = current_visit
                             previous_index = current_index
+
+                            break_start = None
+                            break_duration = datetime.timedelta()
                             current_index += 1
                             continue
 
@@ -2927,7 +2954,6 @@ class Mapping:
                         travel_time = datetime.timedelta(seconds=routing_session.distance(previous_location, current_location))
 
                         previous_visit_match = find_visit(previous_visit)
-
                         node = Node(previous_index,
                                     current_index,
                                     previous_visit,
@@ -2979,10 +3005,6 @@ class Mapping:
                 if left_visit.carer_count == 1:
                     continue
 
-                if left_index == 48:
-                    # visits of index 40 and 498 are connected
-                    print('here')
-
                 for right_pos in range(left_pos + 1, num_indices):
                     right_index = service_user_to_index[service_user][right_pos]
                     right_visit = self.__index_to_node[right_index]
@@ -2990,8 +3012,6 @@ class Mapping:
                         continue
 
                     if left_visit.visit_start_min == right_visit.visit_start_min and left_visit.visit_start_max == right_visit.visit_start_max:
-                        if right_index == 48 or left_index == 48:
-                            print('here')
                         assert left_index != right_index
                         self.__siblings[left_index] = right_index
                         self.__siblings[right_index] = left_index
@@ -3004,6 +3024,12 @@ class Mapping:
 
     def node(self, index: int) -> Node:
         return self.__index_to_node[index]
+
+    def find_index(self, visit_key: int) -> int:
+        for index in self.__index_to_node:
+            if self.__index_to_node[index].visit_key == visit_key:
+                return index
+        return None
 
     def sibling(self, index: int) -> typing.Optional[Node]:
         if index in self.__siblings:
@@ -3137,6 +3163,8 @@ class EssentialRiskinessEvaluator:
         for scenario in range(self.__sample.size):
 
             def get_visit_duration(visit_key: int) -> datetime.timedelta:
+                if visit_key is None:
+                    return datetime.timedelta()
                 return self.__sample.visit_duration(visit_key, scenario)
 
             scenario_start_times = start_time_evaluator.get_start_times(get_visit_duration)
@@ -3212,10 +3240,15 @@ class EssentialRiskinessEvaluator:
         route = self.__mapping.routes()[carer]
         data = [['index', 'key', 'visit_start', 'visit_duration', 'travel_duration', 'break_start', 'break_duration']]
         for node in route:
+            if node.visit_key is None:
+                duration = 0
+            else:
+                duration = int(self.__sample.visit_duration(node.visit_key, 0).total_seconds())
+
             data.append([node.index,
                          node.visit_key,
                          int(self.__datetime_to_delta(self.__start_times[node.index][0]).total_seconds()),
-                         int(self.__sample.visit_duration(node.visit_key, 0).total_seconds()),
+                         duration,
                          int(node.travel_duration.total_seconds()),
                          int(self.__datetime_to_delta(node.break_start).total_seconds()) if node.break_start is not None else 0,
                          int(node.break_duration.total_seconds())])
@@ -3237,7 +3270,7 @@ class EssentialRiskinessEvaluator:
             print('{0:<4}{1}'.format(scenario_number, int(self.__delay[selected_index][scenario_number].total_seconds())))
 
     def visit_keys(self) -> typing.List[int]:
-        visit_keys = [self.__mapping.node(index).visit_key for index in self.__mapping.indices()]
+        visit_keys = [self.__mapping.node(index).visit_key for index in self.__mapping.indices() if self.__mapping.node(index).visit_key is not None]
         visit_keys.sort()
         return visit_keys
 
@@ -3257,6 +3290,10 @@ class EssentialRiskinessEvaluator:
             for scenario_number in range(self.__sample.size):
                 records.append({'visit': visit_key, 'scenario': scenario_number, 'delay': self.__delay[visit_index][scenario_number]})
         return pandas.DataFrame(data=records)
+
+    @property
+    def mapping(self):
+        return self.__mapping
 
     @property
     def start_times(self):
@@ -3487,7 +3524,7 @@ def compare_third_stage_table(args, settings):
 
 def debug(args, settings):
     history = load_history()
-    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/solution_version5.gexf')
+    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/c350past_riskv90b90e30m1m1m5_20171014.gexf')
     problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
     riskiness_evaluator = EssentialRiskinessEvaluator(settings, history, problem, schedule)
     riskiness_evaluator.run()

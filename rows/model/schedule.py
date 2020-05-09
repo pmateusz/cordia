@@ -269,6 +269,11 @@ class Schedule(rows.model.object.DataObject):
         for carer in raw_routes:
             carer_route = []
             for work_item in raw_routes[carer]:
+
+                # if work_item.key == 8409506:
+                #     print('here')
+
+
                 if isinstance(work_item, rows.model.visit.Visit):
                     check_in = datetime.datetime.combine(work_item.date, work_item.time)
                     check_out = datetime.datetime.combine(work_item.date, work_item.time) + work_item.duration

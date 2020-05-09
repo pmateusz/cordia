@@ -110,6 +110,7 @@ class Visit(rows.model.object.DatabaseObject):
 
         return self.__time
 
+    @property
     def datetime(self):
         return datetime.datetime.combine(self.__date, self.__time)
 
