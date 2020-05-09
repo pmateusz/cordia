@@ -28,6 +28,16 @@ int64 rows::DeclinedVisitEvaluator::GetThreshold(const std::vector<std::vector<i
     return result;
 }
 
+int64 rows::DeclinedVisitEvaluator::GetThreshold(const operations_research::RoutingModel &model) const {
+    int64 result = 0;
+    for (int order = 1; order < model.nodes(); ++order) {
+        if (model.NextVar(order)->Value() != order) {
+            result += weights_.at(order);
+        }
+    }
+    return result;
+}
+
 int64 rows::DeclinedVisitEvaluator::GetDroppedVisits(const operations_research::RoutingModel &model) const{
     int64 weighed_dropped_visits = 0;
     for (int order = 1; order < model.nodes(); ++order) {

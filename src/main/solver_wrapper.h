@@ -28,6 +28,7 @@
 #include "route_validator.h"
 #include "service_user.h"
 #include "printer.h"
+#include "failed_index_repository.h"
 #include "real_problem_data.h"
 
 namespace rows {
@@ -162,6 +163,10 @@ namespace rows {
 
         const operations_research::RoutingIndexManager &index_manager() const { return index_manager_; }
 
+        void ClearFailedIndices() { failed_index_repository_->Clear(); }
+
+        std::unordered_set<int64> FailedIndices() const { return failed_index_repository_->Indices(); }
+
     protected:
         void AddTravelTime(operations_research::RoutingModel &model);
 
@@ -201,6 +206,8 @@ namespace rows {
                                        std::string label,
                                        std::vector<operations_research::IntervalVar *> &intervals) const;
 
+        std::shared_ptr<FailedIndexRepository> failed_index_repository() { return failed_index_repository_; }
+
         enum class BreakType {
             BREAK, BEFORE_WORKDAY, AFTER_WORKDAY
         };
@@ -233,6 +240,8 @@ namespace rows {
         std::unordered_map<rows::ServiceUser, rows::SolverWrapper::LocalServiceUser> service_users_;
 
         operations_research::RoutingIndexManager index_manager_;
+
+        std::shared_ptr<FailedIndexRepository> failed_index_repository_;
     };
 }
 

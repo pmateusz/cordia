@@ -19,7 +19,6 @@ namespace rows {
                                         boost::posix_time::time_duration break_time_window,
                                         boost::posix_time::time_duration begin_end_work_day_adjustment,
                                         boost::posix_time::time_duration no_progress_time_limit,
-                                        int64 dropped_visit_penalty,
                                         int64 max_dropped_visits);
 
     protected:

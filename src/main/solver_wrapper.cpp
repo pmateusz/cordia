@@ -65,7 +65,8 @@ namespace rows {
               parameters_(search_parameters),
               service_users_(),
               problem_data_{problem_data},
-              index_manager_{nodes(), vehicles(), rows::RealProblemData::DEPOT} {
+              index_manager_{nodes(), vehicles(), rows::RealProblemData::DEPOT},
+              failed_index_repository_{std::make_shared<FailedIndexRepository>()} {
         for (const auto &service_user : problem_data_.problem().service_users()) {
             const auto visit_count = std::count_if(std::begin(problem_data_.problem().visits()),
                                                    std::end(problem_data_.problem().visits()),
@@ -779,8 +780,7 @@ namespace rows {
         if (begin_end_work_day_adjustment_.is_special()) {
             return finish_time.total_seconds();
         }
-        return std::min(static_cast<int64>((finish_time + begin_end_work_day_adjustment_).total_seconds()),
-                        RealProblemData::SECONDS_IN_DIMENSION);
+        return std::min(static_cast<int64>((finish_time + begin_end_work_day_adjustment_).total_seconds()), RealProblemData::SECONDS_IN_DIMENSION);
     }
 
     boost::posix_time::time_duration SolverWrapper::GetAdjustment() const {

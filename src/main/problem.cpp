@@ -93,6 +93,12 @@ namespace rows {
             }
         }
 
+//        for (const auto &visit : visits_to_use) {
+//            if (visit.id() == 8482341 || visit.id() == 8482342) {
+//                LOG(INFO) << "HERE";
+//            }
+//        }
+
         const Problem problem_to_use(std::move(visits_to_use),
                                      std::move(carers_to_use),
                                      std::move(service_users_to_use));

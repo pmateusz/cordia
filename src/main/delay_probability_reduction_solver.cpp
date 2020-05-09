@@ -13,7 +13,6 @@ rows::DelayProbabilityReductionSolver::DelayProbabilityReductionSolver(const Pro
                                                                        boost::posix_time::time_duration break_time_window,
                                                                        boost::posix_time::time_duration begin_end_work_day_adjustment,
                                                                        boost::posix_time::time_duration no_progress_time_limit,
-                                                                       int64 dropped_visit_penalty,
                                                                        int64 max_dropped_visits)
         : MetaheuristicSolver(problem_data,
                               search_parameters,
@@ -21,7 +20,6 @@ rows::DelayProbabilityReductionSolver::DelayProbabilityReductionSolver(const Pro
                               std::move(break_time_window),
                               std::move(begin_end_work_day_adjustment),
                               std::move(no_progress_time_limit),
-                              dropped_visit_penalty,
                               max_dropped_visits),
           history_{history},
           delay_probability_{nullptr} {}

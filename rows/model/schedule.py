@@ -50,6 +50,10 @@ class Schedule(rows.model.object.DataObject):
             return self.__carer
 
         @property
+        def nodes(self) -> typing.List:
+            return self.__nodes
+
+        @property
         def visits(self) -> typing.List[rows.model.past_visit.PastVisit]:
             return [node for node in self.__nodes if isinstance(node, rows.model.past_visit.PastVisit)]
 

@@ -107,16 +107,16 @@ namespace rows {
     private:
 
         std::unique_ptr<rows::MetaheuristicSolver> CreateThirdStageSolver(const operations_research::RoutingSearchParameters &search_params,
-                                                                          int64 last_dropped_visit_penalty,
                                                                           int64 max_dropped_visits_threshold);
 
         std::vector<std::vector<int64>> SolveFirstStage(const rows::SolverWrapper &second_step_wrapper);
 
-        std::vector<std::vector<int64>> SolveSecondStage(const std::vector<std::vector<int64> > &second_stage_initial_routes,
-                                                         rows::SecondStepSolver &second_stage_solver,
-                                                         const operations_research::RoutingSearchParameters &search_params);
+        std::vector<std::vector<int64> > SolveSecondStage(const std::vector<std::vector<int64> > &second_stage_initial_routes,
+                                                                          const operations_research::RoutingIndexManager &index_manager,
+                                                                          const operations_research::RoutingSearchParameters &search_params);
 
-        void SolveThirdStage(const std::vector<std::vector<int64> > &second_stage_routes, rows::SolverWrapper &second_stage_solver);
+        void SolveThirdStage(const std::vector<std::vector<int64> > &second_stage_routes,
+                             const operations_research::RoutingIndexManager &index_manager);
 
         void WriteSolution(const operations_research::Assignment *assignment,
                            const operations_research::RoutingModel &model,

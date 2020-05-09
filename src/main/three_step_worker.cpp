@@ -129,10 +129,14 @@ void rows::ThreeStepSchedulingWorker::Run() {
     second_stage_search_params.mutable_local_search_operators()->set_use_extended_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.mutable_local_search_operators()->set_use_node_pair_swap_active(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_expensive_chain_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_expensive_chain_lns(operations_research::OptionalBoolean::BOOL_TRUE);
-    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_path_lns(operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_path_lns(
+            operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_local_cheapest_insertion_expensive_chain_lns(
+            operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_expensive_chain_lns(
+            operations_research::OptionalBoolean::BOOL_TRUE);
+    second_stage_search_params.mutable_local_search_operators()->set_use_global_cheapest_insertion_path_lns(
+            operations_research::OptionalBoolean::BOOL_TRUE);
     second_stage_search_params.set_use_full_propagation(true);
 //    second_stage_search_params.set_use_cp_sat(operations_research::OptionalBoolean::BOOL_TRUE);
 
@@ -168,10 +172,11 @@ void rows::ThreeStepSchedulingWorker::Run() {
         LOG_IF(WARNING, all_routes_empty) << "First stage did not produce any routes";
     }
 
-    const auto second_stage_routes = SolveSecondStage(second_step_initial_routes, second_stage_wrapper, second_stage_search_params);
+//    second_stage_model->solver()->set_fail_intercept(&FailureInterceptor);
+    const auto routes = SolveSecondStage(second_step_initial_routes, second_stage_wrapper.index_manager(), second_stage_search_params);
     if (third_stage_strategy_ != ThirdStageStrategy::NONE) {
         LOG(INFO) << "Solving the third stage using " << GetAlias(third_stage_strategy_) << " strategy";
-        SolveThirdStage(second_stage_routes, second_stage_wrapper);
+        SolveThirdStage(routes, second_stage_wrapper.index_manager());
     }
 
     printer_->operator<<(TracingEvent(TracingEventType::Finished, "All"));
@@ -283,7 +288,6 @@ bool rows::ThreeStepSchedulingWorker::Init(std::shared_ptr<const ProblemData> pr
 
 std::unique_ptr<rows::MetaheuristicSolver> rows::ThreeStepSchedulingWorker::CreateThirdStageSolver(
         const operations_research::RoutingSearchParameters &search_params,
-        int64 last_dropped_visit_penalty,
         int64 max_dropped_visit_threshold) {
     CHECK_NE(third_stage_strategy_, ThirdStageStrategy::NONE);
 
@@ -294,7 +298,6 @@ std::unique_ptr<rows::MetaheuristicSolver> rows::ThreeStepSchedulingWorker::Crea
                                                            break_time_window_,
                                                            begin_end_shift_time_extension_,
                                                            post_opt_time_limit_,
-                                                           last_dropped_visit_penalty,
                                                            max_dropped_visit_threshold);
     } else if (third_stage_strategy_ == ThirdStageStrategy::VEHICLE_REDUCTION) {
         return std::make_unique<rows::ThirdStepReductionSolver>(*problem_data_,
@@ -303,7 +306,6 @@ std::unique_ptr<rows::MetaheuristicSolver> rows::ThreeStepSchedulingWorker::Crea
                                                                 break_time_window_,
                                                                 begin_end_shift_time_extension_,
                                                                 post_opt_time_limit_,
-                                                                last_dropped_visit_penalty,
                                                                 max_dropped_visit_threshold);
     } else if (third_stage_strategy_ == ThirdStageStrategy::DELAY_RISKINESS_REDUCTION) {
         return std::make_unique<rows::DelayRiskinessReductionSolver>(*problem_data_,
@@ -313,7 +315,6 @@ std::unique_ptr<rows::MetaheuristicSolver> rows::ThreeStepSchedulingWorker::Crea
                                                                      break_time_window_,
                                                                      begin_end_shift_time_extension_,
                                                                      post_opt_time_limit_,
-                                                                     last_dropped_visit_penalty,
                                                                      max_dropped_visit_threshold);
     } else {
         CHECK_EQ(third_stage_strategy_, ThirdStageStrategy::DELAY_PROBABILITY_REDUCTION);
@@ -324,7 +325,6 @@ std::unique_ptr<rows::MetaheuristicSolver> rows::ThreeStepSchedulingWorker::Crea
                                                                        break_time_window_,
                                                                        begin_end_shift_time_extension_,
                                                                        post_opt_time_limit_,
-                                                                       last_dropped_visit_penalty,
                                                                        max_dropped_visit_threshold);
     }
 }
@@ -624,16 +624,186 @@ int64 GetEssentialRiskiness(std::vector<int64> delays) {
     return delays.at(delay_pos);
 }
 
-std::vector<std::vector<int64>>
-rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<int64>> &second_stage_initial_routes,
-                                                  rows::SecondStepSolver &second_stage_solver,
-                                                  const operations_research::RoutingSearchParameters &search_params) {
+class NodeMeanDelayRemover {
+public:
+    NodeMeanDelayRemover(rows::SolverWrapper &solver_wrapper,
+                         operations_research::RoutingModel &model,
+                         const rows::History &history)
+            : solver_wrapper_{solver_wrapper},
+              model_{model},
+              history_{history} {}
+
+    std::vector<std::vector<int64>> RemoveDelayedNodes(const std::vector<std::vector<int64>> &routes) {
+        rows::DelayTracker local_tracker{solver_wrapper_,
+                                         history_,
+                                         &model_.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
+
+        std::unordered_set<int64> nodes_to_skip;
+        operations_research::Assignment *restored_assignment = nullptr;
+        int iteration = 0;
+        while (restored_assignment == nullptr && iteration < 64) {
+            ++iteration;
+
+//            if (iteration > 1) {
+//                model_.solver()->set_fail_intercept(&FailureInterceptor);
+//            }
+
+            auto filtered_routes = GetFilteredRoutes(nodes_to_skip, routes);
+            solver_wrapper_.ClearFailedIndices();
+            auto filtered_assignment = model_.ReadAssignmentFromRoutes(filtered_routes, false);
+
+            // candidates to remove should not have a predecessor on a path which is also a candidate to remove
+            std::unordered_set<int64> candidates_to_remove = solver_wrapper_.FailedIndices();
+            CHECK (filtered_assignment != nullptr || !candidates_to_remove.empty());
+
+            const auto indices_to_remove = NominateCandidatesToRemove(candidates_to_remove, filtered_routes);
+            for (const auto index : indices_to_remove) {
+                nodes_to_skip.emplace(index);
+            }
+
+            if (filtered_assignment != nullptr) {
+                bool extra_nodes_removed = false;
+                restored_assignment = model_.RestoreAssignment(*filtered_assignment);
+                local_tracker.UpdateAllPaths(restored_assignment);
+
+                std::unordered_set<int64> next_candidates_to_remove;
+                for (auto index = 0; index < solver_wrapper_.index_manager().num_indices(); ++index) {
+                    if (!local_tracker.IsVisited(index)) { continue; }
+                    if (model_.IsStart(index) || model_.IsEnd(index)) { continue; }
+
+//                    const auto node = filtered_second_stage_wrapper.index_manager().IndexToNode(index);
+//                    const auto visit = filtered_second_stage_wrapper.NodeToVisit(node);
+//                    if (visit.id() == 8482342) {
+//                        const auto mean_delay = local_tracker.GetMeanDelay(index);
+//                        local_tracker.PrintPath(8482342);
+//                        LOG(INFO) << "Mean delay (8482342): " << mean_delay;
+//                    }
+
+                    const auto mean_delay = local_tracker.GetMeanDelay(index);
+                    if (mean_delay > 0) {
+                        const auto node = solver_wrapper_.index_manager().IndexToNode(index);
+                        const auto &visit = solver_wrapper_.NodeToVisit(node);
+                        if (visit.carer_count() == 1) {
+                            next_candidates_to_remove.emplace(index);
+                        } else {
+                            const auto nodes = solver_wrapper_.GetNodePair(visit);
+                            const auto first_index = solver_wrapper_.index_manager().NodeToIndex(nodes.first);
+                            const auto second_index = solver_wrapper_.index_manager().NodeToIndex(nodes.second);
+                            if (candidates_to_remove.find(first_index) == std::cend(candidates_to_remove)
+                                && candidates_to_remove.find(second_index) == std::cend(candidates_to_remove)) {
+                                next_candidates_to_remove.emplace(first_index);
+                                next_candidates_to_remove.emplace(second_index);
+                            }
+                        }
+                    }
+                }
+
+                if (!next_candidates_to_remove.empty()) {
+                    const auto next_indices_to_remove = NominateCandidatesToRemove(next_candidates_to_remove, filtered_routes);
+                    CHECK(!next_candidates_to_remove.empty());
+
+                    for (const auto index : next_candidates_to_remove) {
+                        nodes_to_skip.emplace(index);
+
+//                        const auto node = solver_wrapper_.index_manager().IndexToNode(index);
+//                        const auto &visit = solver_wrapper_.NodeToVisit(node);
+//                        local_tracker.PrintPath(visit.id());
+                    }
+
+                    extra_nodes_removed = true;
+                    restored_assignment = nullptr;
+                }
+            }
+        }
+
+        return GetFilteredRoutes(nodes_to_skip, routes);
+    }
+
+private:
+    std::vector<std::vector<int64>> GetFilteredRoutes(const std::unordered_set<int64> &nodes_to_remove,
+                                                      const std::vector<std::vector<int64>> &routes) {
+        std::vector<std::vector<int64>> filtered_routes;
+        for (const auto &tour : routes) {
+            std::vector<int64> filtered_route;
+            for (const auto node : tour) {
+                if (nodes_to_remove.find(node) == std::cend(nodes_to_remove)) {
+                    filtered_route.emplace_back(node);
+                }
+            }
+            filtered_routes.emplace_back(std::move(filtered_route));
+        }
+        return filtered_routes;
+    }
+
+    std::unordered_set<int64> NominateCandidatesToRemove(std::unordered_set<int64> candidates_to_remove,
+                                                         const std::vector<std::vector<int64>> &routes) {
+        std::unordered_set<int64> nodes_to_remove;
+
+        if (candidates_to_remove.empty()) {
+            return nodes_to_remove;
+        }
+
+        for (std::size_t tour_index = 0; tour_index < routes.size(); ++tour_index) {
+            const auto &tour = routes.at(tour_index);
+            const auto tour_length = tour.size();
+
+            std::size_t pos = 0;
+            for (; pos < tour_length; ++pos) {
+                if (candidates_to_remove.find(tour.at(pos)) != std::cend(candidates_to_remove)) {
+                    break;
+                }
+            }
+            ++pos;
+
+            for (; pos < tour_length; ++pos) {
+                auto index_it = candidates_to_remove.find(tour.at(pos));
+                if (index_it != std::cend(candidates_to_remove)) {
+                    candidates_to_remove.erase(index_it);
+                }
+            }
+        }
+
+        for (const auto index : candidates_to_remove) {
+            const auto node = solver_wrapper_.index_manager().IndexToNode(index);
+            const auto &visit = solver_wrapper_.NodeToVisit(node);
+            if (visit.carer_count() == 1) {
+                nodes_to_remove.emplace(index);
+            } else {
+                const auto nodes = solver_wrapper_.GetNodePair(visit);
+                const auto first_index = solver_wrapper_.index_manager().NodeToIndex(nodes.first);
+                const auto second_index = solver_wrapper_.index_manager().NodeToIndex(nodes.second);
+                if (candidates_to_remove.find(first_index) != std::cend(candidates_to_remove)
+                    && candidates_to_remove.find(second_index) != std::cend(candidates_to_remove)) {
+                    nodes_to_remove.emplace(first_index);
+                    nodes_to_remove.emplace(second_index);
+                }
+            }
+        }
+
+        return nodes_to_remove;
+    }
+
+    rows::SolverWrapper &solver_wrapper_;
+    operations_research::RoutingModel &model_;
+    const rows::History &history_;
+};
+
+std::vector<std::vector<int64> > rows::ThreeStepSchedulingWorker::SolveSecondStage(
+        const std::vector<std::vector<int64>> &second_stage_initial_routes,
+        const operations_research::RoutingIndexManager &index_manager,
+        const operations_research::RoutingSearchParameters &search_params) {
     static const auto LOAD_DEBUG_FILES = false;
     static const auto SOLUTION_EXTENSION = ".bin";
 
     const std::string SECOND_STAGE_XML_SOLUTION = "";
 
-    const auto scheduling_day = second_stage_solver.GetScheduleDate();
+    rows::SecondStepSolver second_stage_wrapper{*problem_data_,
+                                                search_params,
+                                                visit_time_window_,
+                                                break_time_window_,
+                                                begin_end_shift_time_extension_,
+                                                opt_time_limit_};
+    const auto scheduling_day = second_stage_wrapper.GetScheduleDate();
 
     std::stringstream second_stage_solution_name;
     second_stage_solution_name << "assignment_" << boost::gregorian::to_simple_string(scheduling_day) << SOLUTION_EXTENSION;
@@ -644,25 +814,24 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
     const auto assignment_save_copy = second_stage_solution_name.str();
     const auto final_assignment_save_copy = filtered_second_stage_solution_name.str();
 
-    operations_research::RoutingModel second_stage_model{second_stage_solver.index_manager()};
+    std::unique_ptr<operations_research::RoutingModel> second_stage_model = std::make_unique<operations_research::RoutingModel>(index_manager);
 //    second_stage_model->solver()->set_fail_intercept(&FailureInterceptor);
-    second_stage_solver.ConfigureModel(second_stage_model, printer_, CancelToken(), cost_normalization_factor_);
+    second_stage_wrapper.ConfigureModel(*second_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 
-    for (auto index = 0; index < second_stage_solver.index_manager().num_indices(); ++index) {
-        const auto routing_node = second_stage_solver.index_manager().IndexToNode(index);
-        if (routing_node == rows::RealProblemData::DEPOT) { continue; }
-
+//    for (auto index = 0; index < second_stage_solver.index_manager().num_indices(); ++index) {
+//        const auto routing_node = second_stage_solver.index_manager().IndexToNode(index);
+//        if (routing_node == rows::RealProblemData::DEPOT) { continue; }
+//
 //        const auto &visit = second_stage_solver.NodeToVisit(routing_node);
 //        if (visit.id() == 8559516) {
 //            LOG(INFO) << index;
 //        }
-    }
+//    }
 
-    std::vector<std::vector<int64>> solution;
     operations_research::Assignment const *second_stage_assignment = nullptr;
     operations_research::Assignment const *filtered_assignment = nullptr;
 
-    operations_research::RoutingModel filtered_second_stage_model{second_stage_solver.index_manager()};
+    operations_research::RoutingModel filtered_second_stage_model{index_manager};
     rows::SecondStepSolverNoExpectedDelay filtered_second_stage_wrapper{*problem_data_,
                                                                         *history_,
                                                                         search_params,
@@ -674,26 +843,28 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
 
     if (LOAD_DEBUG_FILES && boost::filesystem::is_regular_file(final_assignment_save_copy)) {
         filtered_assignment = filtered_second_stage_model.ReadAssignment(final_assignment_save_copy);
-        filtered_second_stage_model.AssignmentToRoutes(*filtered_assignment, &solution);
-        return solution;
+        std::vector<std::vector<int64>> routes;
+        filtered_second_stage_model.AssignmentToRoutes(*filtered_assignment, &routes);
+        return routes;
     }
 
     if (!SECOND_STAGE_XML_SOLUTION.empty() && boost::filesystem::is_regular_file(SECOND_STAGE_XML_SOLUTION)) {
         rows::Solution::XmlLoader loader;
         const auto xml_solution = loader.Load(SECOND_STAGE_XML_SOLUTION);
-        solution = second_stage_solver.GetRoutes(xml_solution, second_stage_model);
+        const auto routes = second_stage_wrapper.GetRoutes(xml_solution, *second_stage_model);
+        second_stage_assignment = second_stage_model->ReadAssignmentFromRoutes(routes, false);
+        CHECK(second_stage_assignment) << "Failed to load: " << SECOND_STAGE_XML_SOLUTION;
     } else if (LOAD_DEBUG_FILES && boost::filesystem::is_regular_file(assignment_save_copy)) {
-        second_stage_assignment = second_stage_model.ReadAssignment(assignment_save_copy);
+        second_stage_assignment = second_stage_model->ReadAssignment(assignment_save_copy);
         CHECK(second_stage_assignment) << "Failed to load: " << assignment_save_copy;
-        second_stage_model.AssignmentToRoutes(*second_stage_assignment, &solution);
     } else {
         std::stringstream penalty_msg;
-        penalty_msg << "MissedVisitPenalty: " << second_stage_solver.GetDroppedVisitPenalty();
+        penalty_msg << "MissedVisitPenalty: " << second_stage_wrapper.GetDroppedVisitPenalty();
         printer_->operator<<(TracingEvent(TracingEventType::Unknown, penalty_msg.str()));
 
-        const auto second_stage_initial_assignment = second_stage_model.ReadAssignmentFromRoutes(second_stage_initial_routes, true);
+        const auto second_stage_initial_assignment = second_stage_model->ReadAssignmentFromRoutes(second_stage_initial_routes, true);
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2"));
-        second_stage_assignment = second_stage_model.SolveFromAssignmentWithParameters(second_stage_initial_assignment, search_params);
+        second_stage_assignment = second_stage_model->SolveFromAssignmentWithParameters(second_stage_initial_assignment, search_params);
         printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage2"));
 
         if (second_stage_assignment == nullptr) {
@@ -701,16 +872,16 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         }
 
         if (LOAD_DEBUG_FILES) {
-            const auto save_status = second_stage_model.WriteAssignment(assignment_save_copy);
+            const auto save_status = second_stage_model->WriteAssignment(assignment_save_copy);
             CHECK(save_status);
             LOG(INFO) << "Second stage assignment written to file: " << assignment_save_copy;
         }
 
-        for (int vehicle = 0; vehicle < second_stage_model.vehicles(); ++vehicle) {
+        for (int vehicle = 0; vehicle < second_stage_model->vehicles(); ++vehicle) {
             const auto validation_result = solution_validator_.ValidateFull(vehicle,
                                                                             *second_stage_assignment,
-                                                                            second_stage_model,
-                                                                            second_stage_solver);
+                                                                            *second_stage_model,
+                                                                            second_stage_wrapper);
             CHECK(validation_result.error() == nullptr);
         }
 
@@ -720,98 +891,63 @@ rows::ThreeStepSchedulingWorker::SolveSecondStage(const std::vector<std::vector<
         boost::filesystem::path second_stage_output = boost::filesystem::absolute(second_stage_output_file, output_path.parent_path());
 
         solution_writer_.Write(second_stage_output,
-                               second_stage_solver,
-                               second_stage_model,
+                               second_stage_wrapper,
+                               *second_stage_model,
                                *second_stage_assignment);
-
-        second_stage_model.AssignmentToRoutes(*second_stage_assignment, &solution);
     }
 
-    if (third_stage_strategy_ == ThirdStageStrategy::DELAY_RISKINESS_REDUCTION
-        || third_stage_strategy_ == ThirdStageStrategy::DELAY_PROBABILITY_REDUCTION) {
-//        second_stage_model.solver()->set_fail_intercept(FailureInterceptor);
-        const auto solution_assignment = second_stage_model.ReadAssignmentFromRoutes(solution, false);
-        CHECK(solution_assignment != nullptr);
-        DelayTracker delay_tracker{second_stage_solver, *history_, &second_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
-        delay_tracker.UpdateAllPaths(solution_assignment);
-
-        std::unordered_set<int64> nodes_to_skip;
-        for (int vehicle = 0; vehicle < second_stage_solver.index_manager().num_vehicles(); ++vehicle) {
-            int64 current_index = delay_tracker.Record(second_stage_model.Start(vehicle)).next;
-            while (!second_stage_model.IsEnd(current_index)) {
-                if (delay_tracker.GetMeanDelay(current_index) > 0) {
-                    nodes_to_skip.emplace(current_index);
-                }
-
-                current_index = delay_tracker.Record(current_index).next;
-            }
-        }
-
-        DelayTracker local_tracker{filtered_second_stage_wrapper,
-                                   *history_,
-                                   &filtered_second_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
-
-        operations_research::Assignment *restored_assignment = nullptr;
-        int iterations = 0;
-        while (restored_assignment == nullptr && iterations < 10) {
-            std::vector<std::vector<int64>> filtered_tours;
-            for (const auto &tour : solution) {
-                std::vector<int64> filtered_tour;
-                for (const auto node : tour) {
-                    if (nodes_to_skip.find(node) == std::cend(nodes_to_skip)) {
-                        filtered_tour.emplace_back(node);
-                    }
-                }
-                filtered_tours.emplace_back(std::move(filtered_tour));
-            }
-
-            filtered_assignment = filtered_second_stage_model.ReadAssignmentFromRoutes(filtered_tours, false);
-            for (const auto index : filtered_second_stage_wrapper.failed_expectation_repository()->Indices()) {
-                nodes_to_skip.emplace(index);
-            }
-
-            if (filtered_assignment != nullptr) {
-                bool extra_nodes_removed = false;
-                restored_assignment = filtered_second_stage_model.RestoreAssignment(*filtered_assignment);
-                local_tracker.UpdateAllPaths(restored_assignment);
-
-                for (auto index = 0; index < filtered_second_stage_wrapper.index_manager().num_indices(); ++index) {
-                    if (!local_tracker.IsVisited(index)) { continue; }
-
-                    const auto mean_delay = local_tracker.GetMeanDelay(index);
-                    if (mean_delay > 0) {
-                        nodes_to_skip.emplace(index);
-                        extra_nodes_removed = true;
-                    }
-                }
-
-                if (extra_nodes_removed) {
-                    restored_assignment = nullptr;
-                }
-            }
-
-            ++iterations;
-        }
-        CHECK(filtered_assignment != nullptr);
-
-        printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2-Patch"));
-        auto valid_second_stage_assignment
-                = filtered_second_stage_model.SolveFromAssignmentWithParameters(restored_assignment, search_params);
-        if (valid_second_stage_assignment == nullptr) {
-            throw util::ApplicationError("No second stage patched solution found.", util::ErrorCode::ERROR);
-        }
-
-        if (LOAD_DEBUG_FILES) {
-            const auto save_status = filtered_second_stage_model.WriteAssignment(final_assignment_save_copy);
-            CHECK(save_status);
-            LOG(INFO) << "Patched second stage assignment written to file: " << final_assignment_save_copy;
-        }
-
-        printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage2-Patch"));
-        solution.clear();
-        filtered_second_stage_model.AssignmentToRoutes(*valid_second_stage_assignment, &solution);
+    if (third_stage_strategy_ != ThirdStageStrategy::DELAY_RISKINESS_REDUCTION
+        && third_stage_strategy_ != ThirdStageStrategy::DELAY_PROBABILITY_REDUCTION) {
+        std::vector<std::vector<int64>> routes;
+        second_stage_model->AssignmentToRoutes(*second_stage_assignment, &routes);
+        return routes;
     }
-    return solution;
+
+//  second_stage_model.solver()->set_fail_intercept(FailureInterceptor);
+//  const auto solution_assignment = second_stage_model->ReadAssignmentFromRoutes(solution, false);
+    CHECK(second_stage_assignment != nullptr);
+
+//    for (int vehicle = 0; vehicle < index_manager.num_vehicles(); ++vehicle) {
+//        int64 current_index = delay_tracker.Record(second_stage_model->Start(vehicle)).next;
+//        while (!second_stage_model->IsEnd(current_index)) {
+//            if (delay_tracker.GetMeanDelay(current_index) > 0) {
+//                nodes_to_skip.emplace(current_index);
+//            }
+//
+//            current_index = delay_tracker.Record(current_index).next;
+//        }
+//    }
+
+    std::vector<std::vector<int64>> routes;
+    second_stage_model->AssignmentToRoutes(*second_stage_assignment, &routes);
+
+    NodeMeanDelayRemover delayed_node_remover{filtered_second_stage_wrapper, filtered_second_stage_model, *history_};
+    const auto filtered_routes = delayed_node_remover.RemoveDelayedNodes(routes);
+
+    filtered_assignment = filtered_second_stage_model.ReadAssignmentFromRoutes(filtered_routes, false);
+    CHECK(filtered_assignment != nullptr);
+
+    if (LOAD_DEBUG_FILES) {
+        solution_writer_.Write("filtered_solution.gexf", filtered_second_stage_wrapper, filtered_second_stage_model, *filtered_assignment);
+    }
+
+    printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage2-Patch"));
+    auto valid_second_stage_assignment
+            = filtered_second_stage_model.SolveFromAssignmentWithParameters(filtered_assignment, search_params);
+    if (valid_second_stage_assignment == nullptr) {
+        throw util::ApplicationError("No second stage patched solution found.", util::ErrorCode::ERROR);
+    }
+
+    if (LOAD_DEBUG_FILES) {
+        const auto save_status = filtered_second_stage_model.WriteAssignment(final_assignment_save_copy);
+        CHECK(save_status);
+        LOG(INFO) << "Patched second stage assignment written to file: " << final_assignment_save_copy;
+    }
+
+    printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage2-Patch"));
+    routes.clear();
+    filtered_second_stage_model.AssignmentToRoutes(*valid_second_stage_assignment, &routes);
+    return routes;
 }
 
 void rows::ThreeStepSchedulingWorker::WriteSolution(const operations_research::Assignment *assignment,
@@ -835,12 +971,16 @@ int64 GetEssentialRiskiness(int64 num_indices, rows::DelayTracker &tracker, cons
     tracker.UpdateAllPaths(assignment);
     std::vector<int64> element_riskiness;
     for (auto index = 0; index < num_indices; ++index) {
-        int64 local_riskiness = 0;
-
-        if (tracker.IsVisited(index)) {
-            local_riskiness = tracker.GetEssentialRiskiness(index);
+        if (!tracker.IsVisited(index)) {
+            continue;
         }
 
+//        const auto mean_delay = tracker.GetMeanDelay(index);
+//        if (mean_delay > 0) {
+//            LOG(INFO) << "HERE";
+//        }
+
+        int64 local_riskiness = tracker.GetEssentialRiskiness(index);
         element_riskiness.push_back(local_riskiness);
     }
 
@@ -848,34 +988,48 @@ int64 GetEssentialRiskiness(int64 num_indices, rows::DelayTracker &tracker, cons
 }
 
 void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vector<int64>> &second_stage_routes,
-                                                      rows::SolverWrapper &second_stage_solver) {
-    DeclinedVisitEvaluator declined_evalutor{second_stage_solver.problem_data(), second_stage_solver.index_manager()};
-
-    operations_research::RoutingModel third_stage_model{second_stage_solver.index_manager()};
-
-    const auto max_dropped_visit_threshold = declined_evalutor.GetThreshold(second_stage_routes);
-
-    const auto max_dropped_visits_count = third_stage_model.nodes()
-                                          - util::GetVisitedNodes(second_stage_routes, third_stage_model.GetDepot()).size() - 1;
+                                                      const operations_research::RoutingIndexManager &index_manager) {
+    DeclinedVisitEvaluator declined_evaluator{*problem_data_, index_manager};
 
     const auto third_search_params = CreateThirdStageRoutingSearchParameters();
-    const auto third_stage_penalty = second_stage_solver.GetDroppedVisitPenalty();
-    std::unique_ptr<MetaheuristicSolver> third_step_solver
-            = CreateThirdStageSolver(third_search_params, third_stage_penalty, max_dropped_visit_threshold);
-
-    third_step_solver->ConfigureModel(third_stage_model, printer_, CancelToken(), cost_normalization_factor_);
-//    third_stage_model->solver()->set_fail_intercept(FailureInterceptor);
-    operations_research::Assignment *third_stage_pre_assignment = third_stage_model.ReadAssignmentFromRoutes(second_stage_routes, true);
-    DCHECK(third_stage_pre_assignment != nullptr);
-
     if (third_stage_strategy_ == ThirdStageStrategy::DELAY_RISKINESS_REDUCTION) {
-        DelayTracker local_tracker{*third_step_solver,
-                                   *history_,
-                                   &third_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
+        operations_research::RoutingModel pre_assignment_third_stage_model{index_manager};
+        rows::DelayRiskinessReductionSolver pre_assignment_third_step_solver(*problem_data_,
+                                                                             *history_,
+                                                                             third_search_params,
+                                                                             visit_time_window_,
+                                                                             break_time_window_,
+                                                                             begin_end_shift_time_extension_,
+                                                                             post_opt_time_limit_,
+                                                                             1);
+        pre_assignment_third_step_solver.ConfigureModel(pre_assignment_third_stage_model, printer_, CancelToken(), cost_normalization_factor_);
 
-        const auto max_pre_riskiness = GetEssentialRiskiness(third_step_solver->index_manager().num_indices(), local_tracker,
+        NodeMeanDelayRemover delayed_node_remover{pre_assignment_third_step_solver, pre_assignment_third_stage_model, *history_};
+        const auto filtered_routes = delayed_node_remover.RemoveDelayedNodes(second_stage_routes);
+
+
+        const auto max_dropped_visit_threshold = declined_evaluator.GetThreshold(filtered_routes);
+
+        operations_research::RoutingModel third_stage_model{index_manager};
+        rows::DelayRiskinessReductionSolver third_step_solver(*problem_data_,
+                                                              *history_,
+                                                              third_search_params,
+                                                              visit_time_window_,
+                                                              break_time_window_,
+                                                              begin_end_shift_time_extension_,
+                                                              post_opt_time_limit_,
+                                                              max_dropped_visit_threshold);
+        third_step_solver.ConfigureModel(third_stage_model, printer_, CancelToken(), cost_normalization_factor_);
+        operations_research::Assignment *third_stage_pre_assignment = third_stage_model.ReadAssignmentFromRoutes(filtered_routes, false);
+        DCHECK(third_stage_pre_assignment != nullptr);
+
+        rows::DelayTracker local_tracker{third_step_solver,
+                                         *history_,
+                                         &third_stage_model.GetDimensionOrDie(rows::SolverWrapper::TIME_DIMENSION)};
+        const auto max_pre_riskiness = GetEssentialRiskiness(third_step_solver.index_manager().num_indices(),
+                                                             local_tracker,
                                                              third_stage_pre_assignment);
-        WriteSolution(third_stage_pre_assignment, third_stage_model, *third_step_solver);
+        WriteSolution(third_stage_pre_assignment, third_stage_model, third_step_solver);
 
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
         const operations_research::Assignment *third_stage_assignment
@@ -884,14 +1038,23 @@ void rows::ThreeStepSchedulingWorker::SolveThirdStage(const std::vector<std::vec
             throw util::ApplicationError("No third stage solution found.", util::ErrorCode::ERROR);
         }
 
-        const auto max_post_riskiness = GetEssentialRiskiness(third_step_solver->index_manager().num_indices(), local_tracker,
+        const auto max_post_riskiness = GetEssentialRiskiness(third_step_solver.index_manager().num_indices(),
+                                                              local_tracker,
                                                               third_stage_assignment);
         printer_->operator<<(TracingEvent(TracingEventType::Finished, "Stage3"));
 
         if (max_pre_riskiness > max_post_riskiness) {
-            WriteSolution(third_stage_assignment, third_stage_model, *third_step_solver);
+            WriteSolution(third_stage_assignment, third_stage_model, third_step_solver);
         }
     } else {
+        const auto max_dropped_visit_threshold = declined_evaluator.GetThreshold(second_stage_routes);
+
+        operations_research::RoutingModel third_stage_model{index_manager};
+        std::unique_ptr<MetaheuristicSolver> third_step_solver = CreateThirdStageSolver(third_search_params, max_dropped_visit_threshold);
+        third_step_solver->ConfigureModel(third_stage_model, printer_, CancelToken(), cost_normalization_factor_);
+        operations_research::Assignment *third_stage_pre_assignment = third_stage_model.ReadAssignmentFromRoutes(second_stage_routes, true);
+        DCHECK(third_stage_pre_assignment != nullptr);
+
         printer_->operator<<(TracingEvent(TracingEventType::Started, "Stage3"));
         const operations_research::Assignment *third_stage_assignment = third_stage_model.SolveFromAssignmentWithParameters(
                 third_stage_pre_assignment, third_search_params);

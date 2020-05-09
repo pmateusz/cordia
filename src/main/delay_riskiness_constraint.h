@@ -6,12 +6,15 @@
 
 #include "delay_constraint.h"
 #include "delay_tracker.h"
+#include "failed_index_repository.h"
 
 namespace rows {
 
     class DelayRiskinessConstraint : public DelayConstraint {
     public:
-        DelayRiskinessConstraint(operations_research::IntVar *riskiness_index, std::unique_ptr<DelayTracker> delay_tracker);
+        DelayRiskinessConstraint(operations_research::IntVar *riskiness_index,
+                                 std::unique_ptr<DelayTracker> delay_tracker,
+                                 std::shared_ptr<FailedIndexRepository> failed_index_repository);
 
         void Post() override;
 
@@ -22,6 +25,7 @@ namespace rows {
         int64 GetEssentialRiskiness(int64 index) const;
 
         operations_research::IntVar *riskiness_index_;
+        std::shared_ptr<FailedIndexRepository> failed_index_repository_;
     };
 }
 

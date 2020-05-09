@@ -13,7 +13,6 @@ rows::DelayRiskinessReductionSolver::DelayRiskinessReductionSolver(const Problem
                                                                    boost::posix_time::time_duration break_time_window,
                                                                    boost::posix_time::time_duration begin_end_work_day_adjustment,
                                                                    boost::posix_time::time_duration no_progress_time_limit,
-                                                                   int64 dropped_visit_penalty,
                                                                    int64 max_dropped_visits)
         : MetaheuristicSolver(problem_data,
                               search_parameters,
@@ -21,7 +20,6 @@ rows::DelayRiskinessReductionSolver::DelayRiskinessReductionSolver(const Problem
                               std::move(break_time_window),
                               std::move(begin_end_work_day_adjustment),
                               std::move(no_progress_time_limit),
-                              dropped_visit_penalty,
                               max_dropped_visits),
           history_{history} {}
 
@@ -30,7 +28,7 @@ void rows::DelayRiskinessReductionSolver::BeforeCloseModel(operations_research::
 
     riskiness_index_ = model.solver()->MakeIntVar(0, kint64max, "riskiness_index");
     std::unique_ptr<DelayTracker> delay_tracker = std::make_unique<DelayTracker>(*this, history_, &model.GetDimensionOrDie(TIME_DIMENSION));
-    model.solver()->AddConstraint(model.solver()->RevAlloc(new DelayRiskinessConstraint(riskiness_index_, std::move(delay_tracker))));
+    model.solver()->AddConstraint(model.solver()->RevAlloc(new DelayRiskinessConstraint(riskiness_index_, std::move(delay_tracker), failed_index_repository())));
     model.AddVariableMinimizedByFinalizer(riskiness_index_);
 }
 

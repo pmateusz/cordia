@@ -41,13 +41,11 @@ void rows::SecondStepSolverNoExpectedDelay::ConfigureModel(operations_research::
     AddCarerHandling(model);
     AddDroppedVisitsHandling(model);
 
-    failed_expectation_repository_ = std::make_shared<FailedExpectationRepository>();
-
     model.solver()->AddConstraint(
             model.solver()->RevAlloc(
                     new DelayNotExpectedConstraint(
                             std::make_unique<DelayTracker>(*this, history_, &model.GetDimensionOrDie(TIME_DIMENSION)),
-                            failed_expectation_repository_)));
+                            failed_index_repository())));
 
     const auto schedule_day = GetScheduleDate();
     printer->operator<<(ProblemDefinition(model.vehicles(),
@@ -78,8 +76,4 @@ void rows::SecondStepSolverNoExpectedDelay::ConfigureModel(operations_research::
 
 std::shared_ptr<rows::SolutionRepository> rows::SecondStepSolverNoExpectedDelay::solution_repository() {
     return solution_repository_;
-}
-
-std::shared_ptr<rows::FailedExpectationRepository> rows::SecondStepSolverNoExpectedDelay::failed_expectation_repository() {
-    return failed_expectation_repository_;
 }

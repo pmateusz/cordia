@@ -4,9 +4,9 @@
 
 
 rows::DelayNotExpectedConstraint::DelayNotExpectedConstraint(std::unique_ptr<DelayTracker> delay_tracker,
-                                                             std::shared_ptr<FailedExpectationRepository> failed_expectation_repository)
+                                                             std::shared_ptr<FailedIndexRepository> failed_index_repository)
         : DelayConstraint(std::move(delay_tracker)),
-          failed_expectation_repository_{std::move(failed_expectation_repository)} {}
+          failed_index_repository_{std::move(failed_index_repository)} {}
 
 void rows::DelayNotExpectedConstraint::Post() {
     DelayConstraint::Post();
@@ -23,10 +23,10 @@ void rows::DelayNotExpectedConstraint::Post() {
 void rows::DelayNotExpectedConstraint::PostNodeConstraints(int64 node) {
     const auto mean_delay = GetMeanDelay(node);
     if (mean_delay > 0) {
-        failed_expectation_repository_->Emplace(node);
+        failed_index_repository_->Emplace(node);
         const auto sibling_node = delay_tracker().sibling(node);
         if (sibling_node != -1) {
-            failed_expectation_repository_->Emplace(sibling_node);
+            failed_index_repository_->Emplace(sibling_node);
         }
 
 //        std::stringstream msg;
@@ -38,12 +38,4 @@ void rows::DelayNotExpectedConstraint::PostNodeConstraints(int64 node) {
 
         solver()->Fail();
     }
-}
-
-void rows::FailedExpectationRepository::Emplace(int64 index) {
-    indices_.emplace(index);
-}
-
-const std::unordered_set<int64> &rows::FailedExpectationRepository::Indices() const {
-    return indices_;
 }

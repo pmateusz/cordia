@@ -1,9 +1,11 @@
 #include "delay_riskiness_constraint.h"
 
-rows::DelayRiskinessConstraint::DelayRiskinessConstraint(operations_research::IntVar *riskiness_index, std::unique_ptr<DelayTracker> delay_tracker)
+rows::DelayRiskinessConstraint::DelayRiskinessConstraint(operations_research::IntVar *riskiness_index,
+                                                         std::unique_ptr<DelayTracker> delay_tracker,
+                                                         std::shared_ptr<FailedIndexRepository> failed_index_repository)
         : DelayConstraint(std::move(delay_tracker)),
-          riskiness_index_{riskiness_index} {
-}
+          riskiness_index_{riskiness_index},
+          failed_index_repository_{failed_index_repository} {}
 
 void rows::DelayRiskinessConstraint::Post() {
     DelayConstraint::Post();
@@ -32,6 +34,7 @@ int64 rows::DelayRiskinessConstraint::GetEssentialRiskiness(int64 index) const {
     }
 
     if (delays.at(0) >= 0) {
+        failed_index_repository_->Emplace(index);
         return MAX_RISKINESS;
     }
 
@@ -45,6 +48,7 @@ int64 rows::DelayRiskinessConstraint::GetEssentialRiskiness(int64 index) const {
 
 //    if (delays.at(0) >= 0) {
     if (delay_pos == -1) {
+        failed_index_repository_->Emplace(index);
         return MAX_RISKINESS;
     }
 
@@ -73,6 +77,7 @@ int64 rows::DelayRiskinessConstraint::GetEssentialRiskiness(int64 index) const {
         return -riskiness_index;
     } else if (delay_balance > 0) {
         CHECK_EQ(delay_pos, 0);
+        failed_index_repository_->Emplace(index);
         return MAX_RISKINESS;
     }
 

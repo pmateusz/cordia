@@ -28,15 +28,12 @@ namespace rows {
 
         std::shared_ptr<SolutionRepository> solution_repository();
 
-        std::shared_ptr<FailedExpectationRepository> failed_expectation_repository();
-
     private:
         const History &history_;
 
         boost::posix_time::time_duration no_progress_time_limit_;
         operations_research::SolutionCollector *solution_collector_;
         std::shared_ptr<SolutionRepository> solution_repository_;
-        std::shared_ptr<FailedExpectationRepository> failed_expectation_repository_;
     };
 }
 

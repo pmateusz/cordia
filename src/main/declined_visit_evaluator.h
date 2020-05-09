@@ -16,6 +16,8 @@ namespace rows {
 
         int64 GetThreshold(const std::vector<std::vector<int64>> &routes) const;
 
+        int64 GetThreshold(const operations_research::RoutingModel &model) const;
+
         int64 Weight(int64 index) const;
 
     private:

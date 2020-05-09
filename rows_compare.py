@@ -27,6 +27,7 @@ import networkx
 import numpy
 import pandas
 import tabulate
+import tqdm
 
 import rows.console
 import rows.load
@@ -74,6 +75,7 @@ __COMPARE_PREDICTION_ERROR_COMMAND = 'compare-prediction-error'
 __COMPARE_BENCHMARK_COMMAND = 'compare-benchmark'
 __COMPARE_BENCHMARK_TABLE_COMMAND = 'compare-benchmark-table'
 __COMPARE_LITERATURE_TABLE_COMMAND = 'compare-literature-table'
+__COMPARE_THIRD_STAGE_TABLE_COMMAND = 'compare-third-stage-table'
 __COMPARE_QUALITY_OPTIMIZER_COMMAND = 'compare-quality-optimizer'
 __COMPUTE_RISKINESS_COMMAND = 'compute-riskiness'
 __COMPARE_DELAY_COMMAND = 'compare-delay'
@@ -202,6 +204,7 @@ def configure_parser():
     subparsers.add_parser(__COMPARE_BENCHMARK_TABLE_COMMAND)
     subparsers.add_parser(__COMPUTE_RISKINESS_COMMAND)
     subparsers.add_parser(__COMPARE_DELAY_COMMAND)
+    subparsers.add_parser(__COMPARE_THIRD_STAGE_TABLE_COMMAND)
 
     return parser
 
@@ -1766,6 +1769,10 @@ def compare_schedule_cost(args, settings):
                             tablefmt='latex', headers='keys', showindex=False))
 
 
+def compare_delay(args, settings):
+    pass
+
+
 def get_consecutive_visit_time_span(schedule: rows.model.schedule.Schedule, start_time_estimator):
     client_visits = collections.defaultdict(list)
     for visit in schedule.visits:
@@ -2841,6 +2848,10 @@ class Node:
         return self.__visit_start_max
 
     @property
+    def carer_count(self) -> int:
+        return self.__visit.carer_count
+
+    @property
     def visit_duration(self) -> datetime.timedelta:
         return self.__visit.duration
 
@@ -2872,6 +2883,7 @@ class Mapping:
         current_index = 0
 
         def find_visit(item) -> rows.model.visit.Visit:
+            current_diff = sys.maxsize
             visit_match = None
             for visit_batch in problem.visits:
                 if visit_batch.service_user != item.service_user:
@@ -2884,15 +2896,15 @@ class Mapping:
                     visit_total_time = visit.time.hour * 3600 + visit.time.minute * 60
                     item_total_time = item.time.hour * 3600 + item.time.minute * 60
                     diff_total_time = abs(visit_total_time - item_total_time)
-                    if diff_total_time <= time_window_span.total_seconds():
+                    if diff_total_time <= time_window_span.total_seconds() and diff_total_time < current_diff:
                         visit_match = visit
-                        break
+                        current_diff = diff_total_time
             assert visit_match is not None
             return visit_match
 
         current_index = 0
         with rows.plot.create_routing_session() as routing_session:
-            for carer in routes:
+            for route in routes:
                 local_route = []
                 previous_visit = None
                 previous_index = None
@@ -2900,9 +2912,9 @@ class Mapping:
                 break_start = None
                 break_duration = datetime.timedelta()
 
-                for item in routes[carer]:
-                    if isinstance(item, rows.model.visit.Visit):
-                        current_visit = item
+                for item in route.nodes:
+                    if isinstance(item, rows.model.past_visit.PastVisit):
+                        current_visit = item.visit
 
                         if previous_visit is None:
                             previous_visit = current_visit
@@ -2950,8 +2962,7 @@ class Mapping:
                             datetime.timedelta())
                 self.__index_to_node[previous_index] = node
                 local_route.append(node)
-
-                local_routes[carer] = local_route
+                local_routes[route.carer] = local_route
         self.__routes = local_routes
 
         service_user_to_index = collections.defaultdict(list)
@@ -2964,9 +2975,24 @@ class Mapping:
             num_indices = len(service_user_to_index[service_user])
             for left_pos in range(num_indices):
                 left_index = service_user_to_index[service_user][left_pos]
+                left_visit = self.__index_to_node[left_index]
+                if left_visit.carer_count == 1:
+                    continue
+
+                if left_index == 48:
+                    # visits of index 40 and 498 are connected
+                    print('here')
+
                 for right_pos in range(left_pos + 1, num_indices):
                     right_index = service_user_to_index[service_user][right_pos]
-                    if self.__index_to_node[left_index].visit_start == self.__index_to_node[right_index].visit_start:
+                    right_visit = self.__index_to_node[right_index]
+                    if right_visit.carer_count == 1:
+                        continue
+
+                    if left_visit.visit_start_min == right_visit.visit_start_min and left_visit.visit_start_max == right_visit.visit_start_max:
+                        if right_index == 48 or left_index == 48:
+                            print('here')
+                        assert left_index != right_index
                         self.__siblings[left_index] = right_index
                         self.__siblings[right_index] = left_index
 
@@ -2990,20 +3016,23 @@ class Mapping:
         for carer in self.__routes:
             for node in self.__routes[carer]:
                 if node.next != -1:
+                    assert node.index != node.next
                     edges.append([node.index, node.next])
 
                 sibling_node = self.sibling(node.index)
                 if sibling_node is not None:
                     if node.index < sibling_node.index:
+                        assert node.index != sibling_node.index
                         edges.append([node.index, sibling_node.index])
                     if node.next != -1:
+                        assert sibling_node.index != node.next
                         edges.append([sibling_node.index, node.next])
         return networkx.DiGraph(edges)
 
 
 def create_mapping(settings, problem, schedule) -> Mapping:
     mapping_time_windows_span = datetime.timedelta(minutes=90)
-    return Mapping(schedule.routes(), problem, settings, mapping_time_windows_span)
+    return Mapping(schedule.routes, problem, settings, mapping_time_windows_span)
 
 
 class StartTimeEvaluator:
@@ -3089,7 +3118,7 @@ class EssentialRiskinessEvaluator:
         self.__history = history
         self.__problem = problem
         self.__schedule = schedule
-        self.__schedule_start = datetime.datetime.combine(self.__schedule.date(), datetime.time())
+        self.__schedule_start = datetime.datetime.combine(self.__schedule.date, datetime.time())
 
         self.__mapping = None
         self.__sample = None
@@ -3100,7 +3129,7 @@ class EssentialRiskinessEvaluator:
         self.__mapping = create_mapping(self.__settings, self.__problem, self.__schedule)
 
         history_time_windows_span = datetime.timedelta(hours=2)
-        self.__sample = self.__history.build_sample(self.__problem, self.__schedule.date(), history_time_windows_span)
+        self.__sample = self.__history.build_sample(self.__problem, self.__schedule.date, history_time_windows_span)
         self.__start_times = [[datetime.datetime.max for _ in range(self.__sample.size)] for _ in self.__mapping.indices()]
         self.__delay = [[datetime.timedelta.max for _ in range(self.__sample.size)] for _ in self.__mapping.indices()]
 
@@ -3156,6 +3185,10 @@ class EssentialRiskinessEvaluator:
         else:
             return records[position]
 
+    def get_delays(self, visit_key) -> typing.List[datetime.timedelta]:
+        index = self.__find_index(visit_key)
+        return self.__delay[index]
+
     def find_carer(self, visit_key: int) -> typing.Optional[rows.model.carer.Carer]:
         for carer in self.__mapping.routes():
             for node in self.__mapping.routes()[carer]:
@@ -3170,6 +3203,10 @@ class EssentialRiskinessEvaluator:
                 if node.index == index:
                     return routes[carer]
         return None
+
+    def print_route_for_visit(self, visit_key):
+        carer = self.find_carer(visit_key)
+        self.print_route(carer)
 
     def print_route(self, carer):
         route = self.__mapping.routes()[carer]
@@ -3197,7 +3234,7 @@ class EssentialRiskinessEvaluator:
 
         selected_index = self.__find_index(visit_key)
         for scenario_number in range(self.__sample.size):
-            print('{0:<4}{1}'.format(scenario_number, int(self.__delay[selected_index][scenario_number])))
+            print('{0:<4}{1}'.format(scenario_number, int(self.__delay[selected_index][scenario_number].total_seconds())))
 
     def visit_keys(self) -> typing.List[int]:
         visit_keys = [self.__mapping.node(index).visit_key for index in self.__mapping.indices()]
@@ -3213,6 +3250,14 @@ class EssentialRiskinessEvaluator:
     def __datetime_to_delta(self, value: datetime.datetime) -> datetime.timedelta:
         return value - self.__schedule_start
 
+    def to_frame(self):
+        records = []
+        for visit_index in self.__mapping.indices():
+            visit_key = self.__mapping.node(visit_index).visit_key
+            for scenario_number in range(self.__sample.size):
+                records.append({'visit': visit_key, 'scenario': scenario_number, 'delay': self.__delay[visit_index][scenario_number]})
+        return pandas.DataFrame(data=records)
+
     @property
     def start_times(self):
         return self.__start_times
@@ -3227,20 +3272,38 @@ class EssentialRiskinessEvaluator:
         return datetime.timedelta(seconds=seconds)
 
 
+def load_history():
+    root_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems'
+
+    cached_path = os.path.join(root_dir, 'C350_history.pickle')
+    path = os.path.join(root_dir, 'C350_history.json')
+
+    import pickle
+
+    if os.path.exists(cached_path):
+        with open(cached_path, 'rb') as input_stream:
+            return pickle.load(input_stream)
+
+    with open(path, 'r') as input_stream:
+        history = rows.model.history.History.load(input_stream)
+        with open(cached_path, 'wb') as output_stream:
+            pickle.dump(history, output_stream)
+        return history
+
+
 def compare_delay(args, settings):
     compare_delay_visits_path = 'compare_delay_visits.hdf'
     compare_instances_path = 'compare_instances.hdf'
 
     def load_data():
-        root_problem_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations/cp_schedules'
+        root_problem_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations/solutions'
         problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
-        with open('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_history.json', 'r') as input_stream:
-            history = rows.model.history.History.load(input_stream)
+        history = load_history()
 
         cost_schedules \
-            = [rows.load.load_schedule(os.path.join(root_problem_dir, 'past', 'c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
+            = [rows.load.load_schedule(os.path.join(root_problem_dir, 'c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
                for day in range(1, 15)]
-        cost_traces = read_traces(os.path.join(root_problem_dir, 'past', 'c350past_distv90b90e30m1m1m5.err.log'))
+        cost_traces = read_traces(os.path.join(root_problem_dir, 'c350past_distv90b90e30m1m1m5.err.log'))
 
         risk_schedules = [rows.load.load_schedule(os.path.join(root_problem_dir, 'riskiness', '2017-10-{0:02d}.gexf'.format(day)))
                           for day in range(1, 15)]
@@ -3339,8 +3402,102 @@ def compute_riskiness(args, settings):
         riskiness_evaluator.print_route(carer)
 
 
-def debug(args, settings):
+class DelayRecords:
+
+    def __init__(self, objective, instance, delays):
+        self.__objective = objective
+        self.__instance = instance
+        self.__delays = delays
+
+
+def load_delay_records(settings):
+    root_problem_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations/solutions'
+    frame_path = os.path.join(root_problem_dir, 'delay_results.hdf')
+    if os.path.exists(frame_path):
+        return pandas.read_hdf(frame_path)
+    else:
+        objective_pattern = [['cost', 'c350past_distv90b90e30m1m1m5_201710{0:02d}.gexf'],
+                             ['reduction', 'c350past_redv90b90e30m1m1m5_201710{0:02d}.gexf'],
+                             ['risk', 'c350past_riskv90b90e30m1m1m5_201710{0:02d}.gexf']]
+
+        problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
+        history = load_history()
+
+        configurations = [(objective, instance, os.path.join(root_problem_dir, pattern.format(instance)))
+                          for objective, pattern in objective_pattern
+                          for instance in range(1, 15)]
+
+        frames = []
+        for objective, instance, schedule_file in tqdm.tqdm(configurations):
+            schedule = rows.load.load_schedule(schedule_file)
+            riskiness_evaluator = EssentialRiskinessEvaluator(settings, history, problem, schedule)
+            riskiness_evaluator.run()
+            frame = riskiness_evaluator.to_frame()
+            frame['objective'] = objective
+            frame['instance'] = instance
+            frames.append(frame)
+        frame = pandas.concat(frames)
+        frame.to_hdf(frame_path, key='a')
+        return frame
+
+
+def compare_third_stage_table(args, settings):
+    delay_records = load_delay_records(settings)
+    instances = delay_records['instance'].unique()
+    instances.sort()
+
+    objectives = delay_records['objective'].unique()
+    objectives.sort()
+
+    x_ticks = numpy.arange(len(instances)) * 4.0 + 1.0
+    x_ticklabels = numpy.arange(1, 15)
+
+    def get_all_delays(frame):
+        delays = frame['delay']
+        delays.sort_values()
+        return delays
+
+    def get_max_average_delays(frame):
+        delays = []
+        visits = frame['visit'].unique()
+        for visit in visits:
+            delays.append(frame[frame['visit'] == visit]['delay'].mean().to_timedelta64())
+        delays.sort()
+        return delays
+
+    fig, ax = matplotlib.pyplot.subplots()
+    for instance in [12]:
+        positions = list(numpy.arange(3) + (instance - 1) * (len(objectives) + 1))
+        data_points = []
+        for objective in objectives:
+            delays = get_max_average_delays(delay_records[(delay_records['instance'] == instance) & (delay_records['objective'] == objective)])
+            if objective == 'risk':
+                assert max(delays) <= 0
+            data_points.append(delays)
+        ax.boxplot(data_points, positions=positions)
+    ax.set_xticks(x_ticks)
+    ax.set_xticklabels(x_ticklabels)
+    matplotlib.pyplot.show(block=True)
+    # find median for every visit
+    # find average min and max median
+
+    # draw box plot of medians
     pass
+
+
+def debug(args, settings):
+    history = load_history()
+    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/solution_version5.gexf')
+    problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
+    riskiness_evaluator = EssentialRiskinessEvaluator(settings, history, problem, schedule)
+    riskiness_evaluator.run()
+
+    for visit_key in riskiness_evaluator.visit_keys():
+        delays = riskiness_evaluator.get_delays(visit_key)
+        values = [numpy.timedelta64(int(value.total_seconds()), 's') for value in delays]
+        mean = numpy.mean(values)
+        if mean > numpy.timedelta64(0, 's'):
+            print(visit_key, mean)
 
 
 if __name__ == '__main__':
@@ -3373,6 +3530,8 @@ if __name__ == '__main__':
         contrast_trace(__args, __settings)
     elif __command == __COMPARE_PREDICTION_ERROR_COMMAND:
         compare_prediction_error(__args, __settings)
+    elif __command == __COMPARE_THIRD_STAGE_TABLE_COMMAND:
+        compare_third_stage_table(__args, __settings)
     elif __command == __SHOW_WORKING_HOURS_COMMAND:
         show_working_hours(__args, __settings)
     elif __command == __COMPARE_QUALITY_COMMAND:
