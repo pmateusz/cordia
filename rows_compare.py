@@ -6,7 +6,6 @@ import copy
 import datetime
 import functools
 import glob
-import itertools
 import json
 import logging
 import math
@@ -66,6 +65,7 @@ __COMMAND = 'command'
 __PULL_COMMAND = 'pull'
 __INFO_COMMAND = 'info'
 __SHOW_WORKING_HOURS_COMMAND = 'show-working-hours'
+__COMPARE_BOX_PLOTS_COMMAND = 'compare-box-plots'
 __COMPARE_DISTANCE_COMMAND = 'compare-distance'
 __COMPARE_WORKLOAD_COMMAND = 'compare-workload'
 __COMPARE_QUALITY_COMMAND = 'compare-quality'
@@ -75,7 +75,9 @@ __COMPARE_PREDICTION_ERROR_COMMAND = 'compare-prediction-error'
 __COMPARE_BENCHMARK_COMMAND = 'compare-benchmark'
 __COMPARE_BENCHMARK_TABLE_COMMAND = 'compare-benchmark-table'
 __COMPARE_LITERATURE_TABLE_COMMAND = 'compare-literature-table'
+__COMPARE_THIRD_STAGE_PLOT_COMMAND = 'compare-third-stage-plot'
 __COMPARE_THIRD_STAGE_TABLE_COMMAND = 'compare-third-stage-table'
+__COMPARE_THIRD_STAGE_SUMMARY_COMMAND = 'compare-third-stage-summary'
 __COMPARE_QUALITY_OPTIMIZER_COMMAND = 'compare-quality-optimizer'
 __COMPUTE_RISKINESS_COMMAND = 'compute-riskiness'
 __COMPARE_DELAY_COMMAND = 'compare-delay'
@@ -205,6 +207,15 @@ def configure_parser():
     subparsers.add_parser(__COMPUTE_RISKINESS_COMMAND)
     subparsers.add_parser(__COMPARE_DELAY_COMMAND)
     subparsers.add_parser(__COMPARE_THIRD_STAGE_TABLE_COMMAND)
+    subparsers.add_parser(__COMPARE_THIRD_STAGE_PLOT_COMMAND)
+
+    compare_box_parser = subparsers.add_parser(__COMPARE_BOX_PLOTS_COMMAND)
+    compare_box_parser.add_argument(__PROBLEM_FILE_ARG)
+    compare_box_parser.add_argument(__BASE_FILE_ARG)
+    compare_box_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
+
+    third_stage_summary_parser = subparsers.add_parser(__COMPARE_THIRD_STAGE_SUMMARY_COMMAND)
+    third_stage_summary_parser.add_argument(__OPTIONAL_ARG_PREFIX + __OUTPUT)
 
     return parser
 
@@ -742,6 +753,8 @@ class TraceLog:
         def shift_adjustment(self):
             return self.__shift_adjustment
 
+    StageSummary = collections.namedtuple('StageSummary', ['duration', 'final_cost', 'final_dropped_visits'])
+
     def __init__(self, time_point):
         self.__start = time_point
         self.__events = []
@@ -796,6 +809,28 @@ class TraceLog:
         else:
             computation_time = time_point + datetime.timedelta(hours=24) - self.__start
         self.__events.append([computation_time, self.__current_stage, self.__current_strategy, time_point, body_to_use])
+
+    def compute_stages(self) -> typing.List[StageSummary]:
+        groups = dict()
+        for delta, stage, topic, time, message in self.__events:
+            if isinstance(message, TraceLog.ProgressMessage):
+                if stage not in groups:
+                    groups[stage] = []
+                groups[stage].append([delta, topic, message])
+        result = []
+
+        def create_stage_summary(group):
+            duration = group[-1][0] - group[0][0]
+            cost = group[-1][2].cost
+            dropped_visits = group[-1][2].dropped_visits
+            return TraceLog.StageSummary(duration=duration, final_cost=cost, final_dropped_visits=dropped_visits)
+
+        if len(groups) == 1:
+            result.append(create_stage_summary(groups[None]))
+        else:
+            for stage in range(1, max(filter(lambda s: s is not None, groups)) + 1):
+                result.append(create_stage_summary(groups[stage]))
+        return result
 
     def has_stages(self):
         for relative_time, stage, strategy, absolute_time, event in self.__events:
@@ -1083,7 +1118,7 @@ class AxisSettings:
             units = '[hh:mm]'
         else:
             assert max_relative_time <= datetime.timedelta(minutes=30)
-            minutes_step = 1
+            minutes_step = 5
             format = '%M:%S'
             units = '[mm:ss]'
         right_xlimit = (max_relative_time + datetime.timedelta(minutes=1)).total_seconds() // 60 * 60
@@ -1237,9 +1272,6 @@ def compare_trace(args, settings):
                 add_trace_legend(ax1, [[handle, total_multiple_carer_visits, total_problem_visits, carers, cost_function]])
                 scatter_dropped_visits(ax2, current_date_frame, current_color)
 
-            ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
-            ax1.xaxis.set_major_formatter(ax_settings.formatter)
-
             ax1_y_bottom, ax1_y_top = ax1.get_ylim()
             ax1.set_ylim(bottom=0, top=ax1_y_top * __Y_AXIS_EXTENSION)
             ax1.set_ylabel('Cost Function [s]')
@@ -1388,6 +1420,7 @@ def contrast_trace(args, settings):
     max_relative_time = datetime.timedelta()
     max_relative_time = max(base_frame[base_frame['date'] == current_date]['relative_time'].max(), max_relative_time)
     max_relative_time = max(candidate_frame[candidate_frame['date'] == current_date]['relative_time'].max(), max_relative_time)
+    max_relative_time = datetime.timedelta(minutes=20)
     ax_settings = AxisSettings.infer(max_relative_time)
 
     color_map = matplotlib.cm.get_cmap('Set1')
@@ -1420,16 +1453,16 @@ def contrast_trace(args, settings):
             else:
                 raise ValueError()
 
-        ax1.set_xlim(left=0.0)
         ax1.set_ylim(bottom=0.0)
         ax1.set_ylabel('Cost Function [s]')
         ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
         ax1.xaxis.set_major_formatter(ax_settings.formatter)
+        ax1.set_xlim(left=0.0, right=max_relative_time.total_seconds())
         legend1 = ax1.legend([base_handle, candidate_handle], labels)
         for handle in legend1.legendHandles:
             handle._sizes = [25]
 
-        ax2.set_xlim(left=0.0)
+        ax2.set_xlim(left=0.0, right=max_relative_time.total_seconds())
         ax2.set_ylim(bottom=0.0)
         ax2.set_ylabel('Declined Visits')
         ax2.set_xlabel('Computation Time ' + ax_settings.units_label)
@@ -1478,34 +1511,61 @@ def contrast_trace(args, settings):
         matplotlib.pyplot.cla()
         matplotlib.pyplot.close(figure)
 
-    # figure, (ax1, ax2) = matplotlib.pyplot.subplots(2, 1, sharex=True)
-    # try:
-    #     candidate_current_data_frame = candidate_frame[candidate_frame['date'] == current_date]
-    #     scatter_dropped_visits(ax2, candidate_current_data_frame, color=color_map.colors[1])
-    #     scatter_cost(ax1, candidate_current_data_frame, color=color_map.colors[1])
-    #
-    #     stage3_started = \
-    #         candidate_current_data_frame[candidate_current_data_frame['stage'] == 'Stage3']['stage_started'].iloc[0]
-    #
-    #     oscillation_started = datetime.timedelta(seconds=360)
-    #     ax1.set_xlim(left=oscillation_started.total_seconds(), right=stage3_started.total_seconds())
-    #     # ax1.set_ylim(bottom=0.0, top=400000)
-    #     ax1.set_ylabel('Cost Function [s]')
-    #     ax1.ticklabel_format(style='sci', axis='y', scilimits=(-2, 2))
-    #     ax1.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-    #
-    #     ax2.set_xlim(left=oscillation_started.total_seconds(), right=stage3_started.total_seconds())
-    #     ax2.set_ylim(bottom=-5.0, top=40)
-    #     ax2.set_ylabel('Declined Visits')
-    #     ax2.set_xlabel('Computation Time [mm:ss]')
-    #     ax2.set_xticks(x_ticks_positions)
-    #     ax2.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(format_timedelta))
-    #
-    #     matplotlib.pyplot.tight_layout()
-    #     rows.plot.save_figure(output_file_stem + '_oscillations_' + current_date.isoformat())
-    # finally:
-    #     matplotlib.pyplot.cla()
-    #     matplotlib.pyplot.close(figure)
+
+def compare_box_plots(args, settings):
+    problem_file = get_or_raise(args, __PROBLEM_FILE_ARG)
+    problem = rows.load.load_problem(problem_file)
+
+    problem_file_base = os.path.basename(problem_file)
+    problem_file_name, problem_file_ext = os.path.splitext(problem_file_base)
+
+    base_trace_file = get_or_raise(args, __BASE_FILE_ARG)
+    output_file_stem = getattr(args, __OUTPUT, problem_file_name)
+
+    traces = read_traces(base_trace_file)
+    figure, (ax1, ax2, ax3) = matplotlib.pyplot.subplots(1, 3)
+
+    stages = [trace.compute_stages() for trace in traces]
+    num_stages = max(len(s) for s in stages)
+
+    durations = [[getattr(local_stage[num_stage], 'duration').total_seconds() for local_stage in stages] for num_stage in range(num_stages)]
+    max_duration = max(max(stage_durations) for stage_durations in durations)
+    axis_settings = AxisSettings.infer(datetime.timedelta(seconds=max_duration))
+
+    try:
+        ax1.boxplot(durations, flierprops=dict(marker='.'), medianprops=dict(color=FOREGROUND_COLOR))
+        ax1.set_yticks(axis_settings.xticks)
+        ax1.yaxis.set_major_formatter(axis_settings.formatter)
+        ax1.set_xlabel('Stage')
+        ax1.set_ylabel('Duration [hh:mm]')
+
+        costs = [[getattr(local_stage[num_stage], 'final_cost') for local_stage in stages] for num_stage in range(num_stages)]
+        ax2.boxplot(costs, flierprops=dict(marker='.'), medianprops=dict(color=FOREGROUND_COLOR))
+        formatter = matplotlib.ticker.ScalarFormatter()
+        formatter.set_scientific(True)
+        formatter.set_powerlimits((-3, 3))
+        ax2.yaxis.set_major_formatter(formatter)
+        ax2.set_xlabel('Stage')
+        ax2.set_ylabel('Cost')
+
+        declined_visits = [[getattr(local_stage[num_stage], 'final_dropped_visits') for local_stage in stages] for num_stage in range(num_stages)]
+        ax3.boxplot(declined_visits, flierprops=dict(marker='.'), medianprops=dict(color=FOREGROUND_COLOR))
+        max_declined_visits = max(max(declined_visits))
+        ax3.set_xlabel('Stage')
+        ax3.set_ylabel('Declined Visits')
+
+        dropped_visit_ticks = None
+        if max_declined_visits < 100:
+            dropped_visit_ticks = range(0, max_declined_visits + 1)
+        else:
+            dropped_visit_ticks = range(0, max_declined_visits + 100, 100)
+        ax3.set_yticks(dropped_visit_ticks)
+
+        figure.tight_layout()
+        rows.plot.save_figure(output_file_stem)
+    finally:
+        matplotlib.pyplot.cla()
+        matplotlib.pyplot.close(figure)
 
 
 def compare_prediction_error(args, settings):
@@ -1767,10 +1827,6 @@ def compare_schedule_cost(args, settings):
                                         'planner_travel_time', 'solver_second_travel_time', 'solver_third_travel_time', 'solver_second_time',
                                         'solver_third_time']],
                             tablefmt='latex', headers='keys', showindex=False))
-
-
-def compare_delay(args, settings):
-    pass
 
 
 def get_consecutive_visit_time_span(schedule: rows.model.schedule.Schedule, start_time_estimator):
@@ -3287,6 +3343,9 @@ class EssentialRiskinessEvaluator:
         records = []
         for visit_index in self.__mapping.indices():
             visit_key = self.__mapping.node(visit_index).visit_key
+            if visit_key is None:
+                continue
+
             for scenario_number in range(self.__sample.size):
                 records.append({'visit': visit_key, 'scenario': scenario_number, 'delay': self.__delay[visit_index][scenario_number]})
         return pandas.DataFrame(data=records)
@@ -3342,14 +3401,15 @@ def compare_delay(args, settings):
                for day in range(1, 15)]
         cost_traces = read_traces(os.path.join(root_problem_dir, 'c350past_distv90b90e30m1m1m5.err.log'))
 
-        risk_schedules = [rows.load.load_schedule(os.path.join(root_problem_dir, 'riskiness', '2017-10-{0:02d}.gexf'.format(day)))
+        risk_schedules = [rows.load.load_schedule(os.path.join(root_problem_dir, 'c350past_riskv90b90e30m1m1m5_201710{0:02d}.gexf'.format(day)))
                           for day in range(1, 15)]
-        risk_traces = list(itertools.chain(*(read_traces(local_trace)
-                                             for local_trace in [os.path.join(root_problem_dir, 'riskiness', '2017-10-{0:02d}.err.log'.format(day))
-                                                                 for day in range(1, 15)])))
+        risk_traces = read_traces(os.path.join(root_problem_dir, 'c350past_riskv90b90e30m1m1m5.err.log'))
         return problem, history, cost_schedules, cost_traces, risk_schedules, risk_traces
 
     def get_visit_duration(visit_key: int) -> datetime.timedelta:
+        if visit_key is None:
+            return datetime.timedelta()
+
         visit = history.get_visit(visit_key)
         assert visit is not None
         return visit.real_duration
@@ -3372,8 +3432,8 @@ def compare_delay(args, settings):
             cost_schedule = cost_schedules[index]
             risk_schedule = risk_schedules[index]
 
-            schedule_date = cost_schedule.date()
-            assert schedule_date == risk_schedule.date()
+            schedule_date = cost_schedule.date
+            assert schedule_date == risk_schedule.date
 
             cost_visit_delays = get_visit_delays(cost_schedule)
             risk_visit_delays = get_visit_delays(risk_schedule)
@@ -3408,7 +3468,7 @@ def compare_delay(args, settings):
             risk_schedule = risk_schedules[index]
             risk_trace = risk_traces[index]
 
-            schedule_date = cost_schedule.date()
+            schedule_date = cost_schedule.date
             local_visits_delay_frame = (visits_frame[visits_frame['date'] == schedule_date])[['risk_delay', 'cost_delay']]
             instances_data_set.append(collections.OrderedDict(date=schedule_date,
                                                               cost_cost=cost_trace.best_cost(),
@@ -3447,7 +3507,7 @@ class DelayRecords:
         self.__delays = delays
 
 
-def load_delay_records(settings):
+def load_third_stage_records(settings):
     root_problem_dir = '/home/pmateusz/dev/cordia/simulations/current_review_simulations/solutions'
     frame_path = os.path.join(root_problem_dir, 'delay_results.hdf')
     if os.path.exists(frame_path):
@@ -3464,22 +3524,158 @@ def load_delay_records(settings):
                           for objective, pattern in objective_pattern
                           for instance in range(1, 15)]
 
-        frames = []
-        for objective, instance, schedule_file in tqdm.tqdm(configurations):
-            schedule = rows.load.load_schedule(schedule_file)
-            riskiness_evaluator = EssentialRiskinessEvaluator(settings, history, problem, schedule)
-            riskiness_evaluator.run()
-            frame = riskiness_evaluator.to_frame()
-            frame['objective'] = objective
-            frame['instance'] = instance
-            frames.append(frame)
+        solver_traces = {'cost': read_traces(os.path.join(root_problem_dir, 'c350past_distv90b90e30m1m1m5.err.log')),
+                         'reduction': read_traces(os.path.join(root_problem_dir, 'c350past_redv90b90e30m1m1m5.err.log')),
+                         'risk': read_traces(os.path.join(root_problem_dir, 'c350past_riskv90b90e30m1m1m5.err.log'))}
+
+        with rows.plot.create_routing_session() as routing_session:
+            distance_estimator = rows.plot.DistanceEstimator(settings, routing_session)
+
+            frames = []
+            for objective, instance, schedule_file in tqdm.tqdm(configurations):
+                schedule = rows.load.load_schedule(schedule_file)
+                solver_trace = solver_traces[objective][instance - 1]
+                schedule_cost = get_schedule_cost(schedule, solver_trace, problem, distance_estimator)
+                riskiness_evaluator = EssentialRiskinessEvaluator(settings, history, problem, schedule)
+                riskiness_evaluator.run()
+                frame = riskiness_evaluator.to_frame()
+                frame['objective'] = objective
+                frame['instance'] = instance
+                frame['travel_time'] = schedule_cost.travel_time
+                frame['carers_used'] = schedule_cost.carers_used
+                frame['visits_missed'] = schedule_cost.visits_missed
+                frames.append(frame)
         frame = pandas.concat(frames)
         frame.to_hdf(frame_path, key='a')
         return frame
 
 
+def get_max_average_delays(frame):
+    delays = []
+    visits = frame['visit'].unique()
+    for visit in visits:
+        delays.append(frame[frame['visit'] == visit]['delay'].mean().to_timedelta64())
+    delays.sort()
+    return delays
+
+
 def compare_third_stage_table(args, settings):
-    delay_records = load_delay_records(settings)
+    frame = load_third_stage_records(settings)
+
+    instances = frame['instance'].unique()
+    instances.sort()
+
+    objectives = frame['objective'].unique()
+    objectives.sort()
+
+    data_set = []
+    for instance in instances:
+        for objective in objectives:
+            instance_frame = frame[(frame['instance'] == instance) & (frame['objective'] == objective)]
+            delays = get_max_average_delays(instance_frame)
+            max_delay = max(delays) / numpy.timedelta64(1, 'm')
+            travel_time = instance_frame['travel_time'].max()
+            carer_used = instance_frame['carers_used'].max()
+            visits_missed = instance_frame['visits_missed'].max()
+            data_set.append({'instance': instance,
+                             'objective': objective,
+                             'max_delay': max_delay,
+                             'travel_time': travel_time / numpy.timedelta64(1, 'h'),
+                             'carer_used': carer_used,
+                             'visits_missed': visits_missed})
+    result_set = pandas.DataFrame(data=data_set)
+    del frame
+
+    records = []
+    for instance in instances:
+        record = collections.OrderedDict()
+        record['instance'] = instance
+        for metric in ['travel_time', 'carer_used', 'max_delay', 'visits_missed']:
+            for objective in objectives:
+                label = '{0}_{1}'.format(metric, objective)
+                record[label] = result_set[(result_set['instance'] == instance) & (result_set['objective'] == objective)][metric].min()
+        records.append(record)
+
+    data_set = pandas.DataFrame(data=records)
+    print(tabulate.tabulate(pandas.DataFrame(data=data_set), tablefmt='latex', floatfmt=".0f", headers=data_set.columns))
+
+
+class StageColors:
+    COST = 'cost'
+    RISK = 'risk'
+    REDUCTION = 'reduction'
+
+    def __init__(self):
+        self.color_map = matplotlib.cm.get_cmap('tab20')
+
+    def get_first_color(self, objective):
+        first_index = 2 * self.__get_color_offset(objective)
+        return self.color_map.colors[first_index]
+
+    def get_second_color(self, objective):
+        second_index = 2 * self.__get_color_offset(objective) + 1
+        return self.color_map.colors[second_index]
+
+    def __get_color_offset(self, objective) -> int:
+        return {StageColors.COST: 0,
+                StageColors.RISK: 2,
+                StageColors.REDUCTION: 1}[objective]
+
+
+def compare_third_stage_summary(args, settings):
+    output_file = getattr(args, __OUTPUT)
+
+    frame = load_third_stage_records(settings)
+
+    labels = ['Distance', 'Reduction', 'Risk']
+    stage_colors = StageColors()
+    objectives = [StageColors.COST, StageColors.REDUCTION, StageColors.RISK]
+
+    def get_columns(property_name: str):
+        columns = []
+        for objective in objectives:
+            series = list(frame[(frame['objective'] == objective)][property_name].values)
+
+            if property_name == 'travel_time':
+                columns.append([v / numpy.timedelta64(1, 'h') for v in series])
+            elif property_name == 'delay':
+                instances = frame['instance'].unique()
+                delays = [max([d / numpy.timedelta64(1, 'm')
+                               for d in get_max_average_delays(frame[(frame['instance'] == instance) & (frame['objective'] == objective)])])
+                          for instance in instances]
+                columns.append(delays)
+            else:
+                columns.append(series)
+        return columns
+
+    def draw_boxplot(axis, column):
+        for index, objective in enumerate(objectives):
+            axis.boxplot(column[index],
+                         positions=[index],
+                         patch_artist=True,
+                         boxprops=dict(facecolor=stage_colors.get_second_color(objective), color=stage_colors.get_first_color(objective)),
+                         capprops=dict(color=stage_colors.get_first_color(objective)),
+                         whiskerprops=dict(color=stage_colors.get_first_color(objective)),
+                         flierprops=dict(color=stage_colors.get_second_color(objective), markeredgecolor=stage_colors.get_first_color(objective)),
+                         medianprops=dict(color=stage_colors.get_first_color(objective)))
+
+    figure, axes = matplotlib.pyplot.subplots(2, 2)
+    try:
+        for ax, y_label, column_name in [(axes[0][0], 'Carers Used', 'carers_used'),
+                                         (axes[0][1], 'Travel Time [h]', 'travel_time'),
+                                         (axes[1][0], 'Visits Missed', 'visits_missed'),
+                                         (axes[1][1], 'Max Avg Delay [min]', 'delay')]:
+            draw_boxplot(ax, get_columns(column_name))
+            ax.set_xticklabels(labels)
+            ax.set_ylabel(y_label)
+        figure.tight_layout()
+        rows.plot.save_figure(output_file)
+    finally:
+        matplotlib.pyplot.close(figure)
+
+
+def compare_third_stage_plot(args, settings):
+    delay_records = load_third_stage_records(settings)
     instances = delay_records['instance'].unique()
     instances.sort()
 
@@ -3487,54 +3683,59 @@ def compare_third_stage_table(args, settings):
     objectives.sort()
 
     x_ticks = numpy.arange(len(instances)) * 4.0 + 1.0
-    x_ticklabels = numpy.arange(1, 15)
+    x_tick_labels = numpy.arange(1, 15)
 
-    def get_all_delays(frame):
-        delays = frame['delay']
-        delays.sort_values()
-        return delays
-
-    def get_max_average_delays(frame):
-        delays = []
-        visits = frame['visit'].unique()
-        for visit in visits:
-            delays.append(frame[frame['visit'] == visit]['delay'].mean().to_timedelta64())
-        delays.sort()
-        return delays
-
+    color_map = matplotlib.cm.get_cmap('tab20')
+    handles = []
     fig, ax = matplotlib.pyplot.subplots()
-    for instance in [12]:
-        positions = list(numpy.arange(3) + (instance - 1) * (len(objectives) + 1))
+    num_instances = 14
+    for offset, objective in enumerate(objectives):
+        positions = list(numpy.arange(num_instances) * 4 + offset)
         data_points = []
-        for objective in objectives:
-            delays = get_max_average_delays(delay_records[(delay_records['instance'] == instance) & (delay_records['objective'] == objective)])
+        for instance in range(1, num_instances + 1):
+            delays = [d / numpy.timedelta64(1, 'm') for d in
+                      get_max_average_delays(delay_records[(delay_records['instance'] == instance) & (delay_records['objective'] == objective)])]
             if objective == 'risk':
-                assert max(delays) <= 0
+                assert max(delays) <= 0.0
             data_points.append(delays)
-        ax.boxplot(data_points, positions=positions)
-    ax.set_xticks(x_ticks)
-    ax.set_xticklabels(x_ticklabels)
-    matplotlib.pyplot.show(block=True)
-    # find median for every visit
-    # find average min and max median
+        first_color_index = 2 * offset
+        second_color_index = 2 * offset + 1
+        handle = ax.boxplot(data_points,
+                            positions=positions,
+                            # notch=True,
+                            patch_artist=True,
+                            boxprops=dict(facecolor=color_map.colors[second_color_index], color=color_map.colors[first_color_index]),
+                            capprops=dict(color=color_map.colors[first_color_index]),
+                            whiskerprops=dict(color=color_map.colors[first_color_index]),
+                            flierprops=dict(color=color_map.colors[first_color_index], markeredgecolor=color_map.colors[first_color_index]),
+                            medianprops=dict(color=color_map.colors[first_color_index]))
+        handles.append(handle)
+    del delay_records
 
-    # draw box plot of medians
-    pass
+    fig.subplots_adjust(bottom=0.10)
+    ax.legend([handle['boxes'][0] for handle in handles], ['Distance', 'Reduction', 'Risk'], ncol=3, loc='upper center', bbox_to_anchor=(0.5, -0.12))
+    ax.set_xticks(x_ticks)
+    ax.set_xticklabels(x_tick_labels)
+    ax.set_xlabel('Problem Instance')
+    ax.set_ylabel('Delay [min]')
+
+    fig.tight_layout()
+
+    matplotlib.pyplot.savefig('third_stage_delays.png')
 
 
 def debug(args, settings):
-    history = load_history()
-    schedule = rows.load.load_schedule('/home/pmateusz/dev/cordia/simulations/current_review_simulations/c350past_riskv90b90e30m1m1m5_20171014.gexf')
     problem = rows.load.load_problem('/home/pmateusz/dev/cordia/simulations/current_review_simulations/problems/C350_past.json')
-    riskiness_evaluator = EssentialRiskinessEvaluator(settings, history, problem, schedule)
-    riskiness_evaluator.run()
-
-    for visit_key in riskiness_evaluator.visit_keys():
-        delays = riskiness_evaluator.get_delays(visit_key)
-        values = [numpy.timedelta64(int(value.total_seconds()), 's') for value in delays]
-        mean = numpy.mean(values)
-        if mean > numpy.timedelta64(0, 's'):
-            print(visit_key, mean)
+    current_date = problem.metadata.begin
+    max_breaks = 0
+    while current_date <= problem.metadata.end:
+        for carer in problem.available_carers(current_date):
+            diary = problem.get_diary(carer, current_date)
+            max_breaks = max(max_breaks, len(diary.breaks))
+            if len(diary.breaks) == 4:
+                print(diary.breaks)
+        current_date += datetime.timedelta(days=1)
+    print(max_breaks)
 
 
 if __name__ == '__main__':
@@ -3567,6 +3768,8 @@ if __name__ == '__main__':
         contrast_trace(__args, __settings)
     elif __command == __COMPARE_PREDICTION_ERROR_COMMAND:
         compare_prediction_error(__args, __settings)
+    elif __command == __COMPARE_THIRD_STAGE_PLOT_COMMAND:
+        compare_third_stage_plot(__args, __settings)
     elif __command == __COMPARE_THIRD_STAGE_TABLE_COMMAND:
         compare_third_stage_table(__args, __settings)
     elif __command == __SHOW_WORKING_HOURS_COMMAND:
@@ -3587,6 +3790,10 @@ if __name__ == '__main__':
         compute_riskiness(__args, __settings)
     elif __command == __COMPARE_DELAY_COMMAND:
         compare_delay(__args, __settings)
+    elif __command == __COMPARE_BOX_PLOTS_COMMAND:
+        compare_box_plots(__args, __settings)
+    elif __command == __COMPARE_THIRD_STAGE_SUMMARY_COMMAND:
+        compare_third_stage_summary(__args, __settings)
     elif __command == __DEBUG_COMMAND:
         debug(__args, __settings)
     else:
